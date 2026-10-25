@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: centinela
+          POSTGRES_PASSWORD: centinela
+          POSTGRES_DB: centinela
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U centinela"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      CI: "true"
+      DATABASE_URL: postgres://centinela:centinela@localhost:5432/centinela
+    steps:
+      - uses: actions/checkout@v4
+
+      # The repository starts as a documentation kit; Node checks begin once
+      # session S0 commits package-lock.json.
+      - name: Detect Node project
+        id: detect
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "node=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "node=false" >> "$GITHUB_OUTPUT"
+            echo "No package-lock.json yet: skipping Node checks."
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.detect.outputs.node == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        if: steps.detect.outputs.node == 'true'
+        run: npm ci
+
+      - name: Lint
+        if: steps.detect.outputs.node == 'true'
+        run: npm run lint --if-present
+
+      - name: Typecheck
+        if: steps.detect.outputs.node == 'true'
+        run: npm run typecheck --if-present
+
+      - name: Migrate database
+        if: steps.detect.outputs.node == 'true'
+        run: npm run db:migrate --if-present
+
+      - name: Test
+        if: steps.detect.outputs.node == 'true'
+        run: npm test --if-present
+
+      - name: Build
+        if: steps.detect.outputs.node == 'true'
+        run: npm run build --if-present
