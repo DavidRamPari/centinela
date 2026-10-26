@@ -13,12 +13,15 @@ Options:
   -h, --help        show this help
 
 Output:
-  <out>/<host>/auth.log, <out>/<host>/access.log and <out>/ground-truth.json
-  (see docs/ARCHITECTURE.md §4.3). Hosts: bastion-01, web-01, web-02, db-01.
+  <out>/<host>/auth.log, <out>/<host>/access.log, <out>/<host>/sysmon.jsonl and
+  <out>/ground-truth.json (see docs/ARCHITECTURE.md §4.3 and §4.4).
+  Linux hosts: bastion-01, web-01, web-02, db-01. Windows workstations: ws-0142, ws-0187.
   auth.log uses RFC 3339 timestamps and access.log the nginx combined format, both in
-  Lima time (UTC-05:00); ground truth is in UTC.
+  Lima time (UTC-05:00); sysmon.jsonl holds one Sysmon event per line as JSON (UTC
+  times, nested shape on ws-0142, flat shape on ws-0187); ground truth is in UTC.
 
 Ingest the output with, for example:
   npm run ingest -- --source linux_auth --host bastion-01 --file samples/bastion-01/auth.log
   npm run ingest -- --source nginx_access --host web-01 --file samples/web-01/access.log
+  npm run ingest -- --source sysmon --host ws-0142 --file samples/ws-0142/sysmon.jsonl
 `;

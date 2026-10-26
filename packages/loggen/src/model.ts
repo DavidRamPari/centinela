@@ -1,13 +1,30 @@
 /** Types shared by the generator modules and its consumers (tests, the S4 end-to-end test). */
+import type { SourceType } from '@centinela/shared';
 
-export const HOSTS = ['bastion-01', 'web-01', 'web-02', 'db-01'] as const;
+export const LINUX_HOSTS = ['bastion-01', 'web-01', 'web-02', 'db-01'] as const;
+export type LinuxHost = (typeof LINUX_HOSTS)[number];
+/** Windows workstations with Sysmon (S5). */
+export const WINDOWS_HOSTS = ['ws-0142', 'ws-0187'] as const;
+export type WindowsHost = (typeof WINDOWS_HOSTS)[number];
+export const HOSTS = [...LINUX_HOSTS, ...WINDOWS_HOSTS] as const;
 export type Host = (typeof HOSTS)[number];
 export const WEB_HOSTS: readonly Host[] = ['web-01', 'web-02'];
 
-export type LogFile = 'auth' | 'access';
+export type LogFile = 'auth' | 'access' | 'sysmon';
 
 /** File name inside `<out>/<host>/`. */
-export const FILE_NAMES: Record<LogFile, string> = { auth: 'auth.log', access: 'access.log' };
+export const FILE_NAMES: Record<LogFile, string> = {
+  auth: 'auth.log',
+  access: 'access.log',
+  sysmon: 'sysmon.jsonl',
+};
+
+/** The `source` to ingest each file with (`npm run ingest -- --source ...`). */
+export const FILE_SOURCES: Record<LogFile, SourceType> = {
+  auth: 'linux_auth',
+  access: 'nginx_access',
+  sysmon: 'sysmon',
+};
 
 export interface GeneratedLine {
   host: Host;

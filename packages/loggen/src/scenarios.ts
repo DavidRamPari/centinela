@@ -32,6 +32,11 @@ import {
 import type { Host, ScenarioTruth } from './model.js';
 import type { LineCollector } from './output.js';
 import { Random } from './prng.js';
+import {
+  WINDOWS_SCENARIO_GENERATORS,
+  WINDOWS_SCENARIOS,
+  WINDOWS_SCHEDULE_HOURS,
+} from './scenarios-windows.js';
 
 export interface ScenarioMeta {
   id: string;
@@ -149,6 +154,8 @@ export const SCENARIOS: readonly ScenarioMeta[] = [
     entities: { ips: ['203.0.113.150'], users: [] },
     expected: ['web_win_webshells_in_access_logs'],
   },
+  // Windows workstations (S5): see scenarios-windows.ts.
+  ...WINDOWS_SCENARIOS,
 ];
 
 /**
@@ -166,6 +173,7 @@ export const SCHEDULE_HOURS: Readonly<Record<string, number>> = {
   /** bruteforce-success, then post-compromise and privileged-user in the same session. */
   'bruteforce-success': 54.3,
   'sudo-not-allowed': 61.5,
+  ...WINDOWS_SCHEDULE_HOURS,
 };
 
 /** Context handed to each scenario generator. */
@@ -670,4 +678,5 @@ export const SCENARIO_GENERATORS: Readonly<
   webshell,
   'bruteforce-success': compromiseChain,
   'sudo-not-allowed': sudoNotAllowed,
+  ...WINDOWS_SCENARIO_GENERATORS,
 };
