@@ -147,7 +147,7 @@ async function main(argv: string[]): Promise<number> {
     print('Scenarios (ground truth):');
     for (const scenario of results) {
       const detail = scenario.rules.map((rule) => `${rule.expected} (${rule.alerts})`).join(', ');
-      print(`  ${scenario.detected ? 'ok     ' : 'MISSED '} ${scenario.id.padEnd(20)} ${detail}`);
+      print(`  ${scenario.detected ? 'ok     ' : 'MISSED '} ${scenario.id.padEnd(24)} ${detail}`);
     }
     const detected = results.filter((scenario) => scenario.detected).length;
     print();
