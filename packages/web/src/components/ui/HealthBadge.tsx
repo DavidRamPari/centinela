@@ -30,9 +30,9 @@ export function HealthBadge() {
       role="status"
       className={clsx(
         'inline-flex items-center gap-1.5 text-xs',
-        tone === 'ok' && 'text-emerald-300',
-        tone === 'warn' && 'text-amber-300',
-        tone === 'pending' && 'text-slate-400',
+        tone === 'ok' && 'text-success',
+        tone === 'warn' && 'text-warn',
+        tone === 'pending' && 'text-muted',
       )}
     >
       <Icon aria-hidden="true" className={clsx('size-4', tone === 'pending' && 'animate-spin')} />
