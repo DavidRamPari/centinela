@@ -30,7 +30,11 @@ export function AuditLogCard() {
     {
       id: 'actor',
       header: t('auth.audit.actor'),
-      cell: (entry) => <span className="font-mono text-xs break-all">{entry.actor ?? '—'}</span>,
+      cell: (entry) => (
+        <span className="inline-block min-w-20 font-mono text-xs wrap-anywhere">
+          {entry.actor ?? '—'}
+        </span>
+      ),
     },
     {
       id: 'action',
@@ -42,7 +46,7 @@ export function AuditLogCard() {
       header: t('auth.audit.target'),
       cell: (entry) => {
         const href = targetLink(entry);
-        const text = <span className="font-mono text-xs break-all">{entry.target ?? '—'}</span>;
+        const text = <span className="font-mono text-xs wrap-anywhere">{entry.target ?? '—'}</span>;
         return href ? (
           <Link to={href} className="text-accent underline">
             {text}
@@ -61,7 +65,7 @@ export function AuditLogCard() {
       id: 'details',
       header: t('auth.audit.details'),
       cell: (entry) => (
-        <span className="line-clamp-2 max-w-[24rem] font-mono text-xs break-all">
+        <span className="line-clamp-2 max-w-[24rem] font-mono text-xs wrap-anywhere">
           {formatDetails(entry.details)}
         </span>
       ),
