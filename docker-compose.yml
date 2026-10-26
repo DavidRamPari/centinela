@@ -1,0 +1,59 @@
+# Local stack. `docker compose up -d postgres` alone is enough to run the tests.
+# Ports bind to 127.0.0.1 only. The server runs with NODE_ENV=development by default so the
+# development secrets from .env.example are accepted; never expose this stack publicly.
+name: centinela
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: centinela
+      POSTGRES_PASSWORD: centinela
+      POSTGRES_DB: centinela
+    ports:
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U centinela -d centinela']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  server:
+    build:
+      context: .
+      dockerfile: packages/server/Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: '3000'
+      DATABASE_URL: postgres://centinela:centinela@postgres:5432/centinela
+      INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token-change-me}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+    # Apply pending migrations, then start the API.
+    command:
+      [
+        'sh',
+        '-c',
+        'node packages/server/dist/db/cli/migrate.js && exec node packages/server/dist/index.js',
+      ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:${SERVER_PORT:-3000}:3000'
+
+  web:
+    build:
+      context: .
+      dockerfile: packages/web/Dockerfile
+    environment:
+      API_UPSTREAM: http://server:3000
+    depends_on:
+      - server
+    ports:
+      - '127.0.0.1:${WEB_PORT:-8080}:8080'
+
+volumes:
+  pgdata:
