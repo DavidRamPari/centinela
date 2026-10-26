@@ -7,18 +7,6 @@ import { createTestApp } from '../helpers/app.js';
 // Every endpoint in ARCHITECTURE §9 except health and the two ingest endpoints.
 // A session that implements an endpoint deletes its row here.
 const pending: Array<{ method: 'get' | 'post' | 'patch'; path: string; session: string }> = [
-  { method: 'get', path: '/api/events', session: 'S4' },
-  { method: 'get', path: '/api/events/01930f6e-8a4b-7c2d-9e1f-0a1b2c3d4e5f', session: 'S4' },
-  { method: 'get', path: '/api/alerts', session: 'S4' },
-  { method: 'get', path: '/api/alerts/01930f6e-8a4b-7c2d-9e1f-0a1b2c3d4e5f', session: 'S4' },
-  { method: 'patch', path: '/api/alerts/01930f6e-8a4b-7c2d-9e1f-0a1b2c3d4e5f', session: 'S4' },
-  { method: 'post', path: '/api/alerts/bulk', session: 'S4' },
-  { method: 'get', path: '/api/rules', session: 'S4' },
-  { method: 'get', path: '/api/rules/31545105-3444-4584-bebf-c466353230d2', session: 'S4' },
-  { method: 'patch', path: '/api/rules/31545105-3444-4584-bebf-c466353230d2', session: 'S4' },
-  { method: 'get', path: '/api/stats/overview', session: 'S4' },
-  { method: 'get', path: '/api/attack', session: 'S4' },
-  { method: 'get', path: '/api/stream', session: 'S4' },
   {
     method: 'get',
     path: '/api/rules/31545105-3444-4584-bebf-c466353230d2/playbook',

@@ -16,19 +16,7 @@ export interface PendingEndpoint {
  * endpoint removes its row here and in `test/routes/not-implemented.test.ts`.
  */
 export const pendingEndpoints: readonly PendingEndpoint[] = [
-  { method: 'get', path: '/events', session: 'S4' },
-  { method: 'get', path: '/events/:id', session: 'S4' },
-  { method: 'get', path: '/alerts', session: 'S4' },
-  { method: 'post', path: '/alerts/bulk', session: 'S4' },
-  { method: 'get', path: '/alerts/:id', session: 'S4' },
-  { method: 'patch', path: '/alerts/:id', session: 'S4' },
-  { method: 'get', path: '/rules', session: 'S4' },
   { method: 'get', path: '/rules/:id/playbook', session: 'S7' },
-  { method: 'get', path: '/rules/:id', session: 'S4' },
-  { method: 'patch', path: '/rules/:id', session: 'S4' },
-  { method: 'get', path: '/stats/overview', session: 'S4' },
-  { method: 'get', path: '/attack', session: 'S4' },
-  { method: 'get', path: '/stream', session: 'S4' },
   { method: 'post', path: '/auth/login', session: 'S6' },
   { method: 'post', path: '/auth/logout', session: 'S6' },
   { method: 'get', path: '/auth/me', session: 'S6' },
