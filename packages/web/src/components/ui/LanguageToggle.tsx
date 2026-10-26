@@ -10,7 +10,7 @@ export function LanguageToggle() {
     <div
       role="group"
       aria-label={t('language.label')}
-      className="flex rounded-md border border-slate-700 p-0.5"
+      className="flex rounded-md border border-line p-0.5"
     >
       {LANGUAGES.map((lang) => (
         <button
@@ -22,7 +22,7 @@ export function LanguageToggle() {
           onClick={() => void i18n.changeLanguage(lang)}
           className={clsx(
             'rounded px-2 py-0.5 text-xs font-semibold uppercase',
-            current === lang ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-100',
+            current === lang ? 'bg-accent text-accent-fg' : 'text-muted hover:text-fg',
           )}
         >
           {lang}

@@ -26,6 +26,29 @@ describe('i18n', () => {
     }
   });
 
+  it('has every key used in the source in both languages', () => {
+    // Literal keys in t('…') calls and the static prefix of template keys (t(`levels.${x}`)).
+    const sources = import.meta.glob<string>(['../src/**/*.{ts,tsx}', '!../src/**/*.d.ts'], {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    });
+    const known = { en: new Set(keys(en)), es: new Set(keys(es)) };
+    let checked = 0;
+    for (const [file, text] of Object.entries(sources)) {
+      for (const match of text.matchAll(/\bt\(\s*['`]([a-zA-Z][\w.]*)(\$\{)?/g)) {
+        const key = match[1] ?? '';
+        const isPrefix = match[2] !== undefined;
+        for (const [lang, set] of Object.entries(known)) {
+          const found = isPrefix ? [...set].some((k) => k.startsWith(key)) : set.has(key);
+          expect(found, `${file}: "${key}" missing in ${lang}`).toBe(true);
+        }
+        checked += 1;
+      }
+    }
+    expect(checked).toBeGreaterThan(200);
+  });
+
   it('survives unavailable localStorage', () => {
     const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
       throw new DOMException('blocked', 'SecurityError');

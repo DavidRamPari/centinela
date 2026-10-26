@@ -8,11 +8,16 @@ import {
   ScrollText,
   ShieldHalf,
 } from 'lucide-react';
-import type { ComponentType, SVGProps } from 'react';
+import { Suspense, type ComponentType, type SVGProps } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NavLink, Outlet } from 'react-router';
 import { HealthBadge } from '../components/ui/HealthBadge';
 import { LanguageToggle } from '../components/ui/LanguageToggle';
+import { LoadingState } from '../components/ui/States';
+import { ThemeToggle } from '../components/ui/ThemeToggle';
+import { ToastProvider } from '../components/ui/Toasts';
+import { LiveIndicator } from '../features/live/LiveIndicator';
+import { LiveUpdates } from '../features/live/LiveUpdates';
 
 type NavKey = 'overview' | 'alerts' | 'events' | 'attack' | 'rules' | 'ingest';
 
@@ -29,23 +34,36 @@ const NAV_ITEMS: ReadonlyArray<{
   { to: '/ingest', key: 'ingest', icon: FileUp },
 ];
 
-/** Sidebar layout: navigation on the left (top bar on small screens), page content on the right. */
+/**
+ * Sidebar layout: navigation on the left (top bar on small screens), page content on the
+ * right. Toasts and live updates live here, inside the router, so toasts can link to pages.
+ */
 export function Layout() {
+  return (
+    <ToastProvider>
+      <LiveUpdates>
+        <Shell />
+      </LiveUpdates>
+    </ToastProvider>
+  );
+}
+
+function Shell() {
   const { t } = useTranslation();
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-10 focus:rounded focus:bg-slate-800 focus:px-3 focus:py-2"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-10 focus:rounded focus:bg-surface-2 focus:px-3 focus:py-2"
       >
         {t('app.skipToContent')}
       </a>
-      <aside className="border-b border-slate-800 bg-slate-900 md:w-56 md:shrink-0 md:border-b-0 md:border-r">
+      <aside className="border-b border-line bg-surface md:sticky md:top-0 md:h-screen md:w-56 md:shrink-0 md:border-b-0 md:border-r">
         <div className="flex items-center gap-2 px-4 py-4">
-          <ShieldHalf aria-hidden="true" className="size-6 text-accent-400" />
+          <ShieldHalf aria-hidden="true" className="size-6 text-accent" />
           <div>
-            <p className="font-semibold text-white">{t('app.name')}</p>
-            <p className="text-xs text-slate-400">{t('app.tagline')}</p>
+            <p className="font-semibold text-fg">{t('app.name')}</p>
+            <p className="text-xs text-muted">{t('app.tagline')}</p>
           </div>
         </div>
         <nav aria-label={t('app.mainNavigation')} className="px-2 pb-3">
@@ -59,8 +77,8 @@ export function Layout() {
                     clsx(
                       'flex items-center gap-2 whitespace-nowrap rounded-md px-3 py-2',
                       isActive
-                        ? 'bg-slate-800 text-white'
-                        : 'text-slate-300 hover:bg-slate-800/60 hover:text-white',
+                        ? 'bg-surface-2 font-medium text-fg'
+                        : 'text-muted hover:bg-surface-2 hover:text-fg',
                     )
                   }
                 >
@@ -73,12 +91,16 @@ export function Layout() {
         </nav>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-end gap-4 border-b border-slate-800 px-4 py-2">
+        <header className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 border-b border-line px-4 py-2">
+          <LiveIndicator />
           <HealthBadge />
+          <ThemeToggle />
           <LanguageToggle />
         </header>
-        <main id="main" className="flex-1 p-4 md:p-6">
-          <Outlet />
+        <main id="main" className="min-w-0 flex-1 p-4 md:p-6">
+          <Suspense fallback={<LoadingState />}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>
