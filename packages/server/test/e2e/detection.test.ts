@@ -19,6 +19,14 @@ import { createTestDatabase, type TestDatabase } from '../helpers/db.js';
 /** At most this many high/critical alerts may come from background traffic (PLAN S4). */
 const MAX_BACKGROUND_HIGH = 2;
 
+/**
+ * Vitest hides `console.log` output of passing tests by default; the detection summary is
+ * part of the acceptance criteria, so it is written straight to stdout.
+ */
+function report(line: string): void {
+  process.stdout.write(`${line}\n`);
+}
+
 describe('end-to-end detection: loggen --small through the pipeline and PostgreSQL', () => {
   let db: TestDatabase;
   let sample: GenerationResult;
@@ -58,7 +66,7 @@ describe('end-to-end detection: loggen --small through the pipeline and PostgreS
 
   it('detects every ground-truth scenario with each expected rule', () => {
     const detected = results.filter((r) => r.detected).length;
-    console.log(`detected ${detected}/${results.length} scenarios`);
+    report(`detected ${detected}/${results.length} scenarios`);
     const missing = results.flatMap((r) =>
       r.rules.filter((rule) => rule.alerts === 0).map((rule) => `${r.id} → ${rule.expected}`),
     );
@@ -84,7 +92,7 @@ describe('end-to-end detection: loggen --small through the pipeline and PostgreS
     const background = rows.filter((row) =>
       row.messages.every((message) => (scenarioOf.get(message) ?? null) === null),
     );
-    console.log(`${background.length} high/critical alerts from background traffic`);
+    report(`${background.length} high/critical alerts from background traffic`);
     const titles = background.map((row) => row.rule_title).join(', ');
     expect(background.length, titles).toBeLessThanOrEqual(MAX_BACKGROUND_HIGH);
   });
