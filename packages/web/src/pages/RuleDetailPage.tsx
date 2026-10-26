@@ -14,6 +14,7 @@ import { PageHeader } from '../components/ui/PageHeader';
 import { EmptyState, ErrorState, LoadingState } from '../components/ui/States';
 import { useToasts } from '../components/ui/toast-context';
 import { LicenseValue } from '../features/alerts/RulePanel';
+import { PlaybookPanel } from '../features/alerts/playbook/PlaybookPanel';
 import { TacticNames, TechniqueLink } from '../features/attack/TechniqueLink';
 
 const ruleIdSchema = z.guid();
@@ -69,6 +70,7 @@ function RuleDetail({ id }: { id: string }) {
           <Card title={t('ruleDetail.source')}>
             <CodeBlock text={source} label={t('ruleDetail.source')} />
           </Card>
+          <PlaybookPanel ruleId={rule.id} />
         </div>
         <div className="flex min-w-0 flex-col gap-4">
           <EnablePanel rule={rule} />

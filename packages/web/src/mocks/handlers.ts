@@ -10,6 +10,7 @@ import {
   attackQuerySchema,
   eventsQuerySchema,
   ingestQuerySchema,
+  playbookQuerySchema,
   ruleIdParamsSchema,
   rulePatchBodySchema,
   rulesQuerySchema,
@@ -21,6 +22,7 @@ import {
 } from '@centinela/shared';
 import { http, HttpResponse } from 'msw';
 import type { z } from 'zod';
+import { mockPlaybook } from '../features/alerts/playbook/mock';
 import { createMockDb, type MockDb } from './fixtures/build';
 import {
   alertDetail,
@@ -187,6 +189,19 @@ export function createHandlers(getDb: () => MockDb) {
       const rule = db.rules.find((r) => r.id === parsed.data.id);
       if (!rule) return problem(404, 'Not Found', 'No such rule.');
       return HttpResponse.json({ rule, source: db.ruleSources.get(rule.id) ?? '' });
+    }),
+
+    http.get('/api/rules/:id/playbook', ({ params, request }) => {
+      const parsed = ruleIdParamsSchema.safeParse(params);
+      if (!parsed.success) return validationProblem(parsed.error);
+      const query = playbookQuerySchema.safeParse(queryObject(request));
+      if (!query.success) return validationProblem(query.error);
+      const rule = getDb().rules.find((r) => r.id === parsed.data.id);
+      if (!rule) return problem(404, 'Not Found', 'Rule not found');
+      const playbook = mockPlaybook(rule, query.data.lang);
+      return playbook
+        ? HttpResponse.json(playbook)
+        : problem(404, 'Not Found', 'No playbook for this rule');
     }),
 
     http.patch('/api/rules/:id', async ({ params, request }) => {
