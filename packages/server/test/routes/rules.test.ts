@@ -115,10 +115,11 @@ describe('rules API', () => {
       expect(await all('supported=false')).toEqual([]);
     });
 
-    it('lists the twelve Centinela rules with their names', async () => {
+    it('lists the fourteen Centinela rules with their names', async () => {
       const names = (await all('origin=centinela')).map((r) => r.name).sort();
-      expect(names).toHaveLength(12);
+      expect(names).toHaveLength(14);
       expect(names).toContain('centinela-ssh-bruteforce-success');
+      expect(names).toContain('centinela-win-lolbin-network-connection');
     });
 
     it.each([

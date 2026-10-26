@@ -48,7 +48,7 @@ describe('end-to-end detection: loggen --small through the pipeline and PostgreS
       pipeline,
       sample.files.map((file) => ({
         path: file.path,
-        source: file.file === 'auth' ? 'linux_auth' : 'nginx_access',
+        source: file.source,
         host: file.host,
         lines: file.content.split('\n'),
       })),
@@ -62,6 +62,22 @@ describe('end-to-end detection: loggen --small through the pipeline and PostgreS
     expect(replay.accepted).toBe(sample.lines.length);
     const { rows } = await db.pool.query<{ count: string }>('SELECT count(*) FROM events');
     expect(Number(rows[0]?.count)).toBe(sample.lines.length);
+  });
+
+  it('covers the Linux, web and Windows hosts', async () => {
+    const hosts = new Set(sample.groundTruth.scenarios.map((s) => s.host));
+    expect([...hosts].sort()).toEqual([
+      'bastion-01',
+      'db-01',
+      'web-01',
+      'web-02',
+      'ws-0142',
+      'ws-0187',
+    ]);
+    const { rows } = await db.pool.query<{ source: string; count: string }>(
+      'SELECT source, count(*) AS count FROM events GROUP BY source ORDER BY source',
+    );
+    expect(rows.map((row) => row.source)).toEqual(['linux_auth', 'nginx_access', 'sysmon']);
   });
 
   it('detects every ground-truth scenario with each expected rule', () => {

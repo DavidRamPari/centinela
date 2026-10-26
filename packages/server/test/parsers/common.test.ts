@@ -108,11 +108,12 @@ describe('time helpers', () => {
 });
 
 describe('parser registry', () => {
-  it('registers the S1 parsers', () => {
+  it('registers the S1 parsers and the S5 sysmon parser', () => {
     expect([...createParserRegistry().keys()].sort()).toEqual([
       'apache_access',
       'linux_auth',
       'nginx_access',
+      'sysmon',
     ]);
   });
 });

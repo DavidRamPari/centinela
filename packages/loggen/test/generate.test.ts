@@ -46,7 +46,7 @@ describe('default run', () => {
     expect(elapsed).toBeLessThan(10_000);
   });
 
-  it('writes auth.log for every host and access.log for the web servers', () => {
+  it('writes auth.log for every Linux host, access.log for the web servers and sysmon.jsonl for the workstations', () => {
     expect(result.files.map((f) => f.path)).toEqual([
       'bastion-01/auth.log',
       'web-01/auth.log',
@@ -54,6 +54,18 @@ describe('default run', () => {
       'web-02/auth.log',
       'web-02/access.log',
       'db-01/auth.log',
+      'ws-0142/sysmon.jsonl',
+      'ws-0187/sysmon.jsonl',
+    ]);
+    expect(result.files.map((f) => f.source)).toEqual([
+      'linux_auth',
+      'linux_auth',
+      'nginx_access',
+      'linux_auth',
+      'nginx_access',
+      'linux_auth',
+      'sysmon',
+      'sysmon',
     ]);
     for (const file of result.files) {
       expect(file.content.endsWith('\n')).toBe(true);
@@ -136,6 +148,14 @@ describe('ground truth', () => {
       'path-traversal',
       'log4shell-probe',
       'webshell',
+      'office-macro-powershell',
+      'encoded-powershell',
+      'certutil-download',
+      'scheduled-task',
+      'mshta-remote-hta',
+      'regsvr32-scriptlet',
+      'rundll32-proxy',
+      'credential-dumping',
     ]);
     expect(byId['ssh-bruteforce']).toMatchObject({
       host: 'bastion-01',
@@ -186,10 +206,12 @@ describe('ground truth', () => {
       'centinela-privileged-account-created',
       'centinela-web-scanning-burst',
       'centinela-sudo-user-not-in-sudoers',
+      'centinela-win-lolbin-network-connection',
+      'centinela-win-lolbin-file-drop',
     ]);
     const sigmaRoot = new URL('../../../rules/sigma/', import.meta.url);
     const sigmaFiles = new Set<string>();
-    for (const dir of ['linux/builtin', 'web/webserver_generic']) {
+    for (const dir of ['linux/builtin', 'web/webserver_generic', 'windows/process_creation']) {
       for (const name of readdirSync(new URL(`${dir}/`, sigmaRoot)))
         sigmaFiles.add(name.replace(/\.yml$/, ''));
     }

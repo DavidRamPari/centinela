@@ -6,7 +6,12 @@
 import { join } from 'node:path';
 import { normalizedEventSchema, type NormalizedEvent, type SourceType } from '@centinela/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { generate, type GeneratedLine, type GenerationResult } from '../../../loggen/src/index.js';
+import {
+  FILE_SOURCES,
+  generate,
+  type GeneratedLine,
+  type GenerationResult,
+} from '../../../loggen/src/index.js';
 import { createParserRegistry } from '../../src/parsers/index.js';
 import { createPipeline } from '../../src/pipeline/index.js';
 import type { IngestContext } from '../../src/pipeline/types.js';
@@ -19,7 +24,7 @@ const RECEIVED_AT = new Date('2026-10-26T00:00:00Z');
 const parsers = createParserRegistry();
 
 function sourceOf(line: GeneratedLine): SourceType {
-  return line.file === 'auth' ? 'linux_auth' : 'nginx_access';
+  return FILE_SOURCES[line.file];
 }
 
 interface ParsedLine {
@@ -121,7 +126,9 @@ describe('default sample (seed 42, 3 days)', () => {
   });
 
   it('makes every expected SigmaHQ rule match a line of its scenario', () => {
-    for (const truth of result.groundTruth.scenarios) {
+    // Windows scenarios (S5) are checked with the real engine in test/detection/.
+    const linuxAndWeb = result.groundTruth.scenarios.filter((s) => !s.host.startsWith('ws-'));
+    for (const truth of linuxAndWeb) {
       const events = parsed.filter((p) => p.line.scenario === truth.id).map((p) => p.event);
       for (const expected of truth.expected.filter((name) => !name.startsWith('centinela-'))) {
         const rule = rules.find((r) => r.name === expected);
@@ -228,7 +235,7 @@ describe('small sample through the pipeline and PostgreSQL', () => {
     let total = 0;
     for (const file of files) {
       const summary = await pipeline.ingest(file.content.split('\n'), {
-        source: file.file === 'auth' ? 'linux_auth' : 'nginx_access',
+        source: file.source,
         host: file.host,
         receivedAt: RECEIVED_AT,
         timezone: 'UTC',
@@ -240,6 +247,13 @@ describe('small sample through the pipeline and PostgreSQL', () => {
     const { rows } = await db.pool.query<{ count: string }>('SELECT count(*) FROM events');
     expect(Number(rows[0]?.count)).toBe(total);
     const hosts = await db.pool.query<{ host: string }>('SELECT DISTINCT host FROM events ORDER BY host');
-    expect(hosts.rows.map((r) => r.host)).toEqual(['bastion-01', 'db-01', 'web-01', 'web-02']);
+    expect(hosts.rows.map((r) => r.host)).toEqual([
+      'bastion-01',
+      'db-01',
+      'web-01',
+      'web-02',
+      'ws-0142',
+      'ws-0187',
+    ]);
   });
 });
