@@ -612,7 +612,7 @@ CREATE TABLE rule_state (
 );
 ```
 
-S6 adds `admin_sessions`, `ingest_tokens` (hash, label, created/revoked timestamps) and `audit_log` in new migrations. Integration tests create a throwaway schema per run and drop it afterwards.
+S6 adds `admin_sessions` (HMAC of the session token, user name, created, last seen, expiry, IP, user agent), `ingest_tokens` (SHA-256 of the secret, label, display prefix, created/last used/revoked timestamps and actors) and `audit_log` (time, actor, action, target, IP, `details` jsonb) in migration `002_auth-sessions-tokens-audit.sql`. Integration tests create a throwaway schema per run and drop it afterwards.
 
 ## 9. HTTP API
 
@@ -659,12 +659,13 @@ Since S6 every endpoint except `GET /api/health`, `POST /api/ingest` (bearer tok
 
 ## 12. Security design
 
-- Trust boundaries: log sources → ingest endpoint (authenticated by token); browser → API (session after S6); repository → rules (trusted).
+- Trust boundaries: log sources → ingest endpoint (authenticated by token); browser → API (session cookie plus CSRF header, S6); repository → rules (trusted).
 - Attacker-controlled data: every log line and every field derived from it. Rendered as text only, stored with parameterized queries, matched with linear-time regexes, never executed.
-- Limits: 5 MB per ingest request, 8,192 characters per message, 1,000 lines per batch, rate limits on ingest and login, bounded SSE clients.
-- Headers: `helmet` defaults plus a strict Content Security Policy for the built web app (S6).
-- Secrets only in environment variables; production refuses to start with development defaults.
-- S6 writes `docs/THREAT_MODEL.md` with the full analysis.
+- Limits: 5 MB per ingest request, 8,192 characters per message, 1,000 lines per batch, rate limits on ingest and `/api/auth/*`, sign-in lockout, bounded SSE clients.
+- Authentication (S6): one admin (argon2id hash in `ADMIN_PASSWORD_HASH`), server-side sessions in PostgreSQL behind an httpOnly `__Host-centinela` cookie, CSRF double-submit (`__Host-centinela-csrf` cookie repeated in `X-CSRF-Token`) on every state-changing request, ingest tokens stored hashed, audit log of analyst actions.
+- Headers: API responses carry `helmet` headers with `default-src 'none'` and `Cache-Control: no-store`; the HTML (nginx in Docker, Vite in development) carries a strict Content Security Policy defined in `packages/web/security/headers.ts`.
+- Secrets only in environment variables; production refuses to start with development defaults or without the admin credentials.
+- `docs/THREAT_MODEL.md` has the full analysis; `docs/SECURITY.md` the operator's guide.
 
 ## 13. Testing strategy
 
@@ -685,7 +686,7 @@ Tests never call external networks. Database tests use a throwaway schema.
 - `packages/server`: `express`, `helmet`, `express-rate-limit`, `pg`, `node-pg-migrate`, `pino`, `pino-http`, `yaml`, `uuid`, `re2-wasm`, `ipaddr.js`; dev: `@types/express`, `@types/pg`, `supertest`, `@types/supertest`, `pino-pretty`.
 - `packages/web`: `react`, `react-dom`, `react-router`, `@tanstack/react-query`, `recharts`, `i18next`, `react-i18next`, `clsx`, `lucide-react`; dev: `vite`, `@vitejs/plugin-react`, `tailwindcss`, `@tailwindcss/vite`, `@testing-library/react`, `@testing-library/jest-dom`, `@testing-library/user-event`, `jsdom`, `msw`.
 - `packages/loggen`: no runtime dependencies (own PRNG); uses `@centinela/shared` types.
-- Later sessions may add: `argon2` (S6), a CSP helper if needed (S6).
+- Later sessions may add: `argon2` (S6, added to `packages/server`), a CSP helper if needed (S6: not needed, the policy is a plain string in `packages/web/security/headers.ts`).
 
 ## 15. Configuration
 
@@ -699,5 +700,10 @@ Tests never call external networks. Database tests use a throwaway schema.
 | `RULES_DIR` | `./rules` | |
 | `CONTENT_DIR` | `./content` | S7 |
 | `TRUST_PROXY` | `false` | set when behind a reverse proxy (rate limiting by client IP) |
-| `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH`, `SESSION_SECRET` | — | S6 |
+| `ADMIN_USERNAME` | `admin` | S6; required in production |
+| `ADMIN_PASSWORD_HASH` | argon2id hash of `centinela-dev` | S6; required in production (`npm run hash-password`), argon2id with m ≥ 19456 and t ≥ 2, never the development password |
+| `SESSION_SECRET` | `dev-session-secret-change-me` | S6; keys session ids and CSRF tokens; required, at least 32 characters, in production |
+| `SESSION_IDLE_MINUTES`, `SESSION_MAX_HOURS` | `120`, `12` | S6; idle and absolute session lifetime (at most 168 hours) |
+| `LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_MINUTES` | `5`, `15` | S6; per-IP sign-in lockout |
+| `RATE_LIMIT_INGEST_PER_MINUTE`, `RATE_LIMIT_UPLOAD_PER_MINUTE`, `RATE_LIMIT_AUTH_PER_MINUTE` | `120`, `30`, `30` | per client IP (S1's constants, moved to configuration in S6) |
 | `VITE_USE_MOCKS` | `false` | web: use MSW instead of the API |
