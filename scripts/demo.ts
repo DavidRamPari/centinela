@@ -115,7 +115,7 @@ async function main(argv: string[]): Promise<number> {
       pipeline,
       sample.files.map((file) => ({
         path: file.path,
-        source: file.file === 'auth' ? 'linux_auth' : 'nginx_access',
+        source: file.source,
         host: file.host,
         lines: file.content.split('\n'),
       })),
@@ -147,7 +147,7 @@ async function main(argv: string[]): Promise<number> {
     print('Scenarios (ground truth):');
     for (const scenario of results) {
       const detail = scenario.rules.map((rule) => `${rule.expected} (${rule.alerts})`).join(', ');
-      print(`  ${scenario.detected ? 'ok     ' : 'MISSED '} ${scenario.id.padEnd(20)} ${detail}`);
+      print(`  ${scenario.detected ? 'ok     ' : 'MISSED '} ${scenario.id.padEnd(24)} ${detail}`);
     }
     const detected = results.filter((scenario) => scenario.detected).length;
     print();

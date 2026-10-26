@@ -6,6 +6,8 @@
  *   sshd[1234]: ...`), the default of rsyslog on current Ubuntu and Debian.
  * - access.log: nginx combined format (`[21/Oct/2026:22:12:00 -0500]`), optionally
  *   followed by `$request_time`.
+ * - sysmon.jsonl: one Sysmon event per line as JSON, with UTC times as Sysmon writes them
+ *   (see `windows.ts`).
  */
 import type { GeneratedLine, Host, LogFile } from './model.js';
 
@@ -95,5 +97,10 @@ export class LineCollector {
       `${e.status} ${e.bytes} "${e.referer ?? '-'}" "${e.userAgent}"`;
     if (LOGS_REQUEST_TIME.has(host)) text += ` ${(e.requestTime ?? 0.004).toFixed(3)}`;
     this.push(host, 'access', time * 1000, text);
+  }
+
+  /** One JSON line in `<host>/sysmon.jsonl`, already formatted. */
+  sysmon(host: Host, tsUs: number, json: string): void {
+    this.push(host, 'sysmon', Math.round(tsUs), json);
   }
 }

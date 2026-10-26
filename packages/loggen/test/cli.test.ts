@@ -116,7 +116,7 @@ describe('loggen CLI', () => {
     const b = run(['--small', '--seed', '9', '--out', second]);
     expect(a.status).toBe(0);
     expect(b.status).toBe(0);
-    expect(a.stdout).toContain('11 scenarios');
+    expect(a.stdout).toContain('19 scenarios');
     const treeA = readTree(first);
     const treeB = readTree(second);
     expect(Object.keys(treeA).sort()).toEqual([
@@ -127,6 +127,8 @@ describe('loggen CLI', () => {
       'web-01/auth.log',
       'web-02/access.log',
       'web-02/auth.log',
+      'ws-0142/sysmon.jsonl',
+      'ws-0187/sysmon.jsonl',
     ]);
     expect(treeA).toEqual(treeB);
     const truth = JSON.parse(treeA['ground-truth.json'] ?? '{}') as {

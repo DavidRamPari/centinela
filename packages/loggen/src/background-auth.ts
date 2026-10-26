@@ -28,7 +28,7 @@ import {
   US_PER_SECOND,
   type SshConnection,
 } from './linux.js';
-import { HOSTS, WEB_HOSTS, type Host, type Interval } from './model.js';
+import { LINUX_HOSTS, WEB_HOSTS, type Interval, type LinuxHost } from './model.js';
 import { localHour, type LineCollector } from './output.js';
 import { Random } from './prng.js';
 
@@ -36,7 +36,7 @@ const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
-const CRON_COMMANDS: Record<Host, string> = {
+const CRON_COMMANDS: Record<LinuxHost, string> = {
   'bastion-01': '/usr/local/sbin/audit-keys --check',
   'web-01': '/usr/local/bin/ship-nginx-logs',
   'web-02': '/usr/local/bin/ship-nginx-logs',
@@ -44,7 +44,7 @@ const CRON_COMMANDS: Record<Host, string> = {
 };
 const HOURLY_COMMAND = 'cd / && run-parts --report /etc/cron.hourly';
 
-const ROUTINE_SUDO: Record<Host, readonly string[]> = {
+const ROUTINE_SUDO: Record<LinuxHost, readonly string[]> = {
   'bastion-01': [
     '/usr/bin/apt update',
     '/usr/bin/apt list --upgradable',
@@ -72,7 +72,7 @@ const ROUTINE_SUDO: Record<Host, readonly string[]> = {
 };
 
 /** Mean minutes between admin logins: [working hours, off hours]. */
-const ADMIN_LOGIN_GAP_MIN: Record<Host, [number, number]> = {
+const ADMIN_LOGIN_GAP_MIN: Record<LinuxHost, [number, number]> = {
   'bastion-01': [35, 240],
   'web-01': [120, 600],
   'web-02': [150, 720],
@@ -85,7 +85,7 @@ function isWorkingHour(ms: number): boolean {
 }
 
 interface HostState {
-  host: Host;
+  host: LinuxHost;
   rng: Random;
   out: LineCollector;
   nextSession: number;
@@ -231,7 +231,7 @@ export function generateBackgroundAuth(
   seed: number,
   intervals: readonly Interval[],
 ): void {
-  for (const host of HOSTS) {
+  for (const host of LINUX_HOSTS) {
     const rng = Random.for(seed, `auth:${host}`);
     const state: HostState = {
       host,

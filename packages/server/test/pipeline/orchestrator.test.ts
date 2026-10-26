@@ -43,9 +43,9 @@ describe('pipeline orchestrator', () => {
     });
   });
 
-  it('the default pipeline rejects sources without a parser with `unknown source`', async () => {
+  it('the default pipeline has a parser for every source (S5 added the last, sysmon)', async () => {
     const summary = await createPipeline().ingest(['{"EventID":1}'], { ...ctx, source: 'sysmon' });
-    expect(summary.rejections).toEqual([{ line: 1, reason: 'unknown source' }]);
+    expect(summary.rejections).toEqual([{ line: 1, reason: 'missing timestamp' }]);
   });
 
   it('assigns UUIDv7 ids and ingestedAt, and sorts each batch by event time (stable)', async () => {
