@@ -14,6 +14,8 @@ COPY packages/web/package.json packages/web/
 COPY packages/loggen/package.json packages/loggen/
 RUN npm ci --no-audit --no-fund
 COPY tsconfig.base.json vitest.shared.ts ./
+# src/lib/attack.ts imports the ATT&CK names from data/ (bundled as a lazy chunk).
+COPY data/mitre-attack data/mitre-attack
 COPY packages/shared packages/shared
 COPY packages/web packages/web
 RUN npm run build -w packages/web
