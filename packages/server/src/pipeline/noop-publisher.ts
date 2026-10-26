@@ -1,6 +1,6 @@
 import type { AlertPublisher } from './types.js';
 
-/** Default publisher until S4 adds the SSE hub in `src/realtime/`. */
+/** Default publisher; the server passes its SSE hub (`src/realtime/hub.ts`) instead. */
 export const noopPublisher: AlertPublisher = {
   publish() {
     // Intentionally empty.

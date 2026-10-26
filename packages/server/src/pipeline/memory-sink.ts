@@ -1,6 +1,7 @@
 /**
  * In-memory `AlertSink` with the deduplication and suppression rules of ARCHITECTURE §7.
- * It is the default until S4 adds the PostgreSQL sink, and it stays useful in tests.
+ * The default when the pipeline has no database pool (tests); `src/db/alert-sink.ts` is the
+ * PostgreSQL sink with the same rules.
  */
 import {
   ALERT_SUPPRESSION_WINDOW_MS,
