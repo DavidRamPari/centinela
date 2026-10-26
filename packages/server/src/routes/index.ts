@@ -3,6 +3,7 @@
  * health → ingest (own body parsers and limits) → JSON body parser → resource routers.
  */
 import express, { Router } from 'express';
+import { createPlaybookRouter } from '../content/router.js';
 import type { AppDeps } from '../deps.js';
 import { createIngestRouter } from '../ingest/router.js';
 import { createAlertsRouter } from './alerts.js';
@@ -25,6 +26,7 @@ export function createApiRouter(deps: AppDeps): Router {
   router.use(createEventsRouter(deps));
   router.use(createAlertsRouter(deps));
   router.use(createRulesRouter(deps));
+  router.use(createPlaybookRouter(deps));
   router.use(createStatsRouter(deps));
   router.use(createAttackRouter(deps));
   router.use(createStreamRouter(deps));

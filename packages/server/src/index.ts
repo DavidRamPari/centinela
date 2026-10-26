@@ -1,6 +1,7 @@
 /** Server entry point: configuration, database pool, pipeline, HTTP server, signals. */
 import { createApp } from './app.js';
 import { ConfigError, loadConfig, type Config } from './config.js';
+import { loadContentPack } from './content/pack.js';
 import { createPool } from './db/pool.js';
 import { createDetector } from './detection/index.js';
 import { loadDotEnv } from './env.js';
@@ -35,6 +36,10 @@ rules.ready().then(
   () => logger.info({ rules: rules.list().length }, 'rules loaded'),
   (err: unknown) => logger.warn({ err }, 'rule flags not loaded yet; retrying on first use'),
 );
+
+// Content-pack playbooks (optional): read once now, served from memory.
+const content = loadContentPack(config.contentDir);
+logger.info({ playbooks: content.size, skipped: content.errors.length }, 'content pack loaded');
 
 const server = app.listen(config.port, (err?: Error) => {
   if (err) {

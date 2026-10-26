@@ -7,11 +7,6 @@ import { createTestApp } from '../helpers/app.js';
 // Every endpoint in ARCHITECTURE §9 except health and the two ingest endpoints.
 // A session that implements an endpoint deletes its row here.
 const pending: Array<{ method: 'get' | 'post' | 'patch'; path: string; session: string }> = [
-  {
-    method: 'get',
-    path: '/api/rules/31545105-3444-4584-bebf-c466353230d2/playbook',
-    session: 'S7',
-  },
   { method: 'post', path: '/api/auth/login', session: 'S6' },
   { method: 'post', path: '/api/auth/logout', session: 'S6' },
   { method: 'get', path: '/api/auth/me', session: 'S6' },
