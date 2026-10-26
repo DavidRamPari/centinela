@@ -115,7 +115,7 @@ async function main(argv: string[]): Promise<number> {
       pipeline,
       sample.files.map((file) => ({
         path: file.path,
-        source: file.file === 'auth' ? 'linux_auth' : 'nginx_access',
+        source: file.source,
         host: file.host,
         lines: file.content.split('\n'),
       })),
