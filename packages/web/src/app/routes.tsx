@@ -1,7 +1,16 @@
 import type { RouteObject } from 'react-router';
 import { NotFoundPage } from '../pages/NotFoundPage';
-import { PlaceholderPage } from '../pages/PlaceholderPage';
 import { Layout } from './Layout';
+import {
+  AlertDetailPage,
+  AlertsPage,
+  AttackPage,
+  EventsPage,
+  IngestPage,
+  OverviewPage,
+  RuleDetailPage,
+  RulesPage,
+} from './lazy-pages';
 
 /** Route table shared by the browser router and the memory router used in tests. */
 export const routes: RouteObject[] = [
@@ -9,12 +18,14 @@ export const routes: RouteObject[] = [
     path: '/',
     element: <Layout />,
     children: [
-      { index: true, element: <PlaceholderPage page="overview" /> },
-      { path: 'alerts', element: <PlaceholderPage page="alerts" /> },
-      { path: 'events', element: <PlaceholderPage page="events" /> },
-      { path: 'attack', element: <PlaceholderPage page="attack" /> },
-      { path: 'rules', element: <PlaceholderPage page="rules" /> },
-      { path: 'ingest', element: <PlaceholderPage page="ingest" /> },
+      { index: true, element: <OverviewPage /> },
+      { path: 'alerts', element: <AlertsPage /> },
+      { path: 'alerts/:id', element: <AlertDetailPage /> },
+      { path: 'events', element: <EventsPage /> },
+      { path: 'attack', element: <AttackPage /> },
+      { path: 'rules', element: <RulesPage /> },
+      { path: 'rules/:id', element: <RuleDetailPage /> },
+      { path: 'ingest', element: <IngestPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

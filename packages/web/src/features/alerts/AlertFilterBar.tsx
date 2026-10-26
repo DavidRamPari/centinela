@@ -1,0 +1,75 @@
+import { ALERT_STATUSES, LEVELS } from '@centinela/shared';
+import { useState, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Button } from '../../components/ui/Button';
+import { TextField, ToggleChips } from '../../components/ui/Fields';
+import { TimeRangeSelect } from '../../components/ui/TimeRangeSelect';
+import { useParamUpdater } from '../../lib/search-params';
+import { writeTimeRange } from '../../lib/time-range';
+import { ALERT_TEXT_FILTERS, type AlertFilters, type AlertTextFilter } from './alert-filters';
+
+/** Filters for the alerts list. Chips apply at once; text filters apply on submit. */
+export function AlertFilterBar({ filters }: { filters: AlertFilters }) {
+  const { t } = useTranslation();
+  const update = useParamUpdater();
+  const [text, setText] = useState(filters.text);
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    const updates: Partial<Record<AlertTextFilter, string>> = {};
+    for (const key of ALERT_TEXT_FILTERS) updates[key] = text[key]?.trim() ?? '';
+    update(updates);
+  }
+
+  return (
+    <div className="mb-4 flex flex-col gap-3 rounded-lg border border-line bg-surface p-3">
+      <div className="flex flex-wrap items-end gap-4">
+        <ToggleChips
+          label={t('alerts.filters.status')}
+          options={ALERT_STATUSES.map((value) => ({ value, label: t(`statuses.${value}`) }))}
+          selected={filters.status}
+          onChange={(status) => update({ status })}
+        />
+        <ToggleChips
+          label={t('alerts.filters.level')}
+          options={[...LEVELS].reverse().map((value) => ({ value, label: t(`levels.${value}`) }))}
+          selected={filters.level}
+          onChange={(level) => update({ level })}
+        />
+        <TimeRangeSelect
+          value={filters.range}
+          onChange={(range) => update((params) => writeTimeRange(params, range))}
+        />
+      </div>
+      <form
+        onSubmit={submit}
+        aria-label={t('alerts.filters.form')}
+        className="grid grid-cols-2 items-end gap-2 sm:grid-cols-3 lg:grid-cols-6"
+      >
+        {ALERT_TEXT_FILTERS.map((key) => (
+          <TextField
+            key={key}
+            label={t(`alerts.filters.${key}`)}
+            value={text[key] ?? ''}
+            onChange={(event) => setText({ ...text, [key]: event.target.value })}
+            spellCheck={false}
+            autoComplete="off"
+          />
+        ))}
+        <div className="flex gap-2">
+          <Button type="submit" variant="primary">
+            {t('common.apply')}
+          </Button>
+          <Button
+            onClick={() => {
+              setText({});
+              update(() => new URLSearchParams());
+            }}
+          >
+            {t('common.reset')}
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
