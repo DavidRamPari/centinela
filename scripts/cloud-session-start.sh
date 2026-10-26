@@ -2,7 +2,8 @@
 # Prepares a Claude Code cloud session for Centinela:
 #   1. starts PostgreSQL and creates the `centinela` role and database,
 #   2. exports DATABASE_URL for the session,
-#   3. runs `npm ci` when package-lock.json changed since the last install.
+#   3. runs `npm ci` when package-lock.json changed since the last install,
+#   4. applies database migrations (`npm run db:migrate`) when PostgreSQL is ready.
 # Runs as a SessionStart hook (see .claude/settings.json). On local machines it exits immediately.
 # It never fails the session: problems are logged and the script exits 0.
 
@@ -18,6 +19,7 @@ LOG=/tmp/centinela-session-start.log
 DB_URL="postgres://centinela:centinela@localhost:5432/centinela"
 DB_STATUS="not ready"
 NPM_STATUS="skipped (no package-lock.json yet)"
+MIGRATE_STATUS="skipped"
 
 # Diagnostics go to stderr and the log file; stdout is reserved for the one-line
 # summary at the end, which Claude Code adds to the session context.
@@ -76,5 +78,15 @@ if [ -f package-lock.json ]; then
   fi
 fi
 
-echo "Centinela session setup: PostgreSQL ${DB_STATUS}; npm dependencies ${NPM_STATUS}. Re-run with: bash scripts/cloud-session-start.sh"
+# 4. Database migrations ------------------------------------------------------
+if [ "$DB_STATUS" != "not ready" ] && [ -d node_modules ] && [ -f package-lock.json ]; then
+  if DATABASE_URL="$DB_URL" npm run db:migrate >>"$LOG" 2>&1; then
+    MIGRATE_STATUS="applied"
+  else
+    log "npm run db:migrate failed; see $LOG"
+    MIGRATE_STATUS="FAILED (see $LOG)"
+  fi
+fi
+
+echo "Centinela session setup: PostgreSQL ${DB_STATUS}; npm dependencies ${NPM_STATUS}; migrations ${MIGRATE_STATUS}. Re-run with: bash scripts/cloud-session-start.sh"
 exit 0
