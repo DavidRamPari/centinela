@@ -24,5 +24,6 @@ RUN npm run build -w packages/web
 FROM ${NGINX_IMAGE} AS runtime
 ENV API_UPSTREAM=http://server:3000
 COPY packages/web/nginx/default.conf.template /etc/nginx/templates/default.conf.template
+COPY packages/web/nginx/security-headers.conf /etc/nginx/snippets/centinela-security-headers.conf
 COPY --from=build /app/packages/web/dist /usr/share/nginx/html
 EXPOSE 8080
