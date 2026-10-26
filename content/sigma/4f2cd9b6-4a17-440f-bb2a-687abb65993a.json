@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "4f2cd9b6-4a17-440f-bb2a-687abb65993a",
+    "title": "Uncommon AddinUtil.EXE CommandLine Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "Michael McKinley (@McKinleyMike), Tony Latteri (@TheLatteri)",
+    "path": "windows/process_creation/proc_creation_win_addinutil_uncommon_cmdline.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_addinutil_uncommon_cmdline.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó AddInUtil.exe con -AddInRoot o -PipelineRoot apuntando a una ruta distinta de la carpeta VSTA de Microsoft. Esto puede indicar que se cargó un archivo Addins.Store malicioso para ejecutar código a través de un binario firmado.",
+      "what_it_detects": "Creación de procesos de AddInUtil.exe (por Image o OriginalFileName) cuyo CommandLine contiene -AddInRoot: o -PipelineRoot: con una ruta fuera de C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\VSTA.",
+      "why_it_matters": "AddInUtil.exe es una utilidad firmada de .NET Framework que procesa el caché de complementos. Si se apunta a un Addins.Store controlado por el atacante, puede deserializar y ejecutar código malicioso. Esto corresponde a la ejecución de proxy mediante binarios firmados (T1218) y permite evadir los controles de listas de aplicaciones permitidas.",
+      "triage_steps": [
+        "Revise el CommandLine completo e identifique las rutas de -AddInRoot y -PipelineRoot. Preste atención a carpetas escribibles por usuarios como %TEMP%, Downloads, Public o AppData.",
+        "Liste el contenido de esas rutas en el endpoint y obtenga el hash de Addins.Store y de cualquier DLL o ensamblado que encuentre; consulte su reputación.",
+        "Revise el ParentImage y la cadena de procesos padre. Una shell, un script, una macro de Office o un proceso remoto como padre aumenta la sospecha.",
+        "Busque procesos hijos, conexiones de red y escrituras de archivos de AddInUtil.exe o de sus hijos en el mismo host, en una ventana de +/- 15 minutos.",
+        "Confirme si el usuario ejecuta normalmente herramientas de desarrollo o VSTA y si el host tiene Visual Studio o Office con complementos instalados.",
+        "Busque ejecuciones similares de AddInUtil.exe en otros hosts y alertas previas para el mismo usuario y el mismo host."
+      ],
+      "false_positives": [
+        "Desarrolladores que prueban complementos .NET con rutas personalizadas de AddInRoot o PipelineRoot en sus estaciones de trabajo.",
+        "Instaladores o herramientas de despliegue de terceros que reconstruyen el caché de complementos en directorios propios de la aplicación."
+      ],
+      "response_steps": [
+        "Valide con el usuario o con el responsable del sistema si la ejecución corresponde a una actividad de desarrollo o instalación conocida.",
+        "Si se confirma que es maliciosa, aísle el endpoint y preserve el Addins.Store y los archivos relacionados para el análisis forense.",
+        "Termine los procesos asociados, elimine los artefactos del atacante después de recolectar la evidencia y revise los mecanismos de persistencia.",
+        "Restablezca las credenciales del usuario si hubo actividad interactiva sospechosa. Considere bloquear AddInUtil.exe con WDAC o AppLocker en equipos que no lo necesitan."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque el uso de AddInUtil.exe con rutas no estándar es poco común y permite ejecutar código mediante un binario firmado, aunque puede haber casos legítimos de desarrollo."
+    },
+    "en": {
+      "summary": "AddInUtil.exe ran with -AddInRoot or -PipelineRoot pointing somewhere other than Microsoft's VSTA folder. This may mean a malicious Addins.Store file was loaded to run code through a signed binary.",
+      "what_it_detects": "Process creation of AddInUtil.exe (matched by Image or OriginalFileName) whose CommandLine contains -AddInRoot: or -PipelineRoot: with a path outside C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\VSTA.",
+      "why_it_matters": "AddInUtil.exe is a signed .NET Framework utility that processes the add-in cache. If it is pointed at an attacker-controlled Addins.Store, it can deserialize and run malicious code. This is signed binary proxy execution (T1218), which helps attackers get around application allowlisting.",
+      "triage_steps": [
+        "Read the full CommandLine and note the -AddInRoot and -PipelineRoot paths. Pay attention to user-writable folders such as %TEMP%, Downloads, Public or AppData.",
+        "List the contents of those paths on the endpoint. Hash Addins.Store and any DLLs or assemblies there, then check their reputation.",
+        "Review ParentImage and the process ancestry. A shell, script host, Office macro or remote execution parent makes the activity more suspicious.",
+        "Check for child processes, network connections and file writes from AddInUtil.exe or its children on the same host within +/- 15 minutes.",
+        "Confirm whether the user normally uses developer or VSTA tooling, and whether the host has Visual Studio or Office add-ins installed.",
+        "Search for similar AddInUtil.exe executions on other hosts and for earlier alerts on the same user and host."
+      ],
+      "false_positives": [
+        "Developers testing .NET add-ins with custom AddInRoot or PipelineRoot paths on their workstations.",
+        "Third-party installers or deployment tools that rebuild the add-in cache in their own application directories."
+      ],
+      "response_steps": [
+        "Check with the user or system owner whether the execution matches known development or installation work.",
+        "If it is malicious, isolate the endpoint and preserve Addins.Store and related files for forensic analysis.",
+        "Kill the related processes, remove attacker artifacts after collecting evidence, and review persistence mechanisms.",
+        "Reset the user's credentials if suspicious interactive activity occurred. Consider blocking AddInUtil.exe with WDAC or AppLocker on hosts that do not need it."
+      ],
+      "severity_rationale": "Medium fits because AddInUtil.exe with non-standard roots is rare and allows code execution through a signed binary, but legitimate development use is possible."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "AddInUtil.exe launched from cmd.exe with AddInRoot and PipelineRoot pointing to a user-writable Public folder containing a staged Addins.Store",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\AddInUtil.exe",
+          "OriginalFileName": "AddInUtil.exe",
+          "CommandLine": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\AddInUtil.exe -AddInRoot:C:\\Users\\Public\\cache -PipelineRoot:C:\\Users\\Public\\cache",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      },
+      {
+        "description": "Renamed copy of AddInUtil matched by OriginalFileName, using a quoted AddInRoot in the user's Temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\upd.exe",
+          "OriginalFileName": "AddInUtil.exe",
+          "CommandLine": "\"C:\\Users\\mrojas\\AppData\\Local\\Temp\\upd.exe\" -AddInRoot:\"C:\\Users\\mrojas\\AppData\\Local\\Temp\\x\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate VSTA add-in cache rebuild using the Microsoft Shared VSTA path, excluded by the filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0150.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\AddInUtil.exe",
+          "OriginalFileName": "AddInUtil.exe",
+          "CommandLine": "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\AddInUtil.exe -PipelineRoot:\"C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\VSTA\\Pipeline\" -Rebuild",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe"
+        }
+      },
+      {
+        "description": "AddInUtil.exe run with only the help switch, no AddInRoot or PipelineRoot argument",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\AddInUtil.exe",
+          "OriginalFileName": "AddInUtil.exe",
+          "CommandLine": "AddInUtil.exe -?",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

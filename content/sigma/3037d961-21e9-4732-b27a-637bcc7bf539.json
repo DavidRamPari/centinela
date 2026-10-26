@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "3037d961-21e9-4732-b27a-637bcc7bf539",
+    "title": "Suspicious High IntegrityLevel Conhost Legacy Option",
+    "level": "informational",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_conhost_legacy_option.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_conhost_legacy_option.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1202"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un host de consola (conhost.exe) con los argumentos heredados '0xffffffff -ForceV1' en integridad High, lo que indica una aplicación de consola ejecutándose con privilegios elevados. Suele ser benigno; úselo como contexto, no como incidente aislado.",
+      "what_it_detects": "Eventos de creación de procesos donde CommandLine contiene 'conhost.exe', '0xffffffff' y '-ForceV1', e IntegrityLevel es 'High' o 'S-1-16-12288'. Es decir, una consola que atiende a un proceso elevado, como cmd.exe ejecutado como Administrador.",
+      "why_it_matters": "Un atacante con privilegios de administrador suele usar consolas elevadas para reconocimiento, robo de credenciales o preparación de ransomware. Se asocia a T1202 (Indirect Command Execution), con un binario confiable de Windows en la cadena de ejecución. Junto con otras señales, marca el inicio de una sesión de consola elevada.",
+      "triage_steps": [
+        "Identifique el cliente de consola: revise ParentImage y ParentCommandLine del evento de conhost.exe. Normalmente el padre es la aplicación de consola elevada.",
+        "Confirme el usuario y la sesión de logon. ¿La cuenta debería tener privilegios de administrador en este host? ¿La sesión fue interactiva, RDP o remota?",
+        "Liste los procesos hijos de la consola padre en +/- 15 minutos. Busque whoami, net, nltest, vssadmin, wmic, rundll32, PowerShell codificado o compresores.",
+        "Verifique que el binario padre esté firmado y en una ruta estándar. Las consolas elevadas desde Temp, ProgramData o perfiles de usuario son sospechosas.",
+        "Pivotee por el mismo host y usuario buscando alertas previas: bypass de UAC, servicios nuevos, acceso a credenciales o movimiento lateral entrante.",
+        "Compare con la línea base: frecuencia y horario habitual de esta alerta para el usuario o host."
+      ],
+      "false_positives": [
+        "Administradores que abren cmd.exe o PowerShell con Ejecutar como administrador, lo cual la regla considera muy probable.",
+        "Instaladores elevados, agentes de despliegue o scripts de mantenimiento programados que lanzan programas de consola.",
+        "Herramientas de mesa de ayuda o TI que ejecutan utilidades de línea de comandos elevadas durante soporte."
+      ],
+      "response_steps": [
+        "Si el padre y su actividad corresponden a tareas administrativas esperadas, cierre como benigno y evalúe ajustar la regla para hosts o cuentas de administración conocidos.",
+        "Si la actividad no tiene explicación, confirme con el usuario o responsable del activo antes de actuar.",
+        "Si se confirma actividad maliciosa, aísle el endpoint, preserve el árbol de procesos y la memoria, y restablezca las credenciales de la cuenta involucrada.",
+        "Busque el mismo hash del padre y patrones de comandos en otros hosts; elimine la persistencia y restaure a un estado confiable."
+      ],
+      "severity_rationale": "El nivel informational es adecuado porque las consolas elevadas son habituales en administración; la alerta aporta contexto y solo cobra relevancia junto con otros eventos sospechosos."
+    },
+    "en": {
+      "summary": "A console host (conhost.exe) started with the legacy '0xffffffff -ForceV1' arguments at High integrity, so a console application is running elevated. This is often benign; use it for context, not as a standalone incident.",
+      "what_it_detects": "Process creation events where CommandLine contains 'conhost.exe', '0xffffffff' and '-ForceV1', and IntegrityLevel is 'High' or 'S-1-16-12288'. In other words, a console window serving an elevated process, such as cmd.exe run as Administrator.",
+      "why_it_matters": "Attackers who gain admin rights often run elevated consoles for discovery, credential theft or ransomware staging. The rule maps to T1202 (Indirect Command Execution), where a trusted Windows binary sits in the execution chain. Correlated with other signals, it marks when an elevated console session began.",
+      "triage_steps": [
+        "Identify the console client: check ParentImage and ParentCommandLine of the conhost.exe event. For conhost, the parent is usually the elevated console application.",
+        "Confirm the user and logon session. Is this account expected to hold admin rights on this host, and was the session interactive, RDP or remote?",
+        "List child processes of the parent console within +/- 15 minutes. Look for whoami, net, nltest, vssadmin, wmic, rundll32, PowerShell with encoded commands or archive tools.",
+        "Check whether the parent binary is signed and in a standard path. Elevated consoles from Temp, ProgramData or user profiles are suspicious.",
+        "Pivot on the same host and user for earlier alerts: UAC bypass, new services, credential access, lateral movement inbound.",
+        "Compare with baseline: how often does this user or host produce this alert, and at what times?"
+      ],
+      "false_positives": [
+        "Administrators opening cmd.exe or PowerShell with Run as Administrator, which the rule notes is very likely.",
+        "Elevated installers, deployment agents or scheduled maintenance scripts that spawn console programs.",
+        "Helpdesk or IT tooling that runs elevated command-line utilities during support sessions."
+      ],
+      "response_steps": [
+        "If the parent and its child activity are expected admin work, close as benign and consider tuning for known admin hosts or accounts.",
+        "If the activity is unexplained, confirm with the user or asset owner before acting.",
+        "If malicious activity is confirmed, isolate the endpoint, preserve process tree and memory evidence, and reset credentials for the account involved.",
+        "Hunt for the same parent hash and command patterns across other hosts, then remove persistence and restore from known-good state."
+      ],
+      "severity_rationale": "Informational fits because elevated consoles are routine admin activity. The alert gives context and only matters alongside other suspicious events."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Elevated cmd.exe launched via Run as Administrator spawns conhost with the legacy ForceV1 option at High integrity.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "IntegrityLevel": "High",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\cmd.exe\"",
+          "UtcTime": "2024-10-25 14:03:12.512"
+        }
+      },
+      {
+        "description": "Conhost serving an elevated console binary from ProgramData, with IntegrityLevel recorded as the SID S-1-16-12288.",
+        "event": {
+          "EventID": 4688,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "IntegrityLevel": "S-1-16-12288",
+          "User": "ANDES\\adm-mrojas",
+          "ParentImage": "C:\\ProgramData\\svcupd\\updater.exe",
+          "ParentCommandLine": "C:\\ProgramData\\svcupd\\updater.exe /quiet",
+          "UtcTime": "2024-10-25 02:41:07.090"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Same conhost legacy command line from a non-elevated cmd.exe at Medium integrity; the IntegrityLevel selection does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "IntegrityLevel": "Medium",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\cmd.exe\"",
+          "UtcTime": "2024-10-25 14:10:44.201"
+        }
+      },
+      {
+        "description": "Elevated conhost started without the -ForceV1 option, so not every required CommandLine value is present.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff",
+          "IntegrityLevel": "High",
+          "User": "ANDES\\lgomez",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\"",
+          "UtcTime": "2024-10-25 09:15:30.774"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

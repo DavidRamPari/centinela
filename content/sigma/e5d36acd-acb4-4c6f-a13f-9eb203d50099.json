@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "e5d36acd-acb4-4c6f-a13f-9eb203d50099",
+    "title": "Active Directory Structure Export Via Csvde.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_csvde_export.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_csvde_export.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1087.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó csvde.exe con la opción -f y sin -i, es decir, en modo exportación. Esto vuelca objetos de Active Directory a un archivo CSV y puede indicar reconocimiento del dominio o preparación para exfiltración.",
+      "what_it_detects": "Procesos cuyo Image termina en \\csvde.exe o cuyo OriginalFileName es csvde.exe, con ' -f' en CommandLine (archivo de salida) y sin ' -i' (importación). Gracias a OriginalFileName, también detecta binarios renombrados.",
+      "why_it_matters": "Csvde permite que un atacante con credenciales de dominio obtenga en un solo archivo usuarios, grupos, equipos y la estructura de OU. Esto le sirve para elegir objetivos y moverse lateralmente. Corresponde a descubrimiento de cuentas de dominio (T1087.002) y puede ser un paso previo a la exfiltración.",
+      "triage_steps": [
+        "Revise CommandLine: ruta del archivo -f, filtros -r (por ejemplo objectClass=user), atributos -l, servidor -s y credenciales -a. Una exportación completa sin filtros es más sospechosa.",
+        "Compare Image con OriginalFileName. Si csvde.exe está renombrado o corre fuera de System32, o si la ruta de salida apunta a Temp, ProgramData o Public, aumente la prioridad.",
+        "Analice ParentImage y el árbol de procesos. Un padre como cmd.exe o powershell.exe lanzado desde un servicio web, una macro o un RAT es una señal fuerte.",
+        "Confirme quién es el usuario y si su rol justifica consultas a AD. Pregunte al equipo de identidades si existe un cambio o tarea programada que lo explique.",
+        "Busque en el mismo host, ±15 minutos, otros comandos de descubrimiento (net group, nltest, dsquery, AdFind), compresión (rar, 7z) o creación del archivo CSV.",
+        "Revise si hubo conexiones salientes o transferencias del archivo de salida (SMB, HTTP, servicios en la nube) después de la exportación.",
+        "Busque alertas anteriores del mismo usuario y del mismo host, y ejecuciones de csvde en otros equipos."
+      ],
+      "false_positives": [
+        "Administradores de AD que exportan usuarios o grupos para auditorías, migraciones o reportes.",
+        "Scripts o tareas programadas de inventario o sincronización que usan csvde para generar CSV.",
+        "Herramientas de terceros de gestión de identidades que invocan csvde."
+      ],
+      "response_steps": [
+        "Valide con el usuario y su responsable si la exportación fue autorizada; documente el resultado.",
+        "Si no fue autorizada, aísle el endpoint y conserve el archivo CSV, el historial de procesos y la memoria como evidencia.",
+        "Restablezca las credenciales de la cuenta usada y revise sus sesiones y accesos recientes en el dominio.",
+        "Busque el vector de acceso inicial y otras herramientas en el host; elimínelas solo después de recolectar evidencia.",
+        "Si el archivo salió de la red, evalúe el impacto de la exposición de datos de AD y refuerce la monitorización de las cuentas privilegiadas."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque la exportación de AD es una actividad típica de reconocimiento, pero también la realizan administradores legítimos y requiere contexto para confirmarla."
+    },
+    "en": {
+      "summary": "csvde.exe ran with -f and without -i, which means export mode. It dumped Active Directory objects to a CSV file, which may indicate domain reconnaissance or staging for exfiltration.",
+      "what_it_detects": "Processes whose Image ends with \\csvde.exe or whose OriginalFileName is csvde.exe, with ' -f' (output file) in CommandLine and no ' -i' (import). Because it checks OriginalFileName, it also catches renamed binaries.",
+      "why_it_matters": "With domain credentials, an attacker can use csvde to get users, groups, computers and the OU structure in one file. That helps them pick targets and move laterally. This is domain account discovery (T1087.002) and may come before exfiltration.",
+      "triage_steps": [
+        "Inspect CommandLine: the -f output path, -r filters (e.g. objectClass=user), -l attributes, -s server and -a credentials. A full unfiltered export is more suspicious.",
+        "Compare Image with OriginalFileName. Raise priority if csvde.exe is renamed, runs outside System32, or writes to Temp, ProgramData or Public.",
+        "Review ParentImage and the process tree. cmd.exe or powershell.exe spawned by a web service, Office macro or unknown implant is a strong signal.",
+        "Confirm the user and whether their role justifies AD queries. Check with the identity team for a change ticket or scheduled job.",
+        "Pivot on the same host within +/- 15 minutes for other discovery commands (net group, nltest, dsquery, AdFind), archiving tools (rar, 7z) or creation of the CSV.",
+        "Look for outbound connections or transfers of the output file (SMB, HTTP, cloud storage) after the export.",
+        "Search for earlier alerts on the same user and host, and for csvde runs on other endpoints."
+      ],
+      "false_positives": [
+        "AD administrators exporting users or groups for audits, migrations or reporting.",
+        "Inventory or sync scripts and scheduled tasks that use csvde to produce CSV files.",
+        "Third-party identity management tools that call csvde."
+      ],
+      "response_steps": [
+        "Check with the user and their manager whether the export was authorized, and record the outcome.",
+        "If it was not authorized, isolate the endpoint and preserve the CSV, the process history and memory as evidence.",
+        "Reset the credentials of the account used and review its recent domain sessions and access.",
+        "Find the initial access vector and any other tools on the host. Remove them only after you have collected evidence.",
+        "If the file left the network, assess the impact of the exposed AD data and increase monitoring of privileged accounts."
+      ],
+      "severity_rationale": "Medium fits because AD export is typical reconnaissance, but administrators also do it legitimately, so context is needed to confirm it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "csvde.exe from System32 exports all user objects to a CSV file in Public, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\csvde.exe",
+          "OriginalFileName": "csvde.exe",
+          "CommandLine": "csvde.exe -f C:\\Users\\Public\\users.csv -r \"(objectClass=user)\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c csvde.exe -f C:\\Users\\Public\\users.csv -r \"(objectClass=user)\"",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      },
+      {
+        "description": "Renamed csvde binary (caught by OriginalFileName) dumps the directory to ProgramData",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\cv.exe",
+          "OriginalFileName": "csvde.exe",
+          "CommandLine": "C:\\ProgramData\\cv.exe -f C:\\ProgramData\\o.csv -s dc01.andes.example.com -l name,sAMAccountName,memberOf",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\ProgramData\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator imports users with csvde -i -f; the import filter excludes it",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC01.andes.example.com",
+          "User": "ANDES\\admin.mrios",
+          "Image": "C:\\Windows\\System32\\csvde.exe",
+          "OriginalFileName": "csvde.exe",
+          "CommandLine": "csvde.exe -i -f C:\\Admin\\nuevos_usuarios.csv",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Admin\\"
+        }
+      },
+      {
+        "description": "ldifde.exe export uses -f but is not csvde, so the image selection fails",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC01.andes.example.com",
+          "User": "ANDES\\admin.mrios",
+          "Image": "C:\\Windows\\System32\\ldifde.exe",
+          "OriginalFileName": "ldifde.exe",
+          "CommandLine": "ldifde.exe -f C:\\Admin\\export.ldf",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Admin\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

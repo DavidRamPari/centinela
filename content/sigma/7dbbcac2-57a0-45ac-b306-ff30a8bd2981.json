@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "7dbbcac2-57a0-45ac-b306-ff30a8bd2981",
+    "title": "Windows AMSI Related Registry Tampering Via CommandLine",
+    "level": "high",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_amsi_registry_tampering.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_amsi_registry_tampering.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó reg.exe o PowerShell con una línea de comandos que escribe el valor AmsiEnable en la clave Software\\Microsoft\\Windows Script\\Settings. Por lo general esto se hace para desactivar AMSI en Windows Script Host (JScript/VBScript).",
+      "what_it_detects": "Eventos de creación de procesos en los que CommandLine contiene '\\Software\\Microsoft\\Windows Script\\Settings' y 'AmsiEnable', y además se cumple una de dos condiciones: reg.exe con 'add', o powershell.exe/pwsh.exe con Set-ItemProperty, New-ItemProperty o el alias 'sp '.",
+      "why_it_matters": "Si AmsiEnable vale 0, los scripts de wscript/cscript se ejecutan sin que el antimalware los analice. Es una forma de debilitar las defensas (ATT&CK T1685, relacionada con T1562.001) y suele preceder a la ejecución de JScript o VBScript malicioso.",
+      "triage_steps": [
+        "Revise CommandLine y confirme el dato que se escribe: un valor 0 desactiva AMSI y un valor 1 lo restaura.",
+        "Identifique el usuario y el host. Valide si la cuenta tiene un motivo administrativo para tocar la configuración de Windows Script Host.",
+        "Analice ParentImage y la cadena de procesos padre. Un origen en Office, mshta, wscript, cscript o un navegador es muy sospechoso.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, ejecuciones de wscript.exe o cscript.exe y archivos .js, .jse, .vbs o .wsf nuevos.",
+        "Busque en la telemetría de registro (Sysmon EventID 13) el cambio real de AmsiEnable y compare HKCU con HKLM.",
+        "Revise si hay conexiones de red, descargas o persistencia creadas justo después del cambio.",
+        "Consulte alertas anteriores del mismo usuario y del mismo host, y busque la misma línea de comandos en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Pruebas autorizadas de red team o de Atomic Red Team (AMSI Bypass - Create AMSIEnable Reg Key).",
+        "Scripts administrativos o de compatibilidad que restauran AmsiEnable a 1. Confirme con el equipo responsable."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con su responsable si el cambio fue autorizado y documente la evidencia.",
+        "Si no hubo autorización, aísle el endpoint y conserve la memoria, el registro y los scripts recientes.",
+        "Restaure AmsiEnable a 1 o elimine el valor, previa verificación. Luego analice los scripts que se ejecutaron sin AMSI.",
+        "Restablezca las credenciales del usuario si hay indicios de compromiso y busque el mismo patrón en toda la flota."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque desactivar AMSI desde la línea de comandos tiene muy pocos usos legítimos y deja al host sin análisis de scripts."
+    },
+    "en": {
+      "summary": "reg.exe or PowerShell ran with a command line that writes the AmsiEnable value under Software\\Microsoft\\Windows Script\\Settings. This is usually done to disable AMSI for Windows Script Host (JScript/VBScript).",
+      "what_it_detects": "Process creation events where CommandLine contains '\\Software\\Microsoft\\Windows Script\\Settings' and 'AmsiEnable', plus one of two conditions: reg.exe with 'add', or powershell.exe/pwsh.exe with Set-ItemProperty, New-ItemProperty or the 'sp ' alias.",
+      "why_it_matters": "When AmsiEnable is 0, wscript/cscript scripts run without antimalware inspection. This weakens defenses (ATT&CK T1685, related to T1562.001) and often comes right before malicious JScript or VBScript runs.",
+      "triage_steps": [
+        "Read CommandLine and confirm the value being written: 0 disables AMSI, 1 restores it.",
+        "Identify the user and host. Check whether the account has an admin reason to change Windows Script Host settings.",
+        "Inspect ParentImage and the process tree. A parent such as Office, mshta, wscript, cscript or a browser is highly suspicious.",
+        "On the same host within +/- 15 minutes, look for wscript.exe or cscript.exe runs and new .js, .jse, .vbs or .wsf files.",
+        "Check registry telemetry (Sysmon EventID 13) for the actual AmsiEnable change, in both HKCU and HKLM.",
+        "Look for network connections, downloads or persistence created right after the change.",
+        "Review earlier alerts for the same user and host, and search other endpoints for the same command line."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Authorized red team or Atomic Red Team tests (AMSI Bypass - Create AMSIEnable Reg Key).",
+        "Admin or compatibility scripts that set AmsiEnable back to 1. Confirm with the owning team."
+      ],
+      "response_steps": [
+        "Ask the user or their manager whether the change was authorized, and record the evidence.",
+        "If it was not authorized, isolate the endpoint and preserve memory, the registry and recent scripts.",
+        "After verification, set AmsiEnable back to 1 or delete the value. Then analyze any scripts that ran without AMSI.",
+        "Reset the user's credentials if compromise is suspected, and hunt for the same pattern across the fleet."
+      ],
+      "severity_rationale": "High fits because disabling AMSI from the command line has very few legitimate uses and leaves the host with no script inspection."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe adds AmsiEnable=0 under HKCU Windows Script Settings",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg add \"HKCU\\Software\\Microsoft\\Windows Script\\Settings\" /v AmsiEnable /t REG_DWORD /d 0 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat"
+        }
+      },
+      {
+        "description": "PowerShell Set-ItemProperty sets AmsiEnable to 0",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows Script\\Settings' -Name AmsiEnable -Value 0\"",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "reg.exe only queries AmsiEnable (no 'add')",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg query \"HKCU\\Software\\Microsoft\\Windows Script\\Settings\" /v AmsiEnable",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "PowerShell reads the value with Get-ItemProperty (not a write cmdlet)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows Script\\Settings' -Name AmsiEnable\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:57:07+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

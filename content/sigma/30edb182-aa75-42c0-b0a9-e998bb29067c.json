@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "30edb182-aa75-42c0-b0a9-e998bb29067c",
+    "title": "Potential AMSI Bypass Via .NET Reflection",
+    "level": "high",
+    "status": "test",
+    "author": "Markus Neis, @Kostastsale",
+    "path": "windows/process_creation/proc_creation_win_powershell_amsi_init_failed_bypass.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_amsi_init_failed_bypass.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso se inició con una línea de comandos que usa reflexión de .NET para manipular la clase AmsiUtils de PowerShell, en particular el campo amsiInitFailed. Es una técnica conocida para desactivar el escaneo AMSI en la sesión actual.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene 'System.Management.Automation.AmsiUtils' y 'amsiInitFailed', o bien '[Ref].Assembly.GetType', 'NonPublic,Static' y 'SetValue($null,$true)' a la vez.",
+      "why_it_matters": "Si se marca amsiInitFailed como verdadero, PowerShell deja de enviar scripts a AMSI y el antivirus no ve el contenido que se ejecuta después. La regla lo etiqueta como deterioro de defensas (T1685) y suele anteceder a la ejecución de payloads maliciosos.",
+      "triage_steps": [
+        "Lea el CommandLine completo y decodifique cualquier fragmento ofuscado o en base64 para confirmar que modifica amsiInitFailed u otro campo de AmsiUtils.",
+        "Revise ParentImage y la cadena de procesos padre: Office, navegadores, wmiprvse.exe o servicios lanzando PowerShell aumentan la sospecha.",
+        "Identifique el usuario y el host; confirme con el responsable si hay pruebas de seguridad autorizadas en curso.",
+        "Busque en el mismo host, +/- 15 minutos, procesos hijos, descargas (Invoke-WebRequest, DownloadString) y conexiones de red salientes.",
+        "Consulte los logs de PowerShell Script Block (4104) del host para ver qué se ejecutó después de la desactivación.",
+        "Busque el mismo CommandLine o hash del script en otros endpoints y alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "La regla indica que los falsos positivos son poco probables.",
+        "Ejercicios de red team, pentesting o emulación de adversarios autorizados que prueban la evasión de AMSI.",
+        "Investigadores o desarrolladores de seguridad que prueban detecciones en laboratorios."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del host y el equipo de seguridad si la actividad estaba autorizada antes de actuar.",
+        "Si no está autorizada, aísle el endpoint desde el EDR y preserve memoria y logs de PowerShell.",
+        "Termine el proceso de PowerShell implicado y los hijos maliciosos confirmados.",
+        "Restablezca las credenciales del usuario afectado si hay indicios de robo de credenciales o ejecución de payloads.",
+        "Elimine la persistencia identificada y realice un escaneo completo antes de reintegrar el equipo a la red."
+      ],
+      "severity_rationale": "Nivel alto porque desactivar AMSI casi nunca es legítimo y precede habitualmente a la ejecución de código malicioso no detectado."
+    },
+    "en": {
+      "summary": "A process started with a command line that uses .NET reflection to tamper with PowerShell's AmsiUtils class, typically its amsiInitFailed field. This is a well-known way to disable AMSI scanning for the current session.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains both 'System.Management.Automation.AmsiUtils' and 'amsiInitFailed', or all of '[Ref].Assembly.GetType', 'NonPublic,Static' and 'SetValue($null,$true)'.",
+      "why_it_matters": "Setting amsiInitFailed to true stops PowerShell from passing scripts to AMSI, so antivirus cannot inspect what runs next. The rule tags this as defense impairment (T1685); it usually precedes malicious payload execution.",
+      "triage_steps": [
+        "Read the full CommandLine and decode any obfuscated or base64 parts to confirm it modifies amsiInitFailed or another AmsiUtils field.",
+        "Check ParentImage and the parent chain; Office, browsers, wmiprvse.exe or services spawning PowerShell raise suspicion.",
+        "Identify the user and host; ask the owner whether authorized security testing is underway.",
+        "On the same host within +/- 15 minutes, look for child processes, downloads (Invoke-WebRequest, DownloadString) and outbound connections.",
+        "Review PowerShell Script Block logs (4104) on the host to see what ran after AMSI was disabled.",
+        "Search other endpoints for the same CommandLine or script hash, and check earlier alerts for this user or host."
+      ],
+      "false_positives": [
+        "The rule states false positives are unlikely.",
+        "Authorized red team, penetration testing or adversary emulation exercises testing AMSI evasion.",
+        "Security researchers or detection engineers testing in lab environments."
+      ],
+      "response_steps": [
+        "Confirm with the host owner and security team whether the activity was authorized before acting.",
+        "If unauthorized, isolate the endpoint via EDR and preserve memory and PowerShell logs.",
+        "Terminate the PowerShell process involved and any confirmed malicious children.",
+        "Reset the user's credentials if there are signs of credential theft or payload execution.",
+        "Remove identified persistence and run a full scan before returning the host to the network."
+      ],
+      "severity_rationale": "High fits because disabling AMSI is almost never legitimate and commonly precedes undetected malicious code execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell command line referencing AmsiUtils and amsiInitFailed (non-functional placeholder)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -NoP -W Hidden -c \"$c='System.Management.Automation.AmsiUtils'; $f='amsiInitFailed'; Write-Output $c $f\"",
+          "ProcessId": 4812
+        }
+      },
+      {
+        "description": "Reflection pattern with [Ref].Assembly.GetType, NonPublic,Static and SetValue($null,$true) using placeholder names",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -c \"[Ref].Assembly.GetType('Example.Placeholder.Type').GetField('placeholderField','NonPublic,Static').SetValue($null,$true)\"",
+          "ProcessId": 6120
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Read-only reflection on AmsiUtils: no amsiInitFailed and GetValue instead of SetValue($null,$true)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiSession','NonPublic,Static').GetValue($null)\"",
+          "ProcessId": 3304
+        }
+      },
+      {
+        "description": "Administrator checking Defender status, mentions AMSI but none of the rule strings",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-02.andes.example.com",
+          "User": "ANDES\\admin.soporte",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -Command \"Get-MpComputerStatus | Select-Object AMServiceEnabled,AntivirusEnabled,AMSIEngineVersion\"",
+          "ProcessId": 2216
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:57:07+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

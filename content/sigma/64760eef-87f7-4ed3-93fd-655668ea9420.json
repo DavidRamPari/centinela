@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "64760eef-87f7-4ed3-93fd-655668ea9420",
+    "title": "Use of Scriptrunner.exe",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_lolbin_scriptrunner.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_scriptrunner.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó ScriptRunner.exe, el ayudante de scripts de Microsoft App-V, con la opción -appvscript. Con esta opción se puede ejecutar un script o binario cualquiera a través de un ejecutable firmado por Microsoft.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\ScriptRunner.exe u OriginalFileName es ScriptRunner.exe, y CommandLine contiene ' -appvscript '. Como también compara OriginalFileName, detecta copias renombradas del binario.",
+      "why_it_matters": "Los atacantes usan binarios firmados del sistema para lanzar payloads y evadir el allowlisting de aplicaciones (ATT&CK T1218, ejecución por proxy mediante binarios del sistema). El destino de -appvscript puede ser un archivo local o una ruta UNC remota, así que también sirve para entregar un payload.",
+      "triage_steps": [
+        "Revise CommandLine e identifique el destino de -appvscript. Anote si es una ruta local, un recurso UNC o una carpeta escribible por el usuario, como Temp, Downloads o Public.",
+        "Revise ParentImage y la línea de comandos del proceso padre. Lo esperable es el cliente App-V o una herramienta de despliegue; Office, navegadores, cmd, PowerShell o wscript son sospechosos.",
+        "Verifique la ruta de Image. Si ScriptRunner.exe está fuera de System32/SysWOW64, o si OriginalFileName delata una copia renombrada, el abuso es muy probable.",
+        "Busque los procesos hijos de ScriptRunner.exe y revise qué ejecutó realmente el script o binario de destino.",
+        "Obtenga el hash del archivo de destino, consulte su reputación y verifique quién es su propietario y quién lo firmó.",
+        "En el mismo host, dentro de +/- 15 minutos, busque conexiones de red (sobre todo SMB o WebDAV hacia el recurso indicado), escrituras de archivos y persistencia nueva.",
+        "Confirme si App-V está desplegado en este equipo y valide el paquete y el script con el equipo de endpoints.",
+        "Busque alertas anteriores de ScriptRunner para el mismo usuario, host y ruta de destino."
+      ],
+      "false_positives": [
+        "Scripts legítimos de paquetes App-V que se ejecutan con ScriptRunner.exe en equipos donde App-V está desplegado.",
+        "Pruebas de empaquetado o despliegue de software hechas por TI que usan -appvscript con recursos internos aprobados."
+      ],
+      "response_steps": [
+        "Confirme con los responsables de App-V o de endpoints si la ejecución era esperada. Si lo era, documente el paquete y ajuste la regla para ese proceso padre y esa ruta.",
+        "Si es maliciosa o no tiene explicación, aísle el endpoint y detenga los procesos hijos.",
+        "Recolecte el script o binario de destino y bloquee su hash y el recurso o host remoto de origen.",
+        "Elimine los archivos descargados y la persistencia. Si se confirma el compromiso, restablezca las credenciales del usuario.",
+        "Busque en toda la flota el mismo destino en CommandLine o el mismo hash y, si hace falta, restaure el equipo a un estado confiable."
+      ],
+      "severity_rationale": "Medium es adecuado porque la opción es una técnica conocida de ejecución por proxy, pero tiene uso legítimo donde App-V está desplegado, así que el contexto define el veredicto."
+    },
+    "en": {
+      "summary": "ScriptRunner.exe, the Microsoft App-V script helper, was started with the -appvscript option. This option can proxy execution of an arbitrary script or binary through a signed Microsoft executable.",
+      "what_it_detects": "Process creation events where Image ends with \\ScriptRunner.exe or OriginalFileName is ScriptRunner.exe, and CommandLine contains ' -appvscript '. Matching on OriginalFileName also catches renamed copies of the binary.",
+      "why_it_matters": "Attackers use signed system binaries to launch payloads and get past application allowlisting (ATT&CK T1218, System Binary Proxy Execution). The target of -appvscript may be a local file or a remote UNC path, so this can also be a way to deliver a payload.",
+      "triage_steps": [
+        "Read CommandLine and find the target of -appvscript. Note whether it is a local path, a UNC share or a user-writable folder such as Temp, Downloads or Public.",
+        "Check ParentImage and the parent command line. App-V client or deployment tooling is expected; Office, browsers, cmd, PowerShell or wscript are suspicious.",
+        "Verify the Image path. ScriptRunner.exe outside System32/SysWOW64, or a renamed copy flagged by OriginalFileName, points strongly to abuse.",
+        "Find child processes of ScriptRunner.exe and look at what the target script or binary actually ran.",
+        "Get the hash of the target file, check its reputation, and check who owns and signed it.",
+        "On the same host within +/- 15 minutes, look for network connections, especially SMB or WebDAV to the referenced share, file writes and new persistence.",
+        "Check whether App-V is deployed on this host and confirm the package and script with the endpoint team.",
+        "Search for earlier ScriptRunner alerts for the same user, host and target path."
+      ],
+      "false_positives": [
+        "Legitimate App-V package scripts that run through ScriptRunner.exe on hosts where App-V is deployed.",
+        "Software deployment or packaging tests by IT staff that use -appvscript with approved internal shares."
+      ],
+      "response_steps": [
+        "Confirm with the App-V or endpoint owners whether this execution was expected. If it was, document the package and tune the rule for that parent and path.",
+        "If it is malicious or unexplained, isolate the endpoint and stop the child processes.",
+        "Collect the target script or binary and block its hash and the remote share or host it came from.",
+        "Remove dropped files and any persistence, then reset the user's credentials if compromise is confirmed.",
+        "Hunt across the fleet for the same CommandLine target or hash, then restore the host from a known-good state if needed."
+      ],
+      "severity_rationale": "Medium fits because the flag is a known proxy-execution technique but has legitimate use where App-V is deployed, so context decides the outcome."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "ScriptRunner.exe from System32 launched by cmd.exe to run a script from a remote UNC share via -appvscript.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\ScriptRunner.exe",
+          "OriginalFileName": "ScriptRunner.exe",
+          "CommandLine": "C:\\Windows\\System32\\ScriptRunner.exe -appvscript \\\\fs01.example.com\\share\\update.cmd",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Windows\\System32\\ScriptRunner.exe -appvscript \\\\fs01.example.com\\share\\update.cmd",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "Renamed copy of ScriptRunner.exe in a user-writable folder, caught by OriginalFileName, running a local binary.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "ScriptRunner.exe",
+          "CommandLine": "\"C:\\Users\\Public\\svchelper.exe\" -appvscript C:\\Users\\Public\\payload.exe -appvscriptrunnerparameters -wait",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "ScriptRunner.exe started without the -appvscript option, for example to display its help text.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\ScriptRunner.exe",
+          "OriginalFileName": "ScriptRunner.exe",
+          "CommandLine": "C:\\Windows\\System32\\ScriptRunner.exe /?",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "A different binary whose arguments contain -appvscript; neither Image nor OriginalFileName is ScriptRunner.exe.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "OriginalFileName": "NOTEPAD.EXE",
+          "CommandLine": "notepad.exe C:\\Docs\\notes -appvscript usage.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

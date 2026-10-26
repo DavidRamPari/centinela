@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "1012f107-b8f1-4271-af30-5aed2de89b39",
+    "title": "Terminal Service Process Spawn",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_svchost_termserv_proc_spawn.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_svchost_termserv_proc_spawn.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1190",
+      "T1210"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "El proceso del servicio Terminal Services (svchost.exe -k termsvcs) creó un proceso hijo que no es uno de los binarios esperados. Puede indicar la explotación de una vulnerabilidad RDP, como CVE-2019-0708 (BlueKeep).",
+      "what_it_detects": "Eventos de creación de procesos cuyo ParentCommandLine contiene '\\svchost.exe' y 'termsvcs', excepto cuando Image es rdpclip.exe, csrss.exe, wininit.exe o winlogon.exe en System32, o cuando Image está vacío.",
+      "why_it_matters": "TermService no suele lanzar shells ni herramientas. Si lo hace, es probable que un atacante haya ejecutado código a través del servicio RDP expuesto, para obtener acceso inicial (T1190) o moverse lateralmente explotando servicios remotos (T1210), normalmente con privilegios SYSTEM.",
+      "triage_steps": [
+        "Revise Image, CommandLine y User del proceso hijo. Cmd.exe, powershell.exe, rundll32.exe o binarios en rutas temporales son muy sospechosos.",
+        "Confirme que ParentCommandLine e IDs del padre corresponden al svchost real de TermService y anote el hash del Image hijo.",
+        "Busque en el mismo host, dentro de +/- 15 minutos, procesos nietos, conexiones de red salientes, archivos nuevos y servicios o tareas programadas creadas.",
+        "Revise los registros de RDP (Security 4624/4625 tipo 10, TerminalServices-RemoteConnectionManager) y anote las IPs de origen y los intentos fallidos o anómalos.",
+        "Verifique el nivel de parches del host frente a CVE-2019-0708 y si el puerto 3389 está expuesto a Internet.",
+        "Busque alertas anteriores sobre el mismo host, el mismo hash o la misma IP de origen en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Algunos componentes de RDP o software de terceros para sesiones remotas pueden lanzar procesos auxiliares desde TermService. Valide el binario, la firma y el proveedor antes de excluirlos."
+      ],
+      "response_steps": [
+        "Valide con el responsable del sistema si el proceso hijo es legítimo. Si no lo es, trate el caso como un compromiso confirmado.",
+        "Aísle el endpoint de la red y bloquee las IPs de origen de RDP sospechosas en el perímetro.",
+        "Conserve la memoria y los artefactos. Elimine los mecanismos de persistencia y los binarios maliciosos identificados solo después de verificarlos.",
+        "Aplique los parches, habilite NLA y restrinja RDP a VPN o a un bastión. Rote las credenciales que se usaron en el host."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque TermService casi nunca crea procesos fuera de la lista filtrada, y esto puede indicar ejecución remota de código como SYSTEM."
+    },
+    "en": {
+      "summary": "The Terminal Services host process (svchost.exe -k termsvcs) spawned a child process that is not one of its expected binaries. This may indicate exploitation of an RDP vulnerability such as CVE-2019-0708 (BlueKeep).",
+      "what_it_detects": "Process creation events where ParentCommandLine contains '\\svchost.exe' and 'termsvcs', excluding a System32 rdpclip.exe, csrss.exe, wininit.exe or winlogon.exe Image, and events with an empty Image.",
+      "why_it_matters": "TermService rarely spawns shells or tools. When it does, an attacker has likely run code through the exposed RDP service, either for initial access (T1190) or for lateral movement by exploiting remote services (T1210). This usually happens as SYSTEM.",
+      "triage_steps": [
+        "Review the child process Image, CommandLine and User. Cmd.exe, powershell.exe, rundll32.exe or binaries in temp paths are highly suspicious.",
+        "Confirm the ParentCommandLine and parent IDs belong to the genuine TermService svchost, and record the child Image hash.",
+        "On the same host within +/- 15 minutes, look for grandchild processes, outbound network connections, new files, and new services or scheduled tasks.",
+        "Review RDP logs (Security 4624/4625 logon type 10, TerminalServices-RemoteConnectionManager) for source IPs and anomalous or failed attempts.",
+        "Check the host's patch level for CVE-2019-0708 and whether port 3389 is exposed to the Internet.",
+        "Search for earlier alerts involving the same host, the same hash, or the same source IP on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Some RDP components or third-party remote session software may spawn helper processes from TermService. Validate the binary, signature and vendor before adding an exclusion."
+      ],
+      "response_steps": [
+        "Confirm with the system owner whether the child process is legitimate. If it is not, treat the host as compromised.",
+        "Isolate the endpoint and block suspicious RDP source IPs at the perimeter.",
+        "Preserve memory and artifacts. Remove persistence and malicious binaries only after you have verified them.",
+        "Patch the host, enable NLA, restrict RDP to VPN or a bastion, and rotate the credentials used on the host."
+      ],
+      "severity_rationale": "High fits because TermService almost never spawns processes outside the filtered list, so a hit may mean remote code execution as SYSTEM."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "TermService svchost spawns cmd.exe running reconnaissance as SYSTEM",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami & ipconfig /all",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\svchost.exe -k termsvcs -s TermService",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "TermService svchost spawns PowerShell from a temp path",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-RDS-02",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -File C:\\Windows\\Temp\\a.ps1",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\svchost.exe -k termsvcs",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate rdpclip.exe started by TermService for clipboard redirection (filtered)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rdpclip.exe",
+          "CommandLine": "rdpclip",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\svchost.exe -k termsvcs -s TermService",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "cmd.exe spawned by a different svchost service group (netsvcs), so the termsvcs selection does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c echo test",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\svchost.exe -k netsvcs -p -s Schedule",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

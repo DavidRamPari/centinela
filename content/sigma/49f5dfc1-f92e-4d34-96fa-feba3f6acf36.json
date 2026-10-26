@@ -1,0 +1,118 @@
+{
+  "rule": {
+    "id": "49f5dfc1-f92e-4d34-96fa-feba3f6acf36",
+    "title": "Disabling Security Tools - Builtin",
+    "level": "medium",
+    "status": "test",
+    "author": "Ömer Günal, Alejandro Ortuno, oscd.community",
+    "path": "linux/builtin/syslog/lnx_syslog_security_tools_disabling_syslog.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/linux/builtin/syslog/lnx_syslog_security_tools_disabling_syslog.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1686"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Syslog registró que se estaba deteniendo un firewall del host (iptables, ip6tables, firewalld) o un agente de seguridad (cbdaemon, falcon-sensor). Puede tratarse de mantenimiento o de un atacante que intenta quitar defensas.",
+      "what_it_detects": "Mensajes de syslog que contienen 'stopping iptables', 'stopping ip6tables', 'stopping firewalld', 'stopping cbdaemon' o 'stopping falcon-sensor', sin distinguir mayúsculas. Por lo general es systemd quien los escribe al detener esas unidades.",
+      "why_it_matters": "Si se detiene el firewall o el sensor EDR (cbdaemon de Carbon Black, falcon-sensor de CrowdStrike), el host queda expuesto y sin telemetría. Es un caso de evasión e impairment de defensas (T1686; la referencia de la regla es T1562.004, deshabilitar o modificar el firewall del sistema).",
+      "triage_steps": [
+        "Identifique en el message el host, la hora y el servicio detenido. Confirme si después aparece 'Stopped' y si el servicio volvió con 'Started'.",
+        "Descarte un reinicio o apagado: busque en el mismo host, dentro de +/- 15 minutos, mensajes de shutdown, reboot o 'Reached target' de systemd.",
+        "Busque quién lo detuvo: revise en auth.log/secure las líneas sudo COMMAND= con systemctl stop/disable, service o kill, y anote el usuario y el origen SSH.",
+        "Compare con tickets de cambio, ventanas de mantenimiento y ejecuciones de Ansible, Puppet o actualizaciones de paquetes (yum/dnf/apt) en esa franja.",
+        "En la consola del EDR, verifique si el sensor del host dejó de reportar y desde cuándo. Revise si el servicio quedó deshabilitado o enmascarado.",
+        "Busque otras alertas del mismo host, usuario o IP de origen: accesos SSH nuevos, cambios en crontab, binarios descargados o conexiones salientes inusuales."
+      ],
+      "false_positives": [
+        "Administración legítima: troubleshooting de red, cambio de firewalld a nftables o reglas recargadas por un administrador.",
+        "Reinicios o apagados planificados, en los que systemd detiene todos los servicios.",
+        "Actualización o reinstalación de paquetes del firewall o del agente EDR, que reinicia el servicio.",
+        "Herramientas de gestión de configuración o imágenes de contenedores y VM que desactivan el firewall por diseño."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del sistema o el ticket de cambio si la detención estaba autorizada antes de actuar.",
+        "Si no está autorizada, restaure el servicio (systemctl unmask/enable/start) y verifique que las reglas y el sensor vuelvan a reportar.",
+        "Contenga el host aislándolo de la red si hay otros indicios de compromiso. Bloquee la cuenta o la llave SSH involucrada.",
+        "Preserve los logs y el historial de shell, revise si hay persistencia y escale a respuesta a incidentes."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque la detención de estos servicios es común en mantenimiento, pero sin autorización deja el host sin defensas y exige revisión rápida."
+    },
+    "en": {
+      "summary": "Syslog recorded a host firewall (iptables, ip6tables, firewalld) or a security agent (cbdaemon, falcon-sensor) being stopped. This may be maintenance or an attacker removing defenses.",
+      "what_it_detects": "Syslog messages that contain 'stopping iptables', 'stopping ip6tables', 'stopping firewalld', 'stopping cbdaemon' or 'stopping falcon-sensor', matched case-insensitively. systemd usually writes these when it stops those units.",
+      "why_it_matters": "Stopping the firewall or the EDR sensor (Carbon Black cbdaemon, CrowdStrike falcon-sensor) leaves the host exposed and without telemetry. This is defense impairment (T1686; the rule's reference is T1562.004, disable or modify system firewall).",
+      "triage_steps": [
+        "From the message, note the host, the time and the service being stopped. Check whether a 'Stopped' line follows and whether the service came back with 'Started'.",
+        "Rule out a reboot or shutdown: look for systemd shutdown, reboot or 'Reached target' messages on the same host within +/- 15 minutes.",
+        "Find out who stopped it: check auth.log/secure for sudo COMMAND= lines with systemctl stop/disable, service or kill, and record the user and the SSH source.",
+        "Compare against change tickets, maintenance windows, and Ansible, Puppet or package update (yum/dnf/apt) runs in that window.",
+        "In the EDR console, check whether the host's sensor stopped reporting and since when. Check whether the service was left disabled or masked.",
+        "Pivot on the same host, user and source IP for other alerts: new SSH logins, crontab changes, downloaded binaries or unusual outbound connections."
+      ],
+      "false_positives": [
+        "Legitimate administration: network troubleshooting, a move from firewalld to nftables, or rules reloaded by an admin.",
+        "Planned reboots or shutdowns, where systemd stops every service.",
+        "Package updates or reinstalls of the firewall or EDR agent that restart the service.",
+        "Configuration management, or container and VM images that disable the firewall by design."
+      ],
+      "response_steps": [
+        "Before acting, confirm with the system owner or the change ticket whether the stop was authorized.",
+        "If it was not authorized, restore the service (systemctl unmask/enable/start) and check that the rules and the sensor report again.",
+        "If there are other signs of compromise, isolate the host from the network. Lock the account or SSH key involved.",
+        "Preserve the logs and shell history, hunt for persistence and escalate to incident response."
+      ],
+      "severity_rationale": "Medium fits because stopping these services is common during maintenance, but an unauthorized stop leaves the host undefended and needs prompt review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "systemd stops firewalld outside a reboot sequence",
+        "event": {
+          "message": "Oct 25 14:03:12 bastion-01 systemd[1]: Stopping firewalld - dynamic firewall daemon...",
+          "host": "bastion-01",
+          "program": "systemd",
+          "facility": "daemon"
+        }
+      },
+      {
+        "description": "systemd stops the falcon-sensor EDR service",
+        "event": {
+          "message": "Oct 25 14:05:40 web-07 systemd[1]: Stopping falcon-sensor.service - CrowdStrike Falcon Sensor...",
+          "host": "web-07",
+          "program": "systemd",
+          "facility": "daemon"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Completion line uses 'Stopped', which does not contain the 'stopping firewalld' keyword",
+        "event": {
+          "message": "Oct 25 14:03:13 bastion-01 systemd[1]: Stopped firewalld - dynamic firewall daemon.",
+          "host": "bastion-01",
+          "program": "systemd",
+          "facility": "daemon"
+        }
+      },
+      {
+        "description": "firewalld being started, not stopped",
+        "event": {
+          "message": "Oct 25 14:10:02 bastion-01 systemd[1]: Starting firewalld - dynamic firewall daemon...",
+          "host": "bastion-01",
+          "program": "systemd",
+          "facility": "daemon"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

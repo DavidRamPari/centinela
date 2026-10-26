@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "3f5491e2-8db8-496b-9e95-1029fce852d4",
+    "title": "Driver/DLL Installation Via Odbcconf.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_odbcconf_driver_install.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_odbcconf_driver_install.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.008"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó odbcconf.exe con la acción INSTALLDRIVER y una referencia a un archivo .dll, lo que registra un nuevo driver ODBC. Los atacantes usan esta técnica para cargar y ejecutar DLL maliciosas mediante un binario firmado por Microsoft.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\odbcconf.exe u OriginalFileName es odbcconf.exe, y CommandLine contiene a la vez 'INSTALLDRIVER ' y '.dll'. El modificador /A no es obligatorio para que la acción se ejecute.",
+      "why_it_matters": "Odbcconf.exe es un LOLBin documentado en LOLBAS. Al instalar un driver, puede cargar la DLL indicada y ejecutar su código dentro de un proceso de confianza. Así se evaden los controles de aplicaciones (ATT&CK T1218.008, ejecución de binario proxy del sistema: Odbcconf) y se puede lograr persistencia.",
+      "triage_steps": [
+        "Revise CommandLine completo: extraiga la ruta de la DLL indicada en Driver= o Setup= y el nombre del driver.",
+        "Evalúe la ruta de la DLL: Users, Public, Temp, AppData o recursos compartidos de red son sospechosos; System32 o carpetas de un proveedor conocido son más comunes.",
+        "Obtenga el hash de la DLL, verifique su firma digital y su reputación; compare con instaladores de software aprobados.",
+        "Analice ParentImage y la cadena de procesos: cmd, powershell, wscript, mshta u Office como padre elevan el riesgo frente a msiexec o un instalador conocido.",
+        "Pivote en el mismo host +/- 15 minutos: creación del archivo DLL, cargas de imagen por odbcconf.exe, procesos hijos y conexiones de red salientes.",
+        "Revise el registro HKLM\\SOFTWARE\\ODBC\\ODBCINST.INI en busca del driver nuevo y su ruta.",
+        "Verifique el usuario, si la sesión es interactiva o remota, y busque alertas previas para el mismo usuario y host."
+      ],
+      "false_positives": [
+        "Instaladores legítimos de drivers ODBC (bases de datos, ERP, herramientas de BI) que registran su DLL mediante odbcconf.",
+        "Scripts de despliegue de TI o herramientas de gestión de software (SCCM, Intune) que configuran drivers ODBC corporativos.",
+        "Administradores de bases de datos que instalan drivers manualmente durante tareas de mantenimiento aprobadas."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del sistema o con el equipo de TI si la instalación del driver estaba autorizada.",
+        "Si no está autorizada, aísle el endpoint y preserve la DLL, su hash y la memoria del proceso para análisis.",
+        "Elimine la entrada del driver en ODBCINST.INI y la DLL maliciosa solo después de recolectar la evidencia.",
+        "Busque el hash y la ruta de la DLL en otros endpoints y bloquéelos en el EDR.",
+        "Restablezca las credenciales del usuario involucrado si hay indicios de compromiso y documente los hallazgos."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque la técnica es de abuso conocido, pero existen instalaciones legítimas de drivers ODBC que requieren validar la ruta y el contenido de la DLL."
+    },
+    "en": {
+      "summary": "odbcconf.exe ran with the INSTALLDRIVER action and a reference to a .dll file, registering a new ODBC driver. Attackers abuse this to load and run malicious DLLs through a Microsoft-signed binary.",
+      "what_it_detects": "Windows process creation events where Image ends with \\odbcconf.exe or OriginalFileName is odbcconf.exe, and CommandLine contains both 'INSTALLDRIVER ' and '.dll'. The /A flag is not required for the action to run.",
+      "why_it_matters": "Odbcconf.exe is a LOLBAS-documented LOLBin. Installing a driver can load the specified DLL and run its code inside a trusted process. This bypasses application control (ATT&CK T1218.008, System Binary Proxy Execution: Odbcconf) and can give the attacker persistence.",
+      "triage_steps": [
+        "Read the full CommandLine: extract the DLL path given in Driver= or Setup= and the driver name.",
+        "Assess the DLL path: Users, Public, Temp, AppData or network shares are suspicious; System32 or known vendor folders are more typical.",
+        "Hash the DLL, check its digital signature and reputation, and compare against approved software installers.",
+        "Review ParentImage and the process tree: cmd, powershell, wscript, mshta or Office parents raise risk compared with msiexec or a known installer.",
+        "Pivot on the same host +/- 15 minutes: DLL file creation, image loads by odbcconf.exe, child processes and outbound network connections.",
+        "Check HKLM\\SOFTWARE\\ODBC\\ODBCINST.INI for the new driver and its path.",
+        "Verify the user, whether the session was interactive or remote, and look for earlier alerts on the same user and host."
+      ],
+      "false_positives": [
+        "Legitimate ODBC driver installers (databases, ERP, BI tools) registering their DLL via odbcconf.",
+        "IT deployment scripts or software management tools (SCCM, Intune) configuring corporate ODBC drivers.",
+        "Database administrators manually installing drivers during approved maintenance."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or IT whether the driver installation was authorized.",
+        "If unauthorized, isolate the endpoint and preserve the DLL, its hash and process memory for analysis.",
+        "Remove the ODBCINST.INI driver entry and the malicious DLL only after evidence is collected.",
+        "Hunt for the DLL hash and path on other endpoints and block them in the EDR.",
+        "Reset the involved user's credentials if compromise is indicated, and document findings."
+      ],
+      "severity_rationale": "Medium fits because the technique is a known abuse path, yet legitimate ODBC driver installs exist and require validating the DLL path and contents."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "odbcconf.exe launched from PowerShell installs a driver pointing to a DLL in C:\\Users\\Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\odbcconf.exe",
+          "OriginalFileName": "odbcconf.exe",
+          "CommandLine": "odbcconf.exe /A {INSTALLDRIVER \"Updater Driver|Driver=C:\\Users\\Public\\updater.dll|APILevel=2\"}",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      },
+      {
+        "description": "Renamed odbcconf binary (matched via OriginalFileName) without /A flag installing a DLL from Temp",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\cfg.exe",
+          "OriginalFileName": "odbcconf.exe",
+          "CommandLine": "cfg.exe INSTALLDRIVER \"Data|Driver=C:\\Users\\mrojas\\AppData\\Local\\Temp\\data.dll\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c cfg.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate odbcconf use creating a system DSN, no INSTALLDRIVER action",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\System32\\odbcconf.exe",
+          "OriginalFileName": "odbcconf.exe",
+          "CommandLine": "odbcconf.exe /A {CONFIGSYSDSN \"SQL Server\" \"DSN=Ventas|Server=db01.example.com\"}",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe"
+        }
+      },
+      {
+        "description": "Different binary whose command line mentions INSTALLDRIVER and a DLL, but Image and OriginalFileName are not odbcconf",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "OriginalFileName": "NOTEPAD.EXE",
+          "CommandLine": "notepad.exe C:\\Docs\\INSTALLDRIVER notes for odbc.dll.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

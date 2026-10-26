@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "c31364f7-8be6-4b77-8483-dd2b5a7b69a3",
+    "title": "Import PowerShell Modules From Suspicious Directories - ProcCreation",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_import_module_susp_dirs.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_import_module_susp_dirs.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó una línea de comandos de PowerShell que importa un módulo (Import-Module o su alias ipmo) desde %TEMP%, %APPDATA% o C:\\Users\\Public. Son rutas en las que cualquier usuario puede escribir y que se usan con frecuencia para dejar herramientas descargadas.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene Import-Module o ipmo seguido literalmente de $Env:Temp\\, $Env:Appdata\\ (con o sin comillas) o C:\\Users\\Public\\.",
+      "why_it_matters": "Los atacantes descargan scripts o módulos ofensivos a directorios temporales o públicos y los cargan en PowerShell (T1059.001, ejecución con PowerShell). La referencia de la regla es una prueba de Atomic Red Team que carga así un script de volcado de credenciales del SAM.",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique el archivo .ps1/.psm1/.dll importado y las funciones que se invocan después de la importación.",
+        "Revise ParentImage y la línea de comandos del proceso padre: Office, navegadores, wscript, mshta o servicios remotos como padre aumentan la sospecha.",
+        "Identifique el usuario y el host; confirme si el usuario es administrador o si suele usar scripts.",
+        "Obtenga el archivo del módulo en la ruta indicada, calcule su hash y revise su contenido y reputación.",
+        "Busque en el mismo host, +/- 15 minutos, descargas (Invoke-WebRequest, certutil, bitsadmin) que crearon el módulo y conexiones de red salientes.",
+        "Revise los procesos hijos y los eventos posteriores: acceso a lsass, exportación de hives SAM/SYSTEM, creación de cuentas o movimiento lateral.",
+        "Consulte los registros de Script Block Logging (4104) del mismo proceso y las alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "Scripts de administración o instaladores que extraen un módulo en %TEMP% y lo importan durante la instalación.",
+        "Herramientas de despliegue o RMM que copian módulos auxiliares a C:\\Users\\Public o %APPDATA%.",
+        "Pruebas autorizadas de red team o de Atomic Red Team; valide contra el calendario de ejercicios."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o el responsable del sistema si la ejecución era esperada y cuál es el origen del módulo.",
+        "Si es malicioso, aísle el endpoint y termine el proceso de PowerShell tras preservar la evidencia (archivo, memoria si es posible y registros).",
+        "Ponga el archivo en cuarentena y busque su hash y su nombre en otros endpoints.",
+        "Si el módulo vuelca credenciales, restablezca las contraseñas afectadas y revise el uso posterior de esas cuentas.",
+        "Elimine la persistencia encontrada, restaure el equipo a un estado confiable y considere restringir PowerShell con AppLocker o el modo Constrained Language."
+      ],
+      "severity_rationale": "La severidad media es adecuada porque la importación desde rutas escribibles por el usuario es poco común y suele preceder a actividad ofensiva, aunque algunos instaladores lo hacen de forma legítima."
+    },
+    "en": {
+      "summary": "A process ran a PowerShell command line that imports a module (Import-Module or its alias ipmo) from %TEMP%, %APPDATA% or C:\\Users\\Public. Any user can write to these paths, and attackers often use them to drop downloaded tooling.",
+      "what_it_detects": "Process creation events whose CommandLine contains Import-Module or ipmo followed literally by $Env:Temp\\, $Env:Appdata\\ (quoted or unquoted) or C:\\Users\\Public\\.",
+      "why_it_matters": "Attackers download offensive scripts or modules to temp or public folders and load them into PowerShell (T1059.001, PowerShell execution). The rule's reference is an Atomic Red Team test that loads a SAM credential-dumping script this way.",
+      "triage_steps": [
+        "Read the full CommandLine: identify the imported .ps1/.psm1/.dll file and the functions called after the import.",
+        "Check ParentImage and the parent command line. Office apps, browsers, wscript, mshta or remote services as the parent make the activity more suspicious.",
+        "Identify the user and host. Confirm whether the user is an admin or normally runs scripts.",
+        "Collect the module file from the referenced path, hash it, and review its content and reputation.",
+        "On the same host within +/- 15 minutes, look for downloads that created the module (Invoke-WebRequest, certutil, bitsadmin) and for outbound connections.",
+        "Review child processes and follow-on activity: lsass access, SAM/SYSTEM hive export, account creation or lateral movement.",
+        "Check Script Block Logging (4104) for the same process, plus earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "Admin scripts or installers that extract a module to %TEMP% and import it during setup.",
+        "Deployment or RMM tools that copy helper modules to C:\\Users\\Public or %APPDATA%.",
+        "Authorized red team or Atomic Red Team testing. Check it against the exercise schedule."
+      ],
+      "response_steps": [
+        "Ask the user or system owner whether the run was expected and where the module came from.",
+        "If it is malicious, preserve evidence first (file, memory if possible, logs). Then isolate the endpoint and kill the PowerShell process.",
+        "Quarantine the file and search other endpoints for its hash and name.",
+        "If the module dumps credentials, reset the affected passwords and review how those accounts were used afterward.",
+        "Remove any persistence, restore the host to a trusted state, and consider restricting PowerShell with AppLocker or Constrained Language Mode."
+      ],
+      "severity_rationale": "Medium fits because importing modules from user-writable paths is uncommon and often comes before offensive activity, though some installers do it legitimately."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell spawned by cmd imports a script from %TEMP% with single quotes and then calls a function from it.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -ExecutionPolicy Bypass -Command \"Import-Module '$Env:Temp\\HelperTools.ps1'; Invoke-HelperTask\"",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "The ipmo alias loads a module from C:\\Users\\Public.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -c \"ipmo C:\\Users\\Public\\update.psm1; Start-Update\"",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "A legitimate import of a module installed under Program Files.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-ADM-01.andes.example.com",
+          "User": "ANDES\\admin.lgarcia",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command \"Import-Module 'C:\\Program Files\\WindowsPowerShell\\Modules\\ActiveDirectory\\ActiveDirectory.psd1'; Get-ADUser jperez\"",
+          "CurrentDirectory": "C:\\Users\\admin.lgarcia\\"
+        }
+      },
+      {
+        "description": "Import-Module by name only (a built-in module), with no path to a temp, AppData or public folder.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Import-Module PSReadLine; Get-PSReadLineOption\"",
+          "CurrentDirectory": "C:\\Windows\\System32\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

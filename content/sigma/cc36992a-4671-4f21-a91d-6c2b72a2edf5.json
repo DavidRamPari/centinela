@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "cc36992a-4671-4f21-a91d-6c2b72a2edf5",
+    "title": "Suspicious Eventlog Clearing or Configuration Change Activity",
+    "level": "high",
+    "status": "stable",
+    "author": "Ecco, Daniil Yugoslavskiy, oscd.community, D3F7A5105, Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_eventlog_clear.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_eventlog_clear.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685.001",
+      "T1685.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó wevtutil, PowerShell o WMIC con argumentos que borran un registro de eventos de Windows o cambian su configuración (tamaño, ubicación o nombre de archivo). Puede ser un intento de ocultar actividad maliciosa.",
+      "what_it_detects": "Eventos de creación de procesos en los que wevtutil.exe usa clear-log/cl, set-log/sl o lfn:; PowerShell o pwsh usa Clear-EventLog, Remove-EventLog, Limit-EventLog, Clear-WinEvent, EventLogSession.ClearLog o Diagnostics.EventLog.Clear; o PowerShell/WMIC invoca ClearEventLog. Se excluyen los 'wevtutil sl' lanzados por msiexec.exe.",
+      "why_it_matters": "Borrar los registros o reducir su tamaño elimina evidencia de intrusión y deja ciego al SOC. La regla lo etiqueta como deterioro de defensas (T1685.005 y T1685.001); ransomware y operadores lo hacen con frecuencia antes o después de su ataque.",
+      "triage_steps": [
+        "Revise CommandLine: identifique qué log se afectó (Security, System, Sysmon, PowerShell) y si fue borrado, redimensionado (/ms:) o reubicado (lfn:).",
+        "Valide Image y OriginalFileName para confirmar el binario real y su ruta; desconfíe de copias fuera de System32.",
+        "Analice ParentImage y el árbol de procesos: cmd, scripts, herramientas de acceso remoto o binarios en carpetas temporales son señales de alerta.",
+        "Identifique el usuario y la sesión de inicio (interactiva, RDP, servicio) y confirme con el administrador si existía un cambio autorizado.",
+        "Busque en el mismo host ±15 minutos: Event ID 1102 o 104, eliminación de shadow copies, cambios en servicios o creación de cuentas.",
+        "Revise el SIEM por si conserva copias de los logs borrados y reconstruya la actividad previa al borrado.",
+        "Busque la misma CommandLine o usuario en otros endpoints para detectar ejecución masiva y revise alertas previas de ese host."
+      ],
+      "false_positives": [
+        "Administradores que limpian o redimensionan registros durante mantenimiento planificado.",
+        "Scripts de configuración o hardening que ajustan tamaño o retención de logs con wevtutil sl.",
+        "Instaladores o agentes de gestión que configuran canales de depuración sin usar msiexec como proceso padre."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del sistema o el registro de cambios si la acción fue autorizada antes de escalar.",
+        "Si no está autorizada, aísle el endpoint y preserve memoria, logs restantes y artefactos de la cuenta implicada.",
+        "Restablezca contraseñas o deshabilite la cuenta usada y revise movimiento lateral desde ese host.",
+        "Restaure la configuración de los registros (tamaño, ruta y retención) y verifique que el reenvío al SIEM funcione."
+      ],
+      "severity_rationale": "Es alta porque borrar o alterar registros rara vez es rutina y suele indicar un atacante que intenta eliminar evidencia."
+    },
+    "en": {
+      "summary": "wevtutil, PowerShell or WMIC ran with arguments that clear a Windows event log or change its configuration (size, location or file name). This may be an attempt to hide malicious activity.",
+      "what_it_detects": "Process creation events where wevtutil.exe uses clear-log/cl, set-log/sl or lfn:; PowerShell or pwsh uses Clear-EventLog, Remove-EventLog, Limit-EventLog, Clear-WinEvent, EventLogSession.ClearLog or Diagnostics.EventLog.Clear; or PowerShell/WMIC calls ClearEventLog. 'wevtutil sl' launched by msiexec.exe is excluded.",
+      "why_it_matters": "Clearing or shrinking logs destroys intrusion evidence and blinds the SOC. The rule tags it as defense impairment (T1685.005, T1685.001); ransomware and hands-on operators commonly do this around their attack.",
+      "triage_steps": [
+        "Read CommandLine: identify which log was affected (Security, System, Sysmon, PowerShell) and whether it was cleared, resized (/ms:) or relocated (lfn:).",
+        "Check Image and OriginalFileName to confirm the real binary and path; treat copies outside System32 as suspicious.",
+        "Review ParentImage and the process tree: cmd, scripts, remote access tools or binaries in temp folders are red flags.",
+        "Identify the user and logon type (interactive, RDP, service) and confirm with the admin whether an approved change existed.",
+        "Search the same host +/- 15 minutes: Event ID 1102 or 104, shadow copy deletion, service changes or new accounts.",
+        "Check whether the SIEM retains copies of the cleared logs and rebuild the activity preceding the clearing.",
+        "Hunt the same CommandLine or user across other endpoints for mass execution, and review earlier alerts for this host."
+      ],
+      "false_positives": [
+        "Administrators clearing or resizing logs during planned maintenance.",
+        "Configuration or hardening scripts adjusting log size or retention with wevtutil sl.",
+        "Installers or management agents configuring debug channels without msiexec as the parent process."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or change record whether the action was authorized before escalating.",
+        "If unauthorized, isolate the endpoint and preserve memory, remaining logs and artifacts tied to the account.",
+        "Reset credentials or disable the account used and check for lateral movement from the host.",
+        "Restore log configuration (size, path, retention) and verify forwarding to the SIEM works."
+      ],
+      "severity_rationale": "High because clearing or altering event logs is rarely routine and usually signals an attacker removing evidence."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "wevtutil clears the Security log from a cmd shell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wevtutil.exe",
+          "OriginalFileName": "wevtutil.exe",
+          "CommandLine": "wevtutil.exe cl Security",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c wevtutil.exe cl Security",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell Clear-EventLog wipes System and Application logs",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command Clear-EventLog -LogName System,Application",
+          "ParentImage": "C:\\Users\\Public\\run.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Office installation via msiexec configures a debug channel with wevtutil sl (excluded by filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\wevtutil.exe",
+          "OriginalFileName": "wevtutil.exe",
+          "CommandLine": "\"C:\\WINDOWS\\system32\\wevtutil.exe\" sl Microsoft-RMS-MSIPC/Debug /q:true /e:true /l:4 /rt:false",
+          "ParentImage": "C:\\Windows\\SysWOW64\\msiexec.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "wevtutil used only to query events, no clear or set operation",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\wevtutil.exe",
+          "OriginalFileName": "wevtutil.exe",
+          "CommandLine": "wevtutil.exe qe Security /c:20 /rd:true /f:text",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

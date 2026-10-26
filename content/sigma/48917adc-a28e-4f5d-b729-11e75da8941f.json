@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "48917adc-a28e-4f5d-b729-11e75da8941f",
+    "title": "Suspicious Windows Defender Folder Exclusion Added Via Reg.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_reg_defender_exclusion.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reg_defender_exclusion.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se usó reg.exe para agregar una exclusión de carpeta de Microsoft Defender directamente en el registro. Esta técnica se ha visto en Qbot para excluir carpetas dentro de AppData y ProgramData y ocultar sus archivos del antivirus.",
+      "what_it_detects": "Una ejecución de reg.exe cuyo CommandLine contiene ADD, /t REG_DWORD, /v y /d con valor 0 sobre SOFTWARE\\Microsoft\\Windows Defender\\Exclusions\\Paths o SOFTWARE\\Microsoft\\Microsoft Antimalware\\Exclusions\\Paths.",
+      "why_it_matters": "Una exclusión de ruta impide que Defender analice todo lo que esté en esa carpeta. Así el atacante debilita las defensas (defense impairment, T1685) y puede dejar payloads o herramientas sin que se detecten.",
+      "triage_steps": [
+        "Revise en CommandLine la ruta del valor /v: ¿es una carpeta de usuario, AppData, ProgramData, Temp o una ruta con nombre aleatorio?",
+        "Identifique ParentImage y la cadena de procesos: preocupa más si viene de cmd.exe, powershell.exe, wscript.exe, rundll32.exe o regsvr32.exe y no de un instalador o agente de gestión.",
+        "Valide el usuario y la integridad del proceso; modificar esta clave requiere privilegios de administrador o SYSTEM.",
+        "Liste el contenido de la carpeta excluida y obtenga el hash de los archivos recientes para buscarlo en su inteligencia de amenazas.",
+        "Compruebe si la exclusión quedó aplicada (Get-MpPreference, ExclusionPath) y revise el evento 5007 de Defender por cambios de configuración.",
+        "Busque en el mismo host, +/- 15 minutos, creación de archivos en esa ruta, tareas programadas, conexiones salientes y otras alertas.",
+        "Busque el mismo CommandLine o la misma ruta excluida en otros endpoints para detectar propagación."
+      ],
+      "false_positives": [
+        "Uso legítimo: administradores o scripts de despliegue que agregan exclusiones para software de negocio con un ticket de cambio asociado.",
+        "Instaladores de aplicaciones o agentes de backup que crean exclusiones para sus propias carpetas de instalación en Program Files.",
+        "Herramientas de gestión de configuración que normalmente usan GPO o Intune, pero a veces llaman a reg.exe."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del equipo o el área de TI si el cambio estaba autorizado antes de actuar.",
+        "Si no está autorizado, aísle el endpoint y conserve evidencia: árbol de procesos, contenido de la carpeta y la clave de registro.",
+        "Elimine la exclusión, active Tamper Protection y ejecute un análisis completo de la carpeta antes excluida.",
+        "Ponga en cuarentena los binarios maliciosos, elimine la persistencia relacionada y restablezca credenciales si hubo uso de cuentas privilegiadas.",
+        "Bloquee los hashes e indicadores encontrados y busque los mismos indicadores en toda la flota."
+      ],
+      "severity_rationale": "Nivel medio: la técnica debilita directamente el antivirus y la usa malware conocido, pero algunos administradores e instaladores también agregan exclusiones legítimas."
+    },
+    "en": {
+      "summary": "reg.exe was used to add a Microsoft Defender folder exclusion directly in the registry. Qbot has been seen doing this to exclude AppData and ProgramData folders and hide its files from antivirus scans.",
+      "what_it_detects": "A reg.exe process whose CommandLine contains ADD, /t REG_DWORD, /v and /d with a value of 0 against SOFTWARE\\Microsoft\\Windows Defender\\Exclusions\\Paths or SOFTWARE\\Microsoft\\Microsoft Antimalware\\Exclusions\\Paths.",
+      "why_it_matters": "A path exclusion stops Defender from scanning anything in that folder. This impairs defenses (T1685) and lets an attacker stage payloads or tools without detection.",
+      "triage_steps": [
+        "Read the /v path in CommandLine: is it a user folder, AppData, ProgramData, Temp, or a randomly named directory?",
+        "Check ParentImage and the process tree. A parent of cmd.exe, powershell.exe, wscript.exe, rundll32.exe or regsvr32.exe is more suspicious than an installer or management agent.",
+        "Check the user and process integrity level. Changing this key requires administrator or SYSTEM rights.",
+        "List the excluded folder's contents and hash recently created files, then look the hashes up in threat intelligence.",
+        "Confirm whether the exclusion took effect (Get-MpPreference ExclusionPath) and check Defender event 5007 for configuration changes.",
+        "On the same host, within +/- 15 minutes, look for file writes to that path, scheduled tasks, outbound connections and other alerts.",
+        "Hunt for the same CommandLine or excluded path on other endpoints to spot spread."
+      ],
+      "false_positives": [
+        "Legitimate use: administrators or deployment scripts adding exclusions for business software, with a matching change ticket.",
+        "Application installers or backup agents creating exclusions for their own install folders under Program Files.",
+        "Configuration management tooling that usually relies on GPO or Intune but sometimes calls reg.exe."
+      ],
+      "response_steps": [
+        "Before acting, ask the host owner or IT whether the change was authorized.",
+        "If it was not authorized, isolate the endpoint and preserve evidence: process tree, folder contents and the registry key.",
+        "Remove the exclusion, enable Tamper Protection and run a full scan of the previously excluded folder.",
+        "Quarantine malicious binaries, remove related persistence and reset credentials if privileged accounts were used.",
+        "Block the hashes and indicators you found and hunt for them across the fleet."
+      ],
+      "severity_rationale": "Medium: the technique directly weakens antivirus coverage and known malware uses it, but some administrators and installers add exclusions legitimately."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Qbot-style exclusion of a random ProgramData folder via the Windows Defender key, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\cmd.exe /c reg.exe ADD \"HKLM\\SOFTWARE\\Microsoft\\Windows Defender\\Exclusions\\Paths\" /f /t REG_DWORD /v \"C:\\ProgramData\\Kwvbqlxr\" /d \"0\"",
+          "CommandLine": "reg.exe ADD \"HKLM\\SOFTWARE\\Microsoft\\Windows Defender\\Exclusions\\Paths\" /f /t REG_DWORD /v \"C:\\ProgramData\\Kwvbqlxr\" /d \"0\"",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Exclusion of a user AppData folder through the Microsoft Antimalware key",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\SysWOW64\\reg.exe",
+          "ParentImage": "C:\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "\"C:\\Windows\\SysWOW64\\reg.exe\" ADD \"HKLM\\SOFTWARE\\Microsoft\\Microsoft Antimalware\\Exclusions\\Paths\" /f /t REG_DWORD /v \"C:\\Users\\jperez\\AppData\\Roaming\\Microsoft\\Qwerty\" /d 0",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "An administrator queries the Defender exclusions key with reg.exe; no ADD, /t REG_DWORD or /d is present",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.mlopez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "reg.exe QUERY \"HKLM\\SOFTWARE\\Microsoft\\Windows Defender\\Exclusions\\Paths\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "reg.exe adds a REG_DWORD value under an unrelated application key, not a Defender exclusion path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "ParentImage": "C:\\Windows\\CCM\\CcmExec.exe",
+          "CommandLine": "reg.exe ADD \"HKLM\\SOFTWARE\\ExampleCorp\\Agent\" /f /t REG_DWORD /v \"TelemetryEnabled\" /d 0",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

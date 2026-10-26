@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "b1377339-fda6-477a-b455-ac0923f9ec2c",
+    "title": "Remote Access Tool - AnyDesk Piped Password Via CLI",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_remote_access_tools_anydesk_piped_password_via_cli.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_remote_access_tools_anydesk_piped_password_via_cli.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1219.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un comando CMD que pasa una contraseña con echo, mediante una tubería, a un ejecutable con el flag --set-password, normalmente AnyDesk. Esto configura el acceso desatendido y permite conexiones remotas sin que el usuario las apruebe.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene a la vez '/c ', 'echo ' y '.exe --set-password'. Ejemplo: cmd.exe /c echo <clave> | C:\\ProgramData\\anydesk.exe --set-password.",
+      "why_it_matters": "Un atacante que instala AnyDesk y le fija una contraseña obtiene acceso remoto persistente y con apariencia legítima (ATT&CK T1219.002, software de escritorio remoto). Además, la contraseña queda en texto claro en la línea de comandos.",
+      "triage_steps": [
+        "Revise el CommandLine completo: ruta del ejecutable que recibe la clave (¿ProgramData, Temp, Downloads en lugar de Program Files?) y la contraseña expuesta.",
+        "Identifique ParentImage y la cadena de procesos: ¿lo lanzó una herramienta RMM o de despliegue, un script, PowerShell, un servicio o un documento de Office?",
+        "Verifique el User y el host: ¿es una cuenta de TI autorizada o SYSTEM ejecutado por un instalador conocido?",
+        "Obtenga el hash y la firma digital del binario AnyDesk; confirme que es AnyDesk legítimo y si su instalación fue aprobada.",
+        "Busque en el mismo host, +/- 15 minutos, descargas de anydesk.exe, ejecuciones con --install o --start-with-win, creación de servicios y cuentas nuevas.",
+        "Revise los logs de AnyDesk (ad.trace, connection_trace.txt en %ProgramData%\\AnyDesk) para ver conexiones entrantes y sus IDs de origen.",
+        "Busque el mismo CommandLine o contraseña en otros endpoints y alertas previas para el mismo usuario o host."
+      ],
+      "false_positives": [
+        "Despliegues legítimos de AnyDesk por TI o un proveedor de soporte que fijan la contraseña de acceso desatendido mediante script.",
+        "Otras herramientas que usan el mismo flag --set-password con una tubería desde echo."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del equipo o con TI si la instalación y la configuración fueron autorizadas.",
+        "Si no lo fueron, aísle el endpoint y bloquee las conexiones a AnyDesk en el proxy o firewall mientras investiga.",
+        "Detenga y desinstale la instancia no autorizada tras preservar sus logs, el binario y la evidencia de persistencia.",
+        "Investigue la actividad realizada durante las sesiones remotas y restablezca las credenciales usadas en el host.",
+        "Si fue legítimo, cambie la contraseña expuesta en la línea de comandos y documente una exclusión precisa por ruta, padre y hash."
+      ],
+      "severity_rationale": "Es medium porque el patrón es un indicador fuerte de configuración de acceso remoto, aunque los despliegues legítimos por script también lo generan."
+    },
+    "en": {
+      "summary": "A CMD command used echo to pipe a password into an executable with the --set-password flag, usually AnyDesk. This configures unattended access, so remote sessions can connect without the user approving them.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains all of '/c ', 'echo ' and '.exe --set-password'. Example: cmd.exe /c echo <password> | C:\\ProgramData\\anydesk.exe --set-password.",
+      "why_it_matters": "An attacker who installs AnyDesk and sets its password gets persistent remote access that looks legitimate (ATT&CK T1219.002, Remote Desktop Software). The password is also left in cleartext on the command line.",
+      "triage_steps": [
+        "Read the full CommandLine. Check where the receiving executable lives (ProgramData, Temp or Downloads instead of Program Files?) and note the exposed password.",
+        "Identify the ParentImage and the process chain. Was it launched by an RMM or deployment tool, a script, PowerShell, a service or an Office document?",
+        "Check the User and the host. Is this an authorized IT account, or SYSTEM running under a known installer?",
+        "Get the hash and digital signature of the AnyDesk binary. Confirm it is genuine AnyDesk and that its installation was approved.",
+        "On the same host within +/- 15 minutes, look for anydesk.exe downloads, runs with --install or --start-with-win, new services and new accounts.",
+        "Review the AnyDesk logs (ad.trace and connection_trace.txt in %ProgramData%\\AnyDesk) for inbound connections and their source IDs.",
+        "Search other endpoints for the same CommandLine or password, and check earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "IT or a support vendor deploying AnyDesk legitimately and setting the unattended-access password by script.",
+        "Other tools that use the same --set-password flag with a password piped in from echo."
+      ],
+      "response_steps": [
+        "Ask the device owner or IT whether the installation and the password change were authorized.",
+        "If they were not, isolate the endpoint and block AnyDesk traffic at the proxy or firewall while you investigate.",
+        "Preserve the logs, the binary and any persistence artifacts. Then stop and uninstall the unauthorized instance.",
+        "Review what happened during the remote sessions and reset the credentials used on the host.",
+        "If the activity was legitimate, rotate the password exposed on the command line. Document a narrow exclusion by path, parent and hash."
+      ],
+      "severity_rationale": "Medium fits because this pattern strongly suggests someone is setting up remote access, but scripted legitimate deployments trigger it too."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe pipes a password with echo into AnyDesk in ProgramData using --set-password",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\WINDOWS\\system32\\cmd.exe /C cmd.exe /c echo Placeholder123 |C:\\ProgramData\\anydesk.exe --set-password",
+          "ProcessId": 6724
+        }
+      },
+      {
+        "description": "Script launched by PowerShell sets the AnyDesk password from the Program Files install",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "cmd.exe /c echo ExamplePass01 | \"C:\\Program Files (x86)\\AnyDesk\\AnyDesk.exe\" --set-password",
+          "ProcessId": 4180
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "AnyDesk run directly with --set-password and no cmd /c echo pipe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\soporte.ti",
+          "Image": "C:\\Program Files (x86)\\AnyDesk\\AnyDesk.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\AnyDesk\\AnyDesk.exe\" --set-password",
+          "ProcessId": 5312
+        }
+      },
+      {
+        "description": "cmd /c echo piped into AnyDesk to read its ID, not to set a password",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\soporte.ti",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c echo off | \"C:\\Program Files (x86)\\AnyDesk\\AnyDesk.exe\" --get-id",
+          "ProcessId": 2996
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

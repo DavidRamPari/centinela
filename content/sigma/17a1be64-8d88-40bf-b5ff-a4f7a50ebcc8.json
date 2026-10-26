@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "17a1be64-8d88-40bf-b5ff-a4f7a50ebcc8",
+    "title": "Suspicious New Service Creation",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_service_creation.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_service_creation.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1543.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un servicio de Windows con \"sc create\" o con el cmdlet New-Service y su ruta binaria apunta a un intérprete (PowerShell, cmd, mshta, rundll32, etc.) o a una carpeta poco habitual, como Temp, Public, Downloads o Desktop.",
+      "what_it_detects": "Eventos de creación de procesos en los que sc.exe recibe 'create' y 'binPath=', o en los que la CommandLine contiene 'New-Service' y '-BinaryPathName'. La misma CommandLine también debe incluir un binario o una ruta sospechosa, como powershell, cmd.exe /c, rundll32, svchost, C:\\Users\\Public o \\AppData\\Local\\Temp.",
+      "why_it_matters": "Un servicio se ejecuta como SYSTEM y arranca con el equipo. Por eso los atacantes lo usan para obtener persistencia y escalar privilegios (MITRE ATT&CK T1543.003, Create or Modify System Process: Windows Service), a menudo con un payload ubicado en una carpeta temporal o de usuario.",
+      "triage_steps": [
+        "Lea la CommandLine completa y anote el nombre del servicio, el valor de binPath o -BinaryPathName, el tipo de inicio y el comando que se ejecutará.",
+        "Revise el usuario y el ParentImage. Un sc.exe lanzado por cmd, powershell, wmiprvse, Office o una sesión remota es más sospechoso que uno lanzado por un instalador conocido.",
+        "Si binPath apunta a un archivo, obtenga su hash, su firma y su fecha de creación, y consulte su reputación en inteligencia de amenazas.",
+        "Busque en el mismo host, dentro de +/- 15 minutos, el evento 7045 (System) o 4697 (Security) y cualquier inicio del servicio con 'sc start'.",
+        "Revise los procesos hijos de services.exe en ese periodo, sobre todo cmd, powershell o rundll32 con argumentos codificados o descargas.",
+        "Busque inicios de sesión de red (tipo 3) o RDP previos de la misma cuenta y si se creó el mismo nombre de servicio en otros equipos, lo que indicaría movimiento lateral.",
+        "Consulte las alertas anteriores del host y del usuario: ejecución de PsExec, volcado de credenciales o descargas recientes."
+      ],
+      "false_positives": [
+        "Instaladores o agentes legítimos que registran servicios bajo svchost.exe -k o que copian sus binarios temporalmente en C:\\Windows\\Temp.",
+        "Scripts de administradores o de herramientas de despliegue que envuelven un servicio con cmd.exe /c o PowerShell.",
+        "Pruebas autorizadas de red team o ejecuciones de Atomic Red Team para T1543.003."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del equipo o con el equipo de TI si la creación del servicio estaba autorizada. Si nadie la reconoce, trate el caso como un incidente.",
+        "Aísle el endpoint desde el EDR y preserve el binario, la clave HKLM\\SYSTEM\\CurrentControlSet\\Services\\<nombre> y los registros de eventos.",
+        "Una vez confirmada la actividad maliciosa, detenga y elimine el servicio, ponga en cuarentena el payload y bloquee su hash.",
+        "Restablezca las credenciales de la cuenta que creó el servicio y busque el mismo servicio o el mismo hash en el resto del parque.",
+        "Restaure el equipo cuando esté limpio y documente los IOC para mejorar la detección."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque crear un servicio que ejecuta intérpretes o binarios desde rutas de usuario o temporales casi nunca es legítimo y otorga persistencia con privilegios SYSTEM."
+    },
+    "en": {
+      "summary": "A Windows service was created with \"sc create\" or the New-Service cmdlet, and its binary path points to an interpreter (PowerShell, cmd, mshta, rundll32, etc.) or an unusual folder such as Temp, Public, Downloads or Desktop.",
+      "what_it_detects": "Process creation events where sc.exe gets 'create' and 'binPath=', or where the CommandLine contains 'New-Service' and '-BinaryPathName'. The same CommandLine must also include a suspicious binary or path, such as powershell, cmd.exe /c, rundll32, svchost, C:\\Users\\Public or \\AppData\\Local\\Temp.",
+      "why_it_matters": "Services run as SYSTEM and start at boot. Attackers use them for persistence and privilege escalation (MITRE ATT&CK T1543.003, Create or Modify System Process: Windows Service), often with a payload stored in a temp or user folder.",
+      "triage_steps": [
+        "Read the full CommandLine and note the service name, the binPath or -BinaryPathName value, the start type and the command that will run.",
+        "Check the user and the ParentImage. sc.exe spawned by cmd, powershell, wmiprvse, Office or a remote session is more suspicious than one spawned by a known installer.",
+        "If binPath points to a file, get its hash, signer and creation time, and check its reputation in threat intelligence.",
+        "On the same host, within +/- 15 minutes, look for event 7045 (System) or 4697 (Security) and any 'sc start' of the service.",
+        "Review the child processes of services.exe in that window, especially cmd, powershell or rundll32 with encoded arguments or downloads.",
+        "Look for earlier network (type 3) or RDP logons by the same account, and for the same service name on other hosts, which would suggest lateral movement.",
+        "Check earlier alerts for the host and user: PsExec use, credential dumping or recent downloads."
+      ],
+      "false_positives": [
+        "Legitimate installers or agents that register services under svchost.exe -k or stage binaries in C:\\Windows\\Temp.",
+        "Admin or deployment scripts that wrap a service with cmd.exe /c or PowerShell.",
+        "Authorized red team tests or Atomic Red Team runs for T1543.003."
+      ],
+      "response_steps": [
+        "Check with the system owner or IT whether the service creation was authorized. If nobody recognizes it, treat it as an incident.",
+        "Isolate the endpoint through EDR and preserve the binary, the HKLM\\SYSTEM\\CurrentControlSet\\Services\\<name> key and the event logs.",
+        "Once the activity is confirmed malicious, stop and delete the service, quarantine the payload and block its hash.",
+        "Reset the credentials of the account that created the service, and hunt for the same service or hash across the fleet.",
+        "Restore the host once it is clean and document the IOCs to improve detection."
+      ],
+      "severity_rationale": "High fits because creating a service that runs interpreters or binaries from user or temp paths is rarely legitimate and gives SYSTEM-level persistence."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sc.exe creates an auto-start service whose binPath runs cmd.exe /c with a payload in C:\\Users\\Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "sc.exe create UpdaterSvc binPath= \"cmd.exe /c C:\\Users\\Public\\upd.exe\" start= auto",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell New-Service with -BinaryPathName pointing to C:\\Windows\\TEMP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command New-Service -Name WinHlp -BinaryPathName \"C:\\Windows\\TEMP\\winhlp.exe\" -StartupType Automatic",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Vendor installer creates a service with sc.exe and a binPath under Program Files, with no suspicious binary or path",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "CommandLine": "sc.exe create ExampleAgent binPath= \"C:\\Program Files\\ExampleVendor\\agent.exe\" start= auto",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "PowerShell used to query a service, with no New-Service or -BinaryPathName",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command Get-Service -Name Spooler",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

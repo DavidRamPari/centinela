@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "0403d67d-6227-4ea8-8145-4e72db7da120",
+    "title": "UtilityFunctions.ps1 Proxy Dll",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_lolbin_utilityfunctions.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_utilityfunctions.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1216"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso se ejecutó con una línea de comandos que menciona UtilityFunctions.ps1 o la función RegSnapin. Esto puede indicar que se usa un script firmado por Microsoft para cargar una DLL administrada arbitraria mediante PowerShell.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene 'UtilityFunctions.ps1' o 'RegSnapin ' (con espacio final). UtilityFunctions.ps1 forma parte de los diagnósticos de red de Windows (C:\\Windows\\diagnostics\\system\\Networking). Su función RegSnapin registra y carga un ensamblado .NET indicado por el usuario.",
+      "why_it_matters": "Es una técnica LOLBAS de ejecución de proxy mediante scripts firmados (ATT&CK T1216). El atacante ejecuta código de una DLL propia a través de un script legítimo de Microsoft y así puede evadir controles de lista blanca y reglas basadas en firmas.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique la ruta de la DLL pasada a RegSnapin y cualquier llamada posterior del tipo [Namespace.Clase]::Metodo().",
+        "Confirme el Image (powershell.exe o pwsh.exe) y opciones como -ExecutionPolicy Bypass, -NoProfile o -EncodedCommand.",
+        "Examine el ParentImage y el árbol de procesos: Office, navegadores, wscript o tareas programadas como padre resultan sospechosos.",
+        "Ubique la DLL referenciada: obtenga el hash, la firma, la fecha de creación y el proceso que la escribió en disco. Consulte reputación.",
+        "Revise en el mismo host, +/- 15 minutos, la carga de imágenes, las conexiones de red y los procesos hijos de PowerShell (Script Block Logging 4104).",
+        "Valide con el usuario o con su responsable si la actividad es legítima. Busque alertas previas del mismo usuario y del mismo host.",
+        "Busque el hash de la DLL y el patrón de la línea de comandos en otros endpoints."
+      ],
+      "false_positives": [
+        "Pruebas de equipos red team o de validación de detecciones que reproducen la técnica LOLBAS.",
+        "Administradores o desarrolladores que depuran los diagnósticos de red de Windows invocando UtilityFunctions.ps1 de forma manual.",
+        "Scripts internos que contienen la cadena 'RegSnapin ' por otros motivos; verifique su origen y su propietario."
+      ],
+      "response_steps": [
+        "Verifique la legitimidad con el dueño del activo antes de actuar. Preserve la línea de comandos, la DLL y los logs de PowerShell.",
+        "Si es malicioso, aísle el endpoint con el EDR y termine el proceso de PowerShell asociado.",
+        "Ponga la DLL en cuarentena, bloquee su hash y elimine los mecanismos de persistencia relacionados.",
+        "Restablezca las credenciales del usuario si hay indicios de compromiso y revise el movimiento lateral desde el host.",
+        "Considere restringir PowerShell mediante WDAC o AppLocker y habilitar Script Block Logging en todo el entorno."
+      ],
+      "severity_rationale": "Es media porque el uso legítimo es raro y la técnica permite ejecutar código evadiendo controles, pero hace falta revisar la DLL y el contexto para confirmar que es malicioso."
+    },
+    "en": {
+      "summary": "A process ran with a command line that references UtilityFunctions.ps1 or the RegSnapin function. This may mean a Microsoft-signed script is being used to load an arbitrary managed DLL through PowerShell.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains 'UtilityFunctions.ps1' or 'RegSnapin ' (with a trailing space). UtilityFunctions.ps1 ships with Windows network diagnostics (C:\\Windows\\diagnostics\\system\\Networking). Its RegSnapin function registers and loads a user-supplied .NET assembly.",
+      "why_it_matters": "This is a LOLBAS signed-script proxy execution technique (ATT&CK T1216). Attackers run their own DLL code through a trusted Microsoft script, which can bypass application allowlisting and signature-based controls.",
+      "triage_steps": [
+        "Read the full CommandLine. Note the DLL path passed to RegSnapin and any follow-up call such as [Namespace.Class]::Method().",
+        "Confirm the Image (powershell.exe or pwsh.exe) and look for flags like -ExecutionPolicy Bypass, -NoProfile or -EncodedCommand.",
+        "Check the ParentImage and the process tree. Office apps, browsers, wscript or scheduled tasks as the parent are suspicious.",
+        "Locate the referenced DLL. Get its hash, signature and creation time, plus the process that wrote it to disk. Check its reputation.",
+        "On the same host within +/- 15 minutes, review image loads, network connections, PowerShell child processes and script block logs (4104).",
+        "Ask the user or their manager to confirm the activity. Look for earlier alerts on the same user and host.",
+        "Hunt for the DLL hash and the command-line pattern on other endpoints."
+      ],
+      "false_positives": [
+        "Red team or detection-validation exercises that reproduce the LOLBAS technique.",
+        "Administrators or developers debugging Windows network diagnostics by calling UtilityFunctions.ps1 manually.",
+        "Internal scripts that contain the string 'RegSnapin ' for unrelated reasons. Check their origin and owner."
+      ],
+      "response_steps": [
+        "Confirm with the asset owner before acting. Preserve the command line, the DLL and the PowerShell logs.",
+        "If malicious, isolate the endpoint through EDR and kill the related PowerShell process.",
+        "Quarantine the DLL, block its hash and remove any related persistence.",
+        "Reset the user's credentials if compromise is suspected, and review lateral movement from the host.",
+        "Consider restricting PowerShell with WDAC or AppLocker, and enable script block logging across the environment."
+      ],
+      "severity_rationale": "Medium fits because legitimate use is rare and the technique enables execution that evades controls, but confirming malice requires reviewing the DLL and its context."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell imports UtilityFunctions.ps1 and uses RegSnapin to load an unsigned DLL from Temp",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -ep bypass -command \"set-location -path C:\\Windows\\diagnostics\\system\\networking; import-module .\\UtilityFunctions.ps1; RegSnapin ..\\..\\..\\..\\Users\\jperez\\AppData\\Local\\Temp\\update.dll;[Program.Class]::Main()\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Command line that calls RegSnapin after dot-sourcing the script by full path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "CommandLine": "pwsh.exe -NoProfile -Command \". C:\\Windows\\diagnostics\\system\\Networking\\UtilityFunctions.ps1; RegSnapin C:\\ProgramData\\cache\\lib.dll\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Windows network troubleshooter host; scripts are loaded in-process and the file name does not appear on the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sdiagnhost.exe",
+          "CommandLine": "C:\\Windows\\System32\\sdiagnhost.exe -Embedding",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Admin registers a snap-in with the standard cmdlet, which does not contain 'RegSnapin ' or the script name",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Add-PSSnapin Microsoft.Exchange.Management.PowerShell.SnapIn; Get-PSSnapin\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:57:07+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "ae6f14e6-14de-45b0-9f44-c0986f50dc89",
+    "title": "Change Default File Association To Executable Via Assoc",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_cmd_assoc_tamper_exe_file_association.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmd_assoc_tamper_exe_file_association.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1546.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "cmd.exe ejecutó el comando assoc para asociar una extensión de archivo distinta de .exe con el tipo exefile. Así, abrir un archivo con esa extensión lo ejecutaría como un programa.",
+      "what_it_detects": "Procesos cmd.exe (Image o OriginalFileName) cuyo CommandLine contiene 'assoc ' y 'exefile'. Se excluye '.exe=exefile', que solo restaura la asociación predeterminada de los ejecutables.",
+      "why_it_matters": "Cambiar la asociación de una extensión común como .txt o .pdf a exefile hace que un archivo con apariencia inofensiva se ejecute como binario cuando el usuario lo abre. Esto permite persistencia y posible escalamiento de privilegios mediante la modificación de asociaciones de archivos (ATT&CK T1546.001).",
+      "triage_steps": [
+        "Revise el CommandLine completo e identifique la extensión afectada (por ejemplo, assoc .txt=exefile) y si se trata de una extensión de uso cotidiano.",
+        "Examine ParentImage y la línea de comandos del proceso padre: un script, documento de Office, PowerShell o un binario desconocido aumenta la sospecha.",
+        "Verifique el usuario y el nivel de integridad: assoc modifica HKLM\\Software\\Classes y normalmente requiere privilegios de administrador.",
+        "Consulte los eventos de registro sobre HKCR\\<extensión> y HKLM\\Software\\Classes\\<extensión> en el mismo host durante +/- 15 minutos.",
+        "Busque archivos creados recientemente con la extensión modificada, sobre todo en Descargas, Temp, el escritorio o recursos compartidos, y calcule su hash.",
+        "Revise los procesos hijos de explorer.exe que se iniciaron después del cambio, ya que pueden corresponder a la apertura de esos archivos.",
+        "Busque alertas anteriores del mismo host o usuario y ejecuciones similares de assoc en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos. Puede deberse a scripts de administración o de laboratorio mal escritos que reconfiguran asociaciones; confírmelo con el responsable del equipo.",
+        "Pruebas de red team o ejercicios de emulación autorizados que simulan T1546.001."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de TI si el cambio estaba autorizado antes de tomar acciones.",
+        "Si no estaba autorizado, aísle el endpoint y conserve la evidencia: árbol de procesos, claves de registro y archivos con la extensión afectada.",
+        "Restaure la asociación correcta (por ejemplo, assoc .txt=txtfile) tras documentar el valor malicioso.",
+        "Analice y elimine los binarios disfrazados con la extensión modificada y el proceso padre que originó el cambio.",
+        "Revise las credenciales del usuario implicado y busque el mismo indicador en toda la flota."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque asociar extensiones comunes con exefile casi no tiene uso legítimo y otorga ejecución directa de código al abrir archivos."
+    },
+    "en": {
+      "summary": "cmd.exe ran the assoc command to map a file extension other than .exe to the exefile type, so opening files with that extension would run them as programs.",
+      "what_it_detects": "cmd.exe processes (Image or OriginalFileName) whose CommandLine contains 'assoc ' and 'exefile'. It excludes '.exe=exefile', which only restores the default association for executables.",
+      "why_it_matters": "Mapping a common extension such as .txt or .pdf to exefile makes a harmless-looking file run as a binary when a user opens it. This gives persistence and possible privilege escalation through changed default file associations (ATT&CK T1546.001).",
+      "triage_steps": [
+        "Read the full CommandLine and identify the affected extension (e.g., assoc .txt=exefile) and whether it is in everyday use.",
+        "Inspect ParentImage and the parent's command line. A script, Office document, PowerShell or an unknown binary as the parent is more suspicious.",
+        "Check the user and integrity level. assoc writes to HKLM\\Software\\Classes and usually needs admin rights.",
+        "Pivot to registry events on HKCR\\<ext> and HKLM\\Software\\Classes\\<ext> on the same host within +/- 15 minutes.",
+        "Search for recently created files with the hijacked extension in Downloads, Temp, Desktop or shares, and hash them.",
+        "Review explorer.exe child processes started after the change. Opening those files may have launched them.",
+        "Look for earlier alerts on the same host or user, and for similar assoc runs on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. A poorly written admin or lab script that reconfigures associations could trigger it, so confirm with the system owner.",
+        "Authorized red team or adversary emulation exercises that simulate T1546.001."
+      ],
+      "response_steps": [
+        "Before taking action, confirm with the user or IT whether the change was authorized.",
+        "If it was not authorized, isolate the endpoint and preserve evidence: the process tree, the registry keys and any files with the affected extension.",
+        "Record the malicious value, then restore the correct association (e.g., assoc .txt=txtfile).",
+        "Analyze and remove the disguised binaries and the parent process that made the change.",
+        "Review the involved user's credentials and hunt for the same indicator across the fleet."
+      ],
+      "severity_rationale": "High fits because mapping common extensions to exefile has almost no legitimate use and gives direct code execution when a user opens a file."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe launched by a script maps .txt files to exefile",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c assoc .txt=exefile",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\setup.vbs",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed cmd binary identified by OriginalFileName maps .pdf to exefile",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svc.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "svc.exe /c assoc .pdf=exefile",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator restores the default .exe association; excluded by the filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.soporte",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c assoc .exe=exefile",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "assoc resets .txt to txtfile; no exefile in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.soporte",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c assoc .txt=txtfile",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

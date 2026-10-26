@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "9f546b25-5f12-4c8d-8532-5893dcb1e4b8",
+    "title": "Potentially Suspicious Child Process Of DiskShadow.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_diskshadow_child_process_susp.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_diskshadow_child_process_susp.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "DiskShadow.exe inició un intérprete o LOLBin (PowerShell, certutil, mshta, rundll32, regsvr32, cscript o wscript). Puede tratarse de un abuso del comando \"exec\" de DiskShadow para ejecutar código con un proceso padre firmado por Microsoft.",
+      "what_it_detects": "Eventos de creación de procesos en Windows con ParentImage terminado en \\diskshadow.exe e Image terminado en certutil.exe, cscript.exe, mshta.exe, powershell.exe, pwsh.exe, regsvr32.exe, rundll32.exe o wscript.exe.",
+      "why_it_matters": "DiskShadow es un binario legítimo de Windows que en modo script (/s) puede ejecutar programas con \"exec\". Los atacantes lo usan como proxy de ejecución firmado (T1218) para evadir reglas de parent/child y listas blancas, a menudo junto con copias de sombra para extraer NTDS.dit.",
+      "triage_steps": [
+        "Revise CommandLine del proceso hijo: busque payloads codificados, descargas (urlcache, http), rutas en carpetas de usuario o Temp y DLL o scripts poco comunes.",
+        "Obtenga la línea de comandos de diskshadow.exe (proceso padre): identifique el archivo de script pasado con /s, su ruta, extensión y contenido.",
+        "Inspeccione el script en busca de exec, set context persistent, expose o add volume, que indican creación y montaje de copias de sombra.",
+        "Identifique al usuario y el proceso abuelo que lanzó diskshadow.exe; determine si es una cuenta administrativa esperada o una tarea programada conocida.",
+        "Pivotee en el mismo host +/- 15 minutos: acceso a ntds.dit o SYSTEM, robocopy/copy desde unidades expuestas, conexiones de red y archivos nuevos.",
+        "Calcule el hash de los binarios, scripts y DLL involucrados y revise alertas previas del mismo host o usuario, incluidas las reglas relacionadas de DiskShadow."
+      ],
+      "false_positives": [
+        "Scripts administrativos de respaldo o mantenimiento que usan \"exec\" de DiskShadow para lanzar PowerShell o cscript tras crear una copia de sombra.",
+        "Herramientas de backup de terceros o procedimientos documentados de recuperación que invocan DiskShadow en servidores."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del servidor si la ejecución y el script son autorizados; documente la evidencia antes de actuar.",
+        "Si no está autorizada, aísle el endpoint, termine los procesos hijos y conserve el script, la memoria y los artefactos.",
+        "Si es un controlador de dominio o hubo acceso a NTDS.dit, trátelo como compromiso de credenciales: rote la contraseña de KRBTGT dos veces y las cuentas privilegiadas.",
+        "Elimine scripts, copias de sombra expuestas y persistencia identificada tras verificarlas; restrinja DiskShadow mediante AppLocker o WDAC donde no se use."
+      ],
+      "severity_rationale": "Es medium porque la relación padre-hijo es poco común e indica ejecución por proxy, pero los scripts administrativos legítimos con \"exec\" pueden producirla."
+    },
+    "en": {
+      "summary": "DiskShadow.exe launched a script host or LOLBin (PowerShell, certutil, mshta, rundll32, regsvr32, cscript or wscript). This may be abuse of DiskShadow's \"exec\" command to run code under a Microsoft-signed parent.",
+      "what_it_detects": "Windows process creation events where ParentImage ends with \\diskshadow.exe and Image ends with certutil.exe, cscript.exe, mshta.exe, powershell.exe, pwsh.exe, regsvr32.exe, rundll32.exe or wscript.exe.",
+      "why_it_matters": "DiskShadow is a legitimate Windows binary whose script mode (/s) can run programs via \"exec\". Attackers use it as a signed binary proxy (T1218) to evade parent/child and allowlisting rules, often alongside shadow copies to extract NTDS.dit.",
+      "triage_steps": [
+        "Review the child CommandLine: look for encoded payloads, downloads (urlcache, http), paths in user or Temp folders, and unusual DLLs or scripts.",
+        "Get the diskshadow.exe (parent) command line: identify the script passed with /s, its path, extension and contents.",
+        "Inspect the script for exec, set context persistent, expose or add volume, which indicate shadow copy creation and mounting.",
+        "Identify the user and the grandparent process that started diskshadow.exe; check whether it is an expected admin account or known scheduled task.",
+        "Pivot on the same host +/- 15 minutes: access to ntds.dit or SYSTEM hive, copies from exposed drives, network connections and new files.",
+        "Hash the binaries, scripts and DLLs involved and review earlier alerts for the same host or user, including the related DiskShadow rules."
+      ],
+      "false_positives": [
+        "Admin backup or maintenance scripts that use DiskShadow's \"exec\" to launch PowerShell or cscript after creating a shadow copy.",
+        "Third-party backup tools or documented recovery procedures that invoke DiskShadow on servers."
+      ],
+      "response_steps": [
+        "Confirm with the server owner whether the execution and script are authorized; preserve evidence before acting.",
+        "If unauthorized, isolate the endpoint, terminate child processes and preserve the script, memory and artifacts.",
+        "If a domain controller or NTDS.dit access is involved, treat as credential compromise: reset KRBTGT twice and rotate privileged accounts.",
+        "After verification, remove scripts, exposed shadow copies and persistence; restrict DiskShadow with AppLocker or WDAC where unused."
+      ],
+      "severity_rationale": "Medium because this parent-child pair is uncommon and indicates proxy execution, yet legitimate admin scripts using \"exec\" can produce it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "DiskShadow script mode spawns PowerShell with an encoded command",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\diskshadow.exe",
+          "ParentCommandLine": "diskshadow.exe /s C:\\Users\\Public\\run.txt",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -EncodedCommand SQBFAFgA",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "DiskShadow spawns rundll32 loading a DLL from Temp",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Windows\\System32\\diskshadow.exe",
+          "ParentCommandLine": "diskshadow.exe /s C:\\Windows\\Temp\\cfg.dat",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe C:\\Windows\\Temp\\upd.dll,Start",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "DiskShadow spawns robocopy, not in the suspicious child list",
+        "event": {
+          "EventID": 1,
+          "Computer": "FS-02",
+          "User": "ANDES\\svc_backup",
+          "ParentImage": "C:\\Windows\\System32\\diskshadow.exe",
+          "ParentCommandLine": "diskshadow.exe /s C:\\Scripts\\backup.dsh",
+          "Image": "C:\\Windows\\System32\\Robocopy.exe",
+          "CommandLine": "robocopy Z:\\Data E:\\Backup /MIR",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell launched by cmd.exe running diskshadow, parent is not diskshadow",
+        "event": {
+          "EventID": 1,
+          "Computer": "FS-02",
+          "User": "ANDES\\svc_backup",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c diskshadow.exe /s C:\\Scripts\\backup.dsh",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -File C:\\Scripts\\report.ps1",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

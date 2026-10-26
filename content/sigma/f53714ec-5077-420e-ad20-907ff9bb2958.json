@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "f53714ec-5077-420e-ad20-907ff9bb2958",
+    "title": "Forfiles.EXE Child Process Masquerading",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), Anish Bogati",
+    "path": "windows/process_creation/proc_creation_win_forfiles_child_process_masquerading.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_forfiles_child_process_masquerading.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó forfiles.exe sin argumentos y generó un proceso hijo llamado cmd.exe con la línea de comandos fija \"/c echo\", pero el padre o el hijo están fuera de System32/SysWOW64. Esto puede indicar que se usa un cmd.exe falso ubicado en el directorio de trabajo actual.",
+      "what_it_detects": "Procesos cmd.exe cuyo CommandLine empieza con '/c echo \"' y cuyo ParentCommandLine termina en '.exe' (forfiles sin opciones). Se excluye el caso legítimo en que tanto ParentImage (forfiles.exe) como Image (cmd.exe) están en System32 o SysWOW64.",
+      "why_it_matters": "Cuando forfiles se ejecuta sin argumentos, lanza \"cmd\" con el texto fijo \"/c echo\" y puede resolverlo desde el directorio actual. Un atacante puede poner ahí un binario malicioso llamado cmd.exe y hacer que un binario confiable lo ejecute. Esto es enmascaramiento (ATT&CK T1036).",
+      "triage_steps": [
+        "Revise Image: si cmd.exe no está en C:\\Windows\\System32 o SysWOW64, obtenga su hash, firma, metadatos de versión (OriginalFileName) y fecha de creación del archivo.",
+        "Revise ParentImage: confirme si forfiles.exe es el original de System32 o una copia en otra ruta, y compare su hash con el binario legítimo.",
+        "Identifique el directorio de trabajo del padre y liste los ejecutables y DLL que contiene, sobre todo los archivos creados recientemente.",
+        "Busque procesos hijos, conexiones de red, escrituras en el registro y archivos creados por el cmd.exe sospechoso en el mismo host, en una ventana de +/- 15 minutos.",
+        "Suba en el árbol de procesos: identifique quién lanzó forfiles (script, tarea programada, macro de Office, LNK) y con qué usuario.",
+        "Busque alertas previas para el mismo host y usuario, y el mismo hash de cmd.exe en otros endpoints."
+      ],
+      "false_positives": [
+        "No se conocen falsos positivos (la regla indica Unknown).",
+        "Software empaquetado o portable que incluye copias propias de forfiles.exe o cmd.exe en su carpeta. Valide el proveedor y la firma antes de crear una exclusión."
+      ],
+      "response_steps": [
+        "Verifique si el cmd.exe ejecutado es legítimo comparando su hash y firma con el binario de Microsoft.",
+        "Si es malicioso, aísle el endpoint y suspenda la sesión o las credenciales del usuario afectado.",
+        "Conserve los binarios, el árbol de procesos y la telemetría como evidencia, y elimine después los archivos maliciosos y su mecanismo de persistencia.",
+        "Busque el hash y la ruta en toda la flota, bloquee el hash y restaure el host desde una fuente confiable si se confirma el compromiso."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque este patrón casi no tiene uso legítimo y suele significar que se ejecutó código arbitrario a través de un binario confiable."
+    },
+    "en": {
+      "summary": "forfiles.exe ran without arguments and spawned a process named cmd.exe with the hardcoded \"/c echo\" command line, but the parent or the child is outside System32/SysWOW64. This may mean a fake cmd.exe in the current working directory was run.",
+      "what_it_detects": "cmd.exe processes whose CommandLine starts with '/c echo \"' and whose ParentCommandLine ends in '.exe' (forfiles with no options). The legitimate case, where both ParentImage (forfiles.exe) and Image (cmd.exe) are in System32 or SysWOW64, is excluded.",
+      "why_it_matters": "When forfiles runs with no arguments, it launches \"cmd\" with a hardcoded \"/c echo\" and can resolve it from the current directory. An attacker can drop a malicious cmd.exe there so a trusted binary runs it. This is masquerading (ATT&CK T1036).",
+      "triage_steps": [
+        "Check Image: if cmd.exe is outside C:\\Windows\\System32 or SysWOW64, collect its hash, signature, OriginalFileName and file creation time.",
+        "Check ParentImage: confirm whether forfiles.exe is the System32 original or a copy elsewhere, and compare its hash with the genuine binary.",
+        "Find the parent's working directory and list the executables and DLLs in it, especially recently created files.",
+        "On the same host within +/- 15 minutes, look for child processes, network connections, registry writes and files created by the suspicious cmd.exe.",
+        "Walk up the process tree to find what launched forfiles (script, scheduled task, Office macro, LNK) and under which user.",
+        "Look for earlier alerts on the same host and user, and for the same cmd.exe hash on other endpoints."
+      ],
+      "false_positives": [
+        "No known false positives (the rule lists Unknown).",
+        "Portable or bundled software that ships its own forfiles.exe or cmd.exe copies. Check the vendor and signature before adding an exclusion."
+      ],
+      "response_steps": [
+        "Verify whether the cmd.exe that ran is legitimate by comparing its hash and signature with the Microsoft binary.",
+        "If it is malicious, isolate the endpoint and suspend the affected user's session or credentials.",
+        "Keep the binaries, process tree and telemetry as evidence, then remove the malicious files and their persistence mechanism.",
+        "Hunt for the hash and path across the fleet, block the hash, and rebuild the host from a trusted source if compromise is confirmed."
+      ],
+      "severity_rationale": "High fits because this pattern has almost no legitimate use and usually means arbitrary code ran through a trusted binary."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Genuine System32 forfiles.exe run with no arguments from a Downloads folder, which resolves a planted cmd.exe in that folder.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\forfiles.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\forfiles.exe\"",
+          "Image": "C:\\Users\\jperez\\Downloads\\tools\\cmd.exe",
+          "CommandLine": "/c echo \"invoice.pdf\"",
+          "CurrentDirectory": "C:\\Users\\jperez\\Downloads\\tools\\"
+        }
+      },
+      {
+        "description": "Copied forfiles.exe in ProgramData that spawns a fake cmd.exe from the same directory.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mgarcia",
+          "ParentImage": "C:\\ProgramData\\Updater\\forfiles.exe",
+          "ParentCommandLine": "C:\\ProgramData\\Updater\\forfiles.exe",
+          "Image": "C:\\ProgramData\\Updater\\cmd.exe",
+          "CommandLine": "/c echo \"config.dat\"",
+          "CurrentDirectory": "C:\\ProgramData\\Updater\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate case: System32 forfiles.exe with no arguments spawns the genuine System32 cmd.exe, so the filter excludes it.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\forfiles.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\forfiles.exe\"",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "/c echo \"report.xlsx\"",
+          "CurrentDirectory": "C:\\Users\\jperez\\Documents\\"
+        }
+      },
+      {
+        "description": "Admin runs forfiles with arguments. ParentCommandLine does not end in .exe, so the selection does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE01.andes.example.com",
+          "User": "ANDES\\adm_rlopez",
+          "ParentImage": "C:\\Windows\\System32\\forfiles.exe",
+          "ParentCommandLine": "forfiles /p C:\\Logs /m *.log /c \"cmd /c echo @file\"",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "/c echo \"app.log\"",
+          "CurrentDirectory": "C:\\Logs\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

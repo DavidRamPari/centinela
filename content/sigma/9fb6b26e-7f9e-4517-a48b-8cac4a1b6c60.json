@@ -1,0 +1,125 @@
+{
+  "rule": {
+    "id": "9fb6b26e-7f9e-4517-a48b-8cac4a1b6c60",
+    "title": "Uncommon FileSystem Load Attempt By Format.com",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_format_uncommon_filesystem_load.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_format_uncommon_filesystem_load.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó format.com con un valor /fs: que no es un sistema de archivos estándar de Windows (exFAT, FAT, NTFS, ReFS, UDF). Esto puede indicar el uso de un binario firmado de Windows para cargar una DLL controlada por el atacante.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\format.com y CommandLine contiene '/fs:', salvo que el valor sea uno de los sistemas de archivos conocidos: exFAT, FAT, NTFS, ReFS o UDF.",
+      "why_it_matters": "format.com carga una DLL auxiliar de sistema de archivos cuyo nombre se deriva del valor /fs:. Un atacante puede indicar un nombre propio y colocar una DLL con ese nombre. Así ejecuta código dentro de un proceso confiable de Microsoft. Es una técnica de evasión de defensas mediante ejecución por proxy y carga de DLL.",
+      "triage_steps": [
+        "Revise el CommandLine completo. Anote el valor de /fs: y el volumen de destino, y verifique si ese valor corresponde a algún sistema de archivos conocido.",
+        "Revise ParentImage, la línea de comandos del proceso padre y User. Un host de scripts, una aplicación de Office o un padre inusual es más sospechoso que una consola administrativa.",
+        "Inspeccione CurrentDirectory y las rutas con permisos de escritura, como perfiles de usuario, Temp y ProgramData, en busca de DLL recientes con nombres parecidos al valor /fs:.",
+        "Revise los eventos de carga de imágenes de format.com e identifique las DLL sin firma o cargadas desde fuera de System32.",
+        "En el mismo host, dentro de +/- 15 minutos, busque escrituras de archivos, conexiones de red y procesos hijos de format.com.",
+        "Busque alertas anteriores del mismo host y usuario, y busque la misma línea de comandos o el hash de la DLL en todo el parque."
+      ],
+      "false_positives": [
+        "La regla no indica ninguno. Un caso legítimo sería un driver de sistema de archivos poco común o de terceros con su propio auxiliar de formateo. Confirme que esté instalado, firmado y que sea esperado.",
+        "Pruebas de seguridad o ejercicios de red team documentados que reproducen esta técnica."
+      ],
+      "response_steps": [
+        "Identifique la DLL que se cargó. Recolecte el archivo con su hash y su firma, y preserve el árbol de procesos.",
+        "Si se confirma que es maliciosa, aísle el endpoint y suspenda o revoque las sesiones y credenciales del usuario.",
+        "Después de verificar y recolectar la evidencia, elimine la DLL plantada y cualquier persistencia. Luego busque el mismo hash y la misma línea de comandos en otros equipos.",
+        "Si hace falta, restaure el equipo a un estado confiable y agregue reglas de Windows Defender Application Control (WDAC) o AppLocker para las DLL en rutas con permisos de escritura de usuario."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque casi no existe uso legítimo de valores /fs: no estándar, y la técnica ejecuta código arbitrario dentro de un binario confiable de Windows."
+    },
+    "en": {
+      "summary": "format.com was started with a /fs: value that is not a standard Windows filesystem (exFAT, FAT, NTFS, ReFS, UDF). This can mean a signed Windows binary is being used to load an attacker-controlled DLL.",
+      "what_it_detects": "Process creation events where Image ends with \\format.com and CommandLine contains '/fs:', unless the value is one of the known filesystems exFAT, FAT, NTFS, ReFS or UDF.",
+      "why_it_matters": "format.com loads a filesystem helper DLL whose name comes from the /fs: value. An attacker can supply a custom name and plant a matching DLL. Code then runs inside a trusted Microsoft process. This is stealth or defense evasion through proxy execution and DLL loading.",
+      "triage_steps": [
+        "Read the full CommandLine. Write down the /fs: value and the target volume, then check whether that value is any known filesystem.",
+        "Check ParentImage, the parent command line and User. A script host, Office application or unusual parent is more suspicious than an admin console.",
+        "Look at CurrentDirectory and at writable paths such as user profiles, Temp and ProgramData for recently created DLLs whose names resemble the /fs: value.",
+        "Check image load events for format.com and list any unsigned DLLs or DLLs loaded from outside System32.",
+        "Pivot on the same host within +/- 15 minutes for file writes, network connections and child processes of format.com.",
+        "Search for earlier alerts on the same host and user, and run the same command line or DLL hash across the fleet."
+      ],
+      "false_positives": [
+        "The rule lists none. A legitimate case would be a niche or third-party filesystem driver that supplies its own format helper. Confirm it is installed, signed and expected.",
+        "Security testing or red team exercises that reproduce this technique, if they are documented."
+      ],
+      "response_steps": [
+        "Confirm the DLL that was loaded. Collect it with its hash and signature, and preserve the process tree.",
+        "If it is malicious, isolate the endpoint and suspend or revoke the user's sessions and credentials.",
+        "After you verify and collect evidence, remove the planted DLL and any persistence. Then hunt for the same hash and command line on other hosts.",
+        "Restore the host from a known-good state if needed, and add a Windows Defender Application Control (WDAC) or AppLocker rule for DLLs in user-writable paths."
+      ],
+      "severity_rationale": "High fits because legitimate use of non-standard /fs: values is almost unknown, and the technique runs arbitrary code inside a trusted Windows binary."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "format.com launched from cmd.exe with a non-standard filesystem name to load a planted helper DLL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\format.com",
+          "CommandLine": "format.com /fs:customfs Z:",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c format.com /fs:customfs Z:",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "format.com started by PowerShell with an arbitrary /fs: value",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\format.com",
+          "CommandLine": "\"C:\\Windows\\System32\\format.com\" /fs:helper /q Y:",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\ProgramData\\cache\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator formats a data volume with NTFS, which the known-filesystem filter excludes",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\format.com",
+          "CommandLine": "format.com E: /fs:NTFS /q /v:Data",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Windows\\system32\\"
+        }
+      },
+      {
+        "description": "USB drive formatted as FAT32, which matches the '/fs:FAT' filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\format.com",
+          "CommandLine": "format.com F: /fs:FAT32 /q",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

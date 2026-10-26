@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "2e65275c-8288-4ab4-aeb7-6274f58b6b20",
+    "title": "Procdump Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_sysinternals_procdump.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sysinternals_procdump.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.001",
+      "T1036"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso cuya imagen es procdump.exe, procdump64.exe o procdump64a.exe, la utilidad ProcDump de Sysinternals. Tiene usos legítimos, pero los atacantes también la usan para volcar la memoria de LSASS y robar credenciales.",
+      "what_it_detects": "Eventos de creación de procesos en los que el campo Image termina en \\procdump.exe, \\procdump64.exe o \\procdump64a.exe (versiones x86, x64 y ARM64). La regla solo revisa el nombre del archivo, así que una copia renombrada no la dispara.",
+      "why_it_matters": "ProcDump es una herramienta firmada por Microsoft que escribe la memoria de un proceso en disco. Si se vuelca lsass.exe, quedan expuestos hashes de contraseñas y tickets Kerberos (T1003.001, LSASS Memory). Los atacantes la prefieren porque un binario confiable llama menos la atención (T1036, Masquerading).",
+      "triage_steps": [
+        "Revise el CommandLine. Busque lsass o su PID, -ma (volcado completo), -mm, -r (clonado) y la ruta del .dmp. Cualquier objetivo LSASS tiene prioridad alta.",
+        "Verifique la ruta del Image. Una carpeta de Sysinternals o de herramientas es normal. Downloads, Temp, ProgramData, Public o un recurso compartido es sospechoso.",
+        "Analice el ParentImage y su línea de comandos. Un cmd o PowerShell iniciado por wmiprvse, psexesvc, Office o un servidor web sugiere ejecución remota o maliciosa.",
+        "Confirme el usuario y la sesión de inicio. Valide si esa cuenta suele usar herramientas de depuración en este equipo y si existe un ticket de cambio o soporte.",
+        "En el mismo equipo, revise los eventos de 15 minutos antes a 15 minutos después: creación de archivos .dmp, compresión, transferencias salientes y nuevos inicios de sesión con las mismas credenciales.",
+        "Revise el hash y la firma. Un binario que dice ser ProcDump pero no tiene firma, o no está firmado por Microsoft, requiere un análisis más profundo.",
+        "Busque alertas previas de este equipo y usuario, como volcado de credenciales, movimiento lateral o actividad similar a Mimikatz."
+      ],
+      "false_positives": [
+        "Un desarrollador o administrador que captura volcados de fallas o bloqueos de una aplicación como w3wp.exe o un servicio propio.",
+        "El soporte de un proveedor o de Microsoft que solicita volcados de memoria para diagnosticar un problema.",
+        "Scripts de monitoreo o diagnóstico que ejecutan ProcDump cuando el uso de CPU o las excepciones superan un umbral."
+      ],
+      "response_steps": [
+        "Si el objetivo fue LSASS y la ejecución no está autorizada, aísle el endpoint y conserve como evidencia el archivo de volcado y el binario.",
+        "Restablezca las contraseñas de las cuentas que iniciaron sesión en el equipo, empezando por las privilegiadas. Evalúe restablecer krbtgt dos veces si se expusieron administradores de dominio.",
+        "Busque en el entorno el mismo hash, línea de comandos o ruta de salida, y movimiento lateral desde este equipo.",
+        "Active o verifique la protección de LSASS, como RunAsPPL o Credential Guard. Limite quién puede usar herramientas de depuración y documente los usos aprobados para el ajuste de la regla."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque ProcDump se usa a menudo de forma legítima, pero si apunta a LSASS indica robo de credenciales y debe escalarse a alto."
+    },
+    "en": {
+      "summary": "A process ran from an image named procdump.exe, procdump64.exe or procdump64a.exe, which is the Sysinternals ProcDump utility. It has legitimate uses, but attackers also use it to dump LSASS memory and steal credentials.",
+      "what_it_detects": "Process creation events where the Image path ends with \\procdump.exe, \\procdump64.exe or \\procdump64a.exe (x86, x64 and ARM64 builds). The rule checks only the file name, so a renamed copy will not trigger it.",
+      "why_it_matters": "ProcDump is a signed Microsoft tool that writes process memory to disk. Dumping lsass.exe exposes password hashes and Kerberos tickets (T1003.001, LSASS Memory). Attackers use it because a trusted binary attracts less attention (T1036, Masquerading).",
+      "triage_steps": [
+        "Read the CommandLine. Look for lsass or its PID, -ma (full dump), -mm, -r (clone) and the output .dmp path. Treat any LSASS target as high priority.",
+        "Check the Image path. A run from a Sysinternals or tools folder is normal. Downloads, Temp, ProgramData, Public or a share is suspicious.",
+        "Review ParentImage and the parent's command line. cmd or PowerShell spawned by wmiprvse, psexesvc, Office or a web server suggests remote or malicious execution.",
+        "Confirm the User and logon session. Ask whether this account usually runs debugging tools on this host and whether a change or support ticket exists.",
+        "On the same host, look at events from 15 minutes before to 15 minutes after: .dmp file creation, compression or archiving, outbound transfers, and new logons using the same credentials.",
+        "Check the hash and signature. A binary that claims to be ProcDump but is unsigned or not signed by Microsoft needs deeper analysis.",
+        "Look for earlier alerts on this host and user, including credential dumping, lateral movement or Mimikatz-like activity."
+      ],
+      "false_positives": [
+        "A developer or administrator capturing crash or hang dumps of an application such as w3wp.exe or a custom service.",
+        "Vendor support or Microsoft support asking for memory dumps during troubleshooting.",
+        "Monitoring or diagnostics scripts that run ProcDump when CPU or exceptions pass a threshold."
+      ],
+      "response_steps": [
+        "If the target was LSASS and the run is not authorized, isolate the host and keep the dump file and the binary as evidence.",
+        "Reset passwords for accounts that logged on to the host, prioritizing privileged ones. Consider resetting krbtgt twice if domain admins were exposed.",
+        "Search the environment for the same hash, command line or output path, and for lateral movement from this host.",
+        "Turn on or verify LSASS protection, such as RunAsPPL or Credential Guard. Limit who can run debugging tools, then document any approved use for tuning."
+      ],
+      "severity_rationale": "Medium fits because ProcDump is often used legitimately, but when it targets LSASS it means credential theft and should be escalated to high."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "ProcDump64 run from a user's Downloads folder to make a full memory dump of LSASS",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\Downloads\\procdump64.exe",
+          "OriginalFileName": "procdump",
+          "CommandLine": "procdump64.exe -accepteula -ma lsass.exe C:\\Users\\Public\\ls.dmp",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c procdump64.exe -accepteula -ma lsass.exe C:\\Users\\Public\\ls.dmp",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "An administrator uses 32-bit ProcDump to capture a crash dump of an IIS worker process (matches the rule; legitimate use)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-WEB-03.andes.example.com",
+          "User": "ANDES\\adm_mrojas",
+          "Image": "C:\\Tools\\Sysinternals\\procdump.exe",
+          "OriginalFileName": "procdump",
+          "CommandLine": "procdump.exe -accepteula -e -ma w3wp.exe D:\\Dumps\\w3wp_crash.dmp",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Sysinternals Process Explorer is a similar tool, but its image name does not end with a ProcDump file name",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Tools\\Sysinternals\\procexp64.exe",
+          "OriginalFileName": "procexp.exe",
+          "CommandLine": "procexp64.exe /accepteula",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "A folder named procdump appears in the path, but the image is the ProcDump zip archive opened by 7-Zip, so Image does not end with procdump.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\7-Zip\\7zFM.exe",
+          "OriginalFileName": "7zFM.exe",
+          "CommandLine": "\"C:\\Program Files\\7-Zip\\7zFM.exe\" C:\\Users\\lgomez\\Downloads\\procdump\\Procdump.zip",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

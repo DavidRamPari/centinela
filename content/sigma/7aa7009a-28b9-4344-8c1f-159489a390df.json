@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "7aa7009a-28b9-4344-8c1f-159489a390df",
+    "title": "HackTool - Windows Credential Editor (WCE) Execution",
+    "level": "critical",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_wce.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_wce.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un proceso cuyo nombre de imagen es WCE.exe o WCE64.exe, o cuyo import hash coincide con una versión conocida de Windows Credential Editor. Considere el equipo potencialmente comprometido y sus credenciales en caché expuestas.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\WCE.exe o \\WCE64.exe, o donde el campo Hashes contiene uno de nueve valores IMPHASH asociados a Windows Credential Editor. La coincidencia por hash detecta también binarios renombrados.",
+      "why_it_matters": "WCE lee la memoria de LSASS para extraer contraseñas en texto claro, hashes NTLM y tickets Kerberos (T1003.001, volcado de credenciales de LSASS; herramienta S0005). Luego se reutilizan para pass-the-hash y movimiento lateral.",
+      "triage_steps": [
+        "Verifique qué selección coincidió: nombre de Image, IMPHASH en Hashes o ambos. Si solo coincidió el hash, probablemente el binario fue renombrado para evadir la detección.",
+        "Revise CommandLine en busca de opciones de WCE como -w (texto claro), -l (listar), -s (inyectar hash) u -o (archivo de salida) y anote la ruta de salida.",
+        "Identifique el usuario y la sesión que lo ejecutó, y si esa cuenta tiene privilegios de administrador local o de dominio.",
+        "Analice ParentImage y su línea de comandos. Un cmd.exe o powershell.exe lanzado por un servicio remoto, PsExec o WMI indica actividad manual del atacante.",
+        "Pivotee en el mismo equipo en +/- 15 minutos: creación del binario, accesos a LSASS, servicios nuevos, inicios de sesión de red y otras alertas de hacktools.",
+        "Busque en todo el entorno el mismo IMPHASH o SHA256 y los inicios de sesión posteriores (evento 4624 tipo 3 o 9) de cuentas que tenían sesión en el equipo.",
+        "Consulte al responsable del activo si había una prueba de penetración o ejercicio de red team autorizado y confirme el alcance por escrito."
+      ],
+      "false_positives": [
+        "Pruebas de penetración o ejercicios de red team autorizados que usan WCE, documentados y con alcance definido.",
+        "Investigadores de seguridad o analistas de malware que ejecutan la herramienta en equipos de laboratorio dedicados."
+      ],
+      "response_steps": [
+        "Salvo que se confirme una prueba aprobada, aísle el equipo de la red mediante el EDR, sin apagarlo, para preservar la evidencia en memoria.",
+        "Recolecte el binario, los archivos de salida, el árbol de procesos y una imagen de memoria antes de limpiar.",
+        "Restablezca contraseñas e invalide tickets Kerberos de todas las cuentas con sesión en el equipo, priorizando las privilegiadas. Restablezca krbtgt dos veces si se expusieron credenciales de dominio.",
+        "Busque movimiento lateral con las cuentas expuestas, elimine la herramienta y cualquier persistencia, y reinstale el equipo si su integridad es dudosa."
+      ],
+      "severity_rationale": "El nivel crítico es adecuado porque WCE prácticamente no tiene uso legítimo y su ejecución implica que las credenciales del equipo probablemente ya están comprometidas."
+    },
+    "en": {
+      "summary": "A process started whose image name is WCE.exe or WCE64.exe, or whose import hash matches a known Windows Credential Editor build. Treat the host as possibly compromised and its cached credentials as exposed.",
+      "what_it_detects": "Process creation events where Image ends with \\WCE.exe or \\WCE64.exe, or where the Hashes field contains one of nine IMPHASH values tied to Windows Credential Editor. The hash match still fires when the binary has been renamed.",
+      "why_it_matters": "WCE reads LSASS memory to pull plaintext passwords, NTLM hashes and Kerberos tickets (T1003.001, LSASS memory credential dumping; tool S0005). Attackers then reuse those credentials for pass-the-hash and lateral movement.",
+      "triage_steps": [
+        "Check which selection matched: Image name, Hashes IMPHASH, or both. If only the hash matched, the binary was probably renamed to avoid detection.",
+        "Review CommandLine for WCE options such as -w (plaintext), -l (list), -s (inject hash) or -o (output file), and note any output file path.",
+        "Identify the user and logon session that ran it, and check whether that account holds local or domain admin rights.",
+        "Examine ParentImage and the parent's command line. A parent such as cmd.exe or powershell.exe started by a remote service, PsExec or WMI points to hands-on-keyboard activity.",
+        "Pivot on the same host within +/- 15 minutes: file creation of the binary, LSASS access events, new services, network logons and other hacktool alerts.",
+        "Search the environment for the same IMPHASH or SHA256 and for later logons (event 4624 type 3 or 9) by accounts that had sessions on this host.",
+        "Ask the asset owner if an authorized penetration test or red team exercise was running, and confirm against written scope."
+      ],
+      "false_positives": [
+        "Authorized penetration tests or red team exercises using WCE, which should be documented and scoped.",
+        "Security researchers or malware analysts running the tool on dedicated lab machines."
+      ],
+      "response_steps": [
+        "Unless an approved test is confirmed, isolate the host from the network through EDR, keeping it powered on to preserve memory evidence.",
+        "Collect the binary, any output files, the process tree and a memory image before cleanup.",
+        "Reset passwords and invalidate Kerberos tickets for every account that had a session on the host, prioritizing privileged accounts. Reset krbtgt twice if domain admin credentials were exposed.",
+        "Hunt for lateral movement from the host using the exposed accounts, then remove the tool and any persistence. Rebuild the host if integrity is doubtful."
+      ],
+      "severity_rationale": "Critical fits because WCE has essentially no legitimate business use and its execution means credentials on the host are likely already compromised."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WCE64.exe run from a temp folder with the plaintext password option, matching selection_img",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\WCE64.exe",
+          "CommandLine": "WCE64.exe -w",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\jperez\\AppData\\Local\\Temp\\WCE64.exe -w",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000001,IMPHASH=00000000000000000000000000000001",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed WCE binary detected only by its import hash, matching selection_hash",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS02.andes.example.com",
+          "User": "ANDES\\adm-mrojas",
+          "Image": "C:\\ProgramData\\svchelper.exe",
+          "CommandLine": "C:\\ProgramData\\svchelper.exe -o C:\\ProgramData\\out.txt",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "Hashes": "SHA1=0000000000000000000000000000000000000002,MD5=00000000000000000000000000000002,SHA256=0000000000000000000000000000000000000000000000000000000000000002,IMPHASH=BD1D1547DA13C0FCB6C15E86217D5EB8",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate tool whose name only ends with 'wce.exe' without a preceding backslash and with an unrelated import hash",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\Contoso\\SyncWCE.exe",
+          "CommandLine": "\"C:\\Program Files\\Contoso\\SyncWCE.exe\" /background",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000003,IMPHASH=F34D5F2D4577ED6D9CEEC516C1F5A744",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Normal svchost.exe process with a non-WCE import hash",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "C:\\Windows\\System32\\svchost.exe -k netsvcs -p",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000004,IMPHASH=0000000000000000000000000000000A",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

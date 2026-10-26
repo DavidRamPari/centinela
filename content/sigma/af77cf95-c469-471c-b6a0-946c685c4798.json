@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "af77cf95-c469-471c-b6a0-946c685c4798",
+    "title": "Proxy Execution Via Wuauclt.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Roberto Rodriguez (Cyb3rWard0g), OTR (Open Threat Research), Florian Roth (Nextron Systems), Sreeman, FPT.EagleEye Team",
+    "path": "windows/process_creation/proc_creation_win_wuauclt_dll_loading.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wuauclt_dll_loading.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "wuauclt.exe (Cliente de Windows Update) se ejecutó con /UpdateDeploymentProvider y /RunHandlerComServer y cargó una DLL que no coincide con las rutas legítimas conocidas de Windows Update. Puede indicar ejecución por proxy de una DLL maliciosa.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\wuauclt.exe u OriginalFileName es wuauclt.exe, y CommandLine contiene UpdateDeploymentProvider y RunHandlerComServer. Excluye UpdateDeploymentProvider.dll, wuaueng.dll y UpdateDeploy.dll bajo \\Windows\\UUS\\ o \\Windows\\WinSxS\\.",
+      "why_it_matters": "Es ejecución por proxy mediante binario firmado (ATT&CK T1218): el atacante usa un binario de Microsoft de confianza para cargar su propia DLL, eludir controles de aplicaciones y ocultar el código dentro de un proceso que parece legítimo.",
+      "triage_steps": [
+        "Lea el CommandLine completo y extraiga la ruta de la DLL que sigue a /UpdateDeploymentProvider. Las rutas de usuario, Temp, ProgramData o Public son muy sospechosas.",
+        "Confirme que Image sea C:\\Windows\\System32\\wuauclt.exe. Si OriginalFileName es wuauclt.exe pero la ruta es otra, se trata de una copia renombrada o reubicada.",
+        "Obtenga el hash, la firma y la fecha de creación de la DLL. Consulte la reputación del hash y revise qué proceso escribió el archivo.",
+        "Revise ParentImage y la cadena de procesos padre. Windows Update suele arrancar desde svchost.exe; un padre como cmd.exe, powershell.exe, Office o wscript es una alerta roja.",
+        "Pivotee en el mismo host en +/- 15 minutos para buscar procesos hijos de wuauclt.exe, conexiones de red salientes, cargas de imagen y archivos creados.",
+        "Verifique el usuario de la ejecución y si hubo inicios de sesión inusuales o alertas previas en ese host o para esa cuenta.",
+        "Busque en toda la flota la misma ruta o hash de DLL y ejecuciones similares de wuauclt.exe."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Componentes legítimos de Windows Update o UUS cuya ruta de DLL no cubren los filtros, por ejemplo en otra letra de unidad o en otra arquitectura. Valide la firma de Microsoft."
+      ],
+      "response_steps": [
+        "Verifique la DLL (firma, hash, ruta y autor) antes de actuar. Si es maliciosa, aísle el endpoint de la red.",
+        "Termine el proceso wuauclt.exe sospechoso y sus hijos, y preserve la DLL y la memoria del proceso para el análisis forense.",
+        "Elimine la DLL y cualquier mecanismo de persistencia relacionado (tareas, servicios, claves Run), y bloquee el hash en el EDR.",
+        "Restablezca las credenciales de la cuenta afectada, revise el movimiento lateral y devuelva el host a producción solo cuando esté limpio."
+      ],
+      "severity_rationale": "El nivel high se justifica porque esta sintaxis casi nunca se ve fuera de Windows Update y, con las rutas legítimas excluidas, apunta a carga de DLL arbitraria con un binario de confianza."
+    },
+    "en": {
+      "summary": "wuauclt.exe (Windows Update Client) ran with /UpdateDeploymentProvider and /RunHandlerComServer and loaded a DLL that does not match known legitimate Windows Update paths. This may be proxy execution of a malicious DLL.",
+      "what_it_detects": "Process creation where Image ends with \\wuauclt.exe or OriginalFileName is wuauclt.exe, and CommandLine contains both UpdateDeploymentProvider and RunHandlerComServer. It excludes UpdateDeploymentProvider.dll, wuaueng.dll and UpdateDeploy.dll under \\Windows\\UUS\\ or \\Windows\\WinSxS\\.",
+      "why_it_matters": "This is signed binary proxy execution (ATT&CK T1218). An attacker uses a trusted Microsoft binary to load their own DLL, get past application control and hide code inside a process that looks legitimate.",
+      "triage_steps": [
+        "Read the full CommandLine and pull out the DLL path after /UpdateDeploymentProvider. User profile, Temp, ProgramData or Public paths are highly suspicious.",
+        "Confirm Image is C:\\Windows\\System32\\wuauclt.exe. If OriginalFileName is wuauclt.exe but the path is different, the binary is a renamed or relocated copy.",
+        "Get the DLL's hash, signature and creation time. Check the hash's reputation and find out which process wrote the file.",
+        "Review ParentImage and the process chain. Windows Update normally starts from svchost.exe. A parent such as cmd.exe, powershell.exe, Office or wscript is a red flag.",
+        "Pivot on the same host within +/- 15 minutes to look for wuauclt.exe child processes, outbound connections, image loads and file writes.",
+        "Check which user ran it, any unusual logons, and earlier alerts for this host or account.",
+        "Search the whole fleet for the same DLL path or hash and for similar wuauclt.exe executions."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Legitimate Windows Update or UUS components whose DLL path the filters miss, such as another drive letter or architecture. Check for a Microsoft signature."
+      ],
+      "response_steps": [
+        "Verify the DLL's signature, hash, path and the process that wrote it before you act. If it is malicious, isolate the endpoint.",
+        "Kill the suspicious wuauclt.exe process and its children. Keep the DLL and a process memory dump for forensics.",
+        "Remove the DLL and any related persistence, such as tasks, services or Run keys. Block the hash in the EDR.",
+        "Reset the affected account's credentials and look for lateral movement. Return the host to production only after you confirm it is clean."
+      ],
+      "severity_rationale": "High fits because this command-line syntax rarely appears outside Windows Update, and with the legitimate paths filtered out it points to a trusted binary loading an arbitrary DLL."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "wuauclt.exe from System32 loads a DLL from C:\\Users\\Public, spawned by cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wuauclt.exe",
+          "OriginalFileName": "wuauclt.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\wuauclt.exe\" /UpdateDeploymentProvider C:\\Users\\Public\\Documents\\wupdate.dll /RunHandlerComServer",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start wuauclt.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed copy of wuauclt.exe in ProgramData (matched by OriginalFileName) loads a DLL from AppData",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\ProgramData\\Intel\\svcupd.exe",
+          "OriginalFileName": "wuauclt.exe",
+          "CommandLine": "svcupd.exe /UpdateDeploymentProvider C:\\Users\\mrodriguez\\AppData\\Local\\Temp\\core.dll /RunHandlerComServer",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Windows Update run that loads UpdateDeploy.dll from C:\\Windows\\UUS\\amd64 (excluded by filter_main_uus)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\wuauclt.exe",
+          "OriginalFileName": "wuauclt.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\wuauclt.exe\" /UpdateDeploymentProvider C:\\Windows\\UUS\\amd64\\UpdateDeploy.dll /ClassId 7a1e5c3b-1f2d-4e6a-9b8c-0d1e2f3a4b5c /RunHandlerComServer",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "wuauclt.exe run with /DetectNow, without the UpdateDeploymentProvider and RunHandlerComServer arguments",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\adm-lgomez",
+          "Image": "C:\\Windows\\System32\\wuauclt.exe",
+          "OriginalFileName": "wuauclt.exe",
+          "CommandLine": "wuauclt.exe /DetectNow",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

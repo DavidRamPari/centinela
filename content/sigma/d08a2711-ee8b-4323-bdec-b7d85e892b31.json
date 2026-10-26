@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "d08a2711-ee8b-4323-bdec-b7d85e892b31",
+    "title": "PUA - CsExec Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_pua_csexec.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_pua_csexec.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1569.002",
+      "T1587.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó CsExec, una herramienta de ejecución remota en C# alternativa a PsExec, identificada por el nombre del binario o por la descripción del PE. Puede indicar movimiento lateral con credenciales administrativas.",
+      "what_it_detects": "Creación de procesos en Windows donde Image termina en \\csexec.exe o el campo Description del ejecutable es exactamente 'csexec', lo que también detecta copias renombradas de la herramienta.",
+      "why_it_matters": "CsExec permite ejecutar comandos en equipos remotos mediante un servicio temporal (T1569.002, ejecución de servicios). Herramientas de este tipo se usan en operaciones de ransomware para desplegar payloads en muchos equipos a la vez.",
+      "triage_steps": [
+        "Revise Image, Description, CommandLine y el hash: confirme si el binario está renombrado y qué equipo remoto y comando aparecen en CommandLine.",
+        "Identifique al usuario que lo ejecutó y su ParentImage; un shell interactivo, script o RMM inesperado aumenta la sospecha.",
+        "Verifique si el usuario y el host de origen pertenecen a un equipo de administración con uso autorizado de herramientas de ejecución remota.",
+        "En el equipo destino, busque creación de servicios nuevos (evento 7045), escritura de binarios en ADMIN$ y procesos hijos de services.exe dentro de +/- 15 minutos.",
+        "Revise inicios de sesión de red (tipo 3) del usuario desde el host de origen hacia otros equipos para medir el alcance.",
+        "Busque en el mismo host y usuario, +/- 15 minutos, descarga del binario, volcado de credenciales u otras herramientas de movimiento lateral.",
+        "Consulte alertas previas del mismo host, usuario y hash en los últimos 30 días."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Administradores o equipos de soporte que usan CsExec como alternativa autorizada a PsExec.",
+        "Ejercicios de red team o pruebas de penetración aprobados."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o su responsable si la ejecución estaba autorizada antes de actuar.",
+        "Si no está autorizada, aísle el host de origen y los equipos destino identificados desde el EDR.",
+        "Deshabilite o restablezca las credenciales usadas y revise sesiones activas de esa cuenta.",
+        "Elimine los servicios y binarios remotos creados tras preservar evidencia (hash, copias, logs).",
+        "Busque el hash y la descripción 'csexec' en todo el parque y documente el alcance antes de restaurar los equipos."
+      ],
+      "severity_rationale": "Nivel alto porque CsExec es una herramienta poco común sin uso legítimo habitual y su ejecución suele implicar movimiento lateral con privilegios administrativos."
+    },
+    "en": {
+      "summary": "CsExec, a C# remote execution tool that serves as a PsExec alternative, was launched, matched by binary name or PE description. It may indicate lateral movement using administrative credentials.",
+      "what_it_detects": "Windows process creation where Image ends with \\csexec.exe or the executable's Description is exactly 'csexec', which also catches renamed copies of the tool.",
+      "why_it_matters": "CsExec runs commands on remote hosts through a temporary service (T1569.002, Service Execution). Tools like this are used in ransomware operations to push payloads to many machines at once.",
+      "triage_steps": [
+        "Review Image, Description, CommandLine and hash: check whether the binary is renamed and which remote host and command appear in CommandLine.",
+        "Identify the executing user and ParentImage; an unexpected interactive shell, script or RMM agent raises suspicion.",
+        "Check whether the user and source host belong to an admin team authorized to use remote execution tools.",
+        "On the target host, look for new service installs (event 7045), binaries written to ADMIN$ and services.exe child processes within +/- 15 minutes.",
+        "Review network logons (type 3) by the user from the source host to other machines to scope spread.",
+        "On the same host and user, +/- 15 minutes, look for the tool's download, credential dumping or other lateral movement tools.",
+        "Check earlier alerts for the same host, user and hash over the last 30 days."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Administrators or support staff using CsExec as an approved PsExec alternative.",
+        "Approved red team exercises or penetration tests."
+      ],
+      "response_steps": [
+        "Confirm with the user or their manager whether the execution was authorized before acting.",
+        "If unauthorized, isolate the source host and identified target hosts through the EDR.",
+        "Disable or reset the credentials used and review active sessions for that account.",
+        "Remove remotely created services and binaries after preserving evidence (hash, copies, logs).",
+        "Hunt for the hash and the 'csexec' description fleet-wide and document scope before restoring hosts."
+      ],
+      "severity_rationale": "High fits because CsExec is an uncommon tool with little routine legitimate use, and running it usually means privileged lateral movement."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "CsExec run from a user's Downloads folder against a remote host",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\Downloads\\csexec.exe",
+          "Description": "csexec",
+          "CommandLine": "csexec.exe \\\\SRV-FILE01 cmd.exe /c whoami",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "csexec.exe"
+        }
+      },
+      {
+        "description": "Renamed CsExec binary detected through the PE Description field",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\updater.exe",
+          "Description": "CSExec",
+          "CommandLine": "updater.exe \\\\SRV-APP02 powershell.exe -nop",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Sysinternals PsExec used by an administrator; neither the image name nor the description matches",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-01.andes.example.com",
+          "User": "ANDES\\adm_lgarcia",
+          "Image": "C:\\Tools\\Sysinternals\\PsExec.exe",
+          "Description": "Execute processes remotely",
+          "CommandLine": "PsExec.exe \\\\SRV-FILE01 ipconfig",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Similarly named binary csexecsvc.exe whose Image and Description do not equal the rule values",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\csexecsvc.exe",
+          "Description": "csexecsvc",
+          "CommandLine": "C:\\Windows\\csexecsvc.exe",
+          "ParentImage": "C:\\Windows\\System32\\services.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

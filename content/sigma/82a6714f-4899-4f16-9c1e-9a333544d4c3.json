@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "82a6714f-4899-4f16-9c1e-9a333544d4c3",
+    "title": "File In Suspicious Location Encoded To Base64 Via Certutil.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_certutil_encode_susp_location.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_certutil_encode_susp_location.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó certutil.exe con la opción -encode sobre un archivo ubicado en una ruta usada a menudo por malware (Temp, AppData\\Roaming, Desktop, Users\\Public, PerfLogs o $Recycle.Bin). Puede indicar ofuscación de un payload o preparación de datos para exfiltración.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\certutil.exe u OriginalFileName es CertUtil.exe, el CommandLine contiene -encode (o /encode y otras variantes de guion) y además incluye una de las rutas sospechosas listadas.",
+      "why_it_matters": "Certutil es un binario firmado de Windows. Los atacantes lo usan para codificar archivos en base64 y así ocultar binarios, scripts o datos robados de los controles de contenido (ATT&CK T1027, Obfuscated Files or Information). Desde rutas temporales o públicas, rara vez es legítimo.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el archivo de origen y el de destino, sus extensiones y si el destino tiene un nombre engañoso, como .txt o .crt.",
+        "Compruebe si Image está en System32 o SysWOW64. Si OriginalFileName es CertUtil.exe pero la ruta o el nombre son otros, trátelo como un binario renombrado.",
+        "Analice ParentImage y la línea de comandos del padre: cmd, powershell, wscript, mshta o un documento de Office aumentan la sospecha.",
+        "Obtenga el hash del archivo de origen y del archivo codificado si siguen en disco; consulte su reputación y su fecha de creación.",
+        "Pivote en el mismo host +/- 15 minutos: descargas, ejecución de los archivos, compresión (7z, rar), conexiones de red salientes o uso de -decode.",
+        "Verifique si el usuario suele usar certutil y busque alertas previas del mismo usuario o equipo.",
+        "Busque la misma línea de comandos o el mismo hash en otros endpoints para medir el alcance."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Administradores o desarrolladores que codifican certificados o archivos de prueba en el Escritorio o en Temp.",
+        "Scripts internos de soporte o instaladores que usan certutil para empaquetar datos en carpetas temporales."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del equipo si la acción fue legítima antes de actuar.",
+        "Si no hay justificación, aísle el endpoint con el EDR y preserve los archivos de origen y destino como evidencia.",
+        "Si el archivo codificado contiene datos sensibles, revise el tráfico saliente para detectar exfiltración y bloquee los destinos maliciosos.",
+        "Elimine los artefactos maliciosos y los mecanismos de persistencia ya verificados, y restablezca las credenciales del usuario si se vieron comprometidas.",
+        "Considere restringir certutil.exe mediante WDAC o AppLocker para los usuarios que no lo necesitan."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque codificar archivos con certutil en rutas temporales o públicas es un patrón típico de malware y rara vez tiene una explicación legítima."
+    },
+    "en": {
+      "summary": "certutil.exe was run with -encode on a file in a location malware often uses (Temp, AppData\\Roaming, Desktop, Users\\Public, PerfLogs or $Recycle.Bin). This may mean a payload is being obfuscated or data staged for exfiltration.",
+      "what_it_detects": "Windows process creation where Image ends with \\certutil.exe or OriginalFileName is CertUtil.exe, CommandLine contains -encode (or /encode and other dash variants), and CommandLine also includes one of the listed suspicious paths.",
+      "why_it_matters": "Certutil is a signed Windows binary. Attackers use it to base64-encode files so binaries, scripts or stolen data get past content inspection (ATT&CK T1027, Obfuscated Files or Information). From temp or public folders, legitimate use is rare.",
+      "triage_steps": [
+        "Read the full CommandLine: identify the source and output files, their extensions, and whether the output has a misleading name such as .txt or .crt.",
+        "Check whether Image is in System32 or SysWOW64. If OriginalFileName is CertUtil.exe but the path or name differs, treat it as a renamed binary.",
+        "Review ParentImage and the parent command line. cmd, powershell, wscript, mshta or an Office parent raises suspicion.",
+        "Hash the source and encoded files if they are still on disk, then check their reputation and creation time.",
+        "Pivot on the same host within +/- 15 minutes: downloads, execution of these files, archiving (7z, rar), outbound connections or -decode use.",
+        "Check whether the user normally runs certutil, and look for earlier alerts for the same user or host.",
+        "Search other endpoints for the same command line or hash to scope the activity."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Admins or developers encoding certificates or test files on the Desktop or in Temp.",
+        "Internal support scripts or installers that use certutil to package data in temp folders."
+      ],
+      "response_steps": [
+        "Before taking action, confirm with the user or the host owner whether the activity was legitimate.",
+        "If there is no justification, isolate the endpoint through EDR and keep the source and output files as evidence.",
+        "If the encoded file holds sensitive data, review outbound traffic for exfiltration and block malicious destinations.",
+        "Remove the malicious artifacts and any persistence you have verified. Reset the user's credentials if they were exposed.",
+        "Consider using WDAC or AppLocker to restrict certutil.exe for users who do not need it."
+      ],
+      "severity_rationale": "High fits because encoding files with certutil in temp or public paths is a common malware pattern and is seldom legitimate."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "certutil from System32 encodes an archive staged in C:\\Users\\Public, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -encode C:\\Users\\Public\\data.zip C:\\Users\\Public\\data.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c certutil.exe -encode C:\\Users\\Public\\data.zip C:\\Users\\Public\\data.txt"
+        }
+      },
+      {
+        "description": "Renamed certutil (caught by OriginalFileName) uses the slash form /encode on a file in the user's Local\\Temp",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\cu.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "cu.exe /encode C:\\Users\\mrojas\\AppData\\Local\\Temp\\dump.bin C:\\Users\\mrojas\\AppData\\Local\\Temp\\dump.b64",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "An administrator encodes a CA certificate in a PKI working folder that is not on the suspicious path list",
+        "event": {
+          "EventID": 1,
+          "Computer": "PKI-01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -encode C:\\PKI\\export\\rootca.cer C:\\PKI\\export\\rootca.b64",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "certutil decodes, rather than encodes, a file in Windows\\Temp, so the -encode condition is not met",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -decode C:\\Windows\\Temp\\cert.b64 C:\\Windows\\Temp\\cert.cer",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

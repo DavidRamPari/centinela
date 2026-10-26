@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "49f2f17b-b4c8-4172-a68b-d5bf95d05130",
+    "title": "UAC Bypass via ICMLuaUtil",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Elastic (idea)",
+    "path": "windows/process_creation/proc_creation_win_uac_bypass_icmluautil.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_uac_bypass_icmluautil.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1548.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso fue iniciado por dllhost.exe alojando el objeto COM elevado CMSTPLUA (ICMLuaUtil) o el de Color Management, una técnica conocida para evadir UAC y obtener un proceso con integridad alta sin aviso.",
+      "what_it_detects": "Creación de procesos donde ParentImage termina en \\dllhost.exe y ParentCommandLine contiene /Processid:{3E5FC7F9-9A51-4367-9063-A120244FBEC7} o /Processid:{D2E7041B-2927-42FB-8E9F-7CE93B6DC937}, excluyendo hijos WerFault.exe (por Image u OriginalFileName).",
+      "why_it_matters": "Estos objetos COM con autoelevación pueden ser invocados desde un proceso de integridad media para ejecutar comandos elevados, evadiendo UAC en silencio (ATT&CK T1548.002, Abuse Elevation Control Mechanism: Bypass UAC). Esto da ejecución administrativa, que suele preceder a persistencia o robo de credenciales.",
+      "triage_steps": [
+        "Revise Image, CommandLine y el nivel de integridad del proceso hijo; cmd.exe, powershell.exe, rundll32.exe o binarios en rutas escribibles por el usuario son indicadores fuertes.",
+        "Identifique qué CLSID aparece en ParentCommandLine y registre el usuario y el host.",
+        "Busque el proceso que activó el objeto COM: procesos de integridad media del mismo usuario en el host en +/- 15 minutos, como scripts, Office o binarios sin firma.",
+        "Verifique hash, firma y ruta del Image hijo y de los archivos que escribió; consulte el hash en threat intelligence.",
+        "Construya el árbol de procesos del hijo: conexiones de red, servicios nuevos, tareas programadas, claves Run o manipulación de herramientas de seguridad.",
+        "Busque alertas previas del mismo usuario, host y hash, y el mismo patrón de CLSID en otros hosts."
+      ],
+      "false_positives": [
+        "La regla no indica falsos positivos conocidos; el software legítimo rara vez lanza procesos mediante estos objetos COM.",
+        "Algunos instaladores o herramientas administrativas podrían usar CMSTPLUA para elevar; confirme binario firmado del fabricante, ruta esperada y ticket de cambio."
+      ],
+      "response_steps": [
+        "Confirme la intención maliciosa a partir del proceso hijo, su origen y la actividad del usuario antes de actuar.",
+        "Si se confirma, aísle el endpoint y termine el árbol de procesos elevado.",
+        "Elimine persistencia y payloads descargados; restablezca las credenciales del usuario afectado y de las cuentas usadas en el host.",
+        "Revise la configuración de UAC (considere 'Notificar siempre') y limite los derechos de administrador local.",
+        "Restaure el host desde un estado confiable si la integridad es dudosa y monitoree recurrencias."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque el patrón corresponde a una evasión de UAC conocida que permite ejecución elevada silenciosa y las coincidencias benignas son raras."
+    },
+    "en": {
+      "summary": "A process was started by dllhost.exe hosting the CMSTPLUA (ICMLuaUtil) or Color Management elevated COM object, a known way to bypass UAC and get a high-integrity process without a prompt.",
+      "what_it_detects": "Process creation where ParentImage ends with \\dllhost.exe and ParentCommandLine contains /Processid:{3E5FC7F9-9A51-4367-9063-A120244FBEC7} or /Processid:{D2E7041B-2927-42FB-8E9F-7CE93B6DC937}, excluding WerFault.exe children (by Image or OriginalFileName).",
+      "why_it_matters": "These auto-elevating COM objects can be called by a medium-integrity process to launch commands elevated, silently bypassing User Account Control (ATT&CK T1548.002, Abuse Elevation Control Mechanism: Bypass UAC). The result is administrative code execution that often precedes persistence or credential theft.",
+      "triage_steps": [
+        "Review Image, CommandLine and integrity level of the child process; cmd.exe, powershell.exe, rundll32.exe or binaries in user-writable paths are strong indicators.",
+        "Identify which CLSID appears in ParentCommandLine and record the user and host.",
+        "Find the process that activated the COM object: look for medium-integrity processes by the same user on the host within +/- 15 minutes, such as scripts, Office or unsigned binaries.",
+        "Check the hash, signature and path of the child Image and any files it wrote; look up the hash in threat intelligence.",
+        "Build the child's process tree: network connections, new services, scheduled tasks, Run keys or security tool tampering.",
+        "Search for earlier alerts for the same user, host and child hash, and for the same CLSID pattern on other hosts."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; legitimate software rarely launches processes through these COM objects.",
+        "Some installers or admin tools may use CMSTPLUA for elevation; confirm with a signed vendor binary, expected path and change ticket."
+      ],
+      "response_steps": [
+        "Confirm malicious intent from the child process, its originator and the user's activity before acting.",
+        "If confirmed, isolate the endpoint and kill the elevated process tree.",
+        "Remove persistence and dropped payloads; reset credentials of the affected user and any accounts used on the host.",
+        "Review UAC settings (consider 'Always notify') and limit local admin rights to reduce exposure.",
+        "Restore the host from a known-good state if system integrity is uncertain, then monitor for recurrence."
+      ],
+      "severity_rationale": "High fits because the pattern is specific to a known UAC bypass that yields silent elevated execution, and benign matches are rare."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe launched by dllhost.exe hosting the CMSTPLUA (ICMLuaUtil) COM object",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "\"C:\\Windows\\System32\\cmd.exe\" /c C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.exe",
+          "IntegrityLevel": "High",
+          "ParentImage": "C:\\Windows\\System32\\dllhost.exe",
+          "ParentCommandLine": "C:\\WINDOWS\\system32\\DllHost.exe /Processid:{3E5FC7F9-9A51-4367-9063-A120244FBEC7}"
+        }
+      },
+      {
+        "description": "PowerShell launched by SysWOW64 dllhost.exe hosting the Color Management elevated COM object",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -nop -w hidden -File C:\\Users\\Public\\task.ps1",
+          "IntegrityLevel": "High",
+          "ParentImage": "C:\\Windows\\SysWOW64\\dllhost.exe",
+          "ParentCommandLine": "C:\\Windows\\SysWOW64\\DllHost.exe /Processid:{D2E7041B-2927-42FB-8E9F-7CE93B6DC937}"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "WerFault.exe crash reporting child of the CMSTPLUA dllhost, excluded by the filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WerFault.exe",
+          "OriginalFileName": "WerFault.exe",
+          "CommandLine": "C:\\Windows\\system32\\WerFault.exe -u -p 6120 -s 512",
+          "IntegrityLevel": "High",
+          "ParentImage": "C:\\Windows\\System32\\dllhost.exe",
+          "ParentCommandLine": "C:\\WINDOWS\\system32\\DllHost.exe /Processid:{3E5FC7F9-9A51-4367-9063-A120244FBEC7}"
+        }
+      },
+      {
+        "description": "Child of dllhost.exe hosting a different, unrelated COM object CLSID",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "\"C:\\Windows\\System32\\cmd.exe\" /c echo test",
+          "IntegrityLevel": "Medium",
+          "ParentImage": "C:\\Windows\\System32\\dllhost.exe",
+          "ParentCommandLine": "C:\\WINDOWS\\system32\\DllHost.exe /Processid:{AB8902B4-09CA-4BB6-B78D-A8F59079A8D5}"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

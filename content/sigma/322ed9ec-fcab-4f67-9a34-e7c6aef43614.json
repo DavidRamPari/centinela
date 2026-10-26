@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "322ed9ec-fcab-4f67-9a34-e7c6aef43614",
+    "title": "New Port Forwarding Rule Added Via Netsh.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), omkar72, oscd.community, Swachchhanda Shrawan Poudel",
+    "path": "windows/process_creation/proc_creation_win_netsh_port_forwarding.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_netsh_port_forwarding.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1090"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó netsh.exe con argumentos que crean una regla de reenvío de puertos (PortProxy v4tov4). Así se puede redirigir tráfico a través del host, incluido el tunneling de RDP.",
+      "what_it_detects": "Procesos cuyo Image termina en \\netsh.exe o cuyo OriginalFileName es netsh.exe, con un CommandLine que agrega una regla portproxy v4tov4. Cubre la sintaxis completa ('interface portproxy add v4tov4'), la abreviada ('i p a v') y el uso de los parámetros listena, connectp y c=.",
+      "why_it_matters": "Con PortProxy, un atacante puede convertir un host comprometido en un pivote que reenvía conexiones hacia sistemas internos o expone servicios como RDP. Esto permite eludir firewalls y segmentación (ATT&CK T1090, Proxy) y apoya el movimiento lateral y el command and control.",
+      "triage_steps": [
+        "Revise el CommandLine y anote listenaddress/listenport y connectaddress/connectport. Es sospechoso escuchar en 0.0.0.0 o redirigir hacia 3389, 445 o 22, o hacia IP externas.",
+        "Identifique el ParentImage y el usuario: es más sospechoso si vino de cmd, PowerShell, wmiprvse o de un servicio remoto que si lo lanzó un administrador conocido.",
+        "En el endpoint, ejecute 'netsh interface portproxy show all' y revise HKLM\\SYSTEM\\CurrentControlSet\\Services\\PortProxy\\v4tov4\\tcp para confirmar que la regla existe.",
+        "Busque en el mismo host, +/- 15 minutos, reglas de firewall nuevas (netsh advfirewall), habilitación de RDP o cambios en el servicio iphlpsvc.",
+        "Correlacione la telemetría de red: conexiones entrantes al puerto de escucha y salientes hacia connectaddress, con sus IP de origen.",
+        "Busque alertas previas del mismo usuario o host y logons de tipo 10 o 3 que provengan del host pivote."
+      ],
+      "false_positives": [
+        "Administradores que publican servicios internos o hacen migraciones mediante reenvío de puertos documentado.",
+        "Scripts de PowerShell para el puente de red de WSL2 usados con WSL, Kubernetes o Docker en equipos de desarrolladores.",
+        "Software de terceros o herramientas de gestión que configuran PortProxy durante la instalación."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del host o con el usuario si existe un cambio autorizado. Si lo hay, documéntelo y considere una exclusión acotada.",
+        "Si no está autorizado, aísle el endpoint. Antes de borrar la regla, guarde como evidencia la salida de 'show all' y la clave de registro.",
+        "Elimine la regla con 'netsh interface portproxy delete v4tov4' y revierta los cambios de firewall asociados.",
+        "Restablezca las credenciales de la cuenta implicada, investigue el acceso inicial y revise los hosts internos que se alcanzaron a través del pivote."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque la técnica es potente para pivotar, pero también tiene usos administrativos y de desarrollo legítimos que requieren contexto para descartarlos."
+    },
+    "en": {
+      "summary": "netsh.exe ran with arguments that add a port forwarding (PortProxy v4tov4) rule. This lets traffic be redirected through the host, including RDP tunneling.",
+      "what_it_detects": "Processes whose Image ends in \\netsh.exe or whose OriginalFileName is netsh.exe, with a CommandLine that adds a portproxy v4tov4 rule. It covers the full syntax ('interface portproxy add v4tov4'), the abbreviated form ('i p a v') and the listena, connectp and c= parameters.",
+      "why_it_matters": "With PortProxy, an attacker can turn a compromised host into a pivot that forwards connections to internal systems or exposes services such as RDP. This bypasses firewalls and segmentation (ATT&CK T1090, Proxy) and supports lateral movement and command and control.",
+      "triage_steps": [
+        "Read the CommandLine and note listenaddress/listenport and connectaddress/connectport. Listening on 0.0.0.0 or forwarding to 3389, 445, 22 or external IPs is suspicious.",
+        "Check the ParentImage and the user. A cmd, PowerShell, wmiprvse or remote-service parent is more suspicious than a known admin session.",
+        "On the endpoint, run 'netsh interface portproxy show all' and check HKLM\\SYSTEM\\CurrentControlSet\\Services\\PortProxy\\v4tov4\\tcp to confirm the rule exists.",
+        "Look on the same host within +/- 15 minutes for new firewall rules (netsh advfirewall), RDP being enabled or iphlpsvc changes.",
+        "Correlate network telemetry: inbound connections to the listen port, outbound connections to connectaddress, and their source IPs.",
+        "Look for earlier alerts for the same user or host, and for type 10 or 3 logons that came from the pivot host."
+      ],
+      "false_positives": [
+        "Administrators exposing internal services or running migrations with documented port forwarding.",
+        "WSL2 network bridge PowerShell scripts used with WSL, Kubernetes or Docker on developer workstations.",
+        "Third-party software or management tools that set up PortProxy during installation."
+      ],
+      "response_steps": [
+        "Check with the host owner or the user whether an authorized change exists. If it does, document it and consider a narrow exclusion.",
+        "If it is unauthorized, isolate the endpoint. Before removing the rule, save the 'show all' output and the registry key as evidence.",
+        "Remove the rule with 'netsh interface portproxy delete v4tov4' and revert the related firewall changes.",
+        "Reset the involved account's credentials, investigate initial access and review the internal hosts reached through the pivot."
+      ],
+      "severity_rationale": "Medium fits because the technique is a strong pivoting tool, but it also has legitimate admin and developer uses that need context to rule out."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Full syntax adding a v4tov4 rule that exposes RDP of an internal host on all interfaces",
+        "event": {
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh interface portproxy add v4tov4 listenport=50050 listenaddress=0.0.0.0 connectport=3389 connectaddress=192.0.2.15",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c netsh.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.andes.example.com"
+        }
+      },
+      {
+        "description": "Abbreviated netsh syntax (i p a v) with listena, connectp and c= parameters",
+        "event": {
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh i p a v l=8001 listena=127.0.0.1 connectp=80 c=192.0.2.10",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop",
+          "User": "ANDES\\svc_backup",
+          "Computer": "SRV-FILE-02.andes.example.com"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator only listening existing portproxy rules, nothing is added",
+        "event": {
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh interface portproxy show all",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\admin.mrodriguez",
+          "Computer": "WS-0142.andes.example.com"
+        }
+      },
+      {
+        "description": "Routine netsh query of IPv4 interfaces, unrelated to port forwarding",
+        "event": {
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh interface ipv4 show interfaces",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.andes.example.com"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

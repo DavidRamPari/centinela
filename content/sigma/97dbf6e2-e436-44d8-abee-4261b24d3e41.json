@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "97dbf6e2-e436-44d8-abee-4261b24d3e41",
+    "title": "Microsoft IIS Connection Strings Decryption",
+    "level": "high",
+    "status": "test",
+    "author": "Tim Rauch, Elastic (idea)",
+    "path": "windows/process_creation/proc_creation_win_iis_connection_strings_decryption.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_iis_connection_strings_decryption.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó aspnet_regiis.exe con la opción -pdf sobre la sección connectionStrings, lo que descifra las cadenas de conexión protegidas en un web.config de IIS. Puede exponer en texto claro credenciales de bases de datos, como la contraseña de una cuenta de servicio MSSQL.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\aspnet_regiis.exe o OriginalFileName es aspnet_regiis.exe, y CommandLine contiene tanto 'connectionStrings' como ' -pdf' (descifrado de una sección de configuración por ruta física).",
+      "why_it_matters": "Un atacante con acceso al servidor IIS, por ejemplo mediante una webshell, puede descifrar y volcar credenciales guardadas en web.config para moverse hacia los servidores de base de datos. Corresponde a acceso a credenciales, ATT&CK T1003 (OS Credential Dumping).",
+      "triage_steps": [
+        "Revise CommandLine completo: ruta física del sitio después de -pdf y si apunta a una aplicación productiva en C:\\inetpub u otra ruta web.",
+        "Identifique ParentImage y la cadena de procesos: w3wp.exe → cmd.exe/powershell.exe → aspnet_regiis.exe indica fuertemente una webshell.",
+        "Verifique el usuario que ejecutó el proceso: cuentas IIS APPPOOL o de servicio son sospechosas; un administrador conocido puede ser legítimo.",
+        "Pivote en el mismo host +/- 15 minutos: otros procesos hijos de w3wp.exe, comandos de reconocimiento (whoami, net, ipconfig) y escritura de archivos .aspx/.ashx nuevos.",
+        "Revise los logs de IIS (cs-uri-stem, c-ip, cs-user-agent) en ese intervalo buscando peticiones POST a archivos inusuales en el directorio web.",
+        "Busque si el resultado fue redirigido a un archivo o exfiltrado, y si hubo inicios de sesión posteriores con la cuenta SQL expuesta.",
+        "Consulte alertas anteriores del mismo host, usuario e IPs de origen para detectar actividad previa."
+      ],
+      "false_positives": [
+        "Administradores o desarrolladores que descifran web.config durante mantenimiento, migración o depuración de una aplicación, idealmente con ticket de cambio.",
+        "Scripts de despliegue o automatización (CI/CD) que descifran y vuelven a cifrar secciones de configuración al publicar una aplicación."
+      ],
+      "response_steps": [
+        "Confirme con el responsable de la aplicación si la ejecución fue autorizada; si no, trate el servidor como comprometido.",
+        "Aísle el servidor IIS o restrinja su acceso de red, preservando evidencia (memoria, logs de IIS, archivos del directorio web).",
+        "Busque y elimine webshells u otros archivos maliciosos tras verificarlos y conservar copias para análisis.",
+        "Rote las contraseñas de todas las cadenas de conexión expuestas y revise la actividad de esas cuentas en los servidores de base de datos.",
+        "Vuelva a cifrar las secciones con -pef, aplique parches y refuerce permisos de la cuenta del application pool."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque el descifrado de connectionStrings es poco frecuente y expone directamente credenciales de bases de datos que habilitan movimiento lateral."
+    },
+    "en": {
+      "summary": "aspnet_regiis.exe ran with -pdf against the connectionStrings section, decrypting protected connection strings in an IIS web.config. This can expose database credentials, such as an MSSQL service account password, in clear text.",
+      "what_it_detects": "Windows process creation events where Image ends with \\aspnet_regiis.exe or OriginalFileName is aspnet_regiis.exe, and CommandLine contains both 'connectionStrings' and ' -pdf' (decrypt a configuration section by physical path).",
+      "why_it_matters": "An attacker with IIS access, for example through a webshell, can decrypt and dump credentials stored in web.config and pivot to database servers. This maps to credential access, ATT&CK T1003 (OS Credential Dumping).",
+      "triage_steps": [
+        "Read the full CommandLine: which physical site path follows -pdf, and whether it is a production application under C:\\inetpub or another web root.",
+        "Check ParentImage and the process tree: w3wp.exe → cmd.exe/powershell.exe → aspnet_regiis.exe strongly suggests a webshell.",
+        "Check the executing user: IIS APPPOOL or service accounts are suspicious; a known administrator may be legitimate.",
+        "Pivot on the same host +/- 15 minutes: other w3wp.exe child processes, recon commands (whoami, net, ipconfig) and newly written .aspx/.ashx files.",
+        "Review IIS logs (cs-uri-stem, c-ip, cs-user-agent) for that window, looking for POST requests to unusual files in the web root.",
+        "Look for output redirected to a file or exfiltrated, and for later logons using the exposed SQL account.",
+        "Check earlier alerts for the same host, user and source IPs."
+      ],
+      "false_positives": [
+        "Administrators or developers decrypting web.config during maintenance, migration or debugging, ideally backed by a change ticket.",
+        "Deployment or CI/CD scripts that decrypt and re-encrypt configuration sections when publishing an application."
+      ],
+      "response_steps": [
+        "Confirm with the application owner whether the run was authorized; if not, treat the server as compromised.",
+        "Isolate the IIS server or restrict its network access while preserving evidence (memory, IIS logs, web root files).",
+        "Find and remove webshells or other malicious files after verification, keeping copies for analysis.",
+        "Rotate passwords for all exposed connection strings and review those accounts' activity on database servers.",
+        "Re-encrypt sections with -pef, patch the server and tighten application pool account permissions."
+      ],
+      "severity_rationale": "High fits because decrypting connectionStrings is rare and directly exposes database credentials that enable lateral movement."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Webshell scenario: cmd.exe spawned by w3wp.exe runs aspnet_regiis -pdf on connectionStrings",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-01.andes.example.com",
+          "User": "IIS APPPOOL\\DefaultAppPool",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\aspnet_regiis.exe",
+          "OriginalFileName": "aspnet_regiis.exe",
+          "CommandLine": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\aspnet_regiis.exe -pdf \"connectionStrings\" C:\\inetpub\\wwwroot\\portal",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c aspnet_regiis.exe -pdf \"connectionStrings\" C:\\inetpub\\wwwroot\\portal",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed binary detected via OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-02.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\regtool.exe",
+          "OriginalFileName": "aspnet_regiis.exe",
+          "CommandLine": "regtool.exe -pdf connectionStrings D:\\Sites\\intranet",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate encryption of connectionStrings with -pef (not -pdf)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-01.andes.example.com",
+          "User": "ANDES\\adm_mrodriguez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\aspnet_regiis.exe",
+          "OriginalFileName": "aspnet_regiis.exe",
+          "CommandLine": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\aspnet_regiis.exe -pef \"connectionStrings\" C:\\inetpub\\wwwroot\\portal",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "aspnet_regiis decrypting a different section (appSettings), no connectionStrings",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-02.andes.example.com",
+          "User": "ANDES\\adm_mrodriguez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\aspnet_regiis.exe",
+          "OriginalFileName": "aspnet_regiis.exe",
+          "CommandLine": "aspnet_regiis.exe -pdf \"appSettings\" D:\\Sites\\intranet",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

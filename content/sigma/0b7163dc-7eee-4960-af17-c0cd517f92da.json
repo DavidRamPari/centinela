@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "0b7163dc-7eee-4960-af17-c0cd517f92da",
+    "title": "Service Started/Stopped Via Wmic.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wmic_service_manipulation.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmic_service_manipulation.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1047"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó WMIC.exe con una línea de comandos que llama al método StartService o StopService de un servicio de Windows. Puede ser administración legítima o un intento de detener defensas o lanzar servicios maliciosos.",
+      "what_it_detects": "Creación de procesos de wmic.exe (por Image o OriginalFileName) cuyo CommandLine contiene ' service ' y ' call ', además de 'stopservice' o 'startservice', por ejemplo: wmic service where name=\"X\" call stopservice.",
+      "why_it_matters": "Los atacantes usan Windows Management Instrumentation (T1047) para detener antivirus, backups o logging antes de cifrar o moverse lateralmente, o para iniciar servicios que instalaron. Con /node: también se puede actuar sobre equipos remotos.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el servicio objetivo, la acción (start/stop) y si incluye /node: para un host remoto.",
+        "Determine si el servicio es de seguridad, backup, base de datos o registro (WinDefend, Sense, VSS, EventLog, SQL); detenerlos aumenta mucho la sospecha.",
+        "Analice ParentImage y la cadena de procesos: cmd.exe o powershell.exe lanzados por Office, navegador o un servicio web son anómalos.",
+        "Valide el usuario que ejecutó el proceso y si su rol incluye administración de servicios en ese host.",
+        "Pivote en el mismo host +/- 15 minutos: otros comandos wmic, sc.exe, net stop, vssadmin, borrado de logs o creación de servicios.",
+        "Si se usó /node:, revise el equipo remoto por eventos 7036/7040 y por logons de tipo 3 de la misma cuenta.",
+        "Busque alertas previas para el mismo usuario, host o hash de la cadena de procesos padre."
+      ],
+      "false_positives": [
+        "Scripts de administración o despliegue de software que reinician servicios mediante WMIC.",
+        "Herramientas de gestión de TI o RMM que controlan servicios de forma remota.",
+        "Administradores que reinician servicios manualmente durante soporte o mantenimiento planificado."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del host o el equipo de TI si la acción estaba autorizada o asociada a un cambio.",
+        "Si no es legítima, reinicie el servicio detenido (especialmente de seguridad) y aísle el endpoint tras validar el impacto.",
+        "Restablezca o deshabilite la cuenta usada si hay indicios de compromiso y revise su actividad en otros equipos.",
+        "Identifique y elimine el mecanismo que lanzó wmic (script, tarea programada, servicio nuevo) tras preservar evidencia.",
+        "Documente servicios y scripts aprobados para afinar la regla con exclusiones específicas."
+      ],
+      "severity_rationale": "Nivel medio: la acción es común en administración, pero detener o iniciar servicios vía WMI es una técnica frecuente para debilitar defensas y requiere revisión."
+    },
+    "en": {
+      "summary": "WMIC.exe was run with a command line that calls the StartService or StopService method of a Windows service. This may be routine administration or an attempt to stop defenses or launch malicious services.",
+      "what_it_detects": "Process creation of wmic.exe (by Image or OriginalFileName) whose CommandLine contains ' service ' and ' call ' plus 'stopservice' or 'startservice', e.g. wmic service where name=\"X\" call stopservice.",
+      "why_it_matters": "Attackers use Windows Management Instrumentation (T1047) to stop antivirus, backup or logging before encryption or lateral movement, or to start services they installed. With /node: it can target remote hosts.",
+      "triage_steps": [
+        "Read the full CommandLine: identify the target service, the action (start/stop) and whether /node: points to a remote host.",
+        "Check whether the service is security, backup, database or logging related (WinDefend, Sense, VSS, EventLog, SQL); stopping these is highly suspicious.",
+        "Review ParentImage and the process tree: cmd.exe or powershell.exe spawned by Office, a browser or a web server is anomalous.",
+        "Validate the executing user and whether their role covers service administration on this host.",
+        "Pivot on the same host +/- 15 minutes: other wmic, sc.exe, net stop, vssadmin, log clearing or service creation activity.",
+        "If /node: was used, check the remote host for 7036/7040 events and type 3 logons from the same account.",
+        "Look for earlier alerts for the same user, host or parent process hash."
+      ],
+      "false_positives": [
+        "Administration or software deployment scripts restarting services via WMIC.",
+        "IT management or RMM tools controlling services remotely.",
+        "Administrators manually restarting services during support or planned maintenance."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the action was authorized or tied to a change ticket.",
+        "If not legitimate, restart any stopped service (especially security ones) and isolate the endpoint after assessing impact.",
+        "Reset or disable the account used if compromise is suspected and review its activity on other hosts.",
+        "Preserve evidence, then remove whatever launched wmic (script, scheduled task, new service).",
+        "Document approved services and scripts to tune the rule with narrow exclusions."
+      ],
+      "severity_rationale": "Medium fits: the action is common in administration, but starting or stopping services via WMI is a frequent defense-weakening technique that warrants review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WMIC used locally to stop the Windows Defender service from a PowerShell parent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic service where name=\"WinDefend\" call stopservice",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "WMIC used against a remote host to start a service",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\admin.rios",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic /node:WS-0142 service where \"name='UpdSvcHelper'\" call startservice",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "WMIC only queries service state; no 'call' or start/stop method",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic service where name=\"Spooler\" get name,state,startmode",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Service stopped with sc.exe instead of WMIC, so the image selection fails",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.rios",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe stop Spooler",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

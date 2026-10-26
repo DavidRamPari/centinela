@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "dd6b39d9-d9be-4a3b-8fe0-fe3c6a5c1795",
+    "title": "Use NTFS Short Name in Command Line",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_ntfs_short_name_use_cli.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_ntfs_short_name_use_cli.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1564.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso cuya línea de comandos hace referencia a un archivo ejecutable o script mediante su nombre corto 8.3 de NTFS (por ejemplo, UPDATE~1.EXE). Puede ser una técnica para evadir detecciones basadas en nombres de archivo o rutas.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde CommandLine contiene ~1 o ~2 seguido de .exe, .bat, .msi, .vbe, .vbs, .dll, .ps1, .js o .hta. Se excluyen los procesos con ParentImage WebexHost.exe o thor64.exe y el instalador VCREDI~1.EXE de XAMPP.",
+      "why_it_matters": "Windows genera nombres cortos 8.3 que apuntan al mismo archivo que su nombre largo. Un atacante puede usarlos para que reglas que buscan nombres como payload.ps1 no coincidan. La regla lo asocia a ATT&CK T1564.004 (ocultar artefactos con atributos de NTFS).",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique el archivo con nombre corto, el intérprete usado (rundll32, mshta, wscript, powershell, msiexec) y los argumentos.",
+        "Resuelva el nombre corto a su ruta larga real (dir /x en la carpeta) y obtenga el hash del archivo; búsquelo en su inteligencia de amenazas.",
+        "Analice ParentImage y la cadena de procesos padre: ¿proviene de Office, navegador, cliente de correo o una tarea programada?",
+        "Verifique si la ruta es de escritura por el usuario (Temp, AppData, Downloads, Public) y si el archivo está firmado.",
+        "Pivote en el mismo host +/- 15 minutos: procesos hijos, conexiones de red, archivos creados y modificaciones de registro o tareas.",
+        "Revise la actividad del mismo usuario en otros equipos y alertas previas para este host o usuario."
+      ],
+      "false_positives": [
+        "Instaladores y actualizadores legítimos que invocan rutas con nombres 8.3, por ejemplo desde C:\\PROGRA~1 o carpetas temporales de instalación.",
+        "Software antiguo o scripts de administración que usan nombres cortos para evitar espacios en las rutas.",
+        "Herramientas de despliegue de software (SCCM, GPO) que ejecutan paquetes .msi o .exe con rutas abreviadas."
+      ],
+      "response_steps": [
+        "Confirme si el archivo y la ejecución son legítimos con el propietario del sistema o el equipo de TI.",
+        "Si es malicioso, aísle el endpoint y termine el proceso tras preservar evidencia (memoria, archivo, hash).",
+        "Elimine el archivo y cualquier persistencia asociada después de documentarla; bloquee el hash en el EDR.",
+        "Restablezca credenciales del usuario si hubo ejecución confirmada y busque el mismo hash en toda la flota.",
+        "Si es benigno y recurrente, documente una exclusión específica por ParentImage o ruta exacta."
+      ],
+      "severity_rationale": "Medio es adecuado porque el uso de nombres 8.3 es inusual y puede indicar evasión, pero también lo generan instaladores y software legítimo."
+    },
+    "en": {
+      "summary": "A process was started with a command line that references an executable or script by its NTFS 8.3 short name (for example UPDATE~1.EXE). This can be used to evade detections that rely on file names or paths.",
+      "what_it_detects": "Windows process creation events where CommandLine contains ~1 or ~2 followed by .exe, .bat, .msi, .vbe, .vbs, .dll, .ps1, .js or .hta. Events with ParentImage WebexHost.exe or thor64.exe, and the XAMPP VCREDI~1.EXE installer, are excluded.",
+      "why_it_matters": "Windows creates 8.3 short names that point to the same file as the long name. Attackers can use them so rules looking for names like payload.ps1 do not match. The rule maps this to ATT&CK T1564.004 (hiding artifacts using NTFS file attributes).",
+      "triage_steps": [
+        "Read the full CommandLine: identify the short-named file, the interpreter used (rundll32, mshta, wscript, powershell, msiexec) and its arguments.",
+        "Resolve the short name to its real long path (dir /x in that folder), hash the file and check it against threat intelligence.",
+        "Review ParentImage and the process ancestry: did it come from Office, a browser, a mail client or a scheduled task?",
+        "Check whether the path is user-writable (Temp, AppData, Downloads, Public) and whether the file is signed.",
+        "Pivot on the same host within +/- 15 minutes: child processes, network connections, files written, registry or scheduled task changes.",
+        "Review the same user's activity on other hosts and earlier alerts for this host or user."
+      ],
+      "false_positives": [
+        "Legitimate installers and updaters that call paths with 8.3 names, for example from C:\\PROGRA~1 or temporary setup folders.",
+        "Legacy software or admin scripts that use short names to avoid spaces in paths.",
+        "Software deployment tools (SCCM, GPO) running .msi or .exe packages through shortened paths."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or IT whether the file and execution are expected.",
+        "If malicious, isolate the endpoint and kill the process after preserving evidence (memory, file, hash).",
+        "Remove the file and any related persistence after documenting it; block the hash in EDR.",
+        "Reset the user's credentials if execution is confirmed and hunt for the same hash fleet-wide.",
+        "If benign and recurring, add a narrow exclusion on the exact ParentImage or path."
+      ],
+      "severity_rationale": "Medium fits because 8.3 names in command lines are unusual and may signal evasion, but installers and legitimate software also produce them."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe launches an executable from the user's Temp folder using its 8.3 short name",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\UpdateHelperService.exe",
+          "CommandLine": "C:\\Users\\jperez\\AppData\\Local\\Temp\\UPDATE~1.EXE /silent",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\jperez\\AppData\\Local\\Temp\\UPDATE~1.EXE /silent"
+        }
+      },
+      {
+        "description": "rundll32 loads a DLL from AppData referenced by its short name",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe C:\\Users\\mrojas\\AppData\\Roaming\\SYSTEM~1.DLL,DllRegisterServer",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "RUNDLL32.EXE"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "XAMPP Visual C++ redistributable installer, excluded by the filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\xampp\\vcredist\\vcredist_x64.exe",
+          "CommandLine": "C:\\xampp\\vcredist\\VCREDI~1.EXE /q /norestart",
+          "ParentImage": "C:\\xampp\\xampp-control.exe"
+        }
+      },
+      {
+        "description": "Short name used only for a folder, not for an executable or script file",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Contoso\\agent.exe",
+          "CommandLine": "C:\\PROGRA~1\\Contoso\\agent.exe --check-updates",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

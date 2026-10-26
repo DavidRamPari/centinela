@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "903076ff-f442-475a-b667-4f246bcc203b",
+    "title": "Nltest.EXE Execution",
+    "level": "low",
+    "status": "test",
+    "author": "Arun Chauhan",
+    "path": "windows/process_creation/proc_creation_win_nltest_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_nltest_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1016",
+      "T1018",
+      "T1482"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó nltest.exe en un endpoint Windows, identificado por la ruta de la imagen o por el nombre de archivo original nltestrk.exe. Puede ser administración legítima o reconocimiento del dominio por parte de un atacante.",
+      "what_it_detects": "Cualquier creación de proceso cuyo Image termine en \\nltest.exe o cuyo OriginalFileName sea nltestrk.exe. La segunda condición también detecta copias renombradas del binario.",
+      "why_it_matters": "Con nltest se pueden listar controladores de dominio, relaciones de confianza y el canal seguro. Los atacantes lo usan tras el acceso inicial para mapear el Active Directory antes de moverse lateralmente (T1016, T1018, T1482).",
+      "triage_steps": [
+        "Revise CommandLine: argumentos como /dclist, /domain_trusts, /all_trusts, /trusted_domains, /dsgetdc o /parentdomain apuntan a reconocimiento; /sc_query o /sc_verify suelen ser diagnóstico.",
+        "Compare Image con OriginalFileName: si OriginalFileName es nltestrk.exe pero la ruta no es System32 ni el nombre nltest.exe, trate el binario renombrado como sospechoso.",
+        "Examine ParentImage y la cadena de procesos: cmd.exe o powershell.exe lanzados desde Office, wscript, mshta, rundll32 o un ejecutable desconocido elevan la sospecha.",
+        "Valide el User: confirme si es un administrador o técnico de soporte con tareas de dominio, o una cuenta estándar o de servicio sin esa función.",
+        "Revise el mismo host +/- 15 minutos buscando otros comandos de descubrimiento: whoami /all, net group \"domain admins\", ipconfig /all, AdFind o consultas LDAP masivas.",
+        "Busque alertas previas del mismo host y usuario, y ejecuciones de nltest en otros equipos que indiquen un barrido del dominio.",
+        "Revise conexiones de red y archivos creados por el proceso padre para detectar beaconing o volcado de resultados a archivos de texto."
+      ],
+      "false_positives": [
+        "Administradores de dominio o soporte técnico que diagnostican el canal seguro o la ubicación de controladores de dominio.",
+        "Scripts de inventario, monitoreo o herramientas de gestión que consultan periódicamente las confianzas del dominio.",
+        "Procedimientos de troubleshooting de autenticación o unión al dominio documentados por TI."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o su responsable si la ejecución corresponde a una tarea autorizada; si es así, documente y considere una excepción acotada.",
+        "Si no se justifica, aísle el endpoint de la red y preserve evidencia: árbol de procesos, CommandLine, hash del binario y memoria si es posible.",
+        "Restablezca las credenciales de la cuenta implicada y revise sus inicios de sesión recientes en otros sistemas.",
+        "Elimine el mecanismo de acceso identificado (malware, persistencia, binario renombrado) tras verificarlo, y busque la misma actividad en el resto del dominio."
+      ],
+      "severity_rationale": "El nivel bajo es adecuado porque nltest es una herramienta administrativa común y su ejecución aislada no prueba compromiso; gana relevancia junto a otras señales."
+    },
+    "en": {
+      "summary": "nltest.exe was executed on a Windows endpoint, identified by image path or by the original file name nltestrk.exe. This may be legitimate administration or attacker reconnaissance of the domain.",
+      "what_it_detects": "Any process creation where Image ends with \\nltest.exe or OriginalFileName is nltestrk.exe. The second condition also catches renamed copies of the binary.",
+      "why_it_matters": "nltest can list domain controllers, domain trusts and secure channel state. Attackers use it after initial access to map Active Directory before lateral movement (T1016, T1018, T1482).",
+      "triage_steps": [
+        "Review CommandLine: /dclist, /domain_trusts, /all_trusts, /trusted_domains, /dsgetdc or /parentdomain suggest reconnaissance; /sc_query or /sc_verify are usually diagnostics.",
+        "Compare Image with OriginalFileName: nltestrk.exe running from outside System32 or under another name indicates a renamed binary and is suspicious.",
+        "Inspect ParentImage and the process chain: cmd.exe or powershell.exe spawned by Office, wscript, mshta, rundll32 or an unknown executable raises suspicion.",
+        "Validate the User: is it an admin or support technician with domain duties, or a standard or service account without that role?",
+        "Check the same host +/- 15 minutes for other discovery: whoami /all, net group \"domain admins\", ipconfig /all, AdFind or bulk LDAP queries.",
+        "Look for earlier alerts on the same host and user, and nltest runs on other machines suggesting a domain-wide sweep.",
+        "Review network connections and files written by the parent process for beaconing or output dumped to text files."
+      ],
+      "false_positives": [
+        "Domain admins or helpdesk troubleshooting the secure channel or locating domain controllers.",
+        "Inventory, monitoring or management tools that periodically query domain trusts.",
+        "Documented IT procedures for authentication or domain-join troubleshooting."
+      ],
+      "response_steps": [
+        "Confirm with the user or their manager whether the run was authorized; if so, document it and consider a narrow exclusion.",
+        "If unjustified, isolate the endpoint and preserve evidence: process tree, CommandLine, binary hash and memory where possible.",
+        "Reset credentials for the involved account and review its recent logons to other systems.",
+        "After verification, remove the identified access mechanism (malware, persistence, renamed binary) and hunt for the same activity across the domain."
+      ],
+      "severity_rationale": "Low fits because nltest is a common admin tool and a single run does not prove compromise; it becomes significant when combined with other signals."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "nltest.exe enumerating domain trusts, launched from PowerShell by a standard user",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\nltest.exe",
+          "OriginalFileName": "nltestrk.exe",
+          "CommandLine": "nltest /domain_trusts /all_trusts",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "Renamed nltest binary detected by OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "nltestrk.exe",
+          "CommandLine": "svchelper.exe /dclist:andes.example.com",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\svchelper.exe /dclist:andes.example.com"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "nslookup querying domain controller SRV records; neither Image nor OriginalFileName matches nltest",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.lgomez",
+          "Image": "C:\\Windows\\System32\\nslookup.exe",
+          "OriginalFileName": "nslookup.exe",
+          "CommandLine": "nslookup -type=SRV _ldap._tcp.dc._msdcs.andes.example.com",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Wrapper tool whose name only partially contains nltest and has a different original file name",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-MON-01.andes.example.com",
+          "User": "ANDES\\svc_monitor",
+          "Image": "C:\\Program Files\\MonitorAgent\\nltest_wrapper.exe",
+          "OriginalFileName": "nltest_wrapper.exe",
+          "CommandLine": "\"C:\\Program Files\\MonitorAgent\\nltest_wrapper.exe\" --check-secure-channel",
+          "ParentImage": "C:\\Program Files\\MonitorAgent\\agent.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

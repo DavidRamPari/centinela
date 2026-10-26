@@ -1,0 +1,140 @@
+{
+  "rule": {
+    "id": "a85f7765-698a-4088-afa0-ecfbf8d01fa4",
+    "title": "Potential Memory Dumping Activity Via LiveKD",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_sysinternals_livekd_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sysinternals_livekd_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó el binario LiveKD de Sysinternals, identificado por el nombre de imagen o por el campo OriginalFileName del PE. LiveKD puede ejecutar depuradores de kernel sobre el sistema en vivo y generar volcados de memoria del kernel.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\livekd.exe o \\livekd64.exe, o donde OriginalFileName es livekd.exe. La validación de OriginalFileName también detecta copias renombradas.",
+      "why_it_matters": "Un volcado de memoria del kernel puede contener credenciales, claves y otros datos sensibles, y el acceso con depurador permite inspeccionar o manipular el sistema. La regla está etiquetada como attack.stealth. Una copia renombrada sugiere evasión deliberada.",
+      "triage_steps": [
+        "Compare Image con OriginalFileName. Un binario renombrado o ubicado en rutas con permisos de escritura del usuario (Temp, Public, Downloads) es una señal de alerta fuerte.",
+        "Revise CommandLine en busca de opciones de volcado como -o <archivo> o -ml, y de -k o -w para la ruta del depurador. Anote dónde se escribió el archivo de salida.",
+        "Verifique User e IntegrityLevel. LiveKD requiere privilegios de administrador, así que confirme que la cuenta es de un administrador o depurador autorizado.",
+        "Analice ParentImage y la línea de comandos del padre. Lo esperable es explorer.exe interactivo o una consola de administración. Office, intérpretes de scripts o shells remotas son sospechosos.",
+        "Pivotee en el mismo host +/- 15 minutos: creación de archivos .dmp, procesos hijos kd.exe/windbg.exe, compresores y transferencias salientes de archivos grandes.",
+        "Busque LiveKD y otras herramientas de volcado (procdump, comsvcs.dll MiniDump) en otros hosts y para el mismo usuario, y revise alertas previas de esa cuenta y ese host.",
+        "Obtenga el hash y la firma del binario y confirme que es el archivo legítimo de Sysinternals firmado por Microsoft."
+      ],
+      "false_positives": [
+        "Administradores o ingenieros de soporte que depuran un fallo, un bloqueo o un problema de drivers con herramientas Sysinternals. Aun así, conviene confirmarlo.",
+        "Desarrolladores de drivers o de kernel que usan LiveKD en equipos de prueba o en máquinas virtuales Hyper-V (opción -hv)."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con los registros de cambios si la depuración estaba autorizada.",
+        "Si no estaba autorizada, aísle el host y preserve como evidencia los volcados y el binario antes de eliminar cualquier cosa.",
+        "Considere expuestas las credenciales usadas en el host. Restablezca las contraseñas de las cuentas privilegiadas y revise la actividad reciente de la cuenta.",
+        "Elimine las herramientas y los volcados no autorizados, y luego restrinja el uso de Sysinternals con control de aplicaciones cuando sea posible."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque LiveKD es una herramienta administrativa legítima y firmada, pero el acceso a la memoria del kernel en un host productivo tiene alto impacto y debe confirmarse."
+    },
+    "en": {
+      "summary": "A process ran the Sysinternals LiveKD binary, identified by its image name or its PE OriginalFileName. LiveKD can run kernel debuggers against the live system and write kernel memory dumps.",
+      "what_it_detects": "Process creation events where Image ends with \\livekd.exe or \\livekd64.exe, or where OriginalFileName is livekd.exe. The OriginalFileName check also catches renamed copies.",
+      "why_it_matters": "Kernel memory dumps can hold credentials, keys and other sensitive data, and debugger access can be used to inspect or tamper with the system. The rule is tagged attack.stealth. A renamed copy points to deliberate evasion.",
+      "triage_steps": [
+        "Check Image against OriginalFileName. A renamed binary or one in a user-writable path (Temp, Public, Downloads) is a strong warning sign.",
+        "Read CommandLine for dump options such as -o <file> or -ml, plus -k or -w for the debugger path. Note where any output file was written.",
+        "Check User and IntegrityLevel. LiveKD needs administrator rights, so confirm the account is an authorized admin or debugger.",
+        "Review ParentImage and the parent command line. Interactive explorer.exe or an admin console is expected. Office apps, script hosts or remote shells are suspicious.",
+        "Pivot on the host within +/- 15 minutes: file creation of .dmp files, kd.exe/windbg.exe children, archiving tools, and outbound transfers of large files.",
+        "Search for LiveKD and other dump tools (procdump, comsvcs.dll MiniDump) on other hosts and for the same user, and check earlier alerts for this host and account.",
+        "Get the binary's hash and signature and confirm it is the genuine Microsoft-signed Sysinternals file."
+      ],
+      "false_positives": [
+        "Administrators or support engineers debugging a crash, hang or driver problem with Sysinternals tools. These cases should still be confirmed.",
+        "Kernel or driver developers running LiveKD on test machines or Hyper-V guests (-hv option)."
+      ],
+      "response_steps": [
+        "Confirm with the user or the change records whether the debugging was authorized.",
+        "If it was not authorized, isolate the host and preserve any dump files and the binary as evidence before deleting anything.",
+        "Treat credentials used on the host as exposed. Reset privileged account passwords and review the account's recent activity.",
+        "Remove unauthorized tools and dumps, then restrict Sysinternals use with application control where possible."
+      ],
+      "severity_rationale": "Medium fits because LiveKD is a legitimate signed admin tool, but kernel memory access on a production host carries high impact and needs confirmation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "LiveKD64 run from the Public folder to write a live kernel memory dump",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-03-12 14:03:12.481",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "High",
+          "Image": "C:\\Users\\Public\\livekd64.exe",
+          "OriginalFileName": "livekd.exe",
+          "CommandLine": "livekd64.exe -ml -o C:\\Users\\Public\\k.dmp",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe",
+          "Company": "Sysinternals - www.sysinternals.com"
+        }
+      },
+      {
+        "description": "Renamed LiveKD binary caught through its OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-03-12 22:41:05.117",
+          "Computer": "SRV-DB-03.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "IntegrityLevel": "High",
+          "Image": "C:\\ProgramData\\Intel\\updsvc.exe",
+          "OriginalFileName": "livekd.exe",
+          "CommandLine": "updsvc.exe -accepteula -o C:\\ProgramData\\Intel\\mem.dmp",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden",
+          "Company": "Sysinternals - www.sysinternals.com"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Windows Kits kernel debugger kd.exe run on its own, not through LiveKD",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-03-12 10:15:44.902",
+          "Computer": "DEV-07.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "IntegrityLevel": "High",
+          "Image": "C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\kd.exe",
+          "OriginalFileName": "kd.exe",
+          "CommandLine": "kd.exe -kl",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Company": "Microsoft Corporation"
+        }
+      },
+      {
+        "description": "Notepad opening a file named livekd.txt, so the name only partly matches",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-03-12 11:02:19.330",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "Medium",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "OriginalFileName": "NOTEPAD.EXE",
+          "CommandLine": "notepad.exe C:\\Tools\\livekd.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Company": "Microsoft Corporation"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

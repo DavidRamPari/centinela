@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "4ebc877f-4612-45cb-b3a5-8e3834db36c9",
+    "title": "Webshell Hacking Activity Patterns",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_webshell_hacking.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_webshell_hacking.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1018",
+      "T1033",
+      "T1087",
+      "T1505.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso de servidor web (IIS, Apache, nginx, PHP-CGI, Caddy o Tomcat) creó un proceso hijo con patrones de volcado de credenciales, creación de usuarios, reconocimiento o exfiltración. Esto apunta con fuerza a una web shell activa en el servidor.",
+      "what_it_detects": "Eventos de creación de procesos cuyo ParentImage es un proceso de servidor web y cuyo Image o CommandLine coincide con actividad típica de post-explotación: rundll32 con comsvcs, net user /add, ntdsutil, procdump, vssadmin, certutil -decode, PowerShell oculto, reg save o whoami /priv.",
+      "why_it_matters": "Una web shell (T1505.003) da al atacante ejecución remota de comandos con la identidad del servicio web. Desde ahí descubre usuarios y equipos (T1033, T1087, T1018), roba credenciales y crea cuentas para persistir.",
+      "triage_steps": [
+        "Revise ParentImage, Image, CommandLine y User: identifique qué servidor web y qué cuenta del application pool o servicio ejecutó el comando.",
+        "Clasifique la intención del CommandLine: volcado de LSASS, alta de usuario o administrador, descarga o decodificación de payload, archivado con contraseña o reconocimiento.",
+        "Busque en el mismo host, +/- 15 minutos, otros hijos del mismo proceso padre (mismo ProcessId del padre) para reconstruir la secuencia de comandos.",
+        "Correlacione con los logs del servidor web (IIS W3SVC, access.log de Apache/nginx/Tomcat): peticiones POST o GET inusuales a archivos .aspx, .php o .jsp justo antes del evento, y su IP de origen.",
+        "Busque archivos creados o modificados recientemente en el directorio raíz web y calcule su hash; compare con el despliegue legítimo.",
+        "Verifique artefactos: archivos .dmp, .rar o .hiv en Temp o en carpetas web, cuentas locales nuevas y cambios en el grupo Administrators.",
+        "Revise alertas previas del mismo host y de la IP de origen, y si las credenciales posiblemente volcadas se usaron en otros equipos."
+      ],
+      "false_positives": [
+        "La regla indica que los falsos positivos son poco probables.",
+        "Scripts de administración o despliegue ejecutados desde una aplicación web interna (por ejemplo, un panel que llama a whoami /priv o vssadmin) que estén documentados.",
+        "Pruebas de penetración o ejercicios de red team autorizados contra el servidor web."
+      ],
+      "response_steps": [
+        "Confirme con el responsable de la aplicación que el comando no es legítimo y preserve evidencia: memoria, logs web y copia de la web shell.",
+        "Aísle el servidor de la red o restrinja su acceso externo mientras se investiga.",
+        "Elimine la web shell y las cuentas creadas solo después de documentarlas; detenga los procesos maliciosos.",
+        "Si hubo volcado de credenciales, restablezca las contraseñas de cuentas expuestas, incluida la del servicio web, y revise krbtgt si se tocó NTDS.",
+        "Corrija la vulnerabilidad de entrada, restaure desde una versión limpia y aumente el monitoreo del host."
+      ],
+      "severity_rationale": "Es alta porque un servidor web que lanza herramientas de credenciales o de alta de usuarios casi nunca es legítimo e indica compromiso activo con ejecución de comandos."
+    },
+    "en": {
+      "summary": "A web server process (IIS, Apache, nginx, PHP-CGI, Caddy or Tomcat) spawned a child process showing credential dumping, account creation, recon or exfiltration patterns. This strongly suggests an active web shell.",
+      "what_it_detects": "Process creation events where ParentImage is a web server process and Image or CommandLine matches post-exploitation activity: rundll32 with comsvcs, net user /add, ntdsutil, procdump, vssadmin, certutil -decode, hidden PowerShell, reg save or whoami /priv.",
+      "why_it_matters": "A web shell (T1505.003) gives attackers remote command execution as the web service identity. From there they discover users and hosts (T1033, T1087, T1018), steal credentials and add accounts for persistence.",
+      "triage_steps": [
+        "Review ParentImage, Image, CommandLine and User: identify the web server and the app pool or service account that ran the command.",
+        "Classify the CommandLine intent: LSASS dump, user or admin creation, payload download or decode, password-protected archiving, or reconnaissance.",
+        "On the same host, +/- 15 minutes, list other children of the same parent process to rebuild the command sequence.",
+        "Correlate with web server logs (IIS W3SVC, Apache/nginx/Tomcat access logs): unusual requests to .aspx, .php or .jsp files just before the event, and their source IP.",
+        "Look for recently created or modified files in the web root, hash them and compare with the legitimate deployment.",
+        "Check artifacts: .dmp, .rar or .hiv files in Temp or web folders, new local accounts, Administrators group changes.",
+        "Review earlier alerts for the same host and source IP, and whether possibly dumped credentials were used elsewhere."
+      ],
+      "false_positives": [
+        "The rule states false positives are unlikely.",
+        "Documented admin or deployment scripts triggered from an internal web application (for example a panel calling whoami /priv or vssadmin).",
+        "Authorized penetration tests or red team exercises against the web server."
+      ],
+      "response_steps": [
+        "Confirm with the application owner the command is not legitimate; preserve memory, web logs and a copy of the web shell.",
+        "Isolate the server or restrict external access while investigating.",
+        "After documenting them, remove the web shell and created accounts and stop malicious processes.",
+        "If credentials were dumped, reset exposed accounts including the web service account; review krbtgt if NTDS was touched.",
+        "Fix the entry vulnerability, restore from a clean build and increase monitoring on the host."
+      ],
+      "severity_rationale": "High fits because a web server launching credential tools or adding users is almost never legitimate and indicates active compromise with command execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "IIS worker process spawns rundll32 to dump LSASS via comsvcs MiniDump",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-01.andes.example.com",
+          "User": "IIS APPPOOL\\DefaultAppPool",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+          "ParentCommandLine": "c:\\windows\\system32\\inetsrv\\w3wp.exe -ap \"DefaultAppPool\"",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe C:\\Windows\\System32\\comsvcs.dll, MiniDump 624 C:\\Windows\\Temp\\out.dmp full"
+        }
+      },
+      {
+        "description": "Tomcat java.exe spawns cmd to add a local user",
+        "event": {
+          "EventID": 1,
+          "Computer": "APP-TOMCAT-02",
+          "User": "NT AUTHORITY\\LOCAL SERVICE",
+          "ParentImage": "C:\\Program Files\\Apache Software Foundation\\Tomcat 9.0\\jre\\bin\\java.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c net user svc_backup Example123! /add"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "IIS compiling an ASP.NET page with csc.exe (legitimate child, no suspicious pattern)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-01.andes.example.com",
+          "User": "IIS APPPOOL\\DefaultAppPool",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe",
+          "CommandLine": "\"C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe\" /noconfig /fullpaths @\"C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\Temporary ASP.NET Files\\root\\5a1b2c3d\\e4f5a6b7\\abcd1234.cmdline\""
+        }
+      },
+      {
+        "description": "whoami /priv launched by a generic non-Tomcat Java application, so no web server selection matches",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files\\Java\\jre1.8.0_381\\bin\\java.exe",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "CommandLine": "whoami /priv"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

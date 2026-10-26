@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "c0b40568-b1e9-4b03-8d6c-b096da6da9ab",
+    "title": "Suspicious AgentExecutor PowerShell Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), memory-shards",
+    "path": "windows/process_creation/proc_creation_win_agentexecutor_susp_usage.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_agentexecutor_susp_usage.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó AgentExecutor.exe, el binario de la Intune Management Extension, con -powershell o -remediationScript fuera de su contexto normal. Puede estar usándose como LOLBIN para ejecutar scripts sin restricciones o un powershell.exe falso.",
+      "what_it_detects": "Procesos cuyo Image termina en \\AgentExecutor.exe u OriginalFileName es AgentExecutor.exe, con ' -powershell' o ' -remediationScript' en CommandLine. Se excluyen las ejecuciones cuya ruta de PowerShell es la legítima de System32 o SysWOW64 y las que tienen como ParentImage a Microsoft.Management.Services.IntuneWindowsAgent.exe.",
+      "why_it_matters": "AgentExecutor es un binario firmado por Microsoft. Si el valor enforceSignatureCheck no es 1, lanza PowerShell con ExecutionPolicy Bypass. Además, siempre ejecuta el archivo powershell.exe que esté en la carpeta del sexto argumento. Esto permite ejecutar código mediante un binario de confianza (T1218, System Binary Proxy Execution) y evadir controles.",
+      "triage_steps": [
+        "Revise CommandLine: identifique el script (primer argumento), las rutas de salida y la carpeta de powershellPath (sexto argumento), y si enforceSignatureCheck vale 0.",
+        "Verifique Image: AgentExecutor.exe debería estar en Program Files (x86)\\Microsoft Intune Management Extension. Si aparece en otra ruta o renombrado, la sospecha es mayor.",
+        "Revise ParentImage y la cadena de procesos padre: cmd.exe, powershell.exe, Office o un proceso de usuario son señales de abuso.",
+        "Obtenga el hash y la firma del powershell.exe ubicado en la carpeta indicada y compárelos con el binario legítimo de System32.",
+        "Recupere el script referenciado y revise su contenido, autor, fecha de creación y origen (descarga, correo, recurso compartido).",
+        "Revise los procesos hijos, las conexiones de red y la escritura de archivos en el mismo host durante +/- 15 minutos.",
+        "Busque alertas anteriores del mismo usuario y host, y ejecuciones de AgentExecutor en otros endpoints."
+      ],
+      "false_positives": [
+        "Scripts de Intune o de corrección proactiva lanzados manualmente por administradores durante pruebas o soporte, fuera del agente de Intune.",
+        "Herramientas de gestión de terceros que reutilizan AgentExecutor con rutas de PowerShell no estándar."
+      ],
+      "response_steps": [
+        "Confirme con el equipo de gestión de endpoints si la ejecución estaba autorizada antes de actuar.",
+        "Si no estaba autorizada, aísle el host y conserve el script, el powershell.exe alternativo y los archivos de salida como evidencia.",
+        "Termine los procesos maliciosos y elimine los artefactos solo después de preservarlos y analizarlos.",
+        "Restablezca las credenciales del usuario implicado y busque mecanismos de persistencia en el host.",
+        "Restrinja AgentExecutor.exe mediante WDAC o AppLocker en equipos que no usan Intune."
+      ],
+      "severity_rationale": "Es alta porque, una vez excluidos el padre de Intune y las rutas legítimas de PowerShell, el uso restante de este binario firmado indica con frecuencia ejecución por proxy."
+    },
+    "en": {
+      "summary": "AgentExecutor.exe, the Intune Management Extension binary, ran with -powershell or -remediationScript outside its normal context. It may be abused as a LOLBIN to run unrestricted scripts or a fake powershell.exe.",
+      "what_it_detects": "Processes whose Image ends with \\AgentExecutor.exe or whose OriginalFileName is AgentExecutor.exe, with ' -powershell' or ' -remediationScript' in CommandLine. Runs that reference the legitimate System32 or SysWOW64 PowerShell path, or whose ParentImage is Microsoft.Management.Services.IntuneWindowsAgent.exe, are excluded.",
+      "why_it_matters": "AgentExecutor is a Microsoft-signed binary. Unless enforceSignatureCheck is 1, it starts PowerShell with ExecutionPolicy Bypass. It also always runs whatever powershell.exe sits in the folder given as the sixth argument. This lets attackers run code through a trusted binary (T1218, System Binary Proxy Execution) and evade controls.",
+      "triage_steps": [
+        "Parse CommandLine: find the script (first argument), the output paths, the powershellPath folder (sixth argument), and check whether enforceSignatureCheck is 0.",
+        "Check Image: AgentExecutor.exe normally lives in Program Files (x86)\\Microsoft Intune Management Extension. Any other path or a renamed copy raises suspicion.",
+        "Review ParentImage and the ancestry: cmd.exe, powershell.exe, Office or other user processes suggest abuse.",
+        "Hash the powershell.exe in the referenced folder, check its signature, and compare it with the legitimate System32 binary.",
+        "Collect the referenced script and review its content, author, creation time and origin (download, email, share).",
+        "Review child processes, network connections and file writes on the same host within +/- 15 minutes.",
+        "Search for earlier alerts for the same user and host, and for AgentExecutor runs on other endpoints."
+      ],
+      "false_positives": [
+        "Administrators manually running Intune or proactive remediation scripts outside the Intune agent during testing or support.",
+        "Third-party management tooling that reuses AgentExecutor with non-standard PowerShell paths."
+      ],
+      "response_steps": [
+        "Before acting, confirm with the endpoint management team whether the run was authorized.",
+        "If it was not authorized, isolate the host and preserve the script, the alternate powershell.exe and the output files as evidence.",
+        "Kill malicious processes and remove artifacts only after you have preserved and analyzed them.",
+        "Reset the involved user's credentials and hunt for persistence on the host.",
+        "Restrict AgentExecutor.exe with WDAC or AppLocker on devices that are not managed by Intune."
+      ],
+      "severity_rationale": "High fits because once the Intune parent and legitimate PowerShell paths are excluded, the remaining use of this signed binary often means proxy execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "AgentExecutor launched from cmd.exe, using a user-writable folder as powershellPath and turning off the signature check",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files (x86)\\Microsoft Intune Management Extension\\AgentExecutor.exe",
+          "OriginalFileName": "AgentExecutor.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\Microsoft Intune Management Extension\\AgentExecutor.exe\" -powershell \"C:\\Users\\Public\\upd.ps1\" \"C:\\Users\\Public\\out.txt\" \"C:\\Users\\Public\\err.txt\" \"C:\\Users\\Public\\to.txt\" 60000 \"C:\\Users\\Public\\\" 0 1",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed AgentExecutor copy, identified by OriginalFileName, running a remediation script",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svc\\ae.exe",
+          "OriginalFileName": "AgentExecutor.exe",
+          "CommandLine": "\"C:\\ProgramData\\svc\\ae.exe\" -remediationScript \"C:\\ProgramData\\svc\\fix.ps1\" \"C:\\ProgramData\\svc\\o.txt\" \"C:\\ProgramData\\svc\\e.txt\" \"C:\\ProgramData\\svc\\t.txt\" 60000 \"C:\\ProgramData\\svc\\\" 0 0",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Intune run: the parent is the Intune agent and the legitimate System32 PowerShell path is used",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Program Files (x86)\\Microsoft Intune Management Extension\\AgentExecutor.exe",
+          "OriginalFileName": "AgentExecutor.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\Microsoft Intune Management Extension\\AgentExecutor.exe\" -powershell \"C:\\Program Files (x86)\\Microsoft Intune Management Extension\\Policies\\Scripts\\a1b2c3.ps1\" \"C:\\Program Files (x86)\\Microsoft Intune Management Extension\\Policies\\Results\\a1b2c3.output\" \"C:\\Program Files (x86)\\Microsoft Intune Management Extension\\Policies\\Results\\a1b2c3.error\" \"C:\\Program Files (x86)\\Microsoft Intune Management Extension\\Policies\\Results\\a1b2c3.timeout\" 60000 \"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\\" 1 0",
+          "ParentImage": "C:\\Program Files (x86)\\Microsoft Intune Management Extension\\Microsoft.Management.Services.IntuneWindowsAgent.exe"
+        }
+      },
+      {
+        "description": "AgentExecutor run with a different mode, with neither -powershell nor -remediationScript in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0300.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Program Files (x86)\\Microsoft Intune Management Extension\\AgentExecutor.exe",
+          "OriginalFileName": "AgentExecutor.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\Microsoft Intune Management Extension\\AgentExecutor.exe\" -executeWinGet",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

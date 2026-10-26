@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "ffa28e60-bdb1-46e0-9f82-05f7a61cc06e",
+    "title": "User Added to Remote Desktop Users Group",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_add_user_remote_desktop_group.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_add_user_remote_desktop_group.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.001",
+      "T1133",
+      "T1136.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un comando que agrega una cuenta al grupo local Remote Desktop Users mediante net localgroup o Add-LocalGroupMember. Así la cuenta obtiene acceso RDP al equipo y puede usarse para persistencia o movimiento lateral.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine incluye 'localgroup ' con ' /add', o 'Add-LocalGroupMember ' con ' -Group ', junto con el nombre del grupo Remote Desktop Users en inglés, francés o español.",
+      "why_it_matters": "Si un atacante agrega una cuenta propia o comprometida a Remote Desktop Users, puede volver al equipo por RDP sin privilegios de administrador. Corresponde a servicios remotos externos (T1133), cuentas locales (T1136.001) y movimiento lateral por RDP (T1021.001).",
+      "triage_steps": [
+        "Revise CommandLine para identificar la cuenta agregada, el grupo y si usa net.exe, net1.exe o PowerShell. Una sola acción de net.exe suele generar dos alertas, porque net.exe lanza net1.exe.",
+        "Identifique al User que ejecutó el comando y confirme con su responsable o con un ticket de cambio si la acción estaba aprobada.",
+        "Examine ParentImage y la cadena de procesos padre. Es sospechoso que el padre sea cmd.exe o powershell.exe lanzado desde Office, un web shell, wmiprvse.exe o una sesión remota.",
+        "Revise el equipo en una ventana de +/- 15 minutos para detectar creación de cuentas (net user /add, evento 4720), cambios de contraseña o habilitación de RDP en el registro o el firewall.",
+        "Verifique si la cuenta agregada es nueva, inactiva o externa al dominio, y busque inicios de sesión RDP con ella (evento 4624 con LogonType 10).",
+        "Busque alertas previas del mismo usuario, equipo o IP de origen, y la misma CommandLine en otros endpoints."
+      ],
+      "false_positives": [
+        "Administradores que otorgan acceso RDP a usuarios o personal de soporte mediante un ticket de cambio.",
+        "Scripts de aprovisionamiento, GPO o herramientas de gestión como SCCM o Intune que configuran el grupo en equipos nuevos.",
+        "Laboratorios, plantillas de VDI o imágenes de servidores que se preparan durante el despliegue."
+      ],
+      "response_steps": [
+        "Valide con el responsable del equipo y con el usuario ejecutor si el cambio fue legítimo antes de actuar.",
+        "Si no está autorizado, quite la cuenta del grupo Remote Desktop Users y deshabilite o restablezca la cuenta afectada.",
+        "Aísle el endpoint si hay indicios de compromiso y bloquee RDP entrante mientras investiga.",
+        "Rote las credenciales del usuario que ejecutó el comando y revise si tiene sesiones activas en otros equipos.",
+        "Busque y elimine otros mecanismos de persistencia, y luego restaure la membresía del grupo según la línea base aprobada."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque dar acceso RDP es una técnica directa de persistencia y movimiento lateral, aunque también se haga en tareas administrativas legítimas."
+    },
+    "en": {
+      "summary": "A command added an account to the local Remote Desktop Users group using net localgroup or Add-LocalGroupMember. This gives the account RDP access to the host, which can be used for persistence or lateral movement.",
+      "what_it_detects": "Windows process creation events where CommandLine contains 'localgroup ' with ' /add', or 'Add-LocalGroupMember ' with ' -Group ', together with the Remote Desktop Users group name in English, French or Spanish.",
+      "why_it_matters": "An attacker who adds their own or a compromised account to Remote Desktop Users can return to the host over RDP without needing admin rights. This maps to external remote services (T1133), local accounts (T1136.001) and lateral movement over RDP (T1021.001).",
+      "triage_steps": [
+        "Read CommandLine to find the added account, the group, and whether net.exe, net1.exe or PowerShell was used. One net.exe action often raises two alerts because net.exe starts net1.exe.",
+        "Identify the User who ran the command and check with their owner or a change ticket whether the action was approved.",
+        "Review ParentImage and the parent process chain. Treat it as suspicious if cmd.exe or powershell.exe was started by Office, a web shell, wmiprvse.exe or a remote session.",
+        "Look at the same host within +/- 15 minutes for account creation (net user /add, event 4720), password resets, or RDP being enabled in the registry or firewall.",
+        "Check whether the added account is new, dormant or outside the domain, and look for RDP logons with it (event 4624, LogonType 10).",
+        "Look for earlier alerts on the same user, host or source IP, and for the same CommandLine on other endpoints."
+      ],
+      "false_positives": [
+        "Administrators granting RDP access to users or support staff under a change ticket.",
+        "Provisioning scripts, GPOs, or management tools such as SCCM or Intune that set up group membership on new hosts.",
+        "Lab, VDI template or server image preparation during deployment."
+      ],
+      "response_steps": [
+        "Confirm with the host owner and the executing user whether the change was legitimate before you act.",
+        "If it was not authorized, remove the account from Remote Desktop Users and disable or reset the affected account.",
+        "Isolate the endpoint if you see signs of compromise, and block inbound RDP while you investigate.",
+        "Rotate the executing user's credentials and check for their active sessions on other hosts.",
+        "Find and remove any other persistence, then restore group membership to the approved baseline."
+      ],
+      "severity_rationale": "High fits because granting RDP access is a direct persistence and lateral-movement technique, even though administrators also do it for legitimate reasons."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "net.exe adds a user to the English Remote Desktop Users group from a cmd.exe started by wmiprvse.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net localgroup \"Remote Desktop Users\" svc_backup2 /add",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c net localgroup \"Remote Desktop Users\" svc_backup2 /add",
+          "ProcessId": 4312
+        }
+      },
+      {
+        "description": "PowerShell Add-LocalGroupMember adds a user to the Spanish-localized group",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FIN-03.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command Add-LocalGroupMember -Group \"Usuarios de escritorio remoto\" -Member \"ANDES\\soporte_ext\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ProcessId": 7788
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "An administrator lists Remote Desktop Users members without adding anyone (no /add)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.lgomez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net localgroup \"Remote Desktop Users\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ProcessId": 5120
+        }
+      },
+      {
+        "description": "A user is added to a different local group (Backup Operators), not Remote Desktop Users",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FIN-03.andes.example.com",
+          "User": "ANDES\\admin.lgomez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net localgroup \"Backup Operators\" svc_backup2 /add",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ProcessId": 6024
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

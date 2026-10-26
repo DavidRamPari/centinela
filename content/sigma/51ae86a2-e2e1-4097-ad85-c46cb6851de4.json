@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "51ae86a2-e2e1-4097-ad85-c46cb6851de4",
+    "title": "Renamed PsExec Service Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_renamed_sysinternals_psexec_service.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_renamed_sysinternals_psexec_service.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó en el host un binario cuyo OriginalFileName es psexesvc.exe (el servicio remoto de PsExec), pero desde una ruta o con un nombre distinto de C:\\Windows\\PSEXESVC.exe. Esto suele indicar uso de PsExec con nombre de servicio personalizado para ejecución remota menos visible.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde los metadatos PE indican OriginalFileName psexesvc.exe y el campo Image no es exactamente C:\\Windows\\PSEXESVC.exe, es decir, el servicio de PsExec renombrado o reubicado.",
+      "why_it_matters": "PsExec instala un servicio en el equipo remoto para ejecutar comandos, normalmente como SYSTEM. Renombrar el servicio (por ejemplo con la opción -r) evade detecciones basadas en el nombre por defecto. Corresponde a ejecución mediante servicios del sistema (T1569.002) y a menudo acompaña movimiento lateral.",
+      "triage_steps": [
+        "Revise Image, CommandLine y el hash del proceso; confirme la ruta y el nombre del binario renombrado (por ejemplo C:\\Windows\\<nombre>.exe).",
+        "Verifique ParentImage: lo esperado es services.exe. Identifique procesos hijos (cmd.exe, powershell.exe, rundll32.exe) y sus CommandLine.",
+        "Busque en el mismo host, +/- 15 minutos, eventos 7045 (instalación de servicio) y 4624 tipo 3 para identificar la cuenta y el IP de origen.",
+        "Pivote al equipo de origen: busque ejecuciones de PsExec u otras herramientas con -r o nombres de servicio inusuales y la conexión SMB a ADMIN$.",
+        "Compruebe si la cuenta usada es de administración autorizada y si existe un cambio o ticket que justifique la actividad.",
+        "Busque el mismo hash o nombre de servicio en otros endpoints y alertas previas para la misma cuenta o IP de origen."
+      ],
+      "false_positives": [
+        "Tareas administrativas legítimas con PsExec usando -r para un nombre de servicio personalizado.",
+        "Herramientas de despliegue, RMM o scripts internos que empaquetan PsExec bajo otro nombre.",
+        "Ejercicios de red team o pruebas de penetración autorizadas."
+      ],
+      "response_steps": [
+        "Confirme con el dueño de la cuenta y el equipo de TI si la ejecución estaba autorizada antes de actuar.",
+        "Si no está autorizada, aísle el host destino y el de origen, y deshabilite o restablezca las credenciales utilizadas.",
+        "Detenga y elimine el servicio y el binario renombrado tras preservar evidencia (binario, registros, memoria si es posible).",
+        "Revise el alcance: otros hosts con el mismo servicio, persistencia creada por los procesos hijos y accesos con la misma cuenta.",
+        "Restaure los sistemas afectados y considere restringir el uso de PsExec y el acceso a ADMIN$ a cuentas y equipos autorizados."
+      ],
+      "severity_rationale": "Nivel alto porque el servicio PsExec renombrado ejecuta código remoto con privilegios SYSTEM y su renombrado sugiere intención de evasión, aunque existen usos administrativos legítimos."
+    },
+    "en": {
+      "summary": "A binary whose OriginalFileName is psexesvc.exe (the PsExec remote service) ran from a path or name other than C:\\Windows\\PSEXESVC.exe. This usually means PsExec was used with a custom service name to make remote execution less visible.",
+      "what_it_detects": "Windows process creation events where the PE metadata shows OriginalFileName psexesvc.exe and Image is not exactly C:\\Windows\\PSEXESVC.exe, i.e. a renamed or relocated PsExec service binary.",
+      "why_it_matters": "PsExec installs a service on the remote host to run commands, typically as SYSTEM. Renaming the service (for example with -r) evades detections keyed on the default name. This maps to System Services: Service Execution (T1569.002) and often accompanies lateral movement.",
+      "triage_steps": [
+        "Review Image, CommandLine and the process hash; confirm the path and name of the renamed binary (for example C:\\Windows\\<name>.exe).",
+        "Check ParentImage: services.exe is expected. Identify child processes (cmd.exe, powershell.exe, rundll32.exe) and their CommandLine.",
+        "On the same host, +/- 15 minutes, look for event 7045 (service installed) and 4624 logon type 3 to find the account and source IP.",
+        "Pivot to the source host: look for PsExec or similar tools run with -r or odd service names, and SMB connections to ADMIN$.",
+        "Verify whether the account is an authorized admin account and whether a change or ticket explains the activity.",
+        "Search for the same hash or service name on other endpoints and earlier alerts for the same account or source IP."
+      ],
+      "false_positives": [
+        "Legitimate admin tasks using PsExec with -r for a custom service name.",
+        "Deployment, RMM tools or internal scripts that bundle PsExec under another name.",
+        "Authorized red team exercises or penetration tests."
+      ],
+      "response_steps": [
+        "Confirm with the account owner and IT whether the execution was authorized before acting.",
+        "If unauthorized, isolate the target and source hosts and disable or reset the credentials used.",
+        "After preserving evidence (binary, logs, memory if possible), stop and remove the service and renamed binary.",
+        "Scope: other hosts with the same service, persistence created by child processes, and logons with the same account.",
+        "Restore affected systems and consider restricting PsExec use and ADMIN$ access to authorized accounts and hosts."
+      ],
+      "severity_rationale": "High because a renamed PsExec service runs remote code as SYSTEM and the renaming suggests evasion, though legitimate admin use exists."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PsExec service launched with a custom name via -r, running from C:\\Windows under services.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\mgmtsvc.exe",
+          "OriginalFileName": "psexesvc.exe",
+          "CommandLine": "C:\\Windows\\mgmtsvc.exe",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      {
+        "description": "Renamed PsExec service binary dropped in ProgramData",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "Image": "C:\\ProgramData\\updsvc.exe",
+          "OriginalFileName": "PSEXESVC.exe",
+          "CommandLine": "\"C:\\ProgramData\\updsvc.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "User": "NT AUTHORITY\\SYSTEM"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Default PsExec service at the standard path, excluded by the filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\PSEXESVC.exe",
+          "OriginalFileName": "psexesvc.exe",
+          "CommandLine": "C:\\Windows\\PSEXESVC.exe",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "User": "NT AUTHORITY\\SYSTEM"
+        }
+      },
+      {
+        "description": "PsExec client run by an admin; OriginalFileName is psexec.c, not psexesvc.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-WS-01.andes.example.com",
+          "Image": "C:\\Tools\\Sysinternals\\PsExec.exe",
+          "OriginalFileName": "psexec.c",
+          "CommandLine": "PsExec.exe \\\\WS-0142 -s cmd.exe /c ipconfig",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "a29808fd-ef50-49ff-9c7a-59a9b040b404",
+    "title": "HackTool - Pypykatz Credentials Dumping Activity",
+    "level": "high",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_hktl_pypykatz.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_pypykatz.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó pypykatz, o Python con argumentos de pypykatz, en modo 'live registry'. Eso extrae hashes de SAM, LSA secrets y credenciales en caché directamente del registro del equipo en ejecución.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\pypykatz.exe o \\python.exe y CommandLine contiene a la vez 'live' y 'registry', que es la sintaxis de pypykatz para volcar en vivo las hives SAM, SYSTEM y SECURITY.",
+      "why_it_matters": "pypykatz es una implementación de Mimikatz en Python. Volcar la SAM (ATT&CK T1003.002) entrega hashes NTLM de cuentas locales y secretos LSA, útiles para pass-the-hash y movimiento lateral. Además, ejecutarlo requiere privilegios elevados.",
+      "triage_steps": [
+        "Revise CommandLine completo: confirme 'live registry' e identifique opciones de salida (-o, --json) y la ruta del archivo de resultados.",
+        "Identifique al usuario y el nivel de integridad del proceso; confirme si la cuenta es administrador local o SYSTEM y si su uso es esperado en ese host.",
+        "Analice ParentImage y la cadena de procesos padre (cmd, powershell, servicio remoto, psexesvc, wmiprvse) para determinar si la ejecución fue interactiva o remota.",
+        "Busque en el mismo host, +/- 15 minutos, la instalación de pypykatz (pip install), descargas de Python y la creación de archivos de salida o comprimidos.",
+        "Verifique el hash y la ruta del binario de pypykatz.exe o python.exe; las rutas en Temp, ProgramData o perfiles de usuario son sospechosas.",
+        "Correlacione inicios de sesión posteriores con cuentas locales del host (eventos 4624 tipo 3/9, NTLM) en otros equipos, como indicio de pass-the-hash.",
+        "Consulte alertas previas del mismo usuario y del mismo host, sobre todo de acceso a LSASS, reg save de hives o herramientas de hacking."
+      ],
+      "false_positives": [
+        "Pruebas autorizadas de red team o pentest con pypykatz; valide con el ticket o la ventana de pruebas aprobada.",
+        "Ejecución de Atomic Red Team (T1003.002) u otras validaciones de detección en equipos de laboratorio.",
+        "Análisis forense o de respuesta a incidentes realizado por personal de seguridad autorizado."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del equipo y con el equipo de seguridad si existe una prueba autorizada; si no la hay, trate la alerta como compromiso confirmado.",
+        "Aísle el endpoint desde el EDR y conserve evidencia: memoria, archivos de salida de pypykatz y el historial de ejecución.",
+        "Restablezca las contraseñas de las cuentas locales expuestas, en especial el administrador local, y rote las credenciales en caché y los secretos LSA (cuentas de servicio).",
+        "Busque en toda la flota el mismo hash local reutilizado y despliegue LAPS si las contraseñas de administrador local se repiten.",
+        "Elimine las herramientas y la persistencia identificadas, determine el vector de acceso inicial y reincorpore el equipo solo tras validarlo."
+      ],
+      "severity_rationale": "Nivel alto: la combinación de pypykatz con 'live registry' casi no tiene usos legítimos y revela robo activo de credenciales con privilegios elevados."
+    },
+    "en": {
+      "summary": "pypykatz, or Python running pypykatz arguments, ran in 'live registry' mode. That mode dumps SAM hashes, LSA secrets and cached credentials straight from the live registry.",
+      "what_it_detects": "Process creation where Image ends with \\pypykatz.exe or \\python.exe and CommandLine contains both 'live' and 'registry', which is pypykatz syntax for dumping the SAM, SYSTEM and SECURITY hives in place.",
+      "why_it_matters": "pypykatz is a Python implementation of Mimikatz. Dumping the SAM (ATT&CK T1003.002) gives up local account NTLM hashes and LSA secrets, which enable pass-the-hash and lateral movement. Running it also requires elevated privileges.",
+      "triage_steps": [
+        "Read the full CommandLine: confirm 'live registry' and note output options (-o, --json) and where the results file was written.",
+        "Identify the user and the process integrity level. Confirm whether the account is a local admin or SYSTEM, and whether that is expected on this host.",
+        "Check ParentImage and the parent chain (cmd, powershell, psexesvc, wmiprvse, remote service) to tell interactive use from remote execution.",
+        "On the same host within +/- 15 minutes, look for a pypykatz install (pip install), Python downloads, and new output or archive files.",
+        "Check the hash and path of pypykatz.exe or python.exe. Paths under Temp, ProgramData or user profiles are suspicious.",
+        "Look for later logons using this host's local accounts on other machines (4624 type 3/9, NTLM). These can point to pass-the-hash.",
+        "Review earlier alerts for the same user and host, especially LSASS access, reg save of hives, or other hacktools."
+      ],
+      "false_positives": [
+        "Authorized red team or penetration tests using pypykatz. Confirm against the approved ticket or test window.",
+        "Atomic Red Team (T1003.002) or other detection validation runs on lab machines.",
+        "Forensic or incident response work by authorized security staff."
+      ],
+      "response_steps": [
+        "Check with the host owner and the security team whether a test was authorized. If none was, treat this as a confirmed compromise.",
+        "Isolate the endpoint through EDR. Preserve evidence: memory, pypykatz output files and execution history.",
+        "Reset exposed local account passwords, especially the local administrator. Rotate cached credentials and LSA secrets such as service account passwords.",
+        "Hunt the fleet for reuse of the same local hash. Deploy LAPS if local admin passwords are shared.",
+        "Remove the tools and any persistence you found, find the initial access vector, and return the host to service only after validation."
+      ],
+      "severity_rationale": "High fits because pypykatz with 'live registry' has almost no legitimate use and shows active credential theft with elevated privileges."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Standalone pypykatz.exe dumping live registry hives from an elevated cmd",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "High",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Programs\\Python\\Python39\\Scripts\\pypykatz.exe",
+          "CommandLine": "pypykatz live registry",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c pypykatz live registry",
+          "ProcessId": 6120
+        }
+      },
+      {
+        "description": "pypykatz run as a Python module with JSON output to a temp file",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "IntegrityLevel": "System",
+          "Image": "C:\\ProgramData\\py\\python.exe",
+          "CommandLine": "python.exe -m pypykatz live registry --json -o C:\\ProgramData\\py\\out.json",
+          "ParentImage": "C:\\Windows\\PSEXESVC.exe",
+          "ProcessId": 4388
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "pypykatz parsing offline hive copies (no 'live' keyword); a near-miss that other rules should cover",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "Medium",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Programs\\Python\\Python39\\Scripts\\pypykatz.exe",
+          "CommandLine": "pypykatz registry --sam C:\\temp\\sam.hiv C:\\temp\\system.hiv",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ProcessId": 7012
+        }
+      },
+      {
+        "description": "Legitimate Python deployment script that mentions a container registry but not 'live'",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-07.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "IntegrityLevel": "Medium",
+          "Image": "C:\\Python311\\python.exe",
+          "CommandLine": "python.exe deploy.py --registry registry.example.com --env staging",
+          "ParentImage": "C:\\Program Files\\Git\\bin\\bash.exe",
+          "ProcessId": 9156
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,118 @@
+{
+  "rule": {
+    "id": "0fadd880-6af3-4610-b1e5-008dc3a11b8a",
+    "title": "Potential Suspicious BPF Activity - Linux",
+    "level": "high",
+    "status": "test",
+    "author": "Red Canary (idea), Nasreddine Bencherchali",
+    "path": "linux/builtin/lnx_potential_susp_ebpf_activity.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/linux/builtin/lnx_potential_susp_ebpf_activity.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "El kernel registró que un proceso cargó un programa eBPF que usa el helper bpf_probe_write_user, capaz de modificar la memoria de procesos en espacio de usuario. Es poco común en producción y se ha observado en rootkits eBPF.",
+      "what_it_detects": "Cualquier línea de log de Linux que contenga la palabra clave 'bpf_probe_write_user'. Al cargarse un programa así, el kernel emite una advertencia con límite de frecuencia (rate limit): '<comm>[<pid>] is installing a program with bpf_probe_write_user helper that may corrupt user memory!'.",
+      "why_it_matters": "Un programa eBPF con este helper puede manipular la memoria de procesos en ejecución. Así se pueden ocultar archivos o procesos, alterar salidas de comandos o secuestrar sshd y sudo sin cargar módulos del kernel. Corresponde a las tácticas de persistencia y evasión de defensas (stealth).",
+      "triage_steps": [
+        "Extraiga del mensaje el nombre del proceso (comm), el PID, el host y la hora. Obtenga la línea completa del kernel en el host o en el colector.",
+        "Identifique la ruta del ejecutable del PID, su hash, el usuario, el proceso padre y el CommandLine. Si el proceso ya terminó, use la contabilidad de procesos o la telemetría del EDR.",
+        "Ejecute como root 'bpftool prog show' y 'bpftool map show' para listar los programas cargados, su tipo de enganche y su hora de carga. Revise los objetos fijados en /sys/fs/bpf.",
+        "Pregunte al responsable del host si alguien ejecutó bpftrace, BCC u otras herramientas eBPF a propósito. Verifique a qué paquete pertenece el binario que cargó el programa.",
+        "Revise la actividad de sudo, SSH y su en el host dentro de +/- 15 minutos y busque binarios nuevos en /tmp, /dev/shm o directorios home.",
+        "Busque persistencia y manipulación: unidades systemd o tareas cron nuevas, cambios en ld.so.preload, módulos del kernel nuevos o huecos en los logs.",
+        "Busque alertas previas del mismo host, usuario y hash. Confirme si otros hosts muestran la misma advertencia."
+      ],
+      "false_positives": [
+        "Desarrolladores de kernel o SRE que ejecutan scripts de bpftrace o BCC con bpf_probe_write_user para depurar o investigar.",
+        "Investigación de seguridad eBPF, laboratorios CTF o ejercicios de red team autorizados en hosts de prueba.",
+        "Versiones de desarrollo de agentes de observabilidad o de seguridad que prueban funciones de escritura en memoria de usuario."
+      ],
+      "response_steps": [
+        "Valide la actividad con el responsable del sistema. Si está aprobada, documéntela y cree una excepción acotada por host y binario.",
+        "Si no está autorizada, aísle el host de la red sin apagarlo. Un reinicio elimina los programas no fijados y destruye la evidencia.",
+        "Recolecte evidencia: volcado de los programas con bpftool, imagen de memoria, el binario que cargó el programa con su hash y los logs relevantes.",
+        "Termine el proceso que cargó el programa, elimine los objetos BPF fijados y los mecanismos de persistencia, y confirme que los programas ya no están cargados.",
+        "Rote las credenciales usadas en el host. Si se confirma un rootkit, reconstruya el host desde una imagen confiable."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque el uso legítimo de este helper en producción es raro y permite manipular la memoria de usuario de forma sigilosa."
+    },
+    "en": {
+      "summary": "The kernel logged that a process loaded an eBPF program that calls the bpf_probe_write_user helper, which can overwrite memory in user-space processes. Production systems rarely need this, and eBPF rootkits are known to use it.",
+      "what_it_detects": "Any Linux log line that contains the keyword 'bpf_probe_write_user'. The kernel writes a rate-limited warning, '<comm>[<pid>] is installing a program with bpf_probe_write_user helper that may corrupt user memory!', when such a program is loaded.",
+      "why_it_matters": "An eBPF program that uses this helper can tamper with the memory of running processes. Attackers use that to hide files and processes, change command output or hijack sshd and sudo without a kernel module. This maps to the persistence and stealth (defense evasion) tactics.",
+      "triage_steps": [
+        "From the message, record the process name (comm), PID, host and timestamp. Pull the full kernel line from the host or the collector.",
+        "Find the PID's executable path, hash, user, parent process and command line. If the process has exited, check process accounting or EDR telemetry for it.",
+        "Run 'bpftool prog show' and 'bpftool map show' as root to list loaded programs, attach types and load times. Check /sys/fs/bpf for pinned objects.",
+        "Ask the host owner whether bpftrace, BCC or other eBPF tooling was run on purpose. Check which package owns the loading binary.",
+        "Review sudo, SSH and su activity on the host within +/- 15 minutes, and look for a new binary in /tmp, /dev/shm or a home directory.",
+        "Look for persistence and tampering: new systemd units, cron jobs, changed ld.so.preload or kernel modules, and gaps in logs.",
+        "Search for earlier alerts for the same host, user and binary hash. Check whether other hosts show the same warning."
+      ],
+      "false_positives": [
+        "Kernel developers or SREs running bpftrace or BCC scripts that use bpf_probe_write_user for debugging or research.",
+        "eBPF security research, CTF labs or authorized red-team exercises on test hosts.",
+        "Development builds of observability or security agents that are testing user-memory write features."
+      ],
+      "response_steps": [
+        "Confirm with the system owner. If the activity is approved, document it and scope a tuning exception by host and binary.",
+        "If it is unauthorized, isolate the host from the network but keep it running. Rebooting removes unpinned programs and destroys evidence.",
+        "Collect evidence: bpftool program dumps, memory image, the loader binary and its hash, and the relevant logs.",
+        "Kill the loader process, remove pinned BPF objects and persistence, then check that the programs are gone.",
+        "Rotate credentials that were used on the host. If a rootkit is confirmed, rebuild the host from a trusted image."
+      ],
+      "severity_rationale": "High fits because legitimate production use of this helper is rare, and it lets an attacker stealthily tamper with user-space memory."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Kernel warning in syslog after an unknown binary in /tmp loads an eBPF program that uses bpf_probe_write_user",
+        "event": {
+          "message": "Oct 25 14:03:12 bastion-01 kernel: [86321.402117] sshdx[48211] is installing a program with bpf_probe_write_user helper that may corrupt user memory!",
+          "host": "bastion-01",
+          "facility": "kern",
+          "severity": "warning"
+        }
+      },
+      {
+        "description": "Same kernel warning raised by bpftrace on a web server, as read from journald",
+        "event": {
+          "message": "Oct 25 14:05:47 web-03 kernel: bpftrace[3127] is installing a program with bpf_probe_write_user helper that may corrupt user memory!",
+          "host": "web-03",
+          "facility": "kern",
+          "severity": "warning"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Kernel BPF warning about unprivileged eBPF that does not mention the write helper",
+        "event": {
+          "message": "Oct 25 13:58:02 bastion-01 kernel: [86010.118342] Unprivileged eBPF is enabled, data leaks possible via Spectre v2 BHB attacks!",
+          "host": "bastion-01",
+          "facility": "kern",
+          "severity": "warning"
+        }
+      },
+      {
+        "description": "Shell history line for a bpftrace one-liner that uses the read-only helper bpf_probe_read_user",
+        "event": {
+          "message": "Oct 25 14:10:31 web-03 bash[5521]: HISTORY: PID=5521 UID=1001 USER=jperez CMD=sudo bpftrace -e 'tracepoint:syscalls:sys_enter_openat { printf(\"%s\\n\", str(args->filename)); }' # compares with bpf_probe_read_user",
+          "host": "web-03",
+          "facility": "user",
+          "severity": "info"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

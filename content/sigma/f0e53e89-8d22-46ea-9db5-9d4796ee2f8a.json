@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "f0e53e89-8d22-46ea-9db5-9d4796ee2f8a",
+    "title": "Exports Registry Key To a File",
+    "level": "low",
+    "status": "test",
+    "author": "Oddvar Moe, Sander Wiebing, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_regedit_export_keys.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_regedit_export_keys.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1012"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó regedit.exe con la opción /E (o -E) para exportar una clave del registro, o el registro completo, a un archivo .reg. Puede ser administración legítima o reconocimiento previo a una exfiltración.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\regedit.exe u OriginalFileName es REGEDIT.EXE y CommandLine contiene ' -E ' en cualquier variante de guion. Se excluyen las exportaciones de HKLM que terminan en \\system, \\sam o \\security, ya que otra regla relacionada cubre esas claves críticas.",
+      "why_it_matters": "Exportar claves del registro permite recopilar configuración, rutas de persistencia, sesiones guardadas o credenciales de aplicaciones (ATT&CK T1012, Query Registry) y dejarlas en un archivo fácil de copiar fuera del equipo.",
+      "triage_steps": [
+        "Revise CommandLine: identifique la clave exportada (o si no se indicó ninguna, lo que exporta todo el registro) y la ruta del archivo de salida.",
+        "Verifique ParentImage y la cadena de procesos: cmd.exe, powershell.exe, wscript.exe o una macro de Office son más sospechosos que explorer.exe.",
+        "Confirme el usuario y si su rol justifica exportar esa clave; compare con actividad previa del mismo usuario.",
+        "Busque el archivo .reg en el endpoint, obtenga su hash y revise su contenido, por ejemplo sesiones de PuTTY, claves Run o datos de VNC.",
+        "Revise el mismo host en +/- 15 minutos: compresión, copia a recursos compartidos, carga a la nube o conexiones salientes inusuales.",
+        "Busque alertas anteriores para el mismo host y usuario, en especial otras de reconocimiento o acceso a credenciales."
+      ],
+      "false_positives": [
+        "Administradores o soporte técnico que exportan claves como respaldo antes de modificar el registro.",
+        "Scripts de despliegue, migración de perfiles o inventario que exportan configuración de aplicaciones.",
+        "Usuarios avanzados que respaldan la configuración de herramientas como PuTTY o WinSCP."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del equipo si la exportación fue autorizada y documente la justificación.",
+        "Si no fue autorizada, preserve el archivo .reg y los registros relevantes antes de cualquier acción y aísle el endpoint si hay indicios de exfiltración.",
+        "Rote las credenciales o secretos presentes en las claves exportadas y revise si se usaron desde otros orígenes.",
+        "Elimine artefactos maliciosos solo después de verificarlos y ajuste exclusiones para scripts administrativos conocidos."
+      ],
+      "severity_rationale": "El nivel low es adecuado porque exportar claves con regedit es común en administración, y las exportaciones de SAM, SYSTEM y SECURITY quedan en una regla relacionada más severa."
+    },
+    "en": {
+      "summary": "regedit.exe was run with the /E (or -E) switch to export a registry key, or the whole registry, to a .reg file. This may be routine administration or reconnaissance ahead of exfiltration.",
+      "what_it_detects": "Process creation where Image ends with \\regedit.exe or OriginalFileName is REGEDIT.EXE and CommandLine contains ' -E ' in any dash variant. HKLM exports ending in \\system, \\sam or \\security are excluded because a related rule covers those critical hives.",
+      "why_it_matters": "Exporting registry keys lets an attacker collect configuration, persistence locations, saved sessions or application credentials (ATT&CK T1012, Query Registry) into a file that is easy to move off the host.",
+      "triage_steps": [
+        "Read CommandLine: identify the exported key (no key means the entire registry is exported) and the output file path.",
+        "Check ParentImage and the process tree: cmd.exe, powershell.exe, wscript.exe or an Office macro are more suspicious than explorer.exe.",
+        "Confirm the user and whether their role justifies exporting that key; compare with the same user's prior activity.",
+        "Locate the .reg file on the endpoint, hash it and review its content, such as PuTTY sessions, Run keys or VNC settings.",
+        "Review the same host within +/- 15 minutes for archiving, copies to shares, cloud uploads or unusual outbound connections.",
+        "Look for earlier alerts on the same host and user, especially discovery or credential access."
+      ],
+      "false_positives": [
+        "Administrators or help desk exporting keys as a backup before editing the registry.",
+        "Deployment, profile migration or inventory scripts exporting application settings.",
+        "Power users backing up settings of tools such as PuTTY or WinSCP."
+      ],
+      "response_steps": [
+        "Confirm with the user or asset owner whether the export was authorized and record the justification.",
+        "If unauthorized, preserve the .reg file and relevant logs first, and isolate the endpoint if exfiltration is suspected.",
+        "Rotate credentials or secrets contained in the exported keys and check for their use from other sources.",
+        "Remove malicious artifacts only after verification, and tune exclusions for known administrative scripts."
+      ],
+      "severity_rationale": "Low fits because regedit exports are common in administration, while SAM, SYSTEM and SECURITY exports are handled by a related, higher-severity rule."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "regedit exports saved PuTTY sessions from HKCU to a public folder, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\regedit.exe",
+          "OriginalFileName": "REGEDIT.EXE",
+          "CommandLine": "regedit.exe /E C:\\Users\\Public\\sess.reg \"HKEY_CURRENT_USER\\Software\\SimonTatham\\PuTTY\\Sessions\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c regedit.exe /E C:\\Users\\Public\\sess.reg \"HKEY_CURRENT_USER\\Software\\SimonTatham\\PuTTY\\Sessions\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed regedit (OriginalFileName match) exports an HKLM software key not ending in system/sam/security",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\tools\\rg.exe",
+          "OriginalFileName": "REGEDIT.EXE",
+          "CommandLine": "rg.exe -e C:\\ProgramData\\tools\\vnc.reg HKLM\\SOFTWARE\\RealVNC",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Export of the HKLM SAM hive: both filters match, so this rule excludes it (covered by the related critical keys rule)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\regedit.exe",
+          "OriginalFileName": "REGEDIT.EXE",
+          "CommandLine": "regedit.exe /E C:\\Users\\Public\\s.reg hklm\\sam",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Silent import of a .reg file by a deployment script, no /E switch",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\regedit.exe",
+          "OriginalFileName": "REGEDIT.EXE",
+          "CommandLine": "regedit.exe /s \\\\fs01.example.com\\deploy\\settings.reg",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

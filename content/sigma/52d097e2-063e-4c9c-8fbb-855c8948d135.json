@@ -1,0 +1,139 @@
+{
+  "rule": {
+    "id": "52d097e2-063e-4c9c-8fbb-855c8948d135",
+    "title": "Suspicious Windows Update Agent Empty Cmdline",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wuauclt_no_cli_flags_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wuauclt_no_cli_flags_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició wuauclt.exe (Windows Update Agent) sin ningún argumento en la línea de comandos. Las ejecuciones legítimas casi siempre llevan flags, así que este patrón suele indicar un proceso de sacrificio usado para inyectar código malicioso.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\wuauclt.exe u OriginalFileName es wuauclt.exe, y CommandLine termina en 'wuauclt' o 'wuauclt.exe', es decir, sin parámetros.",
+      "why_it_matters": "Los frameworks de post-explotación lanzan binarios confiables sin argumentos y les inyectan código para ocultar su actividad bajo un nombre legítimo (T1036, Masquerading). La referencia de la regla documenta este patrón en intrusiones con ransomware BlackByte.",
+      "triage_steps": [
+        "Revise ParentImage y la línea de comandos del padre. El wuauclt legítimo lo lanza svchost.exe (wuauserv/UsoSvc) con flags. Un padre como rundll32, powershell, Office o un binario desconocido es muy sospechoso.",
+        "Confirme la ruta en Image (debe ser C:\\Windows\\System32), el hash y la firma digital de Microsoft. Si OriginalFileName coincide pero Image no, se trata de un binario renombrado.",
+        "Verifique el usuario: una ejecución con una cuenta de usuario interactiva en lugar de SYSTEM es anómala.",
+        "Busque conexiones de red salientes del proceso wuauclt hacia IP o dominios que no sean de Microsoft, en especial beaconing periódico.",
+        "Revise procesos hijos, módulos cargados y regiones de memoria RWX o hilos remotos (Sysmon 8/10) que indiquen inyección.",
+        "Pivotee en el mismo host +/- 15 minutos: ejecución de scripts, descargas, volcado de LSASS, movimiento lateral o actividad de shadow copies.",
+        "Consulte alertas previas del mismo host y usuario, y busque el mismo ParentImage en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla indica 'Unknown'; los casos legítimos son raros.",
+        "Un administrador que ejecuta wuauclt.exe manualmente sin argumentos durante una prueba o diagnóstico.",
+        "Scripts heredados o herramientas de gestión que invocan wuauclt sin parámetros.",
+        "Telemetría que trunca o normaliza CommandLine y elimina los argumentos."
+      ],
+      "response_steps": [
+        "Valide con el dueño del equipo o con TI si hubo una ejecución manual o una herramienta conocida antes de escalar.",
+        "Si se confirma actividad sospechosa, aísle el endpoint y capture la memoria del proceso antes de terminarlo.",
+        "Bloquee las IP o dominios de C2 identificados y busque las mismas conexiones en toda la organización.",
+        "Elimine la persistencia y los binarios del proceso padre; restablezca las credenciales expuestas en el host.",
+        "Reimagine o restaure el equipo si hubo inyección confirmada y monitoree indicadores de ransomware."
+      ],
+      "severity_rationale": "Es alta porque el agente de actualizaciones legítimo casi nunca se ejecuta sin flags, y este patrón está asociado a inyección de código en intrusiones previas a ransomware."
+    },
+    "en": {
+      "summary": "wuauclt.exe (Windows Update Agent) was started with no command-line arguments. Legitimate runs almost always pass flags, so this pattern often points to a sacrificial process used to host injected code.",
+      "what_it_detects": "Process creation events where Image ends with \\wuauclt.exe or OriginalFileName is wuauclt.exe, and CommandLine ends with 'wuauclt' or 'wuauclt.exe', meaning no parameters were passed.",
+      "why_it_matters": "Post-exploitation frameworks spawn trusted binaries without arguments and inject code into them, hiding malicious activity behind a legitimate name (T1036, Masquerading). The rule's reference documents this pattern in BlackByte ransomware intrusions.",
+      "triage_steps": [
+        "Check ParentImage and the parent's command line. Legitimate wuauclt is launched by svchost.exe (wuauserv/UsoSvc) with flags. Parents such as rundll32, powershell, Office or an unknown binary are highly suspicious.",
+        "Confirm the Image path is C:\\Windows\\System32, and check the hash and Microsoft signature. If OriginalFileName matches but Image does not, the binary was renamed.",
+        "Check the user. An interactive user account instead of SYSTEM is anomalous.",
+        "Look for outbound network connections from the wuauclt process to non-Microsoft IPs or domains, especially periodic beaconing.",
+        "Review child processes, loaded modules, RWX memory regions or remote threads (Sysmon 8/10) that suggest injection.",
+        "Pivot on the same host +/- 15 minutes: script execution, downloads, LSASS access, lateral movement or shadow copy activity.",
+        "Check earlier alerts for the same host and user, and hunt for the same ParentImage on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists 'Unknown'. Legitimate cases are rare.",
+        "An administrator running wuauclt.exe by hand with no arguments while testing or troubleshooting.",
+        "Legacy scripts or management tools that call wuauclt without parameters.",
+        "Telemetry that truncates or normalizes CommandLine and drops the arguments."
+      ],
+      "response_steps": [
+        "Before escalating, ask the host owner or IT whether someone ran it manually or a known tool did.",
+        "If the activity is confirmed suspicious, isolate the endpoint and capture process memory before you terminate it.",
+        "Block any C2 IPs or domains you find and hunt for the same connections across the environment.",
+        "Remove persistence and the parent binaries, and reset credentials exposed on the host.",
+        "Reimage or restore the host if injection is confirmed, and watch for ransomware indicators."
+      ],
+      "severity_rationale": "High fits because the real update agent almost never runs without flags, and this pattern has been tied to code injection in pre-ransomware intrusions."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "wuauclt.exe launched by rundll32 with no arguments, a typical spawn-to injection host",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wuauclt.exe",
+          "OriginalFileName": "wuauclt.exe",
+          "CommandLine": "C:\\Windows\\System32\\wuauclt.exe",
+          "ParentImage": "C:\\Windows\\System32\\rundll32.exe",
+          "ParentCommandLine": "rundll32.exe C:\\Users\\Public\\upd.dll,Start",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Bare 'wuauclt' command line spawned from PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\wuauclt.exe",
+          "OriginalFileName": "wuauclt.exe",
+          "CommandLine": "wuauclt",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Update Orchestrator run of wuauclt.exe with deployment provider flags",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\wuauclt.exe",
+          "OriginalFileName": "wuauclt.exe",
+          "CommandLine": "C:\\Windows\\system32\\wuauclt.exe /UpdateDeploymentProvider UpdateDeploymentProvider.dll /ClassId 00000000-0000-0000-0000-000000000000 /RunHandlerComServer",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Admin forcing an update check with the /detectnow flag",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0177.andes.example.com",
+          "User": "ANDES\\adm_lrojas",
+          "Image": "C:\\Windows\\System32\\wuauclt.exe",
+          "OriginalFileName": "wuauclt.exe",
+          "CommandLine": "wuauclt.exe /detectnow",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

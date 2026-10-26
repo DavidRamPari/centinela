@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "30e92f50-bb5a-4884-98b5-d20aa80f3d7a",
+    "title": "Hidden Powershell in Link File Pattern",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_susp_embed_exe_lnk.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_embed_exe_lnk.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un usuario abrió desde el Explorador de Windows un acceso directo (.lnk) que inició cmd.exe con una línea de comandos que invoca PowerShell y hace referencia a un archivo .lnk. Este patrón coincide con accesos directos que extraen y ejecutan un payload oculto dentro del propio .lnk.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage es C:\\Windows\\explorer.exe, Image es C:\\Windows\\System32\\cmd.exe y CommandLine contiene tanto 'powershell' como '.lnk'.",
+      "why_it_matters": "Los archivos .lnk pueden incrustar un ejecutable o script y usar cmd.exe y PowerShell para leerse a sí mismos, extraer el contenido y ejecutarlo. Es ejecución mediante intérprete PowerShell (ATT&CK T1059.001), común en accesos iniciales por correo o descargas.",
+      "triage_steps": [
+        "Revisar CommandLine completo: identificar la ruta del .lnk, opciones como -w hidden, -enc, Get-Content, ReadAllBytes, desplazamientos de bytes o escritura en %TEMP%.",
+        "Determinar el origen del .lnk: Downloads, adjuntos de correo, ZIP/ISO montados o unidades USB. Revisar Zone.Identifier (Mark-of-the-Web) si está disponible.",
+        "Revisar procesos hijos de cmd.exe y powershell.exe en el mismo host dentro de +/- 15 minutos: binarios nuevos, rundll32, mshta o conexiones de red.",
+        "Buscar archivos creados por PowerShell después de la ejecución (EXE, DLL, scripts) y calcular su hash para consultarlo en inteligencia de amenazas.",
+        "Correlacionar con eventos de red del host: resolución DNS y conexiones salientes hacia dominios o IP poco comunes justo después de la alerta.",
+        "Consultar alertas anteriores del mismo usuario y host, y buscar el mismo nombre o hash de .lnk en otros endpoints."
+      ],
+      "false_positives": [
+        "Accesos directos legítimos creados por TI o por aplicaciones internas que lanzan scripts de PowerShell mediante cmd.exe y mencionan otro .lnk.",
+        "Scripts de administración o despliegue que crean o modifican accesos directos (.lnk) usando PowerShell invocado desde cmd.exe."
+      ],
+      "response_steps": [
+        "Verificar con el usuario cómo obtuvo el acceso directo y validar si corresponde a una herramienta interna conocida.",
+        "Si es malicioso, aislar el endpoint, poner en cuarentena el .lnk y los archivos extraídos, y conservar copias para análisis forense.",
+        "Bloquear los hash, dominios e IP identificados; buscar el mismo artefacto en otros equipos y en el gateway de correo.",
+        "Restablecer credenciales del usuario si hubo ejecución confirmada, eliminar persistencia encontrada y restaurar el equipo desde una imagen confiable si es necesario."
+      ],
+      "severity_rationale": "Nivel medio: el patrón es poco habitual y sugiere ejecución oculta, pero existen accesos directos legítimos que usan PowerShell, por lo que se requiere verificación."
+    },
+    "en": {
+      "summary": "A user opened a shortcut (.lnk) from Windows Explorer that started cmd.exe with a command line invoking PowerShell and referencing a .lnk file. This pattern matches shortcuts that extract and run a payload hidden inside the .lnk itself.",
+      "what_it_detects": "Process creation events where ParentImage is C:\\Windows\\explorer.exe, Image is C:\\Windows\\System32\\cmd.exe, and CommandLine contains both 'powershell' and '.lnk'.",
+      "why_it_matters": "A .lnk file can embed an executable or script and use cmd.exe and PowerShell to read itself, carve out the content and run it. This is PowerShell interpreter execution (ATT&CK T1059.001), often used for initial access via email or downloads.",
+      "triage_steps": [
+        "Read the full CommandLine: note the .lnk path and flags like -w hidden, -enc, Get-Content, ReadAllBytes, byte offsets, or writes to %TEMP%.",
+        "Find where the .lnk came from: Downloads, email attachments, mounted ZIP/ISO, or USB drives. Check Zone.Identifier (Mark-of-the-Web) when available.",
+        "Review child processes of cmd.exe and powershell.exe on the same host within +/- 15 minutes: new binaries, rundll32, mshta, or network connections.",
+        "Look for files PowerShell wrote after execution (EXE, DLL, scripts), hash them and check threat intelligence.",
+        "Correlate host network events: DNS lookups and outbound connections to unusual domains or IPs right after the alert.",
+        "Check earlier alerts for the same user and host, and search for the same .lnk name or hash on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate shortcuts built by IT or internal applications that launch PowerShell scripts through cmd.exe and mention another .lnk.",
+        "Admin or deployment scripts that create or modify shortcuts (.lnk) using PowerShell called from cmd.exe."
+      ],
+      "response_steps": [
+        "Ask the user how they got the shortcut and confirm whether it belongs to a known internal tool.",
+        "If malicious, isolate the endpoint, quarantine the .lnk and any extracted files, and keep copies for forensics.",
+        "Block identified hashes, domains and IPs; hunt for the same artifact on other hosts and in the mail gateway.",
+        "Reset the user's credentials if execution is confirmed, remove any persistence found, and reimage from a trusted baseline if needed."
+      ],
+      "severity_rationale": "Medium: the pattern is uncommon and suggests hidden execution, but legitimate shortcuts using PowerShell exist, so verification is required."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Shortcut opened from Explorer runs cmd.exe that launches hidden PowerShell reading the .lnk file itself",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\cmd.exe\" /c powershell -w hidden -c \"$f='C:\\Users\\jperez\\Downloads\\Factura_2024.pdf.lnk'; $b=[IO.File]::ReadAllBytes($f)\"",
+          "CurrentDirectory": "C:\\Users\\jperez\\Downloads\\"
+        }
+      },
+      {
+        "description": "Mixed-case variant searching for the .lnk in the current folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c PowerShell.exe -NoP -c \"Get-ChildItem *.LNK | Select-Object -First 1\"",
+          "CurrentDirectory": "E:\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "cmd.exe from Explorer runs a PowerShell script with no .lnk reference",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c powershell -File C:\\Scripts\\map_drives.ps1",
+          "CurrentDirectory": "C:\\Scripts\\"
+        }
+      },
+      {
+        "description": "Deployment tool runs cmd.exe that creates a shortcut, but the parent is not explorer.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\CCM\\CcmExec.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c powershell -c \"$s=(New-Object -ComObject WScript.Shell).CreateShortcut('C:\\Users\\Public\\Desktop\\Portal.lnk')\"",
+          "CurrentDirectory": "C:\\Windows\\system32\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

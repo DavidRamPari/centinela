@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "85ff530b-261d-48c6-a441-facaa2e81e48",
+    "title": "New Service Creation Using Sc.EXE",
+    "level": "low",
+    "status": "test",
+    "author": "Timur Zinniatullin, Daniil Yugoslavskiy, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_sc_create_service.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sc_create_service.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1543.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó sc.exe con los argumentos 'create' y 'binPath', es decir, se registró un nuevo servicio de Windows. Puede ser administración legítima o un mecanismo de persistencia o escalamiento de privilegios.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\sc.exe y CommandLine contiene 'create' y 'binPath'. Se excluye el cliente de Dropbox (ParentImage Dropbox.exe en su ruta de instalación).",
+      "why_it_matters": "Los atacantes crean servicios para ejecutar payloads como SYSTEM y sobrevivir reinicios (ATT&CK T1543.003, Create or Modify System Process: Windows Service). También se usa para movimiento lateral, creando servicios en hosts remotos.",
+      "triage_steps": [
+        "Revise CommandLine: nombre del servicio, ruta de binPath, start= auto y si apunta a un host remoto (\\\\equipo).",
+        "Evalúe binPath: rutas en Temp, AppData, ProgramData o Public, cmd.exe /c, powershell, rundll32 o argumentos codificados son sospechosos.",
+        "Identifique ParentImage y el usuario: ¿un instalador firmado, una consola administrativa, o cmd/powershell lanzado desde Office, un navegador o psexec?",
+        "Obtenga el hash y la firma del binario de binPath y consulte su reputación.",
+        "Busque en el mismo host, +/- 15 minutos, eventos 7045/4697 de instalación de servicio, 'sc start', descargas de archivos y conexiones de red nuevas.",
+        "Pivote por el usuario y por el nombre del servicio en otros hosts para detectar creación masiva o remota.",
+        "Consulte alertas previas del host y del usuario, y confirme con el equipo de TI si existe un cambio aprobado."
+      ],
+      "false_positives": [
+        "Administradores que crean servicios de forma manual o mediante scripts de despliegue aprobados.",
+        "Instaladores de software (agentes de monitoreo, backup, EDR o VPN) que registran sus servicios con sc.exe.",
+        "Herramientas de gestión de configuración o RMM que instalan agentes."
+      ],
+      "response_steps": [
+        "Verifique con el responsable del sistema y el usuario si la creación del servicio fue legítima y está documentada.",
+        "Si es malicioso, aísle el endpoint y preserve el binario de binPath y la clave HKLM\\SYSTEM\\CurrentControlSet\\Services del servicio.",
+        "Detenga y elimine el servicio (sc stop / sc delete) solo después de recolectar evidencia, y ponga en cuarentena el binario.",
+        "Restablezca las credenciales usadas, busque el mismo servicio o hash en otros hosts y revise accesos administrativos remotos."
+      ],
+      "severity_rationale": "Nivel bajo porque crear servicios con sc.exe es habitual en administración e instalaciones; el contexto de binPath, el proceso padre y el usuario determina si se escala."
+    },
+    "en": {
+      "summary": "sc.exe was run with 'create' and 'binPath', meaning a new Windows service was registered. This may be routine administration or a persistence or privilege escalation mechanism.",
+      "what_it_detects": "Process creation events where Image ends with \\sc.exe and CommandLine contains both 'create' and 'binPath'. The Dropbox client (ParentImage Dropbox.exe in its install folder) is excluded.",
+      "why_it_matters": "Attackers create services to run payloads as SYSTEM and survive reboots (ATT&CK T1543.003, Create or Modify System Process: Windows Service). It is also used for lateral movement by creating services on remote hosts.",
+      "triage_steps": [
+        "Read CommandLine: service name, binPath target, start= auto, and whether a remote host (\\\\server) is targeted.",
+        "Assess binPath: paths in Temp, AppData, ProgramData or Public, cmd.exe /c, powershell, rundll32 or encoded arguments are suspicious.",
+        "Identify ParentImage and user: signed installer or admin console, versus cmd/powershell spawned by Office, a browser or psexec?",
+        "Get the hash and signature of the binPath binary and check its reputation.",
+        "On the same host, +/- 15 minutes, look for service install events 7045/4697, 'sc start', file downloads and new network connections.",
+        "Pivot on the user and service name across other hosts to spot mass or remote creation.",
+        "Check earlier alerts for the host and user, and confirm with IT whether an approved change exists."
+      ],
+      "false_positives": [
+        "Administrators creating services manually or through approved deployment scripts.",
+        "Software installers (monitoring, backup, EDR or VPN agents) registering their services with sc.exe.",
+        "Configuration management or RMM tools installing agents."
+      ],
+      "response_steps": [
+        "Confirm with the system owner and user whether the service creation was legitimate and documented.",
+        "If malicious, isolate the endpoint and preserve the binPath binary and the service key under HKLM\\SYSTEM\\CurrentControlSet\\Services.",
+        "Stop and delete the service (sc stop / sc delete) only after collecting evidence, and quarantine the binary.",
+        "Reset the credentials used, hunt for the same service or hash on other hosts, and review remote admin access."
+      ],
+      "severity_rationale": "Low because creating services with sc.exe is common in administration and installs; binPath, parent process and user context decide escalation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe creates an auto-start service pointing to a binary in ProgramData",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe create UpdaterSvc binPath= \"C:\\ProgramData\\upd\\svchost-upd.exe\" start= auto",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Remote service creation on another host with mixed-case arguments",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\adm-mrojas",
+          "Image": "C:\\Windows\\SysWOW64\\sc.exe",
+          "CommandLine": "sc \\\\SRV-FILE01 CREATE tmpsvc BINPATH= \"cmd.exe /c C:\\Users\\Public\\a.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Dropbox client creating its update service is excluded by the filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "CommandLine": "sc.exe create DbxSvc binPath= \"C:\\Program Files (x86)\\Dropbox\\Update\\DbxSvc.exe\" start= auto",
+          "ParentImage": "C:\\Program Files (x86)\\Dropbox\\Client\\Dropbox.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "sc.exe used only to query a service, no create or binPath",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "CommandLine": "sc.exe query wuauserv",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

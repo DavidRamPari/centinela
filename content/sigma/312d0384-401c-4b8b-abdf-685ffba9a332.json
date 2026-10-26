@@ -1,0 +1,122 @@
+{
+  "rule": {
+    "id": "312d0384-401c-4b8b-abdf-685ffba9a332",
+    "title": "Email Exifiltration Via Powershell",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems),  Azure-Sentinel (idea)",
+    "path": "windows/process_creation/proc_creation_win_powershell_email_exfil.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_email_exfil.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "PowerShell cargó el snap-in de administración de Exchange y extrajo todas las direcciones SMTP de los destinatarios en formato de texto plano. Esto suele indicar recolección masiva de correos para exfiltrarlos.",
+      "what_it_detects": "La creación de un proceso powershell.exe o pwsh.exe cuyo CommandLine contiene a la vez Add-PSSnapin, Get-Recipient, -ExpandProperty, EmailAddresses, SmtpAddress y -hidetableheaders, es decir, un volcado de direcciones sin encabezados listo para copiar o enviar.",
+      "why_it_matters": "Una lista completa de direcciones de la organización sirve para phishing interno, extorsión o venta de datos. La regla está etiquetada como exfiltración y casi siempre se ejecuta en un servidor Exchange con privilegios de administración.",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique el snap-in cargado, los filtros de Get-Recipient y si la salida se redirige a un archivo (Out-File, >) o se envía a la red.",
+        "Revise ParentImage y la cadena de procesos: cmd.exe, w3wp.exe, tareas programadas o herramientas remotas son más sospechosos que una sesión interactiva de Exchange Management Shell.",
+        "Valide el usuario que ejecutó el proceso: ¿es un administrador de Exchange conocido? ¿Hubo inicio de sesión desde una IP o un host inusual?",
+        "Busque en el mismo host, +/- 15 minutos, archivos .txt o .csv nuevos, compresión (7z, rar, Compress-Archive) y conexiones salientes o cargas a servicios externos.",
+        "Pivote por el mismo usuario y host en alertas anteriores: webshells, creación de cuentas, volcado de credenciales o movimiento lateral.",
+        "Confirme con el equipo de mensajería si existe un cambio o una tarea de migración aprobada que justifique el comando."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Scripts de administración o migración de Exchange que exportan direcciones SMTP para auditorías, sincronización de directorios o depuración de listas de distribución."
+      ],
+      "response_steps": [
+        "Verifique la legitimidad con el administrador responsable antes de actuar; conserve el CommandLine, el árbol de procesos y los archivos generados como evidencia.",
+        "Si no está autorizado, aísle el host o restrinja su salida a Internet y deshabilite o restablezca las credenciales de la cuenta implicada.",
+        "Localice y preserve el archivo con las direcciones; investigue si salió de la red mediante proxy, firewall o DLP.",
+        "Busque persistencia (webshells en IIS, tareas programadas, cuentas nuevas) y elimínela una vez documentada.",
+        "Notifique al equipo legal o de privacidad si se confirma la exfiltración y refuerce la monitorización de phishing dirigido a los usuarios expuestos."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque la combinación exacta de cmdlets casi no tiene uso administrativo rutinario y apunta a recolección masiva de datos de correo."
+    },
+    "en": {
+      "summary": "PowerShell loaded the Exchange management snap-in and dumped every recipient's SMTP address as plain text. This usually points to bulk collection of email addresses for exfiltration.",
+      "what_it_detects": "A powershell.exe or pwsh.exe process whose CommandLine contains all of Add-PSSnapin, Get-Recipient, -ExpandProperty, EmailAddresses, SmtpAddress and -hidetableheaders, producing a header-free address list ready to copy or send out.",
+      "why_it_matters": "A full list of organizational addresses enables internal phishing, extortion or data sale. The rule is tagged as exfiltration and the command typically runs on an Exchange server with admin rights.",
+      "triage_steps": [
+        "Read the full CommandLine: note the snap-in loaded, any Get-Recipient filters, and whether output is redirected to a file (Out-File, >) or sent over the network.",
+        "Check ParentImage and the process chain: cmd.exe, w3wp.exe, scheduled tasks or remote tools are more suspicious than an interactive Exchange Management Shell.",
+        "Validate the user: is it a known Exchange admin? Did the logon come from an unusual IP or host?",
+        "On the same host, +/- 15 minutes, look for new .txt or .csv files, archiving (7z, rar, Compress-Archive) and outbound connections or uploads.",
+        "Pivot on the same user and host for earlier alerts: webshells, account creation, credential dumping or lateral movement.",
+        "Ask the messaging team whether an approved change or migration explains the command."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Exchange admin or migration scripts exporting SMTP addresses for audits, directory sync or distribution list cleanup."
+      ],
+      "response_steps": [
+        "Confirm legitimacy with the responsible admin before acting; preserve the CommandLine, process tree and output files as evidence.",
+        "If unauthorized, isolate the host or block its internet egress, and disable or reset the involved account.",
+        "Locate and preserve the address file; check proxy, firewall or DLP logs for evidence it left the network.",
+        "Hunt for persistence (IIS webshells, scheduled tasks, new accounts) and remove it once documented.",
+        "Notify legal or privacy if exfiltration is confirmed and increase monitoring for targeted phishing against exposed users."
+      ],
+      "severity_rationale": "High fits because this exact cmdlet combination has little routine admin use and indicates bulk harvesting of mail data."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "powershell.exe on an Exchange server dumps all SMTP addresses without headers to a file",
+        "event": {
+          "EventID": 1,
+          "Computer": "EXCH-01.andes.example.com",
+          "User": "ANDES\\svc-backup",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -ep bypass -c \"Add-PSSnapin Microsoft.Exchange.Management.PowerShell.SnapIn; Get-Recipient -ResultSize Unlimited | Select-Object -ExpandProperty EmailAddresses | Select-Object -ExpandProperty SmtpAddress | Format-Table -HideTableHeaders | Out-File C:\\ProgramData\\list.txt\""
+        }
+      },
+      {
+        "description": "pwsh.exe running the same harvesting pipeline with mixed-case options",
+        "event": {
+          "EventID": 1,
+          "Computer": "EXCH-02.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "pwsh.exe -NoProfile -Command \"add-pssnapin *Exchange*; get-recipient | select -expandproperty EmailAddresses | select -EXPANDPROPERTY SmtpAddress | ft -hidetableheaders\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin exports recipient names and primary addresses to CSV; missing EmailAddresses expansion and -hidetableheaders",
+        "event": {
+          "EventID": 1,
+          "Computer": "EXCH-01.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -c \"Add-PSSnapin Microsoft.Exchange.Management.PowerShell.SnapIn; Get-Recipient -RecipientType UserMailbox | Select-Object Name,PrimarySmtpAddress | Export-Csv C:\\Reports\\mailboxes.csv\""
+        }
+      },
+      {
+        "description": "Full command line but launched through cmd.exe as the process image, so Image does not end with powershell.exe or pwsh.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "EXCH-01.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "cmd.exe /c echo Add-PSSnapin; Get-Recipient | select -ExpandProperty EmailAddresses | select -ExpandProperty SmtpAddress | ft -hidetableheaders > C:\\Temp\\notes.txt"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

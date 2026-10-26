@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "7773b877-5abb-4a3e-b9c9-fd0369b59b00",
+    "title": "WMIC Remote Command Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wmic_remote_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmic_remote_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1047"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó WMIC con el parámetro /node: apuntando a un equipo distinto de localhost. Esto indica una consulta o ejecución de comandos WMI contra un sistema remoto.",
+      "what_it_detects": "Creación de procesos de WMIC.exe, identificado por Image o por OriginalFileName aunque el binario esté renombrado, cuyo CommandLine contiene '/node:' o variantes con guion. Se excluyen las líneas de comando que contienen 'localhost' o '127.0.0.1'.",
+      "why_it_matters": "Con WMI (ATT&CK T1047, Windows Management Instrumentation) un atacante puede reconocer equipos remotos o lanzar procesos en ellos con 'process call create', y así moverse lateralmente usando una herramienta nativa sin instalar nada.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el host destino en /node:, las credenciales en /user: y el verbo usado (process call create, get, list, shadowcopy).",
+        "Compare Image con OriginalFileName. Si WMIC se ejecuta renamed o desde una ruta fuera de System32/SysWOW64, aumente la prioridad.",
+        "Analice ParentImage y la cadena de procesos padre. cmd.exe o powershell.exe lanzados desde Office, navegadores o scripts temporales son sospechosos.",
+        "Valide si el usuario y el host de origen pertenecen a administradores de TI o a herramientas de gestión autorizadas.",
+        "En el host destino, busque procesos hijos de WmiPrvSE.exe y eventos de logon de tipo 3 del mismo usuario en una ventana de +/- 15 minutos.",
+        "Revise en el host origen, en +/- 15 minutos, la actividad de reconocimiento, el volcado de credenciales y las conexiones RPC/DCOM a varios equipos.",
+        "Busque alertas previas del mismo usuario, del host origen y del host destino."
+      ],
+      "false_positives": [
+        "Administradores que inventarían o administran equipos remotos con WMIC desde estaciones de gestión.",
+        "Scripts de inventario, monitoreo o despliegue de software que usan /node: contra servidores.",
+        "Herramientas de soporte o RMM que invocan WMIC contra equipos de la red."
+      ],
+      "response_steps": [
+        "Confirme con el dueño de la cuenta o con el equipo de TI si la ejecución estaba autorizada.",
+        "Si no lo estaba, aísle el host origen y el destino y preserve memoria, eventos de Sysmon y logs de seguridad.",
+        "Deshabilite o restablezca las credenciales usadas en /user: o las de la sesión del usuario implicado.",
+        "Elimine los artefactos o la persistencia creados en el destino solo después de documentarlos, y busque ejecuciones similares en otros hosts.",
+        "Restrinja WMI/DCOM remoto con firewall y GPO a estaciones de administración autorizadas."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque la ejecución remota con WMIC es una técnica común de movimiento lateral, pero también la usan los administradores, así que hay que validar el contexto."
+    },
+    "en": {
+      "summary": "WMIC ran with the /node: parameter against a host other than localhost. This points to a WMI query or command execution on a remote system.",
+      "what_it_detects": "Process creation of WMIC.exe, matched by Image or by OriginalFileName even if the binary is renamed, where CommandLine contains '/node:' or a dash variant. Command lines containing 'localhost' or '127.0.0.1' are excluded.",
+      "why_it_matters": "With WMI (ATT&CK T1047, Windows Management Instrumentation), attackers can survey remote hosts or start processes on them through 'process call create'. This lets them move laterally with a built-in tool and nothing to install.",
+      "triage_steps": [
+        "Read the full CommandLine: note the target host in /node:, any credentials in /user:, and the verb used (process call create, get, list, shadowcopy).",
+        "Compare Image with OriginalFileName. Raise priority if WMIC is renamed or runs from outside System32/SysWOW64.",
+        "Review ParentImage and the process ancestry. cmd.exe or powershell.exe spawned by Office, browsers or temp scripts is suspicious.",
+        "Check whether the user and source host belong to IT administrators or to approved management tooling.",
+        "On the target host, look for WmiPrvSE.exe child processes and type 3 logons by the same user within +/- 15 minutes.",
+        "On the source host, review activity within +/- 15 minutes: reconnaissance, credential dumping, and RPC/DCOM connections to multiple hosts.",
+        "Search for earlier alerts on the same user, source host and target host."
+      ],
+      "false_positives": [
+        "Administrators inventorying or managing remote machines with WMIC from management workstations.",
+        "Inventory, monitoring or software deployment scripts that use /node: against servers.",
+        "Support or RMM tools that invoke WMIC against network hosts."
+      ],
+      "response_steps": [
+        "Confirm with the account owner or the IT team whether the execution was authorized.",
+        "If it was not, isolate the source and target hosts and preserve memory, Sysmon events and security logs.",
+        "Disable or reset the credentials passed in /user: or used by the involved user's session.",
+        "Document any artifacts or persistence created on the target before removing them, and hunt for similar executions on other hosts.",
+        "Use firewall rules and GPO to limit remote WMI/DCOM to authorized admin workstations."
+      ],
+      "severity_rationale": "Medium fits because remote WMIC execution is a common lateral movement technique, but administrators also use it, so the context needs checking."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WMIC creates a process on a remote host with explicit credentials",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic /node:192.0.2.25 /user:ANDES\\svc_backup process call create \"cmd.exe /c whoami > C:\\Windows\\Temp\\o.txt\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      },
+      {
+        "description": "Renamed WMIC binary (matched by OriginalFileName) using the dash form -node: against a remote server",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svch.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "svch.exe -node:SRV-FILE-01 os get Caption,Version",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "WMIC with /node:localhost, excluded by the localhost filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic /node:localhost process list brief",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      },
+      {
+        "description": "Local WMIC query without the /node: parameter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic computersystem get model,manufacturer",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "rule": {
+    "id": "53d4bb30-3f36-4e8a-b078-69d36c4a79ff",
+    "title": "COM Object Execution via Xwizard.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Ensar Şamil, @sblmsrsn, @oscd_initiative, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_xwizard_runwizard_com_object_exec.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_xwizard_runwizard_com_object_exec.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó xwizard.exe con el argumento RunWizard y un GUID, lo que hace que el sistema cargue el objeto COM registrado bajo ese CLSID. Un atacante puede usarlo para ejecutar una DLL propia mediante un binario firmado por Microsoft.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine incluye 'RunWizard' y un GUID entre llaves. Nota para ingeniería: tal como está escrita, la regla exige un CommandLine exactamente igual a 'RunWizard', lo cual no puede coexistir con un GUID; conviene cambiarla a CommandLine|contains.",
+      "why_it_matters": "Es ejecución de proxy mediante binarios del sistema (ATT&CK T1218): xwizard.exe, firmado por Microsoft, carga la DLL indicada en InprocServer32 del CLSID, lo que permite evadir controles de listas de aplicaciones permitidas y ocultar la ejecución de código malicioso.",
+      "triage_steps": [
+        "Revise Image y OriginalFileName: confirme si es C:\\Windows\\System32\\xwizard.exe o una copia en una ruta inusual.",
+        "Extraiga el GUID del CommandLine y consulte HKCU\\Software\\Classes\\CLSID\\{GUID} y HKLM\\SOFTWARE\\Classes\\CLSID\\{GUID}, en especial InprocServer32 y LocalServer32.",
+        "Verifique la DLL referenciada: ruta, firma digital, hash y reputación; desconfíe de rutas en AppData, Temp o ProgramData.",
+        "Busque eventos de modificación del registro sobre ese CLSID en el mismo host dentro de +/- 15 minutos, y qué proceso los creó.",
+        "Analice ParentImage y la línea de comandos del padre: scripts, Office, cmd o PowerShell sugieren abuso.",
+        "Revise los procesos hijos, las cargas de imagen y las conexiones de red de xwizard.exe.",
+        "Busque el mismo GUID en otros endpoints y alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; el uso legítimo de xwizard con RunWizard es poco frecuente.",
+        "Asistentes antiguos o de instaladores que registran CLSID propios firmados por el proveedor.",
+        "Pruebas autorizadas de red team o de validación de detecciones con LOLBAS."
+      ],
+      "response_steps": [
+        "Valide si la DLL y la clave CLSID corresponden a software aprobado antes de actuar.",
+        "Si es malicioso, aísle el endpoint y preserve la clave de registro, la DLL y la memoria del proceso.",
+        "Elimine la clave CLSID maliciosa y la DLL tras recolectar la evidencia, y bloquee el hash.",
+        "Busque persistencia adicional y el mismo CLSID en toda la flota; restablezca credenciales del usuario si hubo compromiso."
+      ],
+      "severity_rationale": "Nivel medio porque xwizard con RunWizard y GUID es raro en uso normal, pero requiere confirmar que el CLSID apunta a código no confiable."
+    },
+    "en": {
+      "summary": "xwizard.exe ran with the RunWizard argument and a GUID, causing Windows to load the COM object registered under that CLSID. Attackers use this to run their own DLL through a Microsoft-signed binary.",
+      "what_it_detects": "Process creation events whose CommandLine contains 'RunWizard' plus a braced GUID. Engineering note: as written, the rule requires CommandLine to equal 'RunWizard' exactly, which cannot coexist with a GUID; change it to CommandLine|contains.",
+      "why_it_matters": "This is System Binary Proxy Execution (ATT&CK T1218): the signed xwizard.exe loads the DLL set in the CLSID's InprocServer32, helping bypass application allowlisting and hide malicious code execution.",
+      "triage_steps": [
+        "Check Image and OriginalFileName: is it C:\\Windows\\System32\\xwizard.exe or a copy in an unusual path?",
+        "Extract the GUID from CommandLine and query HKCU\\Software\\Classes\\CLSID\\{GUID} and HKLM\\SOFTWARE\\Classes\\CLSID\\{GUID}, especially InprocServer32 and LocalServer32.",
+        "Inspect the referenced DLL: path, signature, hash, reputation; treat AppData, Temp or ProgramData paths as suspicious.",
+        "Look for registry writes to that CLSID on the same host within +/- 15 minutes and identify the writing process.",
+        "Review ParentImage and its command line: scripts, Office, cmd or PowerShell parents suggest abuse.",
+        "Review xwizard.exe child processes, image loads and network connections.",
+        "Hunt the same GUID on other endpoints and check earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; legitimate xwizard RunWizard use is uncommon.",
+        "Legacy or installer wizards registering vendor-signed CLSIDs.",
+        "Authorized red team or detection validation exercises using LOLBAS."
+      ],
+      "response_steps": [
+        "Confirm whether the DLL and CLSID key belong to approved software before acting.",
+        "If malicious, isolate the endpoint and preserve the registry key, DLL and process memory.",
+        "Remove the malicious CLSID key and DLL after evidence collection, and block the hash.",
+        "Hunt for further persistence and the same CLSID fleet-wide; reset user credentials if compromise is confirmed."
+      ],
+      "severity_rationale": "Medium because xwizard RunWizard with a GUID is rare in normal use, yet confirming that the CLSID points to untrusted code is still required."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Intended detection: xwizard.exe launched from a script host with RunWizard and a custom CLSID. Caveat: strict Sigma semantics treat CommandLine: 'RunWizard' as an exact match, so this only matches once the rule uses CommandLine|contains.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\xwizard.exe",
+          "OriginalFileName": "xwizard.exe",
+          "CommandLine": "xwizard.exe RunWizard /taero /u {7940ACF8-60BA-4213-A7C3-F3B400EE266D}",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\setup.vbs",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "xwizard.exe used with ProcessXMLFile and no RunWizard or GUID; does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\xwizard.exe",
+          "OriginalFileName": "xwizard.exe",
+          "CommandLine": "xwizard.exe ProcessXMLFile C:\\ProgramData\\Vendor\\wizard.xml",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "RunWizard argument without a braced GUID; the regex selection fails.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\xwizard.exe",
+          "OriginalFileName": "xwizard.exe",
+          "CommandLine": "xwizard.exe RunWizard /taero",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "953d460b-f810-420a-97a2-cfca4c98e602",
+    "title": "Source Code Enumeration Detection by Keyword",
+    "level": "medium",
+    "status": "test",
+    "author": "James Ahearn",
+    "path": "web/webserver_generic/web_source_code_enumeration.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/web/webserver_generic/web_source_code_enumeration.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1083"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un cliente solicitó una URL que contiene '.git/', lo que indica un intento de enumerar o descargar un repositorio Git expuesto en el servidor web.",
+      "what_it_detects": "Cualquier línea del log del servidor web que contenga la cadena '.git/', por ejemplo solicitudes a /.git/config, /.git/HEAD o /.git/logs/HEAD. Es una regla de keyword: coincide en cualquier parte de la línea, sin importar el método o el código de respuesta.",
+      "why_it_matters": "Si el directorio .git queda publicado, un atacante puede reconstruir el código fuente completo y obtener credenciales, rutas internas y lógica de la aplicación. Corresponde a File and Directory Discovery (T1083) y suele preceder a ataques más dirigidos.",
+      "triage_steps": [
+        "Revise la URL solicitada (cs-uri-stem) y el código de respuesta (sc-status): un 200 sobre archivos como .git/config o .git/HEAD indica exposición real.",
+        "Compare el tamaño de la respuesta con el de las páginas de error para descartar respuestas 200 genéricas o soft-404.",
+        "Identifique la IP de origen y el user agent; herramientas como curl, python-requests o escáneres conocidos apuntan a reconocimiento automatizado.",
+        "Pivote por la misma IP de origen en +/- 15 minutos: busque descargas masivas de /.git/objects/, /.git/index o rutas de otros archivos sensibles (.env, backups).",
+        "Verifique si la IP generó alertas previas o aparece en otros servidores web del entorno.",
+        "Confirme con el equipo de la aplicación si el directorio .git existe en el document root del servidor afectado."
+      ],
+      "false_positives": [
+        "Escaneos de vulnerabilidades autorizados o pruebas de penetración programadas desde IPs conocidas.",
+        "Servidores que alojan repositorios Git legítimos vía HTTP (por ejemplo, Git smart HTTP) donde '.git/' forma parte de rutas normales.",
+        "Monitoreo interno o herramientas de despliegue que verifican la ausencia del directorio .git."
+      ],
+      "response_steps": [
+        "Si la respuesta fue 200 con contenido real, bloquee el acceso a /.git en la configuración del servidor web o en el WAF.",
+        "Retire el directorio .git del document root y ajuste el proceso de despliegue para no publicarlo.",
+        "Revise el historial del repositorio en busca de secretos expuestos y rote credenciales, tokens y llaves afectadas.",
+        "Bloquee temporalmente la IP de origen si el reconocimiento continúa y documente los archivos descargados.",
+        "Si solo hubo 403/404, registre el intento y vigile la IP por actividad posterior."
+      ],
+      "severity_rationale": "Medium es adecuado porque el intento por sí solo es reconocimiento común, pero una respuesta exitosa puede exponer todo el código fuente y secretos."
+    },
+    "en": {
+      "summary": "A client requested a URL containing '.git/', indicating an attempt to enumerate or download an exposed Git repository from the web server.",
+      "what_it_detects": "Any web server log line containing the string '.git/', such as requests for /.git/config, /.git/HEAD or /.git/logs/HEAD. It is a keyword rule: it matches anywhere in the line, regardless of method or status code.",
+      "why_it_matters": "An exposed .git directory lets an attacker rebuild the full source code and harvest credentials, internal paths and application logic. This maps to File and Directory Discovery (T1083) and often precedes targeted attacks.",
+      "triage_steps": [
+        "Check the requested URL (cs-uri-stem) and status code (sc-status): a 200 on files like .git/config or .git/HEAD means real exposure.",
+        "Compare response size with error pages to rule out generic 200 or soft-404 responses.",
+        "Identify the source IP and user agent; curl, python-requests or known scanners suggest automated reconnaissance.",
+        "Pivot on the same source IP within +/- 15 minutes: look for bulk downloads of /.git/objects/, /.git/index or other sensitive files (.env, backups).",
+        "Check whether the IP raised earlier alerts or hit other web servers in the environment.",
+        "Confirm with the application team whether a .git directory exists in the affected server's document root."
+      ],
+      "false_positives": [
+        "Authorized vulnerability scans or scheduled penetration tests from known IPs.",
+        "Servers legitimately hosting Git repositories over HTTP (Git smart HTTP) where '.git/' is part of normal paths.",
+        "Internal monitoring or deployment tooling that checks the .git directory is not exposed."
+      ],
+      "response_steps": [
+        "If the response was 200 with real content, block access to /.git in the web server configuration or WAF.",
+        "Remove the .git directory from the document root and fix the deployment process so it is not published.",
+        "Review repository history for exposed secrets and rotate affected credentials, tokens and keys.",
+        "Temporarily block the source IP if reconnaissance continues, and document which files were retrieved.",
+        "If only 403/404 responses occurred, log the attempt and watch the IP for follow-up activity."
+      ],
+      "severity_rationale": "Medium fits because the attempt alone is common reconnaissance, but a successful response can expose the entire source code and its secrets."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Successful retrieval of /.git/config with curl, logged in Apache combined format",
+        "event": {
+          "message": "203.0.113.45 - - [25/Oct/2024:14:03:12 +0000] \"GET /.git/config HTTP/1.1\" 200 312 \"-\" \"curl/8.4.0\"",
+          "c-ip": "203.0.113.45",
+          "cs-method": "GET",
+          "cs-uri-stem": "/.git/config",
+          "sc-status": 200,
+          "cs-user-agent": "curl/8.4.0",
+          "host": "web-01.example.com"
+        }
+      },
+      {
+        "description": "Scanner probing a nested .git/logs/HEAD path, denied with 403",
+        "event": {
+          "message": "198.51.100.23 - - [25/Oct/2024:14:05:47 +0000] \"GET /app/.git/logs/HEAD HTTP/1.1\" 403 199 \"-\" \"python-requests/2.31.0\"",
+          "c-ip": "198.51.100.23",
+          "cs-method": "GET",
+          "cs-uri-stem": "/app/.git/logs/HEAD",
+          "sc-status": 403,
+          "cs-user-agent": "python-requests/2.31.0",
+          "host": "web-01.example.com"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Request for a .github/ path; '.git' is followed by 'h', so '.git/' does not appear",
+        "event": {
+          "message": "192.0.2.10 - - [25/Oct/2024:15:10:02 +0000] \"GET /docs/.github/ISSUE_TEMPLATE.md HTTP/1.1\" 404 196 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64)\"",
+          "c-ip": "192.0.2.10",
+          "cs-method": "GET",
+          "cs-uri-stem": "/docs/.github/ISSUE_TEMPLATE.md",
+          "sc-status": 404,
+          "cs-user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+          "host": "web-01.example.com"
+        }
+      },
+      {
+        "description": "Request for /.gitignore, which contains '.git' but not '.git/'",
+        "event": {
+          "message": "192.0.2.11 - - [25/Oct/2024:15:12:30 +0000] \"GET /.gitignore HTTP/1.1\" 404 196 \"-\" \"Mozilla/5.0 (X11; Linux x86_64)\"",
+          "c-ip": "192.0.2.11",
+          "cs-method": "GET",
+          "cs-uri-stem": "/.gitignore",
+          "sc-status": 404,
+          "cs-user-agent": "Mozilla/5.0 (X11; Linux x86_64)",
+          "host": "web-01.example.com"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

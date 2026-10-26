@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "78f10490-f2f4-4d19-a75b-4e0683bf3b8d",
+    "title": "Suspicious Speech Runtime Binary Child Process",
+    "level": "high",
+    "status": "experimental",
+    "author": "andrewdanis",
+    "path": "windows/process_creation/proc_creation_win_speechruntime_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_speechruntime_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.003",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "SpeechRuntime.exe, el binario de Windows Speech Runtime, inició un proceso hijo. Este binario normalmente no crea procesos, así que el hijo puede indicar un secuestro de COM/DCOM usado para movimiento lateral.",
+      "what_it_detects": "Eventos de creación de procesos cuyo ParentImage termina en \\SpeechRuntime.exe, sin importar qué proceso hijo (Image) se haya iniciado ni su CommandLine.",
+      "why_it_matters": "Técnicas como SpeechRuntimeMove secuestran el registro COM de SpeechRuntime y lo activan de forma remota por DCOM. Así se ejecuta código en la sesión de un usuario que tiene sesión abierta en otro equipo (T1021.003). Como el proceso que lo carga es un binario firmado de Microsoft, la ejecución pasa más desapercibida (T1218).",
+      "triage_steps": [
+        "Revise Image, CommandLine, User e IntegrityLevel del proceso hijo. Un cmd.exe, powershell.exe, rundll32.exe o un binario en una ruta escribible por el usuario es muy sospechoso.",
+        "Confirme la ruta de ParentImage (normalmente C:\\Windows\\System32\\Speech_OneCore\\common\\) y su proceso padre, que suele ser svchost.exe del servicio DcomLaunch.",
+        "Busque en el mismo host, en un rango de +/- 15 minutos, cambios de registro en HKCU\\Software\\Classes\\CLSID\\*\\InprocServer32 o TreatAs que apunten a DLL inesperadas.",
+        "Revise las cargas de imágenes (Sysmon 7) de SpeechRuntime.exe para encontrar DLL sin firma o en rutas como AppData, Temp o ProgramData, y calcule su hash.",
+        "Correlacione inicios de sesión de red (4624 tipo 3) y conexiones RPC/DCOM (TCP 135 y puertos dinámicos) hacia el host para identificar la IP y la cuenta de origen.",
+        "Pivote por el host y la cuenta de origen para buscar alertas previas de movimiento lateral, robo de credenciales o ejecución remota.",
+        "Siga la actividad posterior del hijo: procesos nietos, conexiones salientes, archivos creados y mecanismos de persistencia."
+      ],
+      "false_positives": [
+        "La regla indica que los falsos positivos son poco probables.",
+        "Puede haber herramientas de accesibilidad o dictado de terceros, o pruebas internas de equipos de seguridad (red team), que generen hijos de SpeechRuntime.exe. Valídelas con el responsable antes de excluirlas."
+      ],
+      "response_steps": [
+        "Verifique la legitimidad con el usuario de la sesión y el dueño del equipo. Conserve la evidencia: memoria, DLL sospechosa y claves de registro.",
+        "Si se confirma la actividad maliciosa, aísle el endpoint y el host de origen y suspenda o restablezca las credenciales de la cuenta usada en la conexión remota.",
+        "Elimine el secuestro COM (las claves CLSID añadidas en HKCU) y la DLL, después de documentarlos, y termine los procesos maliciosos.",
+        "Busque los mismos hash, CLSID y origen en todo el entorno. Restrinja el acceso DCOM remoto y el tráfico RPC entre estaciones de trabajo."
+      ],
+      "severity_rationale": "El nivel alto es adecuado: SpeechRuntime.exe casi nunca crea procesos legítimamente y un hijo apunta directamente a ejecución remota de código y movimiento lateral."
+    },
+    "en": {
+      "summary": "SpeechRuntime.exe, the Windows Speech Runtime binary, spawned a child process. It normally does not create processes, so the child may mean COM/DCOM hijacking was used for lateral movement.",
+      "what_it_detects": "Process creation events whose ParentImage ends with \\SpeechRuntime.exe, whatever child Image or CommandLine was started.",
+      "why_it_matters": "Techniques such as SpeechRuntimeMove hijack the SpeechRuntime COM registration and activate it remotely through DCOM. This runs code inside the session of a user logged on to another host (T1021.003). Because a signed Microsoft binary loads the code, the execution is harder to spot (T1218).",
+      "triage_steps": [
+        "Review the child's Image, CommandLine, User and IntegrityLevel. cmd.exe, powershell.exe, rundll32.exe or a binary in a user-writable path is highly suspicious.",
+        "Confirm the ParentImage path (normally C:\\Windows\\System32\\Speech_OneCore\\common\\) and its own parent, usually svchost.exe running DcomLaunch.",
+        "On the same host within +/- 15 minutes, look for registry writes under HKCU\\Software\\Classes\\CLSID\\*\\InprocServer32 or TreatAs that point to unexpected DLLs.",
+        "Check image loads into SpeechRuntime.exe (Sysmon 7) for unsigned DLLs or DLLs in AppData, Temp or ProgramData, and collect their hashes.",
+        "Correlate network logons (4624 type 3) and RPC/DCOM connections (TCP 135 and dynamic ports) to the host to find the source IP and account.",
+        "Pivot on the source host and account to find earlier alerts for lateral movement, credential theft or remote execution.",
+        "Follow the child's later activity: grandchild processes, outbound connections, dropped files and persistence."
+      ],
+      "false_positives": [
+        "The rule says false positives are unlikely.",
+        "Third-party accessibility or dictation tools, or authorized red team tests, might spawn children of SpeechRuntime.exe. Check with the owner before you add an exclusion."
+      ],
+      "response_steps": [
+        "Check legitimacy with the session user and the host owner. Preserve evidence: memory, the suspicious DLL and the registry keys.",
+        "If the activity is malicious, isolate the endpoint and the source host, then disable or reset the credentials of the account used for the remote connection.",
+        "After documenting them, remove the COM hijack (the added HKCU CLSID keys) and the DLL, and stop the malicious processes.",
+        "Hunt for the same hashes, CLSIDs and source across the environment. Restrict remote DCOM access and RPC traffic between workstations."
+      ],
+      "severity_rationale": "High fits because SpeechRuntime.exe rarely spawns processes for legitimate reasons, and a child process points directly to remote code execution and lateral movement."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "SpeechRuntime.exe spawns cmd.exe that runs reconnaissance commands in the interactive user's session",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami /all > C:\\Users\\Public\\out.txt",
+          "ParentImage": "C:\\Windows\\System32\\Speech_OneCore\\common\\SpeechRuntime.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\Speech_OneCore\\common\\SpeechRuntime.exe -Embedding",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "SpeechRuntime.exe launches rundll32.exe that loads a DLL from ProgramData",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe C:\\ProgramData\\speechsvc.dll,Start",
+          "ParentImage": "C:\\Windows\\System32\\Speech_OneCore\\common\\SpeechRuntime.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "SpeechRuntime.exe itself is started by svchost.exe (DcomLaunch); the parent is not SpeechRuntime.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\Speech_OneCore\\common\\SpeechRuntime.exe",
+          "CommandLine": "C:\\Windows\\System32\\Speech_OneCore\\common\\SpeechRuntime.exe -Embedding",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k DcomLaunch -p",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Child of the similarly named SpeechModelDownload.exe; the parent does not end with \\SpeechRuntime.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "ParentImage": "C:\\Windows\\System32\\Speech_OneCore\\common\\SpeechModelDownload.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

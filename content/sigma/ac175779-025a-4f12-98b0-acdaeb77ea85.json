@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "ac175779-025a-4f12-98b0-acdaeb77ea85",
+    "title": "PowerShell Script Run in AppData",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Jonhnathan Ribeiro, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_powershell_susp_ps_appdata.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_susp_ps_appdata.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso cuya línea de comandos invoca PowerShell mediante un shell con '/c' y hace referencia a una ruta en AppData\\Local o AppData\\Roaming. Suele indicar la ejecución de un script dejado en el perfil del usuario.",
+      "what_it_detects": "Eventos de creación de procesos donde CommandLine contiene powershell.exe, \\powershell, \\pwsh o pwsh.exe, además de '/c ' y '\\AppData\\' junto con 'Local\\' o 'Roaming\\'. Es el patrón típico de cmd.exe /c powershell ejecutando un script desde AppData.",
+      "why_it_matters": "AppData admite escritura sin privilegios y no suele contener scripts legítimos ejecutados así. Las macros maliciosas, los droppers y los mecanismos de persistencia colocan payloads ahí y los lanzan con PowerShell (ATT&CK T1059.001, intérprete de comandos y scripts: PowerShell).",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el script o archivo en AppData, opciones como -ExecutionPolicy Bypass, -WindowStyle Hidden, -NoProfile o -EncodedCommand.",
+        "Examine ParentImage y la cadena de procesos: Office, navegadores, wscript/mshta o tareas programadas como padre de cmd.exe aumentan la sospecha.",
+        "Obtenga el script referenciado desde el endpoint, calcule su hash, revise su contenido y la fecha de creación del archivo.",
+        "Busque procesos hijos de PowerShell y conexiones de red del mismo host en una ventana de +/- 15 minutos.",
+        "Revise eventos de PowerShell (4104 Script Block Logging) del host para ver el código realmente ejecutado.",
+        "Verifique si el usuario recibió adjuntos o descargas recientes y si hay alertas previas para el mismo usuario o host.",
+        "Busque persistencia relacionada: claves Run, tareas programadas o accesos directos de inicio que apunten a la misma ruta."
+      ],
+      "false_positives": [
+        "Scripts administrativos o de inicio de sesión que se ejecutan desde el perfil del usuario mediante cmd /c.",
+        "Instaladores o actualizadores de software (por ejemplo, aplicaciones por usuario) que lanzan scripts temporales desde AppData\\Local\\Temp.",
+        "Herramientas de desarrollo o automatización que guardan scripts auxiliares en AppData\\Roaming."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y el equipo de TI si la ejecución corresponde a una herramienta o script conocido; documente la excepción si es legítima.",
+        "Si es malicioso, aísle el endpoint desde el EDR y preserve el script, el hash y la línea de comandos como evidencia.",
+        "Termine los procesos relacionados y elimine el script y los mecanismos de persistencia solo después de recolectar evidencia.",
+        "Busque el mismo hash, ruta o línea de comandos en otros hosts y bloquee los dominios o IP contactados.",
+        "Restablezca las credenciales del usuario si hubo robo de información y restaure el equipo a un estado limpio verificado."
+      ],
+      "severity_rationale": "Nivel medio porque el patrón es muy común en malware inicial, pero algunos scripts administrativos e instaladores legítimos también lo generan."
+    },
+    "en": {
+      "summary": "A process was created whose command line invokes PowerShell through a shell with '/c' and references a path under AppData\\Local or AppData\\Roaming. This usually means a script dropped in the user profile was executed.",
+      "what_it_detects": "Process creation events where CommandLine contains powershell.exe, \\powershell, \\pwsh or pwsh.exe, plus '/c ' and '\\AppData\\' together with 'Local\\' or 'Roaming\\'. This is the typical cmd.exe /c powershell pattern running a script from AppData.",
+      "why_it_matters": "AppData is writable without privileges and rarely hosts legitimate scripts launched this way. Malicious macros, droppers and persistence mechanisms place payloads there and run them with PowerShell (ATT&CK T1059.001, Command and Scripting Interpreter: PowerShell).",
+      "triage_steps": [
+        "Read the full CommandLine: identify the script or file in AppData and flags such as -ExecutionPolicy Bypass, -WindowStyle Hidden, -NoProfile or -EncodedCommand.",
+        "Check ParentImage and the process tree: Office, browsers, wscript/mshta or scheduled tasks spawning cmd.exe raise suspicion.",
+        "Collect the referenced script from the endpoint, hash it, review its content and the file creation time.",
+        "Look for PowerShell child processes and network connections from the same host within +/- 15 minutes.",
+        "Review PowerShell Script Block Logging (4104) on the host to see the code actually executed.",
+        "Check whether the user received recent attachments or downloads, and look for earlier alerts on the same user or host.",
+        "Hunt for related persistence: Run keys, scheduled tasks or startup shortcuts pointing to the same path."
+      ],
+      "false_positives": [
+        "Administrative or logon scripts run from the user profile through cmd /c.",
+        "Software installers or updaters (for example per-user applications) launching temporary scripts from AppData\\Local\\Temp.",
+        "Developer or automation tools storing helper scripts in AppData\\Roaming."
+      ],
+      "response_steps": [
+        "Confirm with the user and IT whether the execution belongs to a known tool or script; document an exception if legitimate.",
+        "If malicious, isolate the endpoint via EDR and preserve the script, hash and command line as evidence.",
+        "Kill related processes and remove the script and persistence only after evidence is collected.",
+        "Search for the same hash, path or command line on other hosts and block contacted domains or IPs.",
+        "Reset the user's credentials if data theft is suspected and restore the host to a verified clean state."
+      ],
+      "severity_rationale": "Medium because the pattern is very common in initial-stage malware, yet some legitimate admin scripts and installers produce it too."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Word macro spawns cmd.exe /c powershell.exe running a hidden script from AppData\\Roaming",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "\"C:\\Windows\\System32\\cmd.exe\" /c powershell.exe -nop -w hidden -ep bypass -File \"C:\\Users\\jperez\\AppData\\Roaming\\Microsoft\\updater.ps1\"",
+          "CurrentDirectory": "C:\\Users\\jperez\\Documents\\"
+        }
+      },
+      {
+        "description": "cmd.exe /c with full path to \\powershell running a script from AppData\\Local\\Temp",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "CommandLine": "cmd.exe /c C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell -ExecutionPolicy Bypass C:\\Users\\mrojas\\AppData\\Local\\Temp\\inst.ps1",
+          "CurrentDirectory": "C:\\Users\\mrojas\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "PowerShell runs a script from AppData\\Local directly, without a '/c ' shell invocation",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -File \"C:\\Users\\jperez\\AppData\\Local\\Tools\\cleanup.ps1\"",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "cmd.exe /c powershell.exe running an admin script from ProgramData, not AppData",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "cmd.exe /c powershell.exe -ExecutionPolicy RemoteSigned -File C:\\ProgramData\\AdminScripts\\rotate-logs.ps1",
+          "CurrentDirectory": "C:\\Windows\\System32\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

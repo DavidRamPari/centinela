@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "0d5675be-bc88-4172-86d3-1e96a4476536",
+    "title": "Potential Tampering With RDP Related Registry Keys Via Reg.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "pH-T (Nextron Systems), @Kostastsale, TheDFIRReport",
+    "path": "windows/process_creation/proc_creation_win_reg_rdp_keys_tamper.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reg_rdp_keys_tamper.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.001",
+      "T1112"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "reg.exe modificó valores de RDP en HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server, por ejemplo para habilitar conexiones remotas, permitir sesiones concurrentes o debilitar la seguridad de RDP.",
+      "what_it_detects": "Ejecuciones de reg.exe (Image u OriginalFileName) cuyo CommandLine incluye ' add ', la ruta de Terminal Server, REG_DWORD y ' /f', junto con valores como fDenyTSConnections, SecurityLayer, MaxInstanceCount, WinStations\\RDP-Tcp o EnableConcurrentSessions en Licensing Core. Se excluye SecurityLayer con valor 2 (TLS).",
+      "why_it_matters": "Los atacantes habilitan RDP o relajan sus controles para mantener acceso y moverse lateralmente (T1021.001) mediante modificación del registro (T1112). Este patrón aparece en intrusiones previas a ransomware, como las de Qbot o Phobos.",
+      "triage_steps": [
+        "Revise el CommandLine completo: qué valor cambia y el dato de /d (por ejemplo, fDenyTSConnections=0 habilita RDP y SecurityLayer=0 desactiva TLS/NLA).",
+        "Identifique User y ParentImage: valide si viene de cmd.exe o powershell.exe interactivos, de un script de GPO o de un proceso inusual como Office, rundll32 o un binario en %TEMP%.",
+        "Revise el árbol de procesos del mismo host +/- 15 minutos: busque netsh advfirewall abriendo el 3389, net user /add o net localgroup Administrators.",
+        "Confirme con el área responsable si hay un cambio aprobado o una tarea de aprovisionamiento para ese host y ese usuario.",
+        "Busque inicios de sesión RDP (4624 con LogonType 10, 4778) en el host después del cambio y anote sus IP de origen.",
+        "Busque el mismo CommandLine en otros endpoints y alertas previas para el mismo usuario o host."
+      ],
+      "false_positives": [
+        "Administradores o scripts de aprovisionamiento que habilitan RDP en servidores o equipos nuevos.",
+        "Herramientas de soporte remoto o de gestión de configuración que ajustan valores de Terminal Server.",
+        "Pruebas autorizadas de red team o de Atomic Red Team."
+      ],
+      "response_steps": [
+        "Si no hay un cambio autorizado, aísle el endpoint y bloquee el puerto 3389 desde orígenes no confiables.",
+        "Restaure los valores originales del registro (por ejemplo, fDenyTSConnections=1 y SecurityLayer=2) después de documentar el estado actual.",
+        "Restablezca las credenciales de la cuenta implicada y revise si se crearon cuentas o hubo cambios en grupos privilegiados.",
+        "Busque persistencia adicional y movimiento lateral desde las IP que se conectaron por RDP; escale a respuesta a incidentes si se confirma el compromiso."
+      ],
+      "severity_rationale": "Es alta porque habilitar o debilitar RDP con reg.exe y /f es un paso común de persistencia y movimiento lateral, y en operaciones normales es poco frecuente."
+    },
+    "en": {
+      "summary": "reg.exe changed RDP values under HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server, for example to enable remote connections, allow concurrent sessions or weaken RDP security.",
+      "what_it_detects": "reg.exe runs (by Image or OriginalFileName) whose CommandLine includes ' add ', the Terminal Server path, REG_DWORD and ' /f', plus values such as fDenyTSConnections, SecurityLayer, MaxInstanceCount, WinStations\\RDP-Tcp or Licensing Core EnableConcurrentSessions. SecurityLayer set to 2 (TLS) is excluded.",
+      "why_it_matters": "Attackers enable RDP or loosen its controls to keep access and move laterally (T1021.001) by modifying the registry (T1112). The pattern shows up in pre-ransomware intrusions such as Qbot and Phobos cases.",
+      "triage_steps": [
+        "Read the full CommandLine: which value changes and the /d data (for example, fDenyTSConnections=0 enables RDP and SecurityLayer=0 turns off TLS/NLA).",
+        "Identify User and ParentImage: is it interactive cmd.exe or powershell.exe, a GPO script, or something unusual like Office, rundll32 or a binary in %TEMP%?",
+        "Check the process tree on the same host +/- 15 minutes for netsh advfirewall opening 3389, net user /add or net localgroup Administrators.",
+        "Ask the owning team whether an approved change or provisioning task covers this host and user.",
+        "Look for RDP logons (4624 with LogonType 10, 4778) on the host after the change and note the source IPs.",
+        "Search for the same CommandLine on other endpoints and for earlier alerts on the same user or host."
+      ],
+      "false_positives": [
+        "Administrators or provisioning scripts enabling RDP on new servers or workstations.",
+        "Remote support or configuration management tools that adjust Terminal Server values.",
+        "Authorized red team or Atomic Red Team testing."
+      ],
+      "response_steps": [
+        "If no authorized change exists, isolate the endpoint and block 3389 from untrusted sources.",
+        "Record the current registry state, then restore the original values (for example, fDenyTSConnections=1 and SecurityLayer=2).",
+        "Reset credentials for the account involved and check for new accounts or changes to privileged groups.",
+        "Hunt for more persistence and for lateral movement from the source IPs that connected over RDP; escalate to incident response if compromise is confirmed."
+      ],
+      "severity_rationale": "High fits because enabling or weakening RDP with reg.exe and /f is a common persistence and lateral movement step and is uncommon in normal operations."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe enables RDP by setting fDenyTSConnections to 0, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg  add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\" /v fDenyTSConnections /t REG_DWORD /d 0 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat"
+        }
+      },
+      {
+        "description": "reg.exe turns on concurrent RDP sessions through the Licensing Core key",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\Licensing Core\" /v EnableConcurrentSessions /t REG_DWORD /d 1 /f",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Hardening script sets SecurityLayer to 2 (TLS), so the TLS filter excludes it",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\adm_mrios",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp\" /v SecurityLayer /t REG_DWORD /d 0x00000002 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Admin only queries the fDenyTSConnections value, with no 'add', so the main command-line selection does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\adm_mrios",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\" /v fDenyTSConnections",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

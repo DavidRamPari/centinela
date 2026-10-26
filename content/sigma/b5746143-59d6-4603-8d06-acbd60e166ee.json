@@ -1,0 +1,139 @@
+{
+  "rule": {
+    "id": "b5746143-59d6-4603-8d06-acbd60e166ee",
+    "title": "Uncommon Child Process Of AddinUtil.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Michael McKinley (@McKinleyMike), Tony Latteri (@TheLatteri)",
+    "path": "windows/process_creation/proc_creation_win_addinutil_uncommon_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_addinutil_uncommon_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "AddInUtil.exe inició un proceso que no es conhost.exe ni WerFault.exe. Esto puede indicar que se usa la utilidad de add-ins de .NET para ejecutar por proxy un payload Addins.Store malicioso.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage termina en \\addinutil.exe e Image es cualquier binario distinto de conhost.exe en System32 o WerFault.exe en System32/SysWOW64.",
+      "why_it_matters": "AddInUtil.exe es un binario firmado de .NET Framework. Si carga un archivo Addins.Store manipulado, puede ejecutar código del atacante bajo un proceso confiable. Esto es System Binary Proxy Execution (T1218) y puede evadir listas de control de aplicaciones.",
+      "triage_steps": [
+        "Revise Image, CommandLine y el hash del proceso hijo. Anote su firma y su ruta. Los binarios sin firma o en carpetas con permisos de escritura del usuario son sospechosos.",
+        "Revise la línea de comandos de AddInUtil.exe, normalmente en ParentCommandLine. Busque -AddinRoot o -PipelineRoot apuntando a rutas inusuales como Temp, Downloads o AppData.",
+        "Busque archivos Addins.Store en esas rutas. Verifique cuándo y quién los creó, y su hash.",
+        "Recorra el árbol de procesos: qué lanzó AddInUtil.exe (macro de Office, script host, cmd) y si el hijo creó otros procesos.",
+        "Revise el mismo host en +/- 15 minutos: conexiones de red, escritura de archivos, cambios de persistencia y otras alertas.",
+        "Revise la cuenta de usuario: si la sesión era interactiva y si ese usuario suele usar herramientas de desarrollo.",
+        "Busque en el entorno otras ejecuciones de AddInUtil.exe o el mismo hash de Addins.Store."
+      ],
+      "false_positives": [
+        "La regla no indica falsos positivos conocidos. Los procesos hijo legítimos son poco comunes.",
+        "Herramientas de desarrollo o compilación que ejecutan AddInUtil.exe para regenerar la caché del pipeline de add-ins y luego inician procesos auxiliares.",
+        "Instaladores o actualizadores de aplicaciones .NET basadas en add-ins."
+      ],
+      "response_steps": [
+        "Antes de contener, confirme con el responsable del equipo o con el desarrollador que la actividad es maliciosa.",
+        "Si es maliciosa, aísle el endpoint y detenga el proceso hijo y los procesos que haya iniciado.",
+        "Recolecte el archivo Addins.Store, el binario hijo y los artefactos de memoria, y luego ponga los archivos en cuarentena.",
+        "Elimine la persistencia que encuentre, restablezca las credenciales que el usuario pudo exponer y busque los mismos indicadores en otros hosts.",
+        "Evalúe bloquear AddInUtil.exe con control de aplicaciones en los equipos que no lo necesitan."
+      ],
+      "severity_rationale": "Media es adecuada porque un proceso hijo de AddInUtil.exe es raro y apunta a ejecución por proxy, pero la alerta por sí sola no prueba un compromiso."
+    },
+    "en": {
+      "summary": "A process was launched by AddInUtil.exe, and it was not conhost.exe or WerFault.exe. This may mean the .NET add-in utility is being used to proxy execution of a malicious Addins.Store payload.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\addinutil.exe and Image is anything except System32 conhost.exe or System32/SysWOW64 WerFault.exe.",
+      "why_it_matters": "AddInUtil.exe is a signed Microsoft .NET Framework binary. If it loads a crafted Addins.Store file, it can run attacker code under a trusted process. That is System Binary Proxy Execution (T1218), which can get past application allowlisting.",
+      "triage_steps": [
+        "Review Image, CommandLine and hash of the child process. Note its signer and path. Unsigned binaries, or binaries in user-writable folders, are suspicious.",
+        "Inspect the AddInUtil.exe command line, usually in ParentCommandLine, for -AddinRoot or -PipelineRoot pointing to unusual directories such as Temp, Downloads or AppData.",
+        "Look for Addins.Store files in those directories. Check when they were created, who created them, and the file hash.",
+        "Walk the process tree: what started AddInUtil.exe (Office macro, script host, cmd), and did the child spawn further processes?",
+        "Pivot on the same host within +/- 15 minutes for network connections, file writes, persistence changes and other alerts.",
+        "Check the user account: was it an interactive session, and does that user normally run developer tooling?",
+        "Search the environment for other AddInUtil.exe executions or the same Addins.Store hash."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. Legitimate child processes are rare.",
+        "Developer or build tooling that runs AddInUtil.exe to rebuild an add-in pipeline cache and then starts helper processes.",
+        "Software installers or updaters for .NET add-in based applications."
+      ],
+      "response_steps": [
+        "Confirm the activity is malicious with the asset owner or developer before containing.",
+        "If it is malicious, isolate the endpoint and stop the child process and any processes it started.",
+        "Collect the Addins.Store file, the child binary and memory artifacts, then quarantine the files.",
+        "Remove any persistence you find, reset credentials the user may have exposed, and hunt for the same indicators on other hosts.",
+        "Consider blocking AddInUtil.exe with application control on systems that do not need it."
+      ],
+      "severity_rationale": "Medium fits because a child process of AddInUtil.exe is rare and points to proxy execution, but the alert alone does not prove a compromise."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "AddInUtil.exe with an AddinRoot in a user Temp folder spawns PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\AddInUtil.exe",
+          "ParentCommandLine": "AddInUtil.exe -AddinRoot:C:\\Users\\jperez\\AppData\\Local\\Temp\\pl",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -c whoami",
+          "ProcessId": 6120,
+          "ParentProcessId": 5884
+        }
+      },
+      {
+        "description": "AddInUtil.exe launches an unsigned binary from the user's Downloads folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "ParentImage": "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\addinutil.exe",
+          "ParentCommandLine": "addinutil.exe -AddinRoot:.",
+          "Image": "C:\\Users\\mrodriguez\\Downloads\\update.exe",
+          "CommandLine": "\"C:\\Users\\mrodriguez\\Downloads\\update.exe\"",
+          "ProcessId": 4410,
+          "ParentProcessId": 4392
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "AddInUtil.exe starts conhost.exe, which the filter excludes",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "ParentImage": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\AddInUtil.exe",
+          "ParentCommandLine": "AddInUtil.exe -PipelineRoot:C:\\Projects\\Pipeline -Rebuild",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "ProcessId": 7012,
+          "ParentProcessId": 6990
+        }
+      },
+      {
+        "description": "PowerShell started by explorer.exe, not by AddInUtil.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe",
+          "ProcessId": 3020,
+          "ParentProcessId": 1888
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

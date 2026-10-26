@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "7aa4e81a-a65c-4e10-9f81-b200eb229d7d",
+    "title": "Potential Persistence Via VMwareToolBoxCmd.EXE VM State Change Script",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_vmware_toolbox_cmd_persistence.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_vmware_toolbox_cmd_persistence.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó VMwareToolBoxCmd.exe con los subcomandos \"script\" y \"set\" para registrar un script personalizado que VMware Tools ejecutará cuando la VM cambie de estado. Puede tratarse de un mecanismo de persistencia.",
+      "what_it_detects": "Creación de procesos cuya Image termina en \\VMwareToolBoxCmd.exe o cuyo OriginalFileName es toolbox-cmd.exe (cubre binarios renombrados) y cuya CommandLine contiene \" script \" y \" set \", por ejemplo: VMwareToolBoxCmd.exe script resume set C:\\ruta\\script.bat.",
+      "why_it_matters": "El servicio de VMware Tools (vmtoolsd.exe) ejecuta el script configurado como SYSTEM en eventos de encendido, apagado, suspensión o reanudación. Un atacante con privilegios de administrador puede usarlo para persistir y ejecutar comandos (ATT&CK T1059, persistencia).",
+      "triage_steps": [
+        "Lea la CommandLine: identifique el estado (power, shutdown, suspend, resume) y la ruta del script asignado.",
+        "Evalúe la ruta: las ubicaciones con escritura para usuarios (Users\\Public, Temp, AppData, ProgramData) o los nombres poco comunes aumentan la sospecha.",
+        "Obtenga el script, calcule su hash y revise su contenido en busca de descargas, PowerShell codificado, creación de usuarios o conexiones salientes.",
+        "Revise ParentImage, el usuario y la sesión: ¿lo lanzó un administrador interactivo, una herramienta de gestión o cmd/PowerShell desde un proceso inusual?",
+        "Si Image no está en C:\\Program Files\\VMware\\VMware Tools\\ pero OriginalFileName es toolbox-cmd.exe, trate el binario renombrado como altamente sospechoso.",
+        "Pivotee en el mismo host +/- 15 minutos: creación del archivo de script, cambios en tools.conf y otros mecanismos de persistencia o alertas.",
+        "Busque procesos hijos de vmtoolsd.exe (cmd.exe, powershell.exe) posteriores que ejecuten ese script, y alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "Administradores de virtualización que configuran scripts personalizados de encendido o apagado con un ticket de cambio.",
+        "Plantillas o imágenes base y herramientas de gestión de configuración que despliegan scripts de VMware Tools de forma estandarizada."
+      ],
+      "response_steps": [
+        "Confirme con el responsable de la VM o con el registro de cambios si la configuración es legítima.",
+        "Si no está autorizada, preserve el script, el hash y tools.conf como evidencia antes de modificar nada.",
+        "Restaure la configuración con VMwareToolBoxCmd.exe script <estado> default o deshabilítela, y elimine el script malicioso tras verificarlo.",
+        "Aísle el endpoint si el script ya se ejecutó, investigue cómo se obtuvieron privilegios de administrador y rote las credenciales afectadas.",
+        "Busque la misma CommandLine o el mismo hash de script en otras VM de la flota."
+      ],
+      "severity_rationale": "Medium es adecuado: el uso legítimo es poco frecuente y requiere privilegios de administrador, pero también existe, y su abuso otorga persistencia con ejecución como SYSTEM."
+    },
+    "en": {
+      "summary": "VMwareToolBoxCmd.exe was run with the \"script\" and \"set\" subcommands, registering a custom script that VMware Tools runs when the VM changes state. This may be a persistence mechanism.",
+      "what_it_detects": "Process creation where Image ends with \\VMwareToolBoxCmd.exe or OriginalFileName is toolbox-cmd.exe (catches renamed copies) and CommandLine contains both \" script \" and \" set \", e.g. VMwareToolBoxCmd.exe script resume set C:\\path\\script.bat.",
+      "why_it_matters": "The VMware Tools service (vmtoolsd.exe) runs the configured script as SYSTEM on power-on, shutdown, suspend or resume. An attacker with admin rights can use this for stealthy persistence and command execution (ATT&CK T1059, persistence).",
+      "triage_steps": [
+        "Read CommandLine: note the VM state (power, shutdown, suspend, resume) and the script path being assigned.",
+        "Assess the path: user-writable locations (Users\\Public, Temp, AppData, ProgramData) or odd file names raise suspicion.",
+        "Collect the script, hash it and review its content for downloads, encoded PowerShell, account creation or outbound connections.",
+        "Check ParentImage, user and logon session: interactive admin, management tool, or cmd/PowerShell spawned by an unusual process?",
+        "If Image is outside C:\\Program Files\\VMware\\VMware Tools\\ but OriginalFileName is toolbox-cmd.exe, treat the renamed binary as highly suspicious.",
+        "Pivot on the same host +/- 15 minutes: script file creation, tools.conf changes, other persistence or alerts.",
+        "Look for later vmtoolsd.exe child processes (cmd.exe, powershell.exe) running that script, and earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "Virtualization admins configuring custom power-on or shutdown scripts under a change ticket.",
+        "Golden images or configuration management tools deploying standard VMware Tools scripts."
+      ],
+      "response_steps": [
+        "Confirm with the VM owner or change records whether the configuration is authorized.",
+        "If unauthorized, preserve the script, its hash and tools.conf as evidence before changing anything.",
+        "Revert with VMwareToolBoxCmd.exe script <state> default or disable it, and remove the malicious script once verified.",
+        "Isolate the endpoint if the script already ran, investigate how admin rights were obtained and rotate affected credentials.",
+        "Hunt for the same CommandLine or script hash across other VMs."
+      ],
+      "severity_rationale": "Medium fits because legitimate use is rare and requires admin rights but does occur, while abuse grants persistence with SYSTEM-level execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "VMwareToolBoxCmd.exe sets a resume script from a user-writable folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\adm-jperez",
+          "Image": "C:\\Program Files\\VMware\\VMware Tools\\VMwareToolBoxCmd.exe",
+          "OriginalFileName": "toolbox-cmd.exe",
+          "CommandLine": "\"C:\\Program Files\\VMware\\VMware Tools\\VMwareToolBoxCmd.exe\" script resume set \"C:\\Users\\Public\\update.bat\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.cmd",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed toolbox-cmd.exe copy sets a power-on script",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc-backup",
+          "Image": "C:\\ProgramData\\tbc.exe",
+          "OriginalFileName": "toolbox-cmd.exe",
+          "CommandLine": "tbc.exe script power set C:\\ProgramData\\p.cmd",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin enables the default resume script without using set",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\adm-jperez",
+          "Image": "C:\\Program Files\\VMware\\VMware Tools\\VMwareToolBoxCmd.exe",
+          "OriginalFileName": "toolbox-cmd.exe",
+          "CommandLine": "\"C:\\Program Files\\VMware\\VMware Tools\\VMwareToolBoxCmd.exe\" script resume enable",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Time sync status query with VMwareToolBoxCmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Program Files\\VMware\\VMware Tools\\VMwareToolBoxCmd.exe",
+          "OriginalFileName": "toolbox-cmd.exe",
+          "CommandLine": "\"C:\\Program Files\\VMware\\VMware Tools\\VMwareToolBoxCmd.exe\" timesync status",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

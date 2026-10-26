@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "b36d01a3-ddaf-4804-be18-18a6247adfcd",
+    "title": "Add Windows Capability Via PowerShell Cmdlet",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_add_windows_capability.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_add_windows_capability.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "PowerShell ejecutó el cmdlet Add-WindowsCapability para instalar una capacidad de OpenSSH (Server o Client) en el equipo. Puede ser administración legítima o un atacante habilitando acceso remoto o túneles SSH.",
+      "what_it_detects": "Creación de procesos powershell.exe o pwsh.exe (por Image u OriginalFileName) cuyo CommandLine contiene tanto 'Add-WindowsCapability' como 'OpenSSH.', lo que incluye OpenSSH.Server y OpenSSH.Client.",
+      "why_it_matters": "Es ejecución mediante PowerShell. Instalar OpenSSH Server abre un canal de acceso remoto útil para persistencia y movimiento lateral. El cliente OpenSSH permite crear túneles inversos que evaden controles perimetrales.",
+      "triage_steps": [
+        "Revise el CommandLine: OpenSSH.Server implica más riesgo que OpenSSH.Client. Anote las opciones -Online, -Source o -LimitAccess y los comandos encadenados, como Start-Service sshd o Set-Service.",
+        "Revise ParentImage y la línea de comandos del proceso padre. Una consola administrativa o una herramienta de despliegue es lo esperable. Office, intérpretes de scripts, servidores web o binarios desconocidos son sospechosos.",
+        "Identifique el usuario y la sesión de logon. Confirme que es un administrador autorizado y que existe un ticket de cambio asociado.",
+        "En el mismo host, dentro de +/- 15 minutos, busque la creación del servicio sshd, su inicio Automatic y reglas de firewall nuevas para TCP 22.",
+        "Revise archivos nuevos o modificados: C:\\ProgramData\\ssh\\sshd_config, administrators_authorized_keys y .ssh\\authorized_keys de los usuarios.",
+        "Revise la telemetría de red en busca de conexiones entrantes a TCP 22 o de ssh.exe saliente con las opciones de túnel -R o -L.",
+        "Busque el mismo CommandLine en otros hosts y alertas previas del mismo usuario o equipo."
+      ],
+      "false_positives": [
+        "Administradores o usuarios que instalan OpenSSH a propósito para administración remota o desarrollo.",
+        "Scripts de gestión de configuración o de imágenes (Intune, SCCM, Ansible, golden image) que agregan las capacidades de OpenSSH."
+      ],
+      "response_steps": [
+        "Confirme con el usuario, el responsable del activo o los registros de cambios que la instalación estaba autorizada. Si lo estaba, documéntelo y ajuste la regla con un filtro para ese proceso padre o esa cuenta.",
+        "Si no estaba autorizada, aísle el host, detenga y deshabilite el servicio sshd y bloquee TCP 22 en el firewall local.",
+        "Preserve sshd_config, los archivos authorized_keys y los logs de SSH. Después elimine las llaves desconocidas y desinstale la capacidad con Remove-WindowsCapability.",
+        "Restablezca las credenciales de las cuentas involucradas y busque logons o túneles SSH desde este host hacia otros sistemas."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque instalar OpenSSH es una tarea administrativa común, pero sin autorización le da al atacante un canal de acceso remoto persistente."
+    },
+    "en": {
+      "summary": "PowerShell ran the Add-WindowsCapability cmdlet to install an OpenSSH capability (Server or Client) on this host. Admins do this, but so do attackers who want SSH access or tunneling.",
+      "what_it_detects": "Process creation of powershell.exe or pwsh.exe (by Image or OriginalFileName) where CommandLine contains both 'Add-WindowsCapability' and 'OpenSSH.', covering OpenSSH.Server and OpenSSH.Client.",
+      "why_it_matters": "This is execution through PowerShell. Installing OpenSSH Server opens a remote access channel that can be used for persistence and lateral movement. The OpenSSH Client can carry reverse tunnels that get around perimeter controls.",
+      "triage_steps": [
+        "Read CommandLine: OpenSSH.Server is higher risk than OpenSSH.Client. Note any -Online, -Source or -LimitAccess options and anything chained, such as Start-Service sshd or Set-Service.",
+        "Check ParentImage and the parent command line. An interactive admin console or a deployment tool is expected. Office apps, script hosts, web servers or unknown binaries are suspicious.",
+        "Identify the user and logon session. Confirm the account is an authorized administrator and look for a matching change ticket.",
+        "On the same host within +/- 15 minutes, look for sshd service creation, Automatic startup type, and new firewall rules for TCP 22.",
+        "Check for new or changed files: C:\\ProgramData\\ssh\\sshd_config, administrators_authorized_keys and user .ssh\\authorized_keys.",
+        "Review network telemetry for inbound TCP 22 to the host or outbound ssh.exe connections using -R or -L tunnel options.",
+        "Search for the same CommandLine on other hosts and for earlier alerts on this user or host."
+      ],
+      "false_positives": [
+        "Administrators or users installing OpenSSH on purpose for remote management or development work.",
+        "Configuration management or imaging scripts (Intune, SCCM, Ansible, golden image builds) that add OpenSSH capabilities."
+      ],
+      "response_steps": [
+        "Check with the user, asset owner or change records that the install was authorized. If it was, document it and tune the rule with a filter for that parent or account.",
+        "If it was not authorized, isolate the host, stop and disable the sshd service, and block TCP 22 at the host firewall.",
+        "Preserve sshd_config, authorized_keys files and SSH logs. Then remove unknown keys and uninstall the capability with Remove-WindowsCapability.",
+        "Reset credentials for the accounts involved and hunt for SSH logons or tunnels from this host to other systems."
+      ],
+      "severity_rationale": "Medium fits because installing OpenSSH is a common admin task, but done without authorization it gives an attacker a durable remote access channel."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Windows PowerShell installs OpenSSH Server from a cmd.exe parent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service sshd\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell 7 (pwsh) installs the OpenSSH Client capability",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\adm-mrojas",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -c Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Add-WindowsCapability used to install RSAT tools, not OpenSSH",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -Command \"Add-WindowsCapability -Online -Name Rsat.ActiveDirectory.DS-LDS.Tools~~~~0.0.1.0\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Admin only queries OpenSSH capability state with Get-WindowsCapability",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\adm-mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -Command \"Get-WindowsCapability -Online | Where-Object Name -like 'OpenSSH*'\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

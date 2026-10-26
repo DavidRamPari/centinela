@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "4aa6040b-3f28-44e3-a769-9208e5feb5ec",
+    "title": "Suspicious Rundll32 Execution With Image Extension",
+    "level": "high",
+    "status": "test",
+    "author": "Hieu Tran",
+    "path": "windows/process_creation/proc_creation_win_rundll32_susp_execution_with_image_extension.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_rundll32_susp_execution_with_image_extension.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.011"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Rundll32.exe se ejecutó con una línea de comandos que hace referencia a un archivo con extensión de imagen (.png, .jpg, .gif, etc.). Suele significar que una DLL maliciosa se hace pasar por imagen para evadir controles.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\rundll32.exe u OriginalFileName es RUNDLL32.exe, y CommandLine contiene una extensión de imagen como .bmp, .gif, .ico, .jpg, .png o .tif.",
+      "why_it_matters": "Rundll32 es un binario firmado de Microsoft que carga y ejecuta DLL (ATT&CK T1218.011). Renombrar la DLL como imagen ayuda a evadir filtros de correo y revisiones superficiales; se ha usado en campañas que distribuyen malware mediante adjuntos de OneNote.",
+      "triage_steps": [
+        "Revise CommandLine: identifique la ruta del supuesto archivo de imagen y el punto de entrada (por ejemplo ,DllRegisterServer o ,#1).",
+        "Verifique ParentImage: onenote.exe, winword.exe, wscript.exe, mshta.exe o cmd.exe lanzados desde Temp o Descargas son muy sospechosos.",
+        "Obtenga el archivo referenciado y revise sus primeros bytes: una cabecera MZ confirma que es una DLL disfrazada.",
+        "Calcule el hash del archivo y consúltelo en su plataforma de inteligencia y en otros endpoints del parque.",
+        "Si Image no termina en rundll32.exe pero OriginalFileName sí, trate el caso como binario renombrado y eleve la prioridad.",
+        "Busque en el mismo host, +/- 15 minutos, procesos hijos de rundll32, conexiones de red, archivos creados y persistencia.",
+        "Revise alertas previas del mismo usuario y host, y correos o descargas recientes con adjuntos .one, .iso o .zip."
+      ],
+      "false_positives": [
+        "Visor de fotos de Windows heredado (PhotoViewer.dll o shimgvw.dll con ImageView_Fullscreen) abriendo una imagen real.",
+        "Utilidades de impresión o fondo de pantalla que pasan una imagen legítima a una DLL del sistema mediante rundll32."
+      ],
+      "response_steps": [
+        "Confirme si el archivo es una DLL (cabecera MZ, hash, análisis en sandbox) antes de actuar.",
+        "Si es malicioso, aísle el endpoint y termine el proceso rundll32 y sus descendientes.",
+        "Conserve el archivo como evidencia, elimínelo junto con la persistencia asociada y bloquee su hash.",
+        "Restablezca credenciales del usuario si hubo actividad posterior y busque el mismo indicador en otros equipos."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque cargar con rundll32 un archivo con extensión de imagen casi nunca es legítimo y suele indicar ejecución inicial de malware."
+    },
+    "en": {
+      "summary": "Rundll32.exe ran with a command line referencing a file with an image extension (.png, .jpg, .gif, etc.). This usually means a malicious DLL is disguised as an image to evade controls.",
+      "what_it_detects": "Windows process creation events where Image ends with \\rundll32.exe or OriginalFileName is RUNDLL32.exe, and CommandLine contains an image extension such as .bmp, .gif, .ico, .jpg, .png or .tif.",
+      "why_it_matters": "Rundll32 is a signed Microsoft binary that loads and runs DLLs (ATT&CK T1218.011). Naming the DLL as an image helps bypass mail filters and casual review; this has been seen in OneNote attachment malware campaigns.",
+      "triage_steps": [
+        "Read CommandLine: note the path of the claimed image file and the entry point (for example ,DllRegisterServer or ,#1).",
+        "Check ParentImage: onenote.exe, winword.exe, wscript.exe, mshta.exe or cmd.exe launched from Temp or Downloads is highly suspicious.",
+        "Retrieve the referenced file and inspect its first bytes: an MZ header confirms a disguised DLL.",
+        "Hash the file and look it up in threat intelligence and across other endpoints.",
+        "If Image does not end in rundll32.exe but OriginalFileName does, treat it as a renamed binary and raise priority.",
+        "On the same host within +/- 15 minutes, look for rundll32 child processes, network connections, dropped files and persistence.",
+        "Review earlier alerts for the same user and host, plus recent emails or downloads with .one, .iso or .zip attachments."
+      ],
+      "false_positives": [
+        "Legacy Windows Photo Viewer (PhotoViewer.dll or shimgvw.dll with ImageView_Fullscreen) opening a real image.",
+        "Printing or wallpaper utilities passing a genuine image to a system DLL via rundll32."
+      ],
+      "response_steps": [
+        "Confirm the file is a DLL (MZ header, hash, sandbox analysis) before acting.",
+        "If malicious, isolate the endpoint and terminate the rundll32 process and its descendants.",
+        "Preserve the file as evidence, remove it and related persistence, and block its hash.",
+        "Reset the user's credentials if follow-on activity occurred and hunt for the same indicator on other hosts."
+      ],
+      "severity_rationale": "High fits because loading an image-named file with rundll32 is rarely legitimate and typically signals initial malware execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "OneNote spawns rundll32 to load a DLL disguised as a PNG from the user's Temp folder.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\invoice.png,DllRegisterServer",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\ONENOTE.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\ONENOTE.EXE\" /navigate"
+        }
+      },
+      {
+        "description": "Renamed rundll32 copy (matched by OriginalFileName) loading a GIF-named DLL by ordinal.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "svchelper.exe C:\\ProgramData\\logo.gif,#1",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start /b C:\\Users\\Public\\svchelper.exe C:\\ProgramData\\logo.gif,#1"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate rundll32 opening a Control Panel applet; no image extension in CommandLine.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe shell32.dll,Control_RunDLL timedate.cpl",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Paint opening a real JPG image; the image is not rundll32.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\mspaint.exe",
+          "OriginalFileName": "MSPAINT.EXE",
+          "CommandLine": "\"C:\\Windows\\System32\\mspaint.exe\" \"C:\\Users\\jperez\\Pictures\\photo.jpg\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

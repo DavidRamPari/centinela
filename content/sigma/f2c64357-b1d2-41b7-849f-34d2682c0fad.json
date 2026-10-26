@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "f2c64357-b1d2-41b7-849f-34d2682c0fad",
+    "title": "Suspicious Command Patterns In Scheduled Task Creation",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_schtasks_susp_pattern.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_schtasks_susp_pattern.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1053.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "schtasks.exe creó una tarea programada cuya línea de comandos combina elementos sospechosos: ejecución cada minuto o como SYSTEM con cmd, PowerShell codificado o de descarga, o un intérprete de scripts o curl desde una carpeta escribible.",
+      "what_it_detects": "Creación del proceso schtasks.exe con '/Create ' donde CommandLine además contiene (a) '/sc minute ' o '/ru system ' junto con cmd /c, /k o /r; o (b) indicadores como -enc, -w hidden, bypass, IEX, DownloadString, FromBase64String, mshta http o '/c start /min '; o (c) rutas ProgramData, Temp, Public o AppData junto con cscript, wscript o curl.",
+      "why_it_matters": "Las tareas programadas (ATT&CK T1053.005) dan al atacante persistencia, ejecución repetida y, con /ru system, privilegios de SYSTEM. Los droppers suelen registrar tareas que ejecutan comandos ocultos o codificados cada minuto.",
+      "triage_steps": [
+        "Lea la CommandLine completa: nombre de la tarea (/tn), acción (/tr), disparador (/sc, /mo) y cuenta (/ru). Decodifique cualquier contenido -enc o Base64.",
+        "Revise ParentImage y su línea de comandos. Office, hosts de scripts, mshta o binarios desconocidos en Temp o AppData como padre son señales fuertes de actividad maliciosa.",
+        "Identifique el usuario y el host. Confirme si ese usuario o una herramienta de administración crea tareas habitualmente en ese endpoint.",
+        "Analice el archivo o URL indicado en /tr: hash, firma, fecha de creación y reputación del dominio de descarga.",
+        "Pivote sobre el mismo host en +/- 15 minutos: escritura de archivos en Temp o ProgramData, conexiones de red y procesos hijos de la tarea.",
+        "Consulte Task Scheduler (Microsoft-Windows-TaskScheduler/Operational, evento 4698) para ver la tarea registrada y sus ejecuciones posteriores.",
+        "Busque el mismo nombre de tarea, ruta /tr o hash en otros hosts y revise alertas previas del usuario y del host."
+      ],
+      "false_positives": [
+        "Instaladores de software que se ejecutan desde carpetas temporales y registran tareas de actualización o limpieza.",
+        "Scripts de gestión o despliegue de TI que crean tareas como SYSTEM con envoltorios cmd /c.",
+        "Agentes de proveedores que programan scripts de mantenimiento frecuentes con wscript o cscript desde ProgramData."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa con el comando decodificado, el proceso padre y el payload referenciado antes de actuar.",
+        "Si es maliciosa, aísle el endpoint y exporte el XML de la tarea (schtasks /Query /XML /TN) como evidencia.",
+        "Deshabilite y luego elimine la tarea, borre el payload referenciado y bloquee los hashes y dominios relacionados.",
+        "Restablezca las credenciales del usuario involucrado y busque otra persistencia: claves Run, servicios y suscripciones WMI.",
+        "Si es legítima, documente el software y agregue una exclusión acotada por imagen padre y nombre de tarea."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque estas combinaciones casi no aparecen en la creación legítima de tareas e indican directamente persistencia o ejecución privilegiada."
+    },
+    "en": {
+      "summary": "schtasks.exe created a scheduled task whose command line combines suspicious elements: a per-minute or SYSTEM trigger with cmd, encoded or download PowerShell, or a script interpreter or curl run from a user-writable folder.",
+      "what_it_detects": "Process creation of schtasks.exe with '/Create ' where CommandLine also contains (a) '/sc minute ' or '/ru system ' together with cmd /c, /k or /r; or (b) markers such as -enc, -w hidden, bypass, IEX, DownloadString, FromBase64String, mshta http or '/c start /min '; or (c) ProgramData, Temp, Public or AppData paths together with cscript, wscript or curl.",
+      "why_it_matters": "Scheduled tasks (ATT&CK T1053.005) give attackers persistence, repeated execution and, with /ru system, SYSTEM privileges. Malware droppers often register tasks that run hidden or encoded commands every minute.",
+      "triage_steps": [
+        "Read the full CommandLine: task name (/tn), action (/tr), trigger (/sc, /mo) and run-as account (/ru). Decode any -enc or Base64 content.",
+        "Check ParentImage and the parent command line. Office apps, script hosts, mshta or unknown binaries in Temp or AppData as parent are strong signs of malice.",
+        "Identify the user and host. Ask whether the user or an admin tool normally creates tasks on this endpoint.",
+        "Look at the file or URL referenced by /tr: hash, signature, creation time, and reputation of any download domain.",
+        "Pivot on the same host within +/- 15 minutes: file writes in Temp or ProgramData, network connections, and child processes of the task.",
+        "Query Task Scheduler (Microsoft-Windows-TaskScheduler/Operational, Event 4698) for the registered task and its later runs.",
+        "Search for the same task name, /tr path or hash on other hosts, and check earlier alerts for this user and host."
+      ],
+      "false_positives": [
+        "Software installers that run from temporary folders and register update or cleanup tasks.",
+        "IT management or deployment scripts that create SYSTEM tasks using cmd /c wrappers.",
+        "Vendor agents that schedule frequent maintenance scripts with wscript or cscript from ProgramData."
+      ],
+      "response_steps": [
+        "Confirm maliciousness from the decoded command, parent process and referenced payload before acting.",
+        "If malicious, isolate the endpoint and export the task XML (schtasks /Query /XML /TN) as evidence.",
+        "Disable and then delete the task, remove the referenced payload, and block related hashes and domains.",
+        "Reset credentials of the user involved and hunt for other persistence such as Run keys, services and WMI subscriptions.",
+        "If benign, document the software and add a narrow exclusion by parent image and task name."
+      ],
+      "severity_rationale": "High fits because these combinations rarely appear in legitimate task creation and directly indicate persistence or privileged execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Task running every minute through cmd /c with a batch file in ProgramData (selection_pattern_1 and selection_pattern_2)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "CommandLine": "schtasks /Create /sc minute /mo 5 /tn \"WinUpdater\" /tr \"cmd /c C:\\ProgramData\\upd.bat\" /f",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -c .\\setup.ps1"
+        }
+      },
+      {
+        "description": "Logon task running wscript against a VBS file in C:\\Users\\Public (selection_anomaly_1 and selection_anomaly_2)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "CommandLine": "schtasks.exe /Create /sc onlogon /tn \"Adobe Helper\" /tr \"wscript.exe //B C:\\Users\\Public\\helper.vbs\" /f",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n invoice.docm"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Updater task created as SYSTEM from Program Files without cmd wrapper; only selection_pattern_1 matches",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "CommandLine": "schtasks.exe /Create /tn \"GoogleUpdateTaskMachineCore\" /tr \"\\\"C:\\Program Files (x86)\\Google\\Update\\GoogleUpdate.exe\\\" /c\" /sc daily /st 09:00 /ru SYSTEM /f",
+          "ParentImage": "C:\\Program Files (x86)\\Google\\Update\\GoogleUpdate.exe",
+          "ParentCommandLine": "\"C:\\Program Files (x86)\\Google\\Update\\GoogleUpdate.exe\" /install"
+        }
+      },
+      {
+        "description": "Logon task pointing to an AppData executable but no script interpreter or curl; only selection_anomaly_1 matches",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0318.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "CommandLine": "schtasks.exe /Create /tn \"TeamsUpdate\" /tr \"C:\\Users\\lgomez\\AppData\\Local\\Microsoft\\Teams\\Update.exe --processStart Teams.exe\" /sc onlogon /f",
+          "ParentImage": "C:\\Users\\lgomez\\AppData\\Local\\Microsoft\\Teams\\Update.exe",
+          "ParentCommandLine": "Update.exe --install"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

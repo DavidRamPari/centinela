@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "aa2efee7-34dd-446e-8a37-40790a66efd7",
+    "title": "Recon Information for Export with Command Prompt",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_susp_recon.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_recon.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1119"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un símbolo del sistema ejecutó tree, WMIC, doskey o sc y redirigió la salida a un archivo en %TEMP% o %TMP%. Esto coincide con la recolección automatizada de información del sistema en un archivo temporal para exfiltrarlo después.",
+      "what_it_detects": "Creación de procesos donde Image u OriginalFileName es tree.com, WMIC.exe, doskey.exe o sc.exe, y ParentCommandLine contiene ' > %TEMP%\\' o ' > %TMP%\\'. Normalmente es un comando de cmd.exe en una sola línea que escribe resultados de reconocimiento en un archivo temporal.",
+      "why_it_matters": "Corresponde a Automated Collection (ATT&CK T1119): el adversario reúne árboles de directorios, servicios, datos WMI o historial de comandos en archivos que luego prepara y exfiltra. Suele ocurrir tras el acceso inicial y antes del movimiento lateral o el robo de datos.",
+      "triage_steps": [
+        "Revise ParentCommandLine para ver el comando completo y el nombre del archivo de salida en %TEMP% o %TMP%.",
+        "Identifique el usuario, el host y el proceso padre de cmd.exe. ¿Lo inició explorer, un script host, Office, una herramienta remota o un servicio?",
+        "En el mismo host, dentro de +/- 15 minutos, busque otros hijos de cmd.exe que redirijan a temp: whoami, ipconfig, net, systeminfo, tasklist.",
+        "Verifique si el archivo de salida sigue existiendo. Revise su tamaño y qué proceso lo leyó, comprimió o subió después.",
+        "Busque conexiones de red o herramientas de compresión (7z, rar, Compress-Archive de PowerShell) posteriores a la redirección.",
+        "Revise alertas previas del mismo usuario y host, y si coincide con un script conocido de administración o inventario."
+      ],
+      "false_positives": [
+        "Scripts de administración o mesa de ayuda que vuelcan servicios, inventario WMI o árboles de carpetas a temp para diagnóstico.",
+        "Instaladores o herramientas de soporte que recopilan diagnósticos en %TEMP%.",
+        "Pruebas autorizadas de Atomic Red Team o de purple team para T1119."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del activo si la actividad era esperada. Conserve la línea de comandos y el archivo de salida como evidencia.",
+        "Si no está autorizada, aísle el host mediante el EDR y preserve los archivos temporales antes de cualquier limpieza.",
+        "Determine cómo se inició el proceso padre (persistencia, documento malicioso, sesión remota) y elimínelo. Restablezca las credenciales de la cuenta afectada.",
+        "Busque el mismo patrón de comandos en otros endpoints, luego restaure el host y siga monitoreándolo."
+      ],
+      "severity_rationale": "Media es adecuada porque es una señal clara de reconocimiento o recolección, pero los scripts administrativos pueden generar el mismo patrón y por sí sola no indica daño."
+    },
+    "en": {
+      "summary": "A command prompt ran tree, WMIC, doskey or sc and redirected the output to a file in %TEMP% or %TMP%. This matches automated collection of system information to a temporary file for later exfiltration.",
+      "what_it_detects": "Process creation where Image or OriginalFileName is tree.com, WMIC.exe, doskey.exe or sc.exe, and ParentCommandLine contains ' > %TEMP%\\' or ' > %TMP%\\'. In practice this means a cmd.exe one-liner that writes recon output to a temp file.",
+      "why_it_matters": "This is Automated Collection (ATT&CK T1119): an adversary gathers directory trees, services, WMI data or command history into files they can stage and exfiltrate. It usually comes after initial access and before lateral movement or data theft.",
+      "triage_steps": [
+        "Read ParentCommandLine to see the full command and the output file name in %TEMP% or %TMP%.",
+        "Identify the user, the host and the grandparent of cmd.exe. Was it launched by explorer, a script host, an Office app, a remote tool or a service?",
+        "Pivot on the same host within +/- 15 minutes for other cmd.exe children redirecting to temp: whoami, ipconfig, net, systeminfo, tasklist.",
+        "Check whether the output file still exists, then review its size and any later process that read, compressed or uploaded it.",
+        "Look for network connections or archive tools (7z, rar, powershell Compress-Archive) after the redirect.",
+        "Check earlier alerts for the same user and host, and whether this matches a known admin or inventory script."
+      ],
+      "false_positives": [
+        "Admin or helpdesk scripts that dump services, WMI inventory or folder trees to temp files for troubleshooting.",
+        "Software installers or support tools that collect diagnostics to %TEMP%.",
+        "Authorized Atomic Red Team or purple team T1119 tests."
+      ],
+      "response_steps": [
+        "Confirm with the user or the asset owner whether the activity was expected. Keep the command line and the output file as evidence.",
+        "If it is unauthorized, isolate the host through EDR and preserve the temp files before cleanup.",
+        "Find out how the parent process got started (persistence, malicious document, remote session) and remove it. Reset credentials for the affected account.",
+        "Hunt for the same command pattern on other endpoints, then restore the host and keep monitoring it."
+      ],
+      "severity_rationale": "Medium fits because this is a strong recon or collection signal, but admin scripts can produce the same pattern and it does not show damage on its own."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe one-liner that runs sc query and redirects the service list to %TEMP%",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc  query type= service",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\cmd.exe\" /c sc query type= service > %TEMP%\\T1119_1.txt",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "tree.com that lists the user profile folders, with the output redirected to %TMP%",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\tree.com",
+          "OriginalFileName": "tree.com",
+          "CommandLine": "tree  C:\\Users /F",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c tree C:\\Users /F > %TMP%\\tree_out.txt",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "sc.exe whose output is redirected to a fixed log folder, not %TEMP% or %TMP%",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP01.andes.example.com",
+          "User": "ANDES\\svc_monitor",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc  query wuauserv",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c sc query wuauserv > C:\\Logs\\svc_status.txt",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Redirect to %TEMP% from a binary that is not in the rule's list (whoami.exe)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "OriginalFileName": "whoami.exe",
+          "CommandLine": "whoami  /all",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c whoami /all > %TEMP%\\id.txt",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

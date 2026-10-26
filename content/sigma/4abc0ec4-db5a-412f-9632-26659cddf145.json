@@ -1,0 +1,125 @@
+{
+  "rule": {
+    "id": "4abc0ec4-db5a-412f-9632-26659cddf145",
+    "title": "UEFI Persistence Via Wpbbin - ProcessCreation",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wpbbin_potential_persistence.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wpbbin_potential_persistence.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1542.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó C:\\Windows\\System32\\wpbbin.exe, el binario que Windows extrae del firmware (tabla ACPI WPBT) y ejecuta al arrancar. Puede ser software legítimo del fabricante o persistencia UEFI maliciosa.",
+      "what_it_detects": "Eventos de creación de procesos donde Image es exactamente C:\\Windows\\System32\\wpbbin.exe. Al iniciar Windows, Session Manager (smss.exe) escribe en disco el ejecutable que entrega la tabla WPBT del firmware y lo ejecuta.",
+      "why_it_matters": "Un atacante que modifica el firmware puede ejecutar código en cada arranque, incluso tras reinstalar el sistema o en discos cifrados con BitLocker (ATT&CK T1542.001, System Firmware). Borrar el archivo no elimina la persistencia.",
+      "triage_steps": [
+        "Confirme Image, ParentImage y CommandLine; lo esperado es smss.exe como padre, poco después del arranque. Otro padre o una ejecución manual es más sospechosa.",
+        "Obtenga el hash y la firma digital de wpbbin.exe; verifique si el firmante corresponde al fabricante del equipo (por ejemplo Lenovo).",
+        "Compare el hash con otros equipos del mismo modelo y versión de BIOS en su flota; un valor único es una señal de alerta.",
+        "Revise los procesos hijos, archivos escritos, servicios creados y conexiones de red de wpbbin.exe en el mismo host dentro de +/- 15 minutos.",
+        "Consulte el inventario: modelo, versión de firmware, actualizaciones de BIOS recientes y si hay software antirrobo o de gestión OEM instalado.",
+        "Busque alertas previas del mismo host y si otros equipos ejecutaron wpbbin.exe por primera vez en fechas similares."
+      ],
+      "false_positives": [
+        "Software legítimo del fabricante del hardware, como Lenovo, distribuido mediante la tabla WPBT.",
+        "Agentes OEM de gestión o antirrobo que el firmware reinstala automáticamente tras formatear el equipo.",
+        "Primer arranque después de una actualización de BIOS oficial del fabricante."
+      ],
+      "response_steps": [
+        "Verifique con el equipo de endpoints o el fabricante si el binario firmado es esperado para ese modelo y versión de firmware; documente y ajuste la regla si es legítimo.",
+        "Si el binario no está firmado, no coincide con la flota o muestra actividad maliciosa, aísle el endpoint y preserve el archivo y un volcado del firmware.",
+        "Reinstale el firmware con una imagen oficial verificada del fabricante; eliminar wpbbin.exe solo no basta porque se recrea en cada arranque.",
+        "Evalúe deshabilitar la ejecución de WPBT por política donde no se requiera, previa prueba, y rote credenciales usadas en el equipo afectado."
+      ],
+      "severity_rationale": "Es alta porque wpbbin.exe es poco común y su abuso implica persistencia a nivel de firmware que sobrevive a reinstalaciones, aunque existen usos OEM legítimos."
+    },
+    "en": {
+      "summary": "C:\\Windows\\System32\\wpbbin.exe executed; Windows extracts this binary from the firmware ACPI WPBT table and runs it at boot. It may be OEM software or malicious UEFI persistence.",
+      "what_it_detects": "Process creation events where Image is exactly C:\\Windows\\System32\\wpbbin.exe. During boot, Session Manager (smss.exe) writes the executable supplied by the firmware WPBT table to disk and launches it.",
+      "why_it_matters": "An attacker who modifies firmware can run code on every boot, even after OS reinstallation or on BitLocker-encrypted drives (ATT&CK T1542.001, System Firmware). Deleting the file does not remove the persistence.",
+      "triage_steps": [
+        "Confirm Image, ParentImage and CommandLine; expect smss.exe as parent shortly after boot. Any other parent or manual execution is more suspicious.",
+        "Collect the hash and digital signature of wpbbin.exe; check whether the signer matches the hardware vendor (for example Lenovo).",
+        "Compare the hash with other hosts of the same model and BIOS version; a unique value is a red flag.",
+        "Review child processes, written files, created services and network connections from wpbbin.exe on the same host within +/- 15 minutes.",
+        "Check inventory: model, firmware version, recent BIOS updates, and whether OEM management or anti-theft software is deployed.",
+        "Look for earlier alerts on the host and for other hosts first running wpbbin.exe around the same date."
+      ],
+      "false_positives": [
+        "Legitimate hardware vendor software, such as Lenovo, delivered through the WPBT table.",
+        "OEM management or anti-theft agents that the firmware reinstalls automatically after a reimage.",
+        "First boot after an official vendor BIOS update."
+      ],
+      "response_steps": [
+        "Verify with the endpoint team or vendor whether the signed binary is expected for that model and firmware; document and tune the rule if legitimate.",
+        "If unsigned, inconsistent with the fleet or showing malicious activity, isolate the endpoint and preserve the file and a firmware dump.",
+        "Reflash firmware with a verified official vendor image; deleting wpbbin.exe alone is insufficient because it is recreated each boot.",
+        "Consider disabling WPBT execution by policy where not needed, after testing, and rotate credentials used on the affected host."
+      ],
+      "severity_rationale": "High fits because wpbbin.exe is rare and abuse means firmware-level persistence surviving reinstalls, although legitimate OEM uses exist."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "wpbbin.exe launched by smss.exe at boot from the System32 path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\wpbbin.exe",
+          "CommandLine": "C:\\Windows\\System32\\wpbbin.exe",
+          "ParentImage": "C:\\Windows\\System32\\smss.exe",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Same binary with mixed-case path (case-insensitive match)",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0207.andes.example.com",
+          "Image": "c:\\windows\\system32\\WPBBIN.EXE",
+          "CommandLine": "wpbbin.exe",
+          "ParentImage": "C:\\Windows\\System32\\smss.exe",
+          "User": "NT AUTHORITY\\SYSTEM"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "File named wpbbin.exe run from a user Downloads folder, not the exact System32 path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Users\\jperez\\Downloads\\wpbbin.exe",
+          "CommandLine": "\"C:\\Users\\jperez\\Downloads\\wpbbin.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "User": "ANDES\\jperez"
+        }
+      },
+      {
+        "description": "Normal smss.exe boot activity without wpbbin",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\autochk.exe",
+          "CommandLine": "\\??\\C:\\Windows\\System32\\autochk.exe *",
+          "ParentImage": "C:\\Windows\\System32\\smss.exe",
+          "User": "NT AUTHORITY\\SYSTEM"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

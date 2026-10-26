@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "2704ab9e-afe2-4854-a3b1-0c0706d03578",
+    "title": "HackTool - Dumpert Process Dumper Execution",
+    "level": "critical",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_dumpert.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_dumpert.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Dumpert, una herramienta ofensiva que vuelca la memoria de lsass.exe para robar credenciales. Trate la alerta como un posible compromiso de credenciales hasta demostrar lo contrario.",
+      "what_it_detects": "Creación de procesos cuyo CommandLine contiene 'Dumpert.dll' o 'Dumpert.exe', o cuyo campo Hashes incluye el IMPHASH 09D278F9DE118EF09163C6140255C690 de Dumpert. El IMPHASH detecta el binario aunque se haya renombrado.",
+      "why_it_matters": "Dumpert, de Outflank, usa syscalls directas para evadir hooks de EDR y crear un minidump de lsass.exe. Con ese volcado, un atacante extrae hashes NTLM, tickets Kerberos y contraseñas en texto claro (ATT&CK T1003.001, LSASS Memory) y luego se mueve lateralmente.",
+      "triage_steps": [
+        "Revise Image, CommandLine, Hashes, User y el host del evento; confirme si coincidió el IMPHASH, el nombre en CommandLine o ambos.",
+        "Analice ParentImage y ParentCommandLine: rundll32.exe con 'Dumpert.dll,Dump', shells web, cmd.exe o PowerShell remotos indican actividad maliciosa.",
+        "Busque en el mismo host, +/- 15 minutos, la creación de archivos .dmp, en especial C:\\Windows\\Temp\\dumpert.dmp, y accesos a lsass.exe (Sysmon EventID 10).",
+        "Identifique cómo llegó el binario: creación de archivos, descargas, transferencias SMB o servicios nuevos poco antes de la ejecución.",
+        "Revise conexiones de red salientes del host posteriores al volcado para detectar exfiltración del archivo .dmp.",
+        "Pivotee por el usuario y el hash en otros endpoints; busque alertas previas de herramientas de credenciales o movimiento lateral desde ese host.",
+        "Confirme con el equipo de red team o pentest si existe un ejercicio autorizado documentado para ese host y fecha."
+      ],
+      "false_positives": [
+        "Ejercicios autorizados de red team o pruebas de penetración que usan Dumpert.",
+        "Investigadores de seguridad o laboratorios de pruebas de EDR que ejecutan la herramienta de forma controlada.",
+        "Archivos llamados Dumpert.exe o Dumpert.dll manipulados en análisis forense o de malware."
+      ],
+      "response_steps": [
+        "Si no hay ejercicio autorizado, aísle el endpoint de la red mediante el EDR conservando la evidencia en memoria y disco.",
+        "Recolecte el binario, el archivo .dmp y la línea de tiempo del host antes de eliminar nada.",
+        "Considere comprometidas todas las credenciales que tenían sesión en el host: restablezca contraseñas, invalide sesiones y evalúe rotar KRBTGT si hubo cuentas privilegiadas.",
+        "Busque el mismo IMPHASH y nombre en toda la flota y bloquéelo en el EDR.",
+        "Elimine el artefacto y la persistencia identificada; reincorpore el host solo tras validar que está limpio o reinstalarlo."
+      ],
+      "severity_rationale": "El nivel crítico es adecuado porque Dumpert no tiene uso legítimo en producción y su ejecución implica robo directo de credenciales de LSASS."
+    },
+    "en": {
+      "summary": "Dumpert, an offensive tool that dumps lsass.exe memory to steal credentials, was executed. Treat this as a likely credential compromise until proven otherwise.",
+      "what_it_detects": "Process creation where CommandLine contains 'Dumpert.dll' or 'Dumpert.exe', or where Hashes contains Dumpert's IMPHASH 09D278F9DE118EF09163C6140255C690. The IMPHASH catches the binary even when renamed.",
+      "why_it_matters": "Dumpert, by Outflank, uses direct syscalls to bypass EDR hooks and write a minidump of lsass.exe. Attackers extract NTLM hashes, Kerberos tickets and cleartext passwords from that dump (ATT&CK T1003.001, LSASS Memory) and then move laterally.",
+      "triage_steps": [
+        "Review Image, CommandLine, Hashes, User and host; note whether the IMPHASH, the CommandLine name, or both matched.",
+        "Check ParentImage and ParentCommandLine: rundll32.exe with 'Dumpert.dll,Dump', web shells, or remote cmd.exe/PowerShell indicate malicious use.",
+        "On the same host within +/- 15 minutes, look for .dmp file creation, especially C:\\Windows\\Temp\\dumpert.dmp, and lsass.exe access events (Sysmon EventID 10).",
+        "Determine how the binary arrived: file creation, downloads, SMB transfers or new services shortly before execution.",
+        "Review outbound connections after the dump for possible exfiltration of the .dmp file.",
+        "Pivot on the user and hash across other endpoints; look for earlier credential-tool or lateral-movement alerts for this host.",
+        "Confirm with the red team or pentest lead whether an authorized, documented exercise covers this host and time."
+      ],
+      "false_positives": [
+        "Authorized red team exercises or penetration tests using Dumpert.",
+        "Security researchers or EDR testing labs running the tool in a controlled way.",
+        "Files named Dumpert.exe or Dumpert.dll handled during forensic or malware analysis."
+      ],
+      "response_steps": [
+        "If no exercise is authorized, isolate the endpoint via EDR while preserving memory and disk evidence.",
+        "Collect the binary, the .dmp file and a host timeline before deleting anything.",
+        "Treat all credentials logged on to the host as compromised: reset passwords, revoke sessions, and consider KRBTGT rotation if privileged accounts were present.",
+        "Hunt for the same IMPHASH and filename fleet-wide and block it in the EDR.",
+        "Remove the artifact and any persistence; return the host to service only after validation or reimaging."
+      ],
+      "severity_rationale": "Critical fits because Dumpert has no legitimate production use and its execution means direct theft of LSASS credentials."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Dumpert DLL variant launched through rundll32 from a public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe C:\\Users\\Public\\Dumpert.dll,Dump",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c rundll32.exe C:\\Users\\Public\\Dumpert.dll,Dump",
+          "Hashes": "SHA1=1111111111111111111111111111111111111111,MD5=22222222222222222222222222222222,SHA256=3333333333333333333333333333333333333333333333333333333333333333,IMPHASH=A4A2B5C6D7E8F90112233445566778899"
+        }
+      },
+      {
+        "description": "Renamed Dumpert executable matched by its IMPHASH",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\svc_backup\\AppData\\Local\\Temp\\svc_update.exe",
+          "CommandLine": "C:\\Users\\svc_backup\\AppData\\Local\\Temp\\svc_update.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "Hashes": "SHA1=4444444444444444444444444444444444444444,MD5=55555555555555555555555555555555,SHA256=6666666666666666666666666666666666666666666666666666666666666666,IMPHASH=09D278F9DE118EF09163C6140255C690"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Analyst opens a text note whose name contains 'dumpert' but not Dumpert.exe or Dumpert.dll",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "CommandLine": "notepad.exe C:\\IR\\cases\\dumpert_notes.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Hashes": "SHA1=7777777777777777777777777777777777777777,MD5=88888888888888888888888888888888,SHA256=9999999999999999999999999999999999999999999999999999999999999999,IMPHASH=F1E2D3C4B5A697887766554433221100"
+        }
+      },
+      {
+        "description": "Legitimate Sysinternals ProcDump capturing an application crash, different IMPHASH and no Dumpert name",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-01.andes.example.com",
+          "User": "ANDES\\adm_lgarcia",
+          "Image": "C:\\Tools\\Sysinternals\\procdump64.exe",
+          "CommandLine": "procdump64.exe -ma w3wp.exe C:\\Dumps\\w3wp.dmp",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Hashes": "SHA1=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,MD5=BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB,SHA256=CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC,IMPHASH=0123456789ABCDEF0123456789ABCDEF"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

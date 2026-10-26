@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "84232095-ecca-4015-b0d7-7726507ee793",
+    "title": "Suspicious DLL Loaded via CertOC.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_certoc_load_dll_susp_locations.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_certoc_load_dll_susp_locations.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "CertOC.exe se ejecutó con la opción -LoadDLL y apuntó a una DLL ubicada en una carpeta escribible por el usuario, como Temp, Downloads, Desktop o Users\\Public. Este binario firmado por Microsoft puede usarse para ejecutar código arbitrario como proxy.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\certoc.exe u OriginalFileName es CertOC.exe, la CommandLine contiene -LoadDLL (o /LoadDLL) y la ruta de la DLL apunta a AppData\\Local\\Temp, Desktop, Downloads, Users\\Public, C:\\Windows\\Tasks o C:\\Windows\\Temp.",
+      "why_it_matters": "CertOC.exe es una utilidad legítima de Windows (LOLBAS). Con -LoadDLL carga la DLL indicada dentro de un proceso firmado y así puede evadir controles de aplicaciones. Corresponde a la técnica T1218, ejecución de proxy mediante binarios del sistema.",
+      "triage_steps": [
+        "Revise CommandLine, identifique la ruta exacta de la DLL y confirme si el archivo todavía existe en el endpoint.",
+        "Obtenga el hash, la firma, la fecha de creación y el origen de la DLL (Zone.Identifier, navegador o cliente de correo) y consulte su reputación.",
+        "Analice ParentImage y la línea de comandos del proceso padre: un shell, Office, wscript o mshta aumentan la sospecha.",
+        "Valide el usuario que ejecutó el proceso y si su rol justifica administrar certificados con CertOC.",
+        "Pivote en el mismo host +/- 15 minutos y busque la creación de la DLL, procesos hijos de certoc.exe y conexiones de red salientes.",
+        "Revise los eventos de carga de imágenes y las modificaciones de persistencia, como tareas programadas, claves Run o servicios, posteriores a la ejecución.",
+        "Busque la misma DLL o el mismo hash en otros hosts y revise alertas previas para este usuario y equipo."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Un administrador o un script de despliegue de certificados que, por excepción, carga una DLL legítima desde Temp o Downloads durante pruebas en un servidor."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del equipo si la ejecución fue autorizada.",
+        "Si no está justificada, aísle el endpoint y preserve la DLL, la memoria y los registros relevantes.",
+        "Bloquee el hash de la DLL y busque su presencia en todo el entorno.",
+        "Elimine la DLL y cualquier persistencia relacionada solo después de verificar y respaldar la evidencia.",
+        "Restablezca las credenciales del usuario si hay indicios de compromiso y considere restringir certoc.exe mediante WDAC o AppLocker."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque cargar DLL desde rutas escribibles con un binario firmado casi nunca es legítimo y permite ejecutar código evadiendo defensas."
+    },
+    "en": {
+      "summary": "CertOC.exe ran with -LoadDLL and pointed at a DLL in a user-writable folder such as Temp, Downloads, Desktop or Users\\Public. The Microsoft-signed binary may be acting as a proxy to run arbitrary code.",
+      "what_it_detects": "Process creation events where Image ends with \\certoc.exe or OriginalFileName is CertOC.exe, CommandLine contains -LoadDLL (or /LoadDLL), and the DLL path is under AppData\\Local\\Temp, Desktop, Downloads, Users\\Public, C:\\Windows\\Tasks or C:\\Windows\\Temp.",
+      "why_it_matters": "CertOC.exe is a legitimate Windows utility listed in LOLBAS. With -LoadDLL it loads the given DLL inside a signed process, which can bypass application control. This maps to T1218, system binary proxy execution.",
+      "triage_steps": [
+        "Read CommandLine, extract the exact DLL path and check whether the file still exists on the endpoint.",
+        "Collect the DLL hash, signature, creation time and origin (Zone.Identifier, browser or mail client) and check its reputation.",
+        "Review ParentImage and the parent command line; a shell, Office, wscript or mshta parent raises suspicion.",
+        "Validate the executing user and whether their role justifies certificate administration with CertOC.",
+        "Pivot on the same host +/- 15 minutes for the DLL's creation, certoc.exe child processes and outbound network connections.",
+        "Check image load events and later persistence changes such as scheduled tasks, Run keys or services.",
+        "Hunt for the same DLL or hash on other hosts and review earlier alerts for this user and host."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "An administrator or certificate deployment script exceptionally loading a legitimate DLL from Temp or Downloads during server testing."
+      ],
+      "response_steps": [
+        "Confirm with the user or host owner whether the execution was authorized.",
+        "If unjustified, isolate the endpoint and preserve the DLL, memory and relevant logs.",
+        "Block the DLL hash and hunt for it across the environment.",
+        "Remove the DLL and related persistence only after verifying and backing up the evidence.",
+        "Reset the user's credentials if compromise is indicated and consider restricting certoc.exe with WDAC or AppLocker."
+      ],
+      "severity_rationale": "High fits because loading a DLL from writable paths through a signed binary is rarely legitimate and enables defense-evading code execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "CertOC loads a DLL from C:\\Users\\Public, launched from cmd.exe",
+        "event": {
+          "Image": "C:\\Windows\\System32\\certoc.exe",
+          "OriginalFileName": "CertOC.exe",
+          "CommandLine": "certoc.exe -LoadDLL C:\\Users\\Public\\update.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.andes.example.com"
+        }
+      },
+      {
+        "description": "Renamed CertOC binary identified by OriginalFileName, using slash syntax and a user Temp path",
+        "event": {
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\ctool.exe",
+          "OriginalFileName": "CertOC.exe",
+          "CommandLine": "ctool.exe /LoadDLL C:\\Users\\jperez\\AppData\\Local\\Temp\\payload.dll",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.andes.example.com"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "CertOC loads a vendor DLL from Program Files, not a suspicious location",
+        "event": {
+          "Image": "C:\\Windows\\System32\\certoc.exe",
+          "OriginalFileName": "CertOC.exe",
+          "CommandLine": "certoc.exe -LoadDLL \"C:\\Program Files\\Contoso\\CertHelper\\certhelper.dll\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\admin.certs",
+          "Computer": "SRV-PKI-01.andes.example.com"
+        }
+      },
+      {
+        "description": "CertOC imports a PFX from Downloads without -LoadDLL",
+        "event": {
+          "Image": "C:\\Windows\\System32\\certoc.exe",
+          "OriginalFileName": "CertOC.exe",
+          "CommandLine": "certoc.exe -ImportPFX My C:\\Users\\jperez\\Downloads\\webserver.pfx",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "SRV-WEB-02.andes.example.com"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

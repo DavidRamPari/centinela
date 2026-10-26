@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "f9999590-1f94-4a34-a91e-951e47bedefd",
+    "title": "Suspicious Provlaunch.EXE Child Process",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_provlaunch_susp_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_provlaunch_susp_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "provlaunch.exe, el iniciador de paquetes de aprovisionamiento de Windows, creó un proceso sospechoso: un intérprete, un binario LOLBin o un ejecutable ubicado en una carpeta con permisos de escritura. Esto puede indicar ejecución por proxy mediante un binario firmado de Microsoft.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage termina en \\provlaunch.exe y la Image hija es calc, cmd, cscript, mshta, notepad, powershell, pwsh, regsvr32, rundll32 o wscript, o se ejecuta desde PerfLogs, Temp, Users\\Public, AppData\\Temp o las carpetas Tasks.",
+      "why_it_matters": "Según LOLBAS, provlaunch.exe ejecuta las líneas de comando guardadas en HKLM\\SOFTWARE\\Microsoft\\Provisioning\\Commands. Un atacante con privilegios de administrador puede usarlo para ejecutar payloads a través de un binario firmado y evadir controles (T1218, ejecución por proxy de binarios del sistema).",
+      "triage_steps": [
+        "Revisa CommandLine de provlaunch.exe (por ejemplo, 'provlaunch.exe LUNA') y de su proceso padre para saber quién lo invocó y desde qué sesión o usuario.",
+        "Analiza Image y CommandLine del proceso hijo: busca scripts, URLs, DLL cargadas con rundll32/regsvr32 o comandos de PowerShell codificados.",
+        "Consulta las claves de registro bajo HKLM\\SOFTWARE\\Microsoft\\Provisioning\\Commands y su historial de modificación; busca alertas relacionadas del registro o de la línea de comandos.",
+        "Si el hijo está en una carpeta escribible, obtén el hash, la firma y la fecha de creación del archivo; búscalos en tu inteligencia de amenazas.",
+        "Revisa el mismo host en una ventana de +/- 15 minutos: procesos nietos, conexiones de red, archivos escritos y tareas programadas creadas.",
+        "Busca alertas anteriores para el mismo host y usuario, y verifica si existe un despliegue de aprovisionamiento autorizado por TI."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Paquetes de aprovisionamiento corporativos (Windows Configuration Designer, despliegue de equipos nuevos) que ejecutan scripts de cmd o PowerShell legítimos; confirma con el equipo de TI."
+      ],
+      "response_steps": [
+        "Verifica con el responsable del equipo si hubo aprovisionamiento autorizado; si no lo hubo, trata el caso como incidente.",
+        "Aísla el endpoint y termina el árbol de procesos maliciosos después de preservar evidencia (memoria, artefactos, exportación de las claves de registro).",
+        "Elimina las entradas maliciosas de Provisioning\\Commands y los payloads relacionados; revoca las credenciales de administrador que se usaron.",
+        "Busca el mismo patrón en otros hosts y restaura el equipo desde una línea base confiable si hubo compromiso."
+      ],
+      "severity_rationale": "Nivel alto: provlaunch.exe casi nunca crea intérpretes ni ejecutables en rutas escribibles, y para abusar de él se necesitan privilegios de administrador."
+    },
+    "en": {
+      "summary": "provlaunch.exe, the Windows provisioning package launcher, spawned a suspicious child: a script interpreter, a LOLBin or an executable in a user-writable folder. This can mean proxy execution through a signed Microsoft binary.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\provlaunch.exe and the child Image is calc, cmd, cscript, mshta, notepad, powershell, pwsh, regsvr32, rundll32 or wscript, or runs from PerfLogs, Temp, Users\\Public, AppData\\Temp or the Tasks folders.",
+      "why_it_matters": "According to LOLBAS, provlaunch.exe runs command lines stored under HKLM\\SOFTWARE\\Microsoft\\Provisioning\\Commands. An attacker with admin rights can use it to run payloads through a signed binary and evade controls (T1218, System Binary Proxy Execution).",
+      "triage_steps": [
+        "Check the CommandLine of provlaunch.exe (for example 'provlaunch.exe LUNA') and of its own parent to see who launched it and from which session or user.",
+        "Inspect the child Image and CommandLine for scripts, URLs, DLLs loaded by rundll32/regsvr32 or encoded PowerShell.",
+        "Review the registry keys under HKLM\\SOFTWARE\\Microsoft\\Provisioning\\Commands and when they changed; look for the related registry and command-line alerts.",
+        "If the child runs from a writable folder, get the file's hash, signature and creation time and check them against threat intel.",
+        "Pivot on the same host within +/- 15 minutes: grandchild processes, network connections, file writes and new scheduled tasks.",
+        "Look for earlier alerts on the same host and user, and confirm whether IT ran an authorized provisioning deployment."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Corporate provisioning packages (Windows Configuration Designer, new device setup) that run legitimate cmd or PowerShell scripts; confirm with IT."
+      ],
+      "response_steps": [
+        "Ask the asset owner whether provisioning was authorized. If it was not, handle the alert as an incident.",
+        "Preserve evidence first (memory, artifacts, an export of the registry keys), then isolate the endpoint and kill the malicious process tree.",
+        "Remove the malicious Provisioning\\Commands entries and related payloads, and reset the admin credentials that were used.",
+        "Hunt for the same pattern on other hosts, and rebuild the device from a trusted baseline if it was compromised."
+      ],
+      "severity_rationale": "High fits because provlaunch.exe almost never spawns interpreters or binaries from writable paths, and abusing it requires administrative privileges."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "provlaunch.exe LUNA spawns cmd.exe that runs a script from Users\\Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\provlaunch.exe",
+          "ParentCommandLine": "provlaunch.exe LUNA",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "provlaunch.exe launches an unsigned executable from C:\\Windows\\Temp",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\provlaunch.exe",
+          "ParentCommandLine": "provlaunch.exe LUNA",
+          "Image": "C:\\Windows\\Temp\\svcupd.exe",
+          "CommandLine": "C:\\Windows\\Temp\\svcupd.exe -s",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "provlaunch.exe spawns conhost.exe from System32, which is neither a listed binary nor a writable path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\provlaunch.exe",
+          "ParentCommandLine": "provlaunch.exe LUNA",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Normal user launch of powershell.exe from explorer.exe, without provlaunch.exe as the parent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

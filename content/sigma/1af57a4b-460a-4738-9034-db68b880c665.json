@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "1af57a4b-460a-4738-9034-db68b880c665",
+    "title": "PowerShell SAM Copy",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_sam_access.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_sam_access.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó una línea de comandos de PowerShell que copia el hive SAM desde una instantánea de volumen (Volume Shadow Copy). Suele indicar un intento de robar hashes de contraseñas locales.",
+      "what_it_detects": "Creación de procesos cuyo CommandLine contiene la ruta \\HarddiskVolumeShadowCopy y System32\\config\\sam junto con una operación de copia: Copy-Item, los alias cp/cpi/copy sobre $_. o [System.IO.File]::Copy(.",
+      "why_it_matters": "El SAM guarda los hashes NTLM de las cuentas locales. Copiarlo desde una shadow copy evita el bloqueo del archivo en uso y permite extraer credenciales offline (ATT&CK T1003.002, Security Account Manager), lo que facilita el movimiento lateral con cuentas locales.",
+      "triage_steps": [
+        "Revise el CommandLine completo: ruta de origen de la shadow copy, destino de la copia y si también se copian los hives SYSTEM o SECURITY, necesarios para descifrar el SAM.",
+        "Identifique al User y verifique si pertenece al equipo de backup o administración; contraste con tickets de cambio o mantenimiento.",
+        "Analice el ParentImage y la cadena de procesos: Office, navegador, WMI o una shell remota sugieren actividad maliciosa.",
+        "Busque en el mismo host, +/- 15 minutos, la creación de archivos en la ruta de destino y su posterior compresión, renombrado o exfiltración.",
+        "Revise conexiones de red salientes y transferencias SMB desde el host después de la copia.",
+        "Pivote por el mismo usuario y host en alertas previas: vssadmin, wmic shadowcopy, mimikatz, secretsdump o volcados de LSASS.",
+        "Verifique si la máquina tiene ACL permisivas en System32\\config (escenario HiveNightmare / SeriousSAM) que permitan la lectura a usuarios sin privilegios."
+      ],
+      "false_positives": [
+        "Soluciones de backup poco comunes que copian hives del registro desde shadow copies mediante PowerShell.",
+        "Scripts de remediación de HiveNightmare / SeriousSAM que inspeccionan o corrigen ACL y referencian el SAM en shadow copies.",
+        "Pruebas autorizadas de red team o pentesting, que deben estar documentadas."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del sistema y el usuario si la ejecución estaba autorizada antes de actuar.",
+        "Si no está autorizada, aísle el endpoint desde el EDR y conserve el archivo copiado, el script y los logs como evidencia.",
+        "Restablezca las contraseñas de todas las cuentas locales del host, incluida la de administrador, y revise la reutilización en otros equipos (LAPS).",
+        "Corrija las ACL de System32\\config y elimine las shadow copies expuestas solo tras validar el impacto en los backups.",
+        "Busque uso de los hashes locales en otros hosts (inicios de sesión tipo 3 con cuentas locales) y amplíe el alcance si es necesario."
+      ],
+      "severity_rationale": "Nivel high porque la combinación de shadow copy, ruta del SAM y comando de copia es muy específica del robo de credenciales y casi no tiene usos legítimos."
+    },
+    "en": {
+      "summary": "A process ran a PowerShell command line that copies the SAM hive from a Volume Shadow Copy. This usually indicates an attempt to steal local password hashes.",
+      "what_it_detects": "Process creation where CommandLine contains a \\HarddiskVolumeShadowCopy path and System32\\config\\sam together with a copy operation: Copy-Item, the cp/cpi/copy aliases on $_., or [System.IO.File]::Copy(.",
+      "why_it_matters": "The SAM stores NTLM hashes for local accounts. Copying it from a shadow copy bypasses the in-use file lock and enables offline credential extraction (ATT&CK T1003.002, Security Account Manager), supporting lateral movement with local accounts.",
+      "triage_steps": [
+        "Read the full CommandLine: shadow copy source, copy destination, and whether SYSTEM or SECURITY hives are copied too, which are needed to decrypt the SAM.",
+        "Identify the User and check whether they belong to backup or admin teams; compare with change or maintenance tickets.",
+        "Review ParentImage and the process tree: Office, browsers, WMI or remote shells as parents point to malicious activity.",
+        "On the same host within +/- 15 minutes, look for file creation at the destination path and later compression, renaming or exfiltration.",
+        "Check outbound network connections and SMB transfers from the host after the copy.",
+        "Pivot on the same user and host for earlier alerts: vssadmin, wmic shadowcopy, mimikatz, secretsdump or LSASS dumps.",
+        "Check whether System32\\config has permissive ACLs (HiveNightmare / SeriousSAM scenario) allowing unprivileged users to read it."
+      ],
+      "false_positives": [
+        "Uncommon backup solutions that copy registry hives from shadow copies via PowerShell.",
+        "HiveNightmare / SeriousSAM remediation scripts that inspect or fix ACLs and reference the SAM in shadow copies.",
+        "Authorized red team or penetration tests, which should be documented."
+      ],
+      "response_steps": [
+        "Confirm with the system owner and the user whether the execution was authorized before acting.",
+        "If unauthorized, isolate the endpoint via EDR and preserve the copied file, script and logs as evidence.",
+        "Reset passwords for all local accounts on the host, including the built-in administrator, and check for reuse elsewhere (LAPS).",
+        "Fix System32\\config ACLs and delete exposed shadow copies only after validating backup impact.",
+        "Hunt for use of the local hashes on other hosts (logon type 3 with local accounts) and expand scope if needed."
+      ],
+      "severity_rationale": "High fits because combining a shadow copy path, the SAM path and a copy command is highly specific to credential theft with very few legitimate uses."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Copy-Item copies the SAM hive from a shadow copy to a public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Copy-Item \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy1\\Windows\\System32\\config\\SAM C:\\Users\\Public\\s.tmp\""
+        }
+      },
+      {
+        "description": "Iterates shadow copies and uses [System.IO.File]::Copy on the SAM hive",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -c \"1..5 | % { [System.IO.File]::Copy(\\\"\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy$_\\Windows\\System32\\config\\sam\\\", \\\"C:\\Windows\\Temp\\sam$_\\\") }\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Remediation script only reads ACLs of the SAM in a shadow copy, no copy operation",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\svc_patch",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Get-Acl \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy1\\Windows\\System32\\config\\sam | Format-List\""
+        }
+      },
+      {
+        "description": "Copy-Item of the SYSTEM hive from a shadow copy, SAM path not present",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-BKP-01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\ExampleBackup\\agent.exe",
+          "CommandLine": "powershell.exe -Command \"Copy-Item \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy3\\Windows\\System32\\config\\SYSTEM D:\\Backups\\hives\\SYSTEM\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "961e0abb-1b1e-4c84-a453-aafe56ad0d34",
+    "title": "Execution via stordiag.exe",
+    "level": "high",
+    "status": "test",
+    "author": "Austin Songer (@austinsonger)",
+    "path": "windows/process_creation/proc_creation_win_stordiag_susp_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_stordiag_susp_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó una copia de stordiag.exe ubicada fuera de System32 o SysWOW64 y lanzó schtasks.exe, systeminfo.exe o fltmc.exe. Esto suele indicar que se abusa de un binario firmado de Microsoft para ejecutar código de forma indirecta.",
+      "what_it_detects": "Eventos de creación de procesos en los que ParentImage termina en \\stordiag.exe pero no está en c:\\windows\\system32\\ ni en c:\\windows\\syswow64\\, y la Image hija es schtasks.exe, systeminfo.exe o fltmc.exe. Stordiag (Storage Diagnostic Tool) invoca estas herramientas durante su diagnóstico, por lo que una copia en otra carpeta puede ejecutar binarios con esos nombres colocados junto a ella.",
+      "why_it_matters": "Corresponde a T1218 (System Binary Proxy Execution): el atacante copia un binario legítimo y firmado a una carpeta que controla, coloca allí un payload llamado schtasks.exe, systeminfo.exe o fltmc.exe y lo ejecuta bajo un proceso padre confiable para evadir controles.",
+      "triage_steps": [
+        "Revise la ruta completa de ParentImage y de Image: confirme si la hija se ejecuta desde la misma carpeta que la copia de stordiag.exe en lugar de System32.",
+        "Obtenga el hash, la firma y los metadatos de la Image hija; compárelos con los binarios originales de System32. Un hash distinto o sin firma de Microsoft es muy sospechoso.",
+        "Revise el CommandLine de la hija y del padre, y el usuario que ejecutó el proceso.",
+        "Identifique el proceso que lanzó stordiag.exe (abuelo) y cómo llegó la copia a la carpeta: eventos de creación de archivos, descargas o extracción de ZIP.",
+        "Pivote en el mismo host +/- 15 minutos: conexiones de red, procesos hijos de la Image, tareas programadas nuevas y cambios en el registro.",
+        "Busque en otros endpoints la misma ruta, el mismo hash o copias de stordiag.exe fuera de System32, y alertas previas del usuario."
+      ],
+      "false_positives": [
+        "Uso legítimo de stordiag.exe, por ejemplo soporte técnico que copia la herramienta a una carpeta de trabajo para recolectar diagnósticos de almacenamiento.",
+        "Kits de diagnóstico o scripts de soporte de proveedores que empaquetan stordiag.exe en su propio directorio; valide que las hijas sean los binarios originales de System32."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o el equipo de soporte si hubo una tarea de diagnóstico autorizada antes de actuar.",
+        "Si la Image hija no es el binario legítimo de Microsoft, aísle el endpoint y preserve la carpeta, los binarios y la memoria del proceso para análisis.",
+        "Elimine la copia de stordiag.exe, los payloads y cualquier persistencia creada (tareas programadas, servicios, claves Run) tras documentar la evidencia.",
+        "Restablezca credenciales del usuario afectado si hubo ejecución maliciosa, bloquee el hash en el EDR y monitoree el host por recurrencia."
+      ],
+      "severity_rationale": "Nivel alto: un binario de Microsoft copiado fuera de su ruta del sistema que lanza herramientas por nombre rara vez es legítimo y apunta a ejecución por proxy para evadir defensas."
+    },
+    "en": {
+      "summary": "A copy of stordiag.exe running outside System32 or SysWOW64 launched schtasks.exe, systeminfo.exe or fltmc.exe. This usually means a signed Microsoft binary is being abused to run code indirectly.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\stordiag.exe but is not under c:\\windows\\system32\\ or c:\\windows\\syswow64\\, and the child Image is schtasks.exe, systeminfo.exe or fltmc.exe. Stordiag (Storage Diagnostic Tool) calls these tools during diagnostics, so a relocated copy can run same-named binaries planted beside it.",
+      "why_it_matters": "This maps to T1218 (System Binary Proxy Execution): an attacker copies a trusted signed binary to a folder they control, drops a payload named schtasks.exe, systeminfo.exe or fltmc.exe, and runs it under a trusted parent to evade controls.",
+      "triage_steps": [
+        "Check the full paths of ParentImage and Image: confirm whether the child runs from the same folder as the stordiag.exe copy instead of System32.",
+        "Collect the child Image hash, signature and metadata; compare with the genuine System32 binaries. A different hash or missing Microsoft signature is highly suspicious.",
+        "Review the CommandLine of child and parent, and the user account that ran them.",
+        "Identify the grandparent process that started stordiag.exe and how the copy arrived: file creation events, downloads or archive extraction.",
+        "Pivot on the same host +/- 15 minutes: network connections, children of the Image, new scheduled tasks and registry changes.",
+        "Hunt other endpoints for the same path, hash or stordiag.exe copies outside System32, and earlier alerts for the user."
+      ],
+      "false_positives": [
+        "Legitimate stordiag.exe use, such as support staff copying the tool to a working folder to collect storage diagnostics.",
+        "Vendor diagnostic kits or support scripts bundling stordiag.exe in their own directory; confirm the children are the genuine System32 binaries."
+      ],
+      "response_steps": [
+        "Confirm with the user or support team whether an authorized diagnostic task occurred before acting.",
+        "If the child Image is not the genuine Microsoft binary, isolate the endpoint and preserve the folder, binaries and process memory.",
+        "After documenting evidence, remove the stordiag.exe copy, payloads and any persistence created (scheduled tasks, services, Run keys).",
+        "Reset the affected user's credentials if malicious execution occurred, block the hash in EDR and monitor the host for recurrence."
+      ],
+      "severity_rationale": "High fits because a Microsoft binary relocated outside its system path and launching tools by name is rarely legitimate and points to proxy execution for defense evasion."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "stordiag.exe copied to a user Temp folder launches a planted schtasks.exe from the same folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\diag\\stordiag.exe",
+          "ParentCommandLine": "C:\\Users\\jperez\\AppData\\Local\\Temp\\diag\\stordiag.exe",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\diag\\schtasks.exe",
+          "CommandLine": "schtasks.exe /query /fo csv /v",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000001"
+        }
+      },
+      {
+        "description": "stordiag.exe copy in ProgramData spawns fltmc.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\ProgramData\\Updater\\stordiag.exe",
+          "ParentCommandLine": "\"C:\\ProgramData\\Updater\\stordiag.exe\"",
+          "Image": "C:\\ProgramData\\Updater\\fltmc.exe",
+          "CommandLine": "fltmc.exe filters"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Genuine stordiag.exe in System32 runs the genuine systeminfo.exe; excluded by the filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\soporte01",
+          "ParentImage": "C:\\Windows\\System32\\stordiag.exe",
+          "ParentCommandLine": "stordiag.exe -collectEtw",
+          "Image": "C:\\Windows\\System32\\systeminfo.exe",
+          "CommandLine": "systeminfo.exe"
+        }
+      },
+      {
+        "description": "Relocated stordiag.exe spawns cmd.exe, which is not one of the listed child images",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "ParentImage": "C:\\Users\\lgomez\\Downloads\\tools\\stordiag.exe",
+          "ParentCommandLine": "C:\\Users\\lgomez\\Downloads\\tools\\stordiag.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c echo done"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

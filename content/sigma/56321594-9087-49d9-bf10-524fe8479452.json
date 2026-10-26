@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "56321594-9087-49d9-bf10-524fe8479452",
+    "title": "Potential Persistence Via Netsh Helper DLL",
+    "level": "medium",
+    "status": "test",
+    "author": "Victor Sergeev, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_netsh_helper_dll_persistence.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_netsh_helper_dll_persistence.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1546.007"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó netsh.exe con los argumentos \"add\" y \"helper\". Esto puede registrar una DLL helper que se cargará cada vez que se ejecute netsh, un mecanismo de persistencia conocido.",
+      "what_it_detects": "La creación de un proceso cuya Image termina en \\netsh.exe u OriginalFileName es netsh.exe, y cuyo CommandLine contiene tanto \"add\" como \"helper\", por ejemplo \"netsh add helper C:\\ruta\\archivo.dll\".",
+      "why_it_matters": "Es la técnica ATT&CK T1546.007 (Netsh Helper DLL). La DLL registrada en HKLM\\SOFTWARE\\Microsoft\\NetSh se carga dentro de netsh.exe, con lo que el atacante obtiene ejecución recurrente, a menudo con privilegios elevados, cuando administradores o scripts usan netsh.",
+      "triage_steps": [
+        "Revise el CommandLine y extraiga la ruta de la DLL. Las rutas en carpetas de usuario, Temp, ProgramData o recursos compartidos son más sospechosas que las de System32 o Program Files.",
+        "Identifique ParentImage y la línea de comandos del proceso padre. Un instalador firmado es lo esperado; cmd, powershell, wscript, rundll32 o un proceso de Office no lo son.",
+        "Confirme el usuario y el nivel de integridad: netsh add helper requiere privilegios de administrador. Valide si esa cuenta suele hacer cambios de administración.",
+        "Obtenga el hash, la firma, la fecha de creación y el origen de la DLL. Consúltelos en inteligencia de amenazas y en la base de software aprobado.",
+        "Revise la clave HKLM\\SOFTWARE\\Microsoft\\NetSh en el endpoint y compare sus valores con los helpers predeterminados de Windows.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, escrituras del archivo DLL, eventos de registro, conexiones de red y procesos hijos de netsh.exe.",
+        "Busque alertas previas del mismo host o usuario y la misma DLL o el mismo hash en otros equipos."
+      ],
+      "false_positives": [
+        "Instaladores legítimos de VPN, agentes de red o software de seguridad que registran su propio helper de netsh. Valide al proveedor, la firma y el ticket de cambio.",
+        "Ejercicios de red team o pruebas con Atomic Red Team (T1546.007) autorizados.",
+        "Administradores que eliminan o consultan helpers con comandos que también contienen \"add\" y \"helper\" en la ruta o en los argumentos."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del equipo o con el área de TI si el cambio estaba autorizado antes de actuar.",
+        "Si no está autorizado, aísle el endpoint y preserve la DLL, el valor de registro y la memoria de netsh.exe para el análisis forense.",
+        "Elimine el helper con netsh delete helper o quitando el valor de registro solo después de documentarlo, y ponga la DLL en cuarentena.",
+        "Restablezca las credenciales de la cuenta implicada, busque otros mecanismos de persistencia y monitoree futuras ejecuciones de netsh en el host."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque registrar helpers es raro y requiere privilegios de administrador, pero algunos instaladores legítimos lo hacen y hay que revisar el contexto."
+    },
+    "en": {
+      "summary": "netsh.exe ran with the arguments \"add\" and \"helper\". This may register a helper DLL that loads every time netsh runs, a known persistence mechanism.",
+      "what_it_detects": "A process creation where Image ends with \\netsh.exe or OriginalFileName is netsh.exe, and CommandLine contains both \"add\" and \"helper\", for example \"netsh add helper C:\\path\\file.dll\".",
+      "why_it_matters": "This is ATT&CK T1546.007 (Netsh Helper DLL). The DLL is registered under HKLM\\SOFTWARE\\Microsoft\\NetSh and loads inside netsh.exe. The attacker then gets code execution again, often with elevated rights, whenever admins or scripts run netsh.",
+      "triage_steps": [
+        "Read CommandLine and extract the DLL path. User folders, Temp, ProgramData or network shares are more suspicious than System32 or Program Files.",
+        "Identify ParentImage and the parent command line. A signed installer is expected; cmd, powershell, wscript, rundll32 or Office processes are not.",
+        "Confirm the user and integrity level, because add helper requires admin rights. Check whether this account normally makes admin changes.",
+        "Collect the DLL's hash, signature, creation time and origin. Check them against threat intelligence and your approved software list.",
+        "Inspect HKLM\\SOFTWARE\\Microsoft\\NetSh on the endpoint and compare its values with the default Windows helpers.",
+        "Pivot on the same host within +/- 15 minutes: DLL file writes, registry events, network connections and child processes of netsh.exe.",
+        "Look for earlier alerts for the same host or user, and for the same DLL path or hash on other machines."
+      ],
+      "false_positives": [
+        "Legitimate VPN, network agent or security software installers that register their own netsh helper. Confirm the vendor, the signature and the change ticket.",
+        "Authorized red team exercises or Atomic Red Team T1546.007 tests.",
+        "Admin commands that also contain \"add\" and \"helper\" in a path or argument."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the change was authorized before acting.",
+        "If it was not, isolate the endpoint and preserve the DLL, the registry value and netsh.exe memory for forensics.",
+        "Document the helper first, then remove it with netsh delete helper or by deleting the registry value, and quarantine the DLL.",
+        "Reset credentials for the account involved, hunt for other persistence and monitor future netsh runs on the host."
+      ],
+      "severity_rationale": "Medium fits because registering a helper is rare and requires admin rights, but some legitimate installers do it, so context has to be checked."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "netsh launched from cmd.exe registers a helper DLL from a public user folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh.exe add helper C:\\Users\\Public\\Libraries\\nethlp.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c netsh.exe add helper C:\\Users\\Public\\Libraries\\nethlp.dll",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed netsh binary identified by OriginalFileName adding a helper from ProgramData",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\Tools\\nsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "nsh.exe ADD HELPER C:\\ProgramData\\Tools\\wlanext.dll",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin lists the registered netsh helpers; the command line has 'helper' but not 'add'",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\it_admin",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh show helper",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Routine IP configuration with netsh; the command line has 'add' but not 'helper'",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-WEB-01.andes.example.com",
+          "User": "ANDES\\it_admin",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh interface ipv4 add address \"Ethernet\" 192.0.2.25 255.255.255.0",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

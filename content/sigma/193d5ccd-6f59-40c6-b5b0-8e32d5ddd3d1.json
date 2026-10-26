@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "193d5ccd-6f59-40c6-b5b0-8e32d5ddd3d1",
+    "title": "Xwizard.EXE Execution From Non-Default Location",
+    "level": "high",
+    "status": "test",
+    "author": "Christian Burkard (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_xwizard_execution_non_default_location.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_xwizard_execution_non_default_location.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1574.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó xwizard.exe (Extensible Wizards Host) desde una ruta distinta de System32, SysWOW64 o WinSxS. Esto suele indicar que el binario se copió a otra carpeta para cargar una xwizards.dll maliciosa mediante DLL side-loading.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\xwizard.exe u OriginalFileName es xwizard.exe, y la ruta de Image no empieza por C:\\Windows\\System32\\, C:\\Windows\\SysWOW64\\ ni C:\\Windows\\WinSxS\\.",
+      "why_it_matters": "xwizard.exe es un binario firmado por Microsoft que carga xwizards.dll desde su propio directorio. Un atacante puede copiarlo junto a una DLL falsa para ejecutar código bajo un proceso confiable (T1574.001, secuestro del orden de búsqueda de DLL), lo que le sirve para persistencia, evasión o escalamiento.",
+      "triage_steps": [
+        "Revise Image, CurrentDirectory y el usuario: ¿en qué carpeta está la copia (Temp, AppData, ProgramData, Public, un recurso compartido)?",
+        "Si Image usa otra unidad (D:\\Windows\\System32), confirme si Windows está instalado allí; si es así, probablemente sea un falso positivo.",
+        "Compare OriginalFileName con el nombre de Image para detectar un binario renombrado y verifique el hash y la firma del ejecutable.",
+        "Liste los archivos del mismo directorio, en especial xwizards.dll: hash, firma, fecha de creación y quién la escribió.",
+        "Analice ParentImage y ParentCommandLine: un script, documento de Office, tarea programada o servicio como padre aumenta la sospecha.",
+        "Revise los eventos de carga de imágenes (ImageLoaded) y las conexiones de red del proceso y de sus hijos en el mismo host, +/- 15 minutos.",
+        "Busque alertas previas del mismo host y usuario, y el mismo hash de DLL en otros endpoints."
+      ],
+      "false_positives": [
+        "Windows instalado en una unidad distinta de C:, donde las rutas legítimas no coinciden con el filtro.",
+        "Análisis forense, sandboxes o pruebas de red team que copian xwizard.exe a otra carpeta."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa validando la DLL copiada y la cadena de procesos antes de actuar.",
+        "Aísle el endpoint si la DLL no está firmada por Microsoft o hay actividad de red sospechosa.",
+        "Ponga en cuarentena la copia de xwizard.exe y la xwizards.dll falsa, y conserve muestras y hashes para el análisis.",
+        "Elimine los mecanismos de persistencia (tareas, claves Run, servicios) que lancen el binario copiado.",
+        "Busque los hashes en toda la flota, restablezca las credenciales comprometidas y devuelva el equipo a producción tras validarlo."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque copiar xwizard.exe fuera de sus rutas de sistema casi no tiene usos legítimos y es una técnica conocida de side-loading."
+    },
+    "en": {
+      "summary": "xwizard.exe (Extensible Wizards Host) ran from a path outside System32, SysWOW64 or WinSxS. This usually means the binary was copied elsewhere so it would side-load a malicious xwizards.dll.",
+      "what_it_detects": "Process creation events where Image ends with \\xwizard.exe or OriginalFileName is xwizard.exe, and Image does not start with C:\\Windows\\System32\\, C:\\Windows\\SysWOW64\\ or C:\\Windows\\WinSxS\\.",
+      "why_it_matters": "xwizard.exe is a Microsoft-signed binary that loads xwizards.dll from its own directory. If attackers copy it next to a fake DLL, their code runs under a trusted process (T1574.001, DLL search order hijacking). They can use this for persistence, stealth or privilege escalation.",
+      "triage_steps": [
+        "Check Image, CurrentDirectory and User. Which folder holds the copy: Temp, AppData, ProgramData, Public or a network share?",
+        "If Image is on another drive (D:\\Windows\\System32), confirm whether Windows is installed there. If it is, this is likely benign.",
+        "Compare OriginalFileName with the Image name to spot a renamed binary. Check the executable's hash and signature.",
+        "List files in the same directory, especially xwizards.dll. Check its hash, signature, creation time and which process wrote it.",
+        "Review ParentImage and ParentCommandLine. A script, Office document, scheduled task or service as the parent raises suspicion.",
+        "Check image loads (ImageLoaded) and network connections for the process and its children on the same host, +/- 15 minutes.",
+        "Look for earlier alerts on the same host and user, and for the same DLL hash on other endpoints."
+      ],
+      "false_positives": [
+        "Windows installed on a drive other than C:, so legitimate paths miss the filter.",
+        "Forensic analysis, sandboxes or red team tests that copy xwizard.exe to another folder."
+      ],
+      "response_steps": [
+        "Before acting, confirm the activity is malicious by checking the copied DLL and the process chain.",
+        "Isolate the endpoint if the DLL is not Microsoft-signed or the process shows suspicious network activity.",
+        "Quarantine the copied xwizard.exe and the fake xwizards.dll. Keep samples and hashes for analysis.",
+        "Remove any persistence (tasks, Run keys, services) that launches the copied binary.",
+        "Hunt for the hashes across the fleet and reset exposed credentials. Return the host to production after validation."
+      ],
+      "severity_rationale": "High fits because copying xwizard.exe out of its system paths has almost no legitimate use and is a known side-loading technique."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "xwizard.exe copied to a user's AppData Temp folder and launched by a script host",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\upd\\xwizard.exe",
+          "OriginalFileName": "xwizard.exe",
+          "CommandLine": "\"C:\\Users\\jperez\\AppData\\Local\\Temp\\upd\\xwizard.exe\" RunWizard {7940acf8-60ba-4213-a7c3-f3b400ee266d}",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\upd\\",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\Downloads\\invoice.vbs"
+        }
+      },
+      {
+        "description": "Renamed xwizard binary in ProgramData, matched via OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\SyncHelper\\helper.exe",
+          "OriginalFileName": "xwizard.exe",
+          "CommandLine": "C:\\ProgramData\\SyncHelper\\helper.exe RunWizard {00000001-4fef-40d3-b3fa-e0531b897f98}",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate xwizard.exe run from System32",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\xwizard.exe",
+          "OriginalFileName": "xwizard.exe",
+          "CommandLine": "C:\\Windows\\System32\\xwizard.exe RunWizard {7940acf8-60ba-4213-a7c3-f3b400ee266d}",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Legitimate xwizard.exe from the SysWOW64 directory",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0318.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\SysWOW64\\xwizard.exe",
+          "OriginalFileName": "xwizard.exe",
+          "CommandLine": "C:\\Windows\\SysWOW64\\xwizard.exe ProcessXMLFile C:\\Windows\\Temp\\wizard.xml",
+          "ParentImage": "C:\\Windows\\System32\\rundll32.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

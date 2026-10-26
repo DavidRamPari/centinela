@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "9aa5106d-bce3-4b13-86df-3a20f1d5cf0b",
+    "title": "Forfiles Command Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "Tim Rauch, Elastic, E.M. Anhaus (originally from Atomic Blue Detections, Endgame), oscd.community",
+    "path": "windows/process_creation/proc_creation_win_forfiles_proxy_execution_.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_forfiles_proxy_execution_.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó forfiles.exe con el parámetro /c, que ejecuta un comando por cada archivo que coincide. Puede ser una tarea administrativa o un intento de ejecutar binarios de forma indirecta para evadir controles.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\forfiles.exe u OriginalFileName es forfiles.exe, y el CommandLine contiene la opción -c o /c (también con guiones alternativos), que define el comando que forfiles ejecuta.",
+      "why_it_matters": "Forfiles es un binario firmado de Windows (LOLBin) que permite ejecutar cualquier programa como proceso hijo. Esto oculta el proceso padre real y puede evadir listas blancas de aplicaciones (ATT&CK T1059, Command and Scripting Interpreter).",
+      "triage_steps": [
+        "Revise el CommandLine completo y extraiga el comando posterior a /c; anote binarios, rutas, URLs o scripts que invoca.",
+        "Compare Image con OriginalFileName: si forfiles.exe fue renombrado o copiado fuera de System32, trate la alerta como altamente sospechosa.",
+        "Analice ParentImage y su línea de comandos: Office, navegadores, wscript, mshta o procesos web como padre son indicios de abuso.",
+        "Identifique los procesos hijos (normalmente cmd.exe /c ...) y sus descendientes en el mismo host dentro de +/- 15 minutos.",
+        "Verifique el hash, la firma y la ubicación de los binarios ejecutados mediante /c, especialmente en Users\\Public, Temp o AppData.",
+        "Busque conexiones de red, archivos creados y cambios de persistencia (tareas programadas, claves Run) del mismo host en esa ventana.",
+        "Valide con el usuario o el equipo de TI si existe un script o tarea de mantenimiento conocida que use forfiles.",
+        "Consulte alertas previas del mismo usuario y host, y busque esta misma línea de comandos en otros endpoints."
+      ],
+      "false_positives": [
+        "Scripts batch de mantenimiento que eliminan o comprimen logs antiguos con forfiles /d y /c \"cmd /c del @file\".",
+        "Tareas programadas o herramientas de respaldo que procesan archivos por fecha o extensión.",
+        "Administradores que ejecutan forfiles manualmente para limpieza o inventario de archivos."
+      ],
+      "response_steps": [
+        "Confirme la legitimidad con el dueño del script o la tarea; si es legítima, documente y cree una exclusión específica por CommandLine y ParentImage.",
+        "Si es malicioso, aísle el endpoint y finalice el árbol de procesos derivado de forfiles tras preservar evidencia.",
+        "Obtenga y analice los binarios o scripts invocados; bloquee sus hashes y dominios asociados.",
+        "Elimine la persistencia identificada, restablezca credenciales del usuario afectado si hubo compromiso y busque la misma actividad en toda la flota."
+      ],
+      "severity_rationale": "Medium es adecuado porque /c es un uso normal de forfiles, pero también es una técnica conocida de ejecución indirecta que merece revisión."
+    },
+    "en": {
+      "summary": "forfiles.exe ran with the /c option, which runs a command for each matching file. This may be routine administration or an attempt to proxy execution of another binary to evade controls.",
+      "what_it_detects": "Process creation where Image ends with \\forfiles.exe or OriginalFileName is forfiles.exe, and CommandLine contains the -c or /c option (including alternate dash characters) that defines the command to run.",
+      "why_it_matters": "Forfiles is a signed Windows binary (LOLBin) that can launch any program as its child. This hides the true parent and can bypass application allowlisting (ATT&CK T1059, Command and Scripting Interpreter).",
+      "triage_steps": [
+        "Read the full CommandLine and extract the command after /c; note binaries, paths, URLs or scripts it invokes.",
+        "Compare Image with OriginalFileName: a renamed forfiles.exe or one outside System32 is highly suspicious.",
+        "Review ParentImage and its command line: Office, browsers, wscript, mshta or web server processes as parent suggest abuse.",
+        "List child processes (usually cmd.exe /c ...) and their descendants on the same host within +/- 15 minutes.",
+        "Check hash, signature and location of binaries launched via /c, especially in Users\\Public, Temp or AppData.",
+        "Look for network connections, new files and persistence changes (scheduled tasks, Run keys) on the host in that window.",
+        "Confirm with the user or IT whether a known maintenance script or task uses forfiles.",
+        "Search earlier alerts for the same user and host, and hunt for the same command line on other endpoints."
+      ],
+      "false_positives": [
+        "Batch maintenance scripts that delete or compress old logs with forfiles /d and /c \"cmd /c del @file\".",
+        "Scheduled tasks or backup tools processing files by date or extension.",
+        "Administrators running forfiles interactively for cleanup or file inventory."
+      ],
+      "response_steps": [
+        "Confirm legitimacy with the script or task owner; if benign, document it and add a narrow exclusion on CommandLine and ParentImage.",
+        "If malicious, preserve evidence, isolate the endpoint and terminate the process tree spawned by forfiles.",
+        "Collect and analyze invoked binaries or scripts; block their hashes and related domains.",
+        "Remove identified persistence, reset the affected user's credentials if compromise is confirmed, and hunt for the same activity fleet-wide."
+      ],
+      "severity_rationale": "Medium fits because /c is normal forfiles usage, yet it is a known indirect execution technique that warrants review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "forfiles proxies execution of a binary from Users\\Public, launched by Word",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\forfiles.exe",
+          "OriginalFileName": "forfiles.exe",
+          "CommandLine": "forfiles /p C:\\Windows\\System32 /m notepad.exe /c \"C:\\Users\\Public\\update.exe\"",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n invoice.docm"
+        }
+      },
+      {
+        "description": "Renamed forfiles copy using the -c dash form",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\ff.exe",
+          "OriginalFileName": "forfiles.exe",
+          "CommandLine": "ff.exe -p C:\\Windows\\System32 -m calc.exe -c \"cmd /c C:\\Users\\Public\\payload.bat\"",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\mrojas\\Downloads\\doc.js"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate forfiles listing old logs without the /c option",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\forfiles.exe",
+          "OriginalFileName": "forfiles.exe",
+          "CommandLine": "forfiles /p D:\\Logs /s /m *.log /d -30",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c D:\\Scripts\\list_old_logs.bat"
+        }
+      },
+      {
+        "description": "cmd.exe using /c, not forfiles",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c dir C:\\Users\\jperez\\Documents",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

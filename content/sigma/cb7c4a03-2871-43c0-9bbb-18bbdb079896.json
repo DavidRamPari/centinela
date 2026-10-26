@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "cb7c4a03-2871-43c0-9bbb-18bbdb079896",
+    "title": "Unmount Share Via Net.EXE",
+    "level": "low",
+    "status": "test",
+    "author": "oscd.community, @redcanary, Zach Stanford @svch0st",
+    "path": "windows/process_creation/proc_creation_win_net_share_unmount.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_net_share_unmount.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1070.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó net.exe o net1.exe con una línea de comandos que contiene 'share' y '/delete', lo que normalmente elimina un recurso compartido o una conexión a uno. Puede ser administración legítima o la limpieza de rastros después de una intrusión.",
+      "what_it_detects": "Creación de procesos en Windows donde Image termina en \\net.exe o \\net1.exe (u OriginalFileName es net.exe o net1.exe) y CommandLine contiene a la vez 'share' y '/delete', por ejemplo 'net share Staging$ /delete'.",
+      "why_it_matters": "Los atacantes crean recursos compartidos para preparar datos o moverse lateralmente, y luego los eliminan para borrar evidencia. Esto corresponde a MITRE ATT&CK T1070.005 (Indicator Removal: Network Share Connection Removal).",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique el nombre del recurso eliminado (p. ej. nombres ocultos con $, o nombres genéricos como 'test' o 'data').",
+        "Valide User y host: ¿es un administrador conocido trabajando en un servidor de archivos, o una cuenta de servicio o usuario estándar en una estación de trabajo?",
+        "Examine ParentImage y ParentCommandLine: cmd.exe o powershell.exe interactivos, scripts, wmiprvse.exe, psexesvc.exe o herramientas de acceso remoto cambian mucho el riesgo.",
+        "Busque en el mismo host, +/- 15 minutos, la creación previa del recurso ('net share NAME=...'), uso de 'net use', copia de archivos, compresión o borrado de logs.",
+        "Correlacione accesos SMB (eventos 5140/5145) al recurso eliminado y las IP de origen que se conectaron antes de su eliminación.",
+        "Consulte alertas anteriores del mismo usuario y host, sobre todo de movimiento lateral, credenciales o exfiltración."
+      ],
+      "false_positives": [
+        "Administradores o usuarios avanzados que eliminan sus propios recursos compartidos desde la línea de comandos.",
+        "Scripts de despliegue, mantenimiento o desmantelamiento de servidores de archivos que eliminan recursos temporales.",
+        "Instaladores o herramientas de soporte que crean y quitan recursos compartidos temporales."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host o el usuario si el cambio fue planificado; documente el ticket de cambio si existe.",
+        "Si no está justificado, aísle el endpoint, preserve la evidencia (memoria, logs de Security y SMB) y revise la actividad previa en el recurso.",
+        "Restablezca las credenciales de la cuenta involucrada y busque el mismo patrón en otros hosts.",
+        "Elimine artefactos o persistencia identificados y restaure los recursos compartidos legítimos que se hayan removido."
+      ],
+      "severity_rationale": "El nivel low es adecuado porque eliminar recursos compartidos es una tarea administrativa común, y solo resulta relevante si hay contexto sospechoso o actividad maliciosa relacionada."
+    },
+    "en": {
+      "summary": "net.exe or net1.exe ran with a command line containing 'share' and '/delete', which usually removes a network share or a share connection. This may be routine administration or post-intrusion cleanup.",
+      "what_it_detects": "Windows process creation where Image ends with \\net.exe or \\net1.exe (or OriginalFileName is net.exe or net1.exe) and CommandLine contains both 'share' and '/delete', for example 'net share Staging$ /delete'.",
+      "why_it_matters": "Attackers create shares to stage data or move laterally, then remove them to erase evidence. This maps to MITRE ATT&CK T1070.005, Indicator Removal: Network Share Connection Removal.",
+      "triage_steps": [
+        "Read the full CommandLine and note the removed share name, such as hidden $ shares or generic names like 'test' or 'data'.",
+        "Check User and host: a known admin on a file server, or a service account or standard user on a workstation?",
+        "Review ParentImage and ParentCommandLine: interactive cmd.exe or powershell.exe, scripts, wmiprvse.exe, psexesvc.exe or remote access tools change the risk considerably.",
+        "On the same host within +/- 15 minutes, look for earlier share creation ('net share NAME=...'), 'net use', file copying, archiving or log clearing.",
+        "Correlate SMB access events (5140/5145) to the removed share and the source IPs that connected before removal.",
+        "Check earlier alerts for the same user and host, especially lateral movement, credential access or exfiltration."
+      ],
+      "false_positives": [
+        "Administrators or power users removing their own shares from the command line.",
+        "Deployment, maintenance or file server decommissioning scripts removing temporary shares.",
+        "Installers or support tools that create and remove temporary shares."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or user whether the change was planned; record any change ticket.",
+        "If unexplained, isolate the endpoint, preserve evidence (memory, Security and SMB logs) and review prior activity on the share.",
+        "Reset credentials for the involved account and hunt for the same pattern on other hosts.",
+        "Remove identified artifacts or persistence and restore any legitimate shares that were removed."
+      ],
+      "severity_rationale": "Low fits because removing shares is a common administrative task that only matters alongside suspicious context or related malicious activity."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "net.exe deleting a hidden staging share from an interactive cmd session",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net share Staging$ /delete",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\cmd.exe\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "net1.exe spawned by net.exe removing a share, matched via OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "FS-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\net1.exe",
+          "OriginalFileName": "net1.exe",
+          "CommandLine": "C:\\Windows\\system32\\net1 share test_share /delete /y",
+          "ParentImage": "C:\\Windows\\System32\\net.exe",
+          "ParentCommandLine": "net share test_share /delete /y",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "net.exe listing shares without deleting anything",
+        "event": {
+          "EventID": 1,
+          "Computer": "FS-02.andes.example.com",
+          "User": "ANDES\\admin.rios",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net share",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "net.exe disconnecting a mapped drive; the command line lacks 'share'",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net use Z: /delete",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

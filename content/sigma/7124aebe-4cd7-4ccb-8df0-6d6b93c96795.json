@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "7124aebe-4cd7-4ccb-8df0-6d6b93c96795",
+    "title": "Suspicious Kernel Dump Using Dtrace",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_dtrace_kernel_dump.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_dtrace_kernel_dump.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1082"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó DTrace con la acción lkd(), que genera un volcado en vivo de la memoria del kernel. Es poco habitual fuera de tareas de depuración, por lo que puede indicar recolección de memoria sensible.",
+      "what_it_detects": "Eventos de creación de procesos en los que dtrace.exe incluye 'lkd(0)' en CommandLine. También detecta cualquier imagen, incluso un binario renombrado, cuyo CommandLine contenga a la vez 'syscall:::return' y 'lkd('.",
+      "why_it_matters": "DTrace está disponible en Windows desde Windows 10 19H1, y su acción lkd() escribe un volcado en vivo del kernel. Un atacante con privilegios de administrador puede analizarlo fuera del equipo para estudiar el sistema y extraer información sensible de la memoria. La regla lo asocia a System Information Discovery (T1082).",
+      "triage_steps": [
+        "Revise el CommandLine y el Image completos. Identifique la sonda (syscall:::return, BEGIN), el flag destructivo -w y el argumento de lkd().",
+        "Verifique la ruta y el hash del binario. Si dtrace.exe está renombrado o fuera de Program Files\\DTrace, sugiere evasión.",
+        "Analice ParentImage y su línea de comandos. Determine si lo lanzó una consola de administrador, un script, una herramienta remota o un servicio.",
+        "Confirme si el usuario y el equipo hacen depuración de kernel de forma legítima, por ejemplo un desarrollador de drivers o un laboratorio.",
+        "En el mismo host, busque en +/- 15 minutos 'bcdedit /set dtrace on', instalaciones del MSI de DTrace y reinicios.",
+        "Busque archivos .dmp nuevos, normalmente en C:\\Windows\\LiveKernelReports, y revise si se copiaron, comprimieron o subieron.",
+        "Pivote por usuario y host para encontrar alertas previas de acceso a credenciales, movimiento lateral o escalamiento de privilegios."
+      ],
+      "false_positives": [
+        "Desarrolladores de drivers o de kernel que capturan volcados en vivo con DTrace durante la depuración.",
+        "Soporte de Microsoft o de un fabricante que solicita un volcado en vivo para diagnosticar bloqueos o problemas de rendimiento.",
+        "Ejercicios autorizados de red team o investigación de seguridad en equipos de laboratorio."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del sistema si una tarea documentada de soporte o depuración justifica el volcado.",
+        "Si no está autorizado, aísle el host y preserve como evidencia los volcados y los binarios de DTrace.",
+        "Revise si el volcado se transfirió hacia afuera. Si pudo filtrarse memoria del kernel, restablezca las credenciales usadas en el host.",
+        "Desinstale DTrace si no se necesita, vuelva a desactivar la opción de arranque dtrace y restrinja los privilegios de administrador local."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque el volcado en vivo del kernel exige privilegios de administrador y el modo destructivo de DTrace, casi nunca tiene uso legítimo rutinario y expone memoria sensible."
+    },
+    "en": {
+      "summary": "A process ran DTrace with the lkd() action, which triggers a live kernel memory dump. Admins and developers rarely do this, so treat it as possible collection of sensitive kernel memory.",
+      "what_it_detects": "Process creation events where dtrace.exe has 'lkd(0)' in its CommandLine. It also catches any image, including a renamed binary, whose CommandLine contains both 'syscall:::return' and 'lkd('.",
+      "why_it_matters": "Windows 10 19H1 and later can run DTrace. Its lkd() action writes a live kernel dump. An attacker with admin rights can take that dump offline to explore system internals and pull out sensitive memory contents. The rule maps this to System Information Discovery (T1082).",
+      "triage_steps": [
+        "Read the full CommandLine and Image. Note the probe (syscall:::return, BEGIN), the -w destructive flag and the lkd() argument.",
+        "Check the image path and hash. A renamed or non-standard copy of dtrace.exe outside Program Files\\DTrace points to evasion.",
+        "Look at ParentImage and the parent command line. Find out who launched it: an interactive admin shell, a script, a remote tool or a service.",
+        "Find out whether the user and host are expected to do kernel debugging, for example a driver developer or a lab machine.",
+        "On the same host, search +/- 15 minutes for 'bcdedit /set dtrace on', DTrace MSI installs and reboots.",
+        "Look for new .dmp files, typically under C:\\Windows\\LiveKernelReports, and check whether anything copied, compressed or uploaded them.",
+        "Pivot on the user and host for earlier alerts covering credential access, lateral movement or privilege escalation."
+      ],
+      "false_positives": [
+        "Driver or kernel developers who capture live dumps with DTrace while debugging.",
+        "Microsoft or vendor support asking for a live kernel dump to diagnose a hang or performance problem.",
+        "Authorized red team or security research on lab systems."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether a documented support or debugging task explains the dump.",
+        "If it is not authorized, isolate the host, then preserve the dump files and the DTrace binaries as evidence.",
+        "Check for outbound transfers of the dump. If kernel memory may have leaked, reset credentials used on the host.",
+        "Remove DTrace if it isn't needed, turn the dtrace boot option back off, and limit local admin rights."
+      ],
+      "severity_rationale": "High fits because a live kernel dump requires admin rights and destructive DTrace mode, has almost no routine legitimate use, and exposes sensitive memory."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "dtrace.exe invoked in destructive mode to trigger a live kernel dump with lkd(0)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\DTrace\\dtrace.exe",
+          "CommandLine": "\"C:\\Program Files\\DTrace\\dtrace.exe\" -qwn \"BEGIN { lkd(0); exit(0); }\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed DTrace binary using a syscall:::return probe with lkd(), matching the obfuscated selection",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Users\\Public\\dt.exe",
+          "CommandLine": "dt.exe -wn \"syscall:::return { lkd(1); exit(0); }\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate DTrace usage counting syscalls per process, no lkd() action",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-LAB-03.andes.example.com",
+          "User": "ANDES\\dev.kernel",
+          "Image": "C:\\Program Files\\DTrace\\dtrace.exe",
+          "CommandLine": "\"C:\\Program Files\\DTrace\\dtrace.exe\" -n \"syscall:::return { @[execname] = count(); }\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Admin enabling DTrace via bcdedit; no dtrace probe or lkd in command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\bcdedit.exe",
+          "CommandLine": "bcdedit /set dtrace on",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

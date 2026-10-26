@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "ca2092a1-c273-4878-9b4b-0d60115bf5ea",
+    "title": "Suspicious Encoded PowerShell Command Line",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Markus Neis, Jonhnathan Ribeiro, Daniil Yugoslavskiy, Anton Kutepov, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_powershell_base64_encoded_cmd.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_base64_encoded_cmd.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "PowerShell (powershell.exe o pwsh.exe) se ejecutó con un comando codificado en base64 o con un patrón de codificación ofuscado conocido. Los loaders de malware como Emotet suelen usar esta técnica para ocultar el script real.",
+      "what_it_detects": "Eventos de creación de procesos donde Image u OriginalFileName corresponden a PowerShell y CommandLine incluye -e/-enc/-EncodedCommand seguido de prefijos base64 típicos de PowerShell en UTF-16LE (JAB, SQBFAFgA, aQBlAHgA, IAA, UwB, cwB), o las cadenas '.exe -ENCOD ' o ' BA^J e-' (invertida). Se excluyen las líneas que contienen ' -ExecutionPolicy remotesigned '.",
+      "why_it_matters": "Los comandos codificados ocultan lo que ejecuta PowerShell y suelen lanzar descargadores, robo de credenciales o movimiento lateral. Corresponde a ATT&CK T1059.001, intérprete de comandos y scripts: PowerShell.",
+      "triage_steps": [
+        "Copie el blob base64 de CommandLine y decodifíquelo como UTF-16LE en un entorno aislado. Busque download cradles, IEX, codificación anidada o ventana oculta.",
+        "Revise ParentImage y su línea de comandos. Si el padre es Office, wscript, mshta o un navegador, la actividad es sospechosa. Los agentes de gestión suelen ser legítimos.",
+        "Identifique el usuario que ejecutó el proceso. Confirme si suele usar PowerShell y si tiene privilegios.",
+        "Revise los procesos hijos y las conexiones de red del PID de PowerShell. Contraste los dominios e IP con threat intelligence.",
+        "Revise en el mismo host, en un rango de +/- 15 minutos, los archivos escritos y las tareas programadas, servicios o claves Run creados.",
+        "Busque el mismo payload decodificado o el mismo padre en otros hosts. Revise también las alertas previas del host y del usuario.",
+        "Si están disponibles, consulte los eventos de Script Block Logging (4104) para ver el script decodificado."
+      ],
+      "false_positives": [
+        "Herramientas de gestión de endpoints (SCCM/ConfigMgr, Intune, agentes RMM) que ejecutan scripts con -EncodedCommand.",
+        "Instaladores, agentes de monitoreo o automatizaciones administrativas que codifican comandos para evitar problemas de comillas.",
+        "Scripts internos aprobados de administración o despliegue. Confírmelos con el equipo responsable y agréguelos a la lista de permitidos por padre y hash."
+      ],
+      "response_steps": [
+        "Verificar: si el contenido decodificado es malicioso o no tiene explicación, escale el caso como incidente y preserve el proceso, la memoria y los logs.",
+        "Contener: aísle el endpoint desde el EDR y bloquee en el proxy y el firewall los IOC encontrados (dominios, IP, hashes).",
+        "Erradicar: elimine los archivos descargados y la persistencia después de verificarlos. Restablezca las credenciales del usuario si sospecha robo.",
+        "Recuperar: restaure el host a un estado confiable, siga vigilando el mismo payload y ajuste la lista de permitidos para las herramientas confirmadas como benignas."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque PowerShell codificado con estos prefijos es un indicador fuerte y frecuente de ejecución maliciosa, y su uso legítimo es limitado y fácil de identificar."
+    },
+    "en": {
+      "summary": "PowerShell (powershell.exe or pwsh.exe) started with a base64-encoded command, or with a known obfuscated encoding pattern. Malware loaders such as Emotet commonly use this to hide the real script.",
+      "what_it_detects": "Process creation events where Image or OriginalFileName is PowerShell and CommandLine contains an -e/-enc/-EncodedCommand switch followed by base64 prefixes typical of UTF-16LE PowerShell (JAB, SQBFAFgA, aQBlAHgA, IAA, UwB, cwB), or the strings '.exe -ENCOD ' or the reversed ' BA^J e-'. Command lines with ' -ExecutionPolicy remotesigned ' are excluded.",
+      "why_it_matters": "Encoded commands hide what PowerShell runs and often launch downloaders, credential theft or lateral movement. This is ATT&CK T1059.001, Command and Scripting Interpreter: PowerShell.",
+      "triage_steps": [
+        "Copy the base64 blob from CommandLine and decode it as UTF-16LE offline. Check for download cradles, IEX, nested encoding, or hidden-window flags.",
+        "Check ParentImage and the parent command line. Office apps, wscript, mshta, or browsers as parent point to malicious activity. Management agents are more often legitimate.",
+        "Find the user running the process. Check whether that account normally runs PowerShell and whether it is privileged.",
+        "Look at child processes and network connections from this PowerShell process ID. Check contacted domains and IPs against threat intelligence.",
+        "Review file writes, scheduled tasks, services, and Run keys created on the same host within +/- 15 minutes.",
+        "Search for the same decoded payload or parent on other hosts, and check earlier alerts for this host and user.",
+        "If available, check the PowerShell Script Block Logging events (4104) for the decoded script content."
+      ],
+      "false_positives": [
+        "Endpoint management tools (SCCM/ConfigMgr, Intune, RMM agents) that run scripts through -EncodedCommand.",
+        "Installers, monitoring agents or admin automation that encode commands to avoid quoting problems.",
+        "Approved internal admin or deployment scripts. Confirm with the owning team and allowlist by parent and hash."
+      ],
+      "response_steps": [
+        "Verify: if the decoded content is malicious or unexplained, escalate it as an incident and preserve process, memory, and logs.",
+        "Contain: isolate the endpoint through EDR and block the IOCs you found (domains, IPs, hashes) at the proxy and firewall.",
+        "Eradicate: remove dropped files and persistence after verifying them, and reset credentials for the affected user if theft is suspected.",
+        "Recover: restore the host from a known-good state, keep monitoring for the same payload, and tune allowlists for confirmed benign tools."
+      ],
+      "severity_rationale": "High fits because encoded PowerShell with these prefixes is a strong, common sign of malicious execution, and legitimate use is limited and easy to identify."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "powershell.exe launched by Word with hidden window and -enc payload starting with JAB (UTF-16LE '$')",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -nop -w hidden -enc JABzACAAPQAgACcAaABlAGwAbABvACcA",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n C:\\Users\\jperez\\Downloads\\factura.doc"
+        }
+      },
+      {
+        "description": "pwsh.exe with -EncodedCommand and payload starting with SQBFAFgA (UTF-16LE 'IEX')",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mgomez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "pwsh.exe -NoLogo -EncodedCommand SQBFAFgAIAAoACcAaABlAGwAbABvACcAKQA=",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Encoded command run with -ExecutionPolicy RemoteSigned, which the optional filter excludes",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-MGMT-01.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -EncodedCommand JABlAHIAcgBvAHIA",
+          "ParentImage": "C:\\Windows\\CCM\\CcmExec.exe"
+        }
+      },
+      {
+        "description": "PowerShell running a script file. ' -ExecutionPolicy' matches the -e switch check, but no base64 prefix is present",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\Scripts\\backup.ps1",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

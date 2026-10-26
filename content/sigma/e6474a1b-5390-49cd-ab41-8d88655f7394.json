@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "e6474a1b-5390-49cd-ab41-8d88655f7394",
+    "title": "Renamed Mavinject.EXE Execution",
+    "level": "high",
+    "status": "test",
+    "author": "frack113, Florian Roth",
+    "path": "windows/process_creation/proc_creation_win_renamed_mavinject.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_renamed_mavinject.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1055.001",
+      "T1218.013"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso cuyo OriginalFileName es mavinject32.exe o mavinject64.exe, pero cuyo nombre de archivo en disco (Image) fue cambiado. Es un indicio fuerte de que alguien renombró el inyector de Microsoft para inyectar una DLL sin llamar la atención.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde OriginalFileName (metadatos del PE) es mavinject32.exe o mavinject64.exe y la ruta de Image no termina en \\mavinject32.exe ni en \\mavinject64.exe.",
+      "why_it_matters": "Mavinject es el inyector de Microsoft Application Virtualization (App-V) y está firmado. Con /INJECTRUNNING carga una DLL arbitraria en un proceso en ejecución (T1055.001, inyección de DLL), usando un binario confiable como proxy (T1218.013). Renombrarlo sirve para evadir detecciones basadas en el nombre.",
+      "triage_steps": [
+        "Revise Image, CommandLine y OriginalFileName: busque /INJECTRUNNING, el PID de destino y la ruta de la DLL que se inyecta.",
+        "Identifique el proceso destino por su PID y valide si es sensible (lsass.exe, explorer.exe, navegadores) o de alto privilegio.",
+        "Obtenga el hash y la firma de la DLL referenciada; verifique su ruta, fecha de creación y reputación.",
+        "Analice ParentImage y la línea de comandos del padre para entender quién lanzó el binario renombrado.",
+        "Compare el hash de Image con el mavinject legítimo de System32 y determine cuándo y desde dónde se copió el archivo.",
+        "Pivotee en el mismo host +/- 15 minutos: procesos hijos, conexiones de red, cargas de módulos y escritura de archivos.",
+        "Revise el usuario que ejecutó el proceso y alertas previas del mismo host o usuario."
+      ],
+      "false_positives": [
+        "Poco probable según la regla; cualquier copia renombrada de mavinject merece investigarse.",
+        "Paquetes App-V o herramientas de empaquetado que copien el inyector con otro nombre; confírmelo con el equipo de aplicaciones.",
+        "El binario legítimo C:\\Windows\\System32\\mavinject.exe si su nombre no coincide con el filtro; valide la ruta y la firma, y ajuste la regla."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa validando la DLL, el proceso destino y el origen del binario renombrado.",
+        "Si se confirma, aísle el endpoint y preserve memoria del proceso inyectado antes de terminarlo.",
+        "Ponga en cuarentena el ejecutable renombrado y la DLL tras recolectar hashes y muestras.",
+        "Busque los mismos hashes y nombres de archivo en otros endpoints y bloquéelos en el EDR.",
+        "Revise la persistencia y las credenciales del usuario afectado; restablézcalas si el proceso destino manejaba secretos."
+      ],
+      "severity_rationale": "Es alta porque renombrar un inyector firmado de Microsoft casi no tiene uso legítimo y suele indicar inyección de código con evasión."
+    },
+    "en": {
+      "summary": "A process ran whose OriginalFileName is mavinject32.exe or mavinject64.exe, but whose on-disk name (Image) has been changed. This strongly suggests the Microsoft injector was renamed to inject a DLL quietly.",
+      "what_it_detects": "Windows process creation events where the PE metadata OriginalFileName is mavinject32.exe or mavinject64.exe and the Image path does not end in \\mavinject32.exe or \\mavinject64.exe.",
+      "why_it_matters": "Mavinject is the signed Microsoft App-V injector. With /INJECTRUNNING it loads an arbitrary DLL into a running process (T1055.001, DLL injection), using a trusted binary as a proxy (T1218.013). Renaming it evades name-based detections.",
+      "triage_steps": [
+        "Review Image, CommandLine and OriginalFileName; look for /INJECTRUNNING, the target PID and the DLL path being injected.",
+        "Identify the target process by PID and check whether it is sensitive (lsass.exe, explorer.exe, browsers) or highly privileged.",
+        "Collect hash and signature of the referenced DLL; check its path, creation time and reputation.",
+        "Examine ParentImage and the parent command line to see what launched the renamed binary.",
+        "Compare the Image hash to the legitimate System32 mavinject and find when and from where the file was copied.",
+        "Pivot on the same host +/- 15 minutes: child processes, network connections, module loads and file writes.",
+        "Check the executing user and earlier alerts for the same host or user."
+      ],
+      "false_positives": [
+        "Unlikely per the rule; any renamed mavinject copy deserves investigation.",
+        "App-V packages or packaging tools that copy the injector under another name; confirm with the application team.",
+        "The legitimate C:\\Windows\\System32\\mavinject.exe if its name is not covered by the filter; validate path and signature, then tune."
+      ],
+      "response_steps": [
+        "Confirm malicious activity by validating the DLL, the target process and the origin of the renamed binary.",
+        "If confirmed, isolate the endpoint and capture memory of the injected process before terminating it.",
+        "Quarantine the renamed executable and the DLL after collecting hashes and samples.",
+        "Hunt for the same hashes and file names on other endpoints and block them in EDR.",
+        "Review persistence and the affected user's credentials; reset them if the target process handled secrets."
+      ],
+      "severity_rationale": "High fits because renaming a signed Microsoft injector has almost no legitimate use and usually signals code injection with evasion."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Mavinject copied to a public folder as svchelper.exe and used with /INJECTRUNNING to inject a DLL into a running process.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "mavinject64.exe",
+          "CommandLine": "C:\\Users\\Public\\svchelper.exe 4321 /INJECTRUNNING C:\\Users\\Public\\update.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ProcessId": 6120
+        }
+      },
+      {
+        "description": "32-bit mavinject renamed to a benign-looking name in the temp folder.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\winhlp.exe",
+          "OriginalFileName": "mavinject32.exe",
+          "CommandLine": "winhlp.exe 2280 /INJECTRUNNING C:\\Users\\mrojas\\AppData\\Local\\Temp\\k.dll",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ProcessId": 3304
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Mavinject running under its original file name, excluded by the filter.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Program Files\\Microsoft Application Virtualization\\Client\\x64\\mavinject64.exe",
+          "OriginalFileName": "mavinject64.exe",
+          "CommandLine": "\"C:\\Program Files\\Microsoft Application Virtualization\\Client\\x64\\mavinject64.exe\" 1876 /INJECTRUNNING \"C:\\Program Files\\Microsoft Application Virtualization\\Client\\x64\\AppVEntSubsystems64.dll\"",
+          "ParentImage": "C:\\Program Files\\Microsoft Application Virtualization\\Client\\AppVClient.exe",
+          "ProcessId": 5012
+        }
+      },
+      {
+        "description": "Renamed binary whose OriginalFileName is not mavinject, so the selection does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "svchelper.exe C:\\Users\\Public\\update.dll,Start",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ProcessId": 7044
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

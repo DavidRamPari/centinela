@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "dfd2fcb7-8bd5-4daa-b132-5adb61d6ad45",
+    "title": "Windows Hotfix Updates Reconnaissance Via Wmic.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wmic_recon_hotfix.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmic_recon_hotfix.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1047"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó wmic.exe con el alias \"qfe\" para listar los hotfixes instalados en el equipo. Es un paso habitual de scripts de enumeración como winPEAS, que buscan parches faltantes para escalar privilegios.",
+      "what_it_detects": "Creación de un proceso cuyo Image termina en \\WMIC.exe u OriginalFileName es wmic.exe, y cuyo CommandLine contiene \" qfe\" (por ejemplo, \"wmic qfe get HotFixID,InstalledOn\").",
+      "why_it_matters": "Al saber qué parches faltan, un atacante puede elegir exploits locales de escalamiento de privilegios. La regla se asigna a T1047 (Windows Management Instrumentation), el abuso de WMI para ejecutar consultas y comandos.",
+      "triage_steps": [
+        "Revisar CommandLine completo: atributos consultados, uso de /node: hacia equipos remotos y redirección de la salida a archivos en Temp o carpetas públicas.",
+        "Identificar ParentImage y la cadena de procesos: cmd.exe desde un .bat desconocido, powershell.exe, procesos de Office o de servidor web resultan sospechosos.",
+        "Validar el usuario y el host: ¿es un administrador o una herramienta de gestión conocida, o una cuenta de servicio o de usuario estándar?",
+        "Buscar en el mismo host +/- 15 minutos otros comandos de reconocimiento: systeminfo, whoami /priv, net user, wmic service, icacls, reg query.",
+        "Buscar archivos de scripts de enumeración (winPEAS.bat, PowerUp) o binarios recién creados y obtener su hash.",
+        "Revisar alertas previas del mismo host y usuario, inicios de sesión recientes y su IP de origen."
+      ],
+      "false_positives": [
+        "Scripts de inventario o de cumplimiento de parches que consultan hotfixes con wmic.",
+        "Herramientas RMM o de soporte que recolectan información del sistema.",
+        "Administradores verificando manualmente la instalación de una actualización.",
+        "Pruebas de penetración o ejercicios de red team autorizados."
+      ],
+      "response_steps": [
+        "Confirmar con el dueño del equipo o el área de TI si la ejecución estaba prevista o forma parte de una herramienta aprobada.",
+        "Si no está autorizada, aislar el endpoint y preservar los scripts, la salida generada y la memoria del proceso padre.",
+        "Investigar intentos de escalamiento de privilegios posteriores y restablecer las credenciales de la cuenta involucrada.",
+        "Eliminar los artefactos maliciosos tras verificarlos, aplicar los parches faltantes y documentar exclusiones para herramientas legítimas."
+      ],
+      "severity_rationale": "Media: la consulta de hotfixes no causa daño por sí sola, pero es típica de la enumeración previa al escalamiento de privilegios y requiere revisión."
+    },
+    "en": {
+      "summary": "wmic.exe was run with the \"qfe\" alias to list installed hotfixes. This is a common step in enumeration scripts such as winPEAS that look for missing patches to escalate privileges.",
+      "what_it_detects": "A process creation where Image ends with \\WMIC.exe or OriginalFileName is wmic.exe, and CommandLine contains \" qfe\" (for example \"wmic qfe get HotFixID,InstalledOn\").",
+      "why_it_matters": "Knowing which patches are missing lets an attacker pick local privilege escalation exploits. The rule maps to T1047 (Windows Management Instrumentation), abuse of WMI to run queries and commands.",
+      "triage_steps": [
+        "Review the full CommandLine: queried attributes, /node: targeting remote hosts, and output redirected to files in Temp or public folders.",
+        "Check ParentImage and the process tree: cmd.exe from an unknown .bat, powershell.exe, Office or web server processes are suspicious.",
+        "Validate the user and host: known admin or management tool, or a service account or standard user?",
+        "Search the same host within +/- 15 minutes for other recon: systeminfo, whoami /priv, net user, wmic service, icacls, reg query.",
+        "Look for enumeration scripts (winPEAS.bat, PowerUp) or newly dropped binaries and collect their hashes.",
+        "Review earlier alerts for the same host and user, recent logons and their source IP."
+      ],
+      "false_positives": [
+        "Inventory or patch compliance scripts querying hotfixes with wmic.",
+        "RMM or support tools collecting system information.",
+        "Administrators manually checking that an update was installed.",
+        "Authorized penetration tests or red team exercises."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the execution was expected or part of an approved tool.",
+        "If unauthorized, isolate the endpoint and preserve scripts, generated output and parent process memory.",
+        "Hunt for follow-on privilege escalation attempts and reset credentials of the involved account.",
+        "Remove verified malicious artifacts, apply missing patches and document exclusions for legitimate tools."
+      ],
+      "severity_rationale": "Medium: listing hotfixes is harmless alone, but it is typical of enumeration before privilege escalation and warrants review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "wmic qfe launched from cmd.exe running an enumeration batch script in a user's Temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic qfe get Caption,Description,HotFixID,InstalledOn",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\jperez\\AppData\\Local\\Temp\\wp.bat",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "Renamed wmic binary identified by OriginalFileName, listing hotfixes",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\w.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "w.exe qfe list brief",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "wmic used for OS information without the qfe alias",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\it_admin",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic os get Caption,Version,BuildNumber",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Hotfixes queried through the Win32_QuickFixEngineering class path, so the ' qfe' substring is absent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\it_admin",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic path Win32_QuickFixEngineering get HotFixID",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

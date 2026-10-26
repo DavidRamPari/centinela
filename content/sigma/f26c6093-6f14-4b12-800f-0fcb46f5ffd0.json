@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "f26c6093-6f14-4b12-800f-0fcb46f5ffd0",
+    "title": "Malicious Base64 Encoded PowerShell Keywords in Command Lines",
+    "level": "high",
+    "status": "test",
+    "author": "John Lambert (rule)",
+    "path": "windows/process_creation/proc_creation_win_powershell_base64_hidden_flag.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_base64_hidden_flag.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó PowerShell con ventana oculta (' hidden ') y una cadena base64 que codifica palabras clave asociadas a loaders maliciosos, como CreateRemoteThread, IO.Compression o bitsadmin /transfer.",
+      "what_it_detects": "Procesos powershell.exe o pwsh.exe, identificados por Image o OriginalFileName para cubrir binarios renombrados, cuyo CommandLine contiene ' hidden ' y fragmentos base64, en ASCII o UTF-16LE y con distintos desplazamientos, de: bitsadmin /transfer, $chunk_size, IO.Compression, IO.MemoryStream, GetChunk, THREAD_INFO64, CreateRemoteThread o memmove.",
+      "why_it_matters": "Corresponde a T1059.001 (PowerShell). Ocultar la ventana y codificar en base64 son técnicas típicas para descargar, descomprimir en memoria o inyectar shellcode en otros procesos sin que el usuario lo note.",
+      "triage_steps": [
+        "Decodifique el base64 del CommandLine (de UTF-16LE si viene de -EncodedCommand) e identifique qué palabra clave aparece y qué hace el script.",
+        "Compare Image con OriginalFileName: un binario renombrado o fuera de System32 indica evasión deliberada.",
+        "Revise ParentImage y ParentCommandLine: Office, wscript, mshta, servicios o tareas programadas como padre elevan la sospecha.",
+        "Busque procesos hijos y conexiones de red del mismo host en +/- 15 minutos, sobre todo descargas, bitsadmin o accesos a procesos remotos.",
+        "Revise los eventos de Script Block Logging (4104) del host para obtener el script ya decodificado y las etapas posteriores.",
+        "Identifique al usuario y verifique si su cuenta muestra inicios de sesión inusuales o alertas previas.",
+        "Busque el mismo fragmento base64 o el mismo hash de comando en otros endpoints para medir el alcance."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; son poco comunes.",
+        "Herramientas legítimas de administración o despliegue que usan ventana oculta y descomprimen paquetes con IO.Compression o IO.MemoryStream.",
+        "Ejercicios autorizados de red team o pruebas de detección, por ejemplo con Atomic Red Team."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa con el script decodificado y consulte con el dueño del sistema si hay alguna explicación legítima.",
+        "Si se confirma, aísle el endpoint desde el EDR y conserve la memoria y los logs relevantes.",
+        "Bloquee los dominios, IP y hashes que aparezcan en el payload y busque esos indicadores en todo el entorno.",
+        "Elimine la persistencia asociada, como tareas, servicios o claves Run, y restablezca las credenciales del usuario afectado.",
+        "Restaure el equipo desde una imagen limpia si hubo inyección en procesos, y documente los hallazgos."
+      ],
+      "severity_rationale": "Es nivel alto porque la combinación de ventana oculta y estas API o rutinas codificadas en base64 casi nunca se ve en uso legítimo y suele indicar ejecución o inyección de código."
+    },
+    "en": {
+      "summary": "PowerShell ran with a hidden window (' hidden ') and a base64 string that encodes keywords common in malicious loaders, such as CreateRemoteThread, IO.Compression or bitsadmin /transfer.",
+      "what_it_detects": "powershell.exe or pwsh.exe processes, matched by Image or by OriginalFileName so renamed binaries are caught, whose CommandLine contains ' hidden ' plus base64 fragments (ASCII or UTF-16LE, at several offsets) of: bitsadmin /transfer, $chunk_size, IO.Compression, IO.MemoryStream, GetChunk, THREAD_INFO64, CreateRemoteThread or memmove.",
+      "why_it_matters": "This maps to T1059.001 (PowerShell). Hiding the window and base64-encoding the code are common ways to download payloads, decompress them in memory or inject shellcode into other processes without the user noticing.",
+      "triage_steps": [
+        "Decode the base64 in CommandLine (as UTF-16LE for -EncodedCommand), find which keyword matched and work out what the script does.",
+        "Compare Image with OriginalFileName. A renamed binary, or one outside System32, points to deliberate evasion.",
+        "Check ParentImage and ParentCommandLine. Office, wscript, mshta, services or scheduled tasks as the parent make this more suspicious.",
+        "On the same host within +/- 15 minutes, look for child processes and network connections, especially downloads, bitsadmin or handles opened to other processes.",
+        "Pull the host's Script Block Logging events (4104) to get the decoded script and any later stages.",
+        "Identify the user and check the account for unusual logons or earlier alerts.",
+        "Search other endpoints for the same base64 fragment or command hash to see how far this has spread."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives, and they are rare.",
+        "Legitimate admin or deployment tooling that runs hidden and unpacks content with IO.Compression or IO.MemoryStream.",
+        "Authorized red team exercises or detection tests, such as Atomic Red Team."
+      ],
+      "response_steps": [
+        "Confirm malicious intent from the decoded script, and ask the system owner whether there is a legitimate explanation.",
+        "If confirmed, isolate the endpoint through EDR and keep memory and relevant logs.",
+        "Block the domains, IPs and hashes found in the payload, and hunt for them across the environment.",
+        "Remove related persistence (tasks, services, Run keys) and reset the affected user's credentials.",
+        "If code was injected into other processes, reimage the host from a clean image, then document the findings."
+      ],
+      "severity_rationale": "High fits because a hidden window combined with these base64-encoded APIs and routines is almost never legitimate and usually means code execution or injection."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "powershell.exe launched by winword.exe with -w hidden and an encoded command containing $chunk_size in UTF-16LE base64",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -nop -noni -w hidden -enc JABjAGgAdQBuAGsAXwBzAGkAegBlAA0AIAA9ACAAMQAwADIANAA=",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"WINWORD.EXE\" /n \"C:\\Users\\jperez\\Downloads\\factura.docm\""
+        }
+      },
+      {
+        "description": "Renamed PowerShell binary (OriginalFileName PowerShell.EXE) running a hidden window with ASCII base64 of CreateRemoteThread",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "C:\\Users\\Public\\svchelper.exe -WindowStyle hidden -c \"$b=[Convert]::FromBase64String('Q3JlYXRlUmVtb3RlVGhyZWFk')\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate hidden PowerShell with an encoded Get-Date command; none of the malicious base64 keywords are present",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -w hidden -EncodedCommand RwBlAHQALQBEAGEAdABlAA==",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule"
+        }
+      },
+      {
+        "description": "Encoded command containing the $chunk_size keyword but run without the hidden window flag, so selection_hidden does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NoProfile -NonInteractive -EncodedCommand JABjAGgAdQBuAGsAXwBzAGkAegBlAA0AIAA9ACAAMQAwADIANAA=",
+          "ParentImage": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

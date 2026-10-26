@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "9df0dd3a-1a5c-47e3-a2bc-30ed177646a0",
+    "title": "Remote Code Execute via Winrm.vbs",
+    "level": "medium",
+    "status": "test",
+    "author": "Julia Fomina, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_winrm_execution_via_scripting_api_winrm_vbs.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_winrm_execution_via_scripting_api_winrm_vbs.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1216"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó cscript.exe con winrm.vbs para invocar el método Create de una clase Win32_ (por ejemplo Win32_Process o Win32_Service) en un host remoto por WinRM. Puede indicar ejecución remota de código o movimiento lateral.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\cscript.exe (u OriginalFileName es cscript.exe) y CommandLine contiene 'winrm', 'invoke Create wmicimv2/Win32_' y '-r:http', es decir, una invocación WMI remota a través del script firmado winrm.vbs.",
+      "why_it_matters": "winrm.vbs es un script firmado de Microsoft que se puede abusar para crear procesos o servicios en otros equipos sin herramientas adicionales (T1216, ejecución mediante proxy de scripts del sistema). Así el atacante pasa desapercibido y puede moverse lateralmente con credenciales válidas.",
+      "triage_steps": [
+        "Revise CommandLine completo: clase invocada (Win32_Process, Win32_Service), comando o binario a ejecutar y host destino indicado en -r:http(s)://.",
+        "Identifique el usuario que ejecutó cscript.exe y si su rol justifica administrar remotamente ese destino.",
+        "Analice ParentImage y la cadena de procesos padre: cmd.exe, powershell.exe, mshta.exe o una aplicación de Office son sospechosos.",
+        "Busque en el host origen otros procesos, conexiones de red y alertas del mismo usuario en +/- 15 minutos.",
+        "En el host destino, busque wsmprovhost.exe o WmiPrvSE.exe creando procesos hijos, servicios nuevos (evento 7045) e inicios de sesión de red (4624 tipo 3).",
+        "Verifique si el comando remoto descarga archivos, ejecuta código codificado o crea persistencia.",
+        "Revise alertas previas de ambos hosts y del usuario, y el uso de la misma cuenta desde otros orígenes."
+      ],
+      "false_positives": [
+        "Administradores o scripts de mantenimiento que usan winrm.vbs para lanzar procesos o servicios remotos; valide con el equipo de TI y el registro de cambios.",
+        "Herramientas de despliegue o inventario heredadas que dependen de winrm.vbs para ejecución remota."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y su responsable si la acción fue autorizada antes de actuar.",
+        "Si no está autorizada, aísle el host origen y el destino del endpoint y deshabilite o restablezca la cuenta usada.",
+        "Elimine procesos, servicios o archivos creados en el destino tras documentarlos y preservar evidencia.",
+        "Restrinja WinRM a hosts de administración autorizados y revise el alcance del movimiento lateral en otros equipos."
+      ],
+      "severity_rationale": "Nivel medio: la combinación es poco común y muy específica de ejecución remota, pero puede tener uso administrativo legítimo que requiere validación."
+    },
+    "en": {
+      "summary": "cscript.exe ran winrm.vbs to invoke the Create method of a Win32_ class (such as Win32_Process or Win32_Service) on a remote host over WinRM. This may indicate remote code execution or lateral movement.",
+      "what_it_detects": "Process creation where Image ends with \\cscript.exe (or OriginalFileName is cscript.exe) and CommandLine contains 'winrm', 'invoke Create wmicimv2/Win32_' and '-r:http', i.e. a remote WMI invocation through the signed winrm.vbs script.",
+      "why_it_matters": "winrm.vbs is a Microsoft-signed script that can be abused to create processes or services on other machines without extra tooling (T1216, System Script Proxy Execution). It helps attackers blend in and move laterally with valid credentials.",
+      "triage_steps": [
+        "Read the full CommandLine: invoked class (Win32_Process, Win32_Service), command or binary to run, and target host in -r:http(s)://.",
+        "Identify the user who ran cscript.exe and whether their role justifies remote administration of that target.",
+        "Review ParentImage and the parent chain; cmd.exe, powershell.exe, mshta.exe or an Office application are suspicious.",
+        "On the source host, check other processes, network connections and alerts for the same user within +/- 15 minutes.",
+        "On the target host, look for wsmprovhost.exe or WmiPrvSE.exe spawning children, new services (event 7045) and network logons (4624 type 3).",
+        "Check whether the remote command downloads files, runs encoded code or creates persistence.",
+        "Review earlier alerts for both hosts and the user, and use of the same account from other sources."
+      ],
+      "false_positives": [
+        "Administrators or maintenance scripts using winrm.vbs to start remote processes or services; validate with IT and the change log.",
+        "Legacy deployment or inventory tools that rely on winrm.vbs for remote execution."
+      ],
+      "response_steps": [
+        "Confirm with the user and their manager whether the action was authorized before acting.",
+        "If unauthorized, isolate the source and target endpoints and disable or reset the account used.",
+        "Remove processes, services or files created on the target after documenting them and preserving evidence.",
+        "Restrict WinRM to authorized admin hosts and scope lateral movement across other machines."
+      ],
+      "severity_rationale": "Medium: the combination is rare and specific to remote execution, but legitimate administrative use exists and needs validation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cscript runs winrm.vbs to create a remote process via Win32_Process over HTTP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cscript.exe",
+          "OriginalFileName": "cscript.exe",
+          "CommandLine": "cscript //nologo C:\\Windows\\System32\\winrm.vbs invoke Create wmicimv2/Win32_Process @{CommandLine=\"notepad.exe\"} -r:http://srv-fs01.example.com:5985",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat"
+        }
+      },
+      {
+        "description": "Renamed cscript identified by OriginalFileName creates a remote service via Win32_Service over HTTPS",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\cs.exe",
+          "OriginalFileName": "cscript.exe",
+          "CommandLine": "cs.exe C:\\Windows\\System32\\winrm.vbs invoke Create wmicimv2/Win32_Service @{Name=\"updsvc\";DisplayName=\"updsvc\";PathName=\"C:\\Windows\\Temp\\upd.exe\"} -r:https://srv-app02.example.com:5986",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator reads remote WinRM configuration with winrm.vbs; no invoke Create",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\System32\\cscript.exe",
+          "OriginalFileName": "cscript.exe",
+          "CommandLine": "cscript //nologo C:\\Windows\\System32\\winrm.vbs get winrm/config -r:http://srv-fs01.example.com:5985",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Local invoke Create without a remote -r:http target",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\System32\\cscript.exe",
+          "OriginalFileName": "cscript.exe",
+          "CommandLine": "cscript //nologo C:\\Windows\\System32\\winrm.vbs invoke Create wmicimv2/Win32_Process @{CommandLine=\"notepad.exe\"}",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

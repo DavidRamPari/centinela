@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "d7662ff6-9e97-4596-a61d-9839e32dee8d",
+    "title": "Add SafeBoot Keys Via Reg Utility",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_reg_add_safeboot.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reg_add_safeboot.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó reg.exe con los parámetros add o copy sobre la clave HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot. Esto puede registrar un servicio o programa para que se cargue en modo seguro, una técnica que usa el ransomware para evadir productos de seguridad.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\reg.exe u OriginalFileName es reg.exe, y CommandLine contiene la ruta \\SYSTEM\\CurrentControlSet\\Control\\SafeBoot junto con ' add ' o ' copy '.",
+      "why_it_matters": "Las subclaves SafeBoot\\Minimal y SafeBoot\\Network definen qué servicios se inician en modo seguro. Si un atacante agrega ahí su servicio y reinicia en modo seguro, el ransomware corre sin muchas soluciones EDR o antivirus. La regla lo clasifica como debilitamiento de defensas (ATT&CK T1685).",
+      "triage_steps": [
+        "Lee el CommandLine completo: identifica la subclave (Minimal o Network), el nombre del servicio o valor agregado y, en un copy, la clave de origen y la de destino.",
+        "Comprueba si el nombre agregado corresponde a un servicio legítimo conocido o a un servicio nuevo o desconocido en el host.",
+        "Revisa ParentImage y la cadena de procesos padre: cmd.exe, powershell.exe, scripts .bat o herramientas de acceso remoto son sospechosos.",
+        "Valida el usuario que lo ejecutó y su nivel de privilegio; confirma si es una cuenta administrativa esperada en ese equipo.",
+        "Pivota en el mismo host +/- 15 minutos: creación de servicios (sc.exe, evento 7045), bcdedit con safeboot, borrado de shadow copies o shutdown /r.",
+        "Si Image no termina en reg.exe pero OriginalFileName sí, trátalo como binario renombrado y aumenta la prioridad.",
+        "Busca el mismo CommandLine o el mismo usuario en otros hosts y revisa alertas previas de la entidad."
+      ],
+      "false_positives": [
+        "La regla indica que los falsos positivos son improbables.",
+        "Herramientas de seguridad o de soporte que se registran a propósito para funcionar en modo seguro, cuando el instalador usa reg.exe.",
+        "Scripts de administradores para diagnóstico o recuperación que habilitan un servicio específico en modo seguro."
+      ],
+      "response_steps": [
+        "Confirma con el dueño del equipo o el área de TI si el cambio estaba autorizado; si no lo estaba, escala como posible incidente de ransomware.",
+        "Aísla el endpoint de la red y evita que se reinicie, en especial en modo seguro; revisa la configuración BCD por si tiene la opción safeboot.",
+        "Exporta la clave SafeBoot como evidencia y luego elimina las entradas no autorizadas, junto con el servicio y el binario relacionados.",
+        "Revisa las credenciales usadas, restablécelas si están comprometidas y busca movimiento lateral desde ese host antes de restaurar el servicio."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque modificar SafeBoot con reg.exe rara vez es legítimo y suele preceder al cifrado por ransomware."
+    },
+    "en": {
+      "summary": "reg.exe was run with add or copy against HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot. This can register a service or program to load in Safe Mode, a technique ransomware uses to evade security products.",
+      "what_it_detects": "Process creation events where Image ends with \\reg.exe or OriginalFileName is reg.exe, and CommandLine contains \\SYSTEM\\CurrentControlSet\\Control\\SafeBoot together with ' add ' or ' copy '.",
+      "why_it_matters": "The SafeBoot\\Minimal and SafeBoot\\Network subkeys control which services start in Safe Mode. If attackers add their service there and reboot into Safe Mode, ransomware runs while many EDR and antivirus tools stay off. The rule tags this as defense impairment (ATT&CK T1685).",
+      "triage_steps": [
+        "Read the full CommandLine: note the subkey (Minimal or Network), the added service or value name, and for copy the source and destination keys.",
+        "Check whether the added name is a known legitimate service, or a new or unknown service on the host.",
+        "Review ParentImage and the parent chain: cmd.exe, powershell.exe, .bat scripts or remote access tools are suspicious.",
+        "Check the executing user and their privileges, and confirm whether an admin account would normally run this on that host.",
+        "Pivot on the same host +/- 15 minutes: service creation (sc.exe, event 7045), bcdedit safeboot, shadow copy deletion, or shutdown /r.",
+        "If Image does not end in reg.exe but OriginalFileName does, treat it as a renamed binary and raise priority.",
+        "Search for the same CommandLine or user on other hosts and review earlier alerts for these entities."
+      ],
+      "false_positives": [
+        "The rule lists false positives as unlikely.",
+        "Security or support tools that deliberately register themselves to run in Safe Mode, when their installer calls reg.exe.",
+        "Admin scripts for diagnostics or recovery that enable a specific service in Safe Mode."
+      ],
+      "response_steps": [
+        "Confirm with the asset owner or IT whether the change was authorized; if it was not, escalate it as a possible ransomware incident.",
+        "Isolate the endpoint and prevent reboots, especially into Safe Mode; check the BCD configuration for a safeboot option.",
+        "Export the SafeBoot key as evidence, then remove unauthorized entries and the related service and binary.",
+        "Review the credentials used, reset them if compromised, and hunt for lateral movement from the host before restoring service."
+      ],
+      "severity_rationale": "High fits because changing SafeBoot keys with reg.exe is rarely legitimate and often comes right before ransomware encryption."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe adds an unknown service to SafeBoot\\Minimal from a batch script",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot\\Minimal\\UpdSvcHost\" /VE /T REG_SZ /F /D \"Service\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat"
+        }
+      },
+      {
+        "description": "Renamed reg.exe (OriginalFileName match) copies SafeBoot\\Minimal into SafeBoot\\Network",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\r.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "r.exe copy HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot\\Minimal HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot\\Network /s /f",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "reg.exe only queries the SafeBoot key (no add or copy)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe query HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot\\Minimal /s",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "reg.exe add on a regular service key, not SafeBoot",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0188.andes.example.com",
+          "User": "ANDES\\admin_ti",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe add HKLM\\SYSTEM\\CurrentControlSet\\Services\\Spooler /v Start /t REG_DWORD /d 4 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

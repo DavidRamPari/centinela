@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "f26307d8-14cd-47e3-a26b-4b4769f24af6",
+    "title": "HackTool - CrackMapExec Process Patterns",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_crackmapexec_patterns.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_crackmapexec_patterns.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "La línea de comandos de un proceso coincidió con los patrones que usa CrackMapExec para ubicar el proceso LSASS y volcar su memoria con comsvcs.dll MiniDump o procdump. Normalmente indica robo remoto de credenciales desde este equipo.",
+      "what_it_detects": "Tres patrones de CrackMapExec en CommandLine: cmd /c|/r|/k como SYSTEM ejecutando 'tasklist /fi \"Imagename eq lsass.exe\"'; un bucle for con 'rundll32.exe comsvcs.dll, MiniDump %%B' que genera un volcado full en \\Windows\\Temp\\; o 'tasklist /v /fo csv' con 'findstr /i \"lsass\"'.",
+      "why_it_matters": "Volcar la memoria de LSASS (ATT&CK T1003.001, OS Credential Dumping: LSASS Memory) expone hashes, tickets Kerberos y a veces contraseñas en texto claro, lo que facilita el movimiento lateral y la escalada de privilegios en el dominio.",
+      "triage_steps": [
+        "Lea la CommandLine completa e identifique el patrón: búsqueda del PID de LSASS, MiniDump con comsvcs o consulta tasklist/findstr de lsass.",
+        "Revise User y ParentImage; services.exe o WmiPrvSE.exe lanzando cmd.exe como SYSTEM sugiere ejecución remota tipo smbexec o wmiexec.",
+        "Busque archivos .dmp creados en C:\\Windows\\Temp\\ en el equipo dentro de +/- 15 minutos; anote nombre, tamaño y si se borraron.",
+        "Revise inicios de sesión (4624 tipo 3, 4672) en el equipo alrededor de la alerta para obtener la IP de origen y la cuenta usada.",
+        "Pivotee por esa IP y cuenta buscando alertas similares o creación de servicios (7045) en otros equipos.",
+        "Verifique alertas previas en este equipo y lecturas SMB del archivo de volcado desde el origen remoto."
+      ],
+      "false_positives": [
+        "La regla no indica falsos positivos conocidos; los scripts administrativos rara vez combinan estos patrones exactos.",
+        "Pruebas de penetración o ejercicios de red team autorizados con CrackMapExec o NetExec; confirme alcance e IP de origen."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del sistema y el equipo de seguridad si había una prueba autorizada; si no, trátelo como incidente.",
+        "Aísle el equipo y bloquee la IP de origen o deshabilite la cuenta de origen tras preservar evidencia.",
+        "Capture memoria y logs; adquiera los volcados de LSASS para forense y luego elimínelos de forma segura.",
+        "Restablezca credenciales de todas las cuentas con sesión en el equipo, incluidas privilegiadas y de servicio; evalúe rotar krbtgt si hubo exposición de administradores de dominio.",
+        "Busque el mismo origen y patrones en todo el dominio y refuerce: LSA protection (RunAsPPL), Credential Guard y sin reutilizar administradores locales."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque estas líneas de comandos son propias de una herramienta ofensiva que vuelca credenciales y casi no tienen explicación legítima."
+    },
+    "en": {
+      "summary": "A process command line matched patterns that CrackMapExec uses to locate the LSASS process and dump its memory with comsvcs.dll MiniDump or procdump. This usually means someone is remotely harvesting credentials from this host.",
+      "what_it_detects": "Three CrackMapExec patterns in CommandLine: a SYSTEM-level cmd /c|/r|/k running 'tasklist /fi \"Imagename eq lsass.exe\"'; a for-loop calling 'rundll32.exe comsvcs.dll, MiniDump %%B' writing a full dump to \\Windows\\Temp\\; or 'tasklist /v /fo csv' piped to 'findstr /i \"lsass\"'.",
+      "why_it_matters": "Dumping LSASS memory (ATT&CK T1003.001, OS Credential Dumping: LSASS Memory) exposes password hashes, Kerberos tickets and sometimes cleartext credentials, which enables lateral movement and privilege escalation across the domain.",
+      "triage_steps": [
+        "Read the full CommandLine and identify which pattern matched: LSASS PID discovery, comsvcs MiniDump, or tasklist/findstr lsass lookup.",
+        "Check User and ParentImage; services.exe or WmiPrvSE.exe spawning cmd.exe as SYSTEM suggests remote smbexec/wmiexec-style execution.",
+        "Look for a .dmp file created under C:\\Windows\\Temp\\ on the host within +/- 15 minutes and note its name, size and deletion.",
+        "Review logon events (4624 type 3, 4672) on the host around the alert to find the source IP and account used.",
+        "Pivot on that source IP and account for similar alerts or service creations (7045) on other hosts.",
+        "Check for earlier alerts on this host and for outbound SMB reads of the dump file from the remote source."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; legitimate admin scripts rarely combine these exact patterns.",
+        "Authorized penetration tests or red-team exercises using CrackMapExec or NetExec; confirm against the engagement scope and source IPs."
+      ],
+      "response_steps": [
+        "Confirm with the system owner and security team whether an authorized test was running; if not, treat as an incident.",
+        "Isolate the host from the network and block the source IP or disable the source account after preserving evidence.",
+        "Collect and securely delete any LSASS dump files once acquired for forensics; capture memory and event logs first.",
+        "Reset credentials of all accounts logged on to the host, including privileged and service accounts; consider krbtgt reset if domain admins were exposed.",
+        "Hunt for the same source and patterns domain-wide, then harden: enable LSA protection (RunAsPPL) and Credential Guard, and restrict local admin reuse."
+      ],
+      "severity_rationale": "High fits because these command lines are specific to an offensive tool performing credential dumping, with very few benign explanations."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "CrackMapExec smbexec-style LSASS PID discovery via cmd.exe /c running as NT AUTHORITY\\SYSTEM (selection_lsass_dump1).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c tasklist /fi \"Imagename eq lsass.exe\" | find \"lsass\"",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\services.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "CrackMapExec comsvcs.dll MiniDump for-loop writing a full LSASS dump to \\Windows\\Temp\\ (selection_lsass_dump2).",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /Q /c for /f \"tokens=1,2 delims= \" ^%%A in ('\"tasklist /fi \"Imagename eq lsass.exe\" | find \"lsass\"\"') do rundll32.exe C:\\windows\\System32\\comsvcs.dll, MiniDump ^%%B \\Windows\\Temp\\kXq2.dmp full",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\services.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Help desk user checking LSASS with tasklist from an interactive cmd; the User is not NT AUTHORITY, so selection_lsass_dump1 does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c tasklist /fi \"Imagename eq lsass.exe\"",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Admin exporting the process list as CSV and filtering for explorer, not lsass, so selection_procdump does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c tasklist /v /fo csv | findstr /i \"explorer\"",
+          "User": "ANDES\\mlopez",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

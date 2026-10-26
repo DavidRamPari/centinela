@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "b2b048b0-7857-4380-b0fb-d3f0ab820b71",
+    "title": "Self Extracting Package Creation Via Iexpress.EXE From Potentially Suspicious Location",
+    "level": "high",
+    "status": "test",
+    "author": "Joseliyo Sanchez, @Joseliyo_Jstnk, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_iexpress_susp_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_iexpress_susp_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "iexpress.exe se ejecutó con la opción /n para compilar un paquete autoextraíble a partir de un archivo SED ubicado en una ruta temporal o poco común. Puede indicar que un atacante está empaquetando un payload para ejecutarlo o distribuirlo.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\iexpress.exe u OriginalFileName es IEXPRESS.exe, la CommandLine contiene la opción /n (o -n) y hace referencia a rutas como ProgramData, Temp, AppData\\Local\\Temp o Windows\\Tasks.",
+      "why_it_matters": "IExpress es un binario firmado de Windows que puede generar ejecutables autoextraíbles que instalan y lanzan otros archivos. Abusar de él permite ejecutar código mediante un binario de confianza (T1218, System Binary Proxy Execution) y evadir controles.",
+      "triage_steps": [
+        "Revise la CommandLine completa: ubique la ruta del archivo .sed y las opciones /q y /m, que indican compilación silenciosa sin interacción del usuario.",
+        "Compare Image con OriginalFileName; si iexpress.exe fue renombrado o copiado fuera de System32, aumente la prioridad.",
+        "Identifique ParentImage y la cadena de procesos padre: scripts, cmd.exe, PowerShell, wscript o documentos de Office son sospechosos.",
+        "Obtenga el archivo SED y revise TargetName, AppLaunched, PostInstallCmd y las entradas FILE para conocer qué se empaquetó y qué se ejecutará.",
+        "Busque en el mismo host, +/- 15 minutos, la creación del ejecutable de salida y su ejecución posterior, incluidos procesos wextract.exe y makecab.exe.",
+        "Calcule el hash del ejecutable generado y de los archivos incluidos; consulte su reputación e inteligencia interna.",
+        "Verifique si el usuario realiza tareas de empaquetado de software y revise alertas previas del mismo usuario y host."
+      ],
+      "false_positives": [
+        "Administradores o equipos de TI que crean paquetes de instalación con iexpress.exe usando archivos SED temporales.",
+        "Herramientas de empaquetado o despliegue de software que generan archivos SED en Temp o ProgramData durante la compilación."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de TI si el empaquetado era esperado y documentado.",
+        "Si no es legítimo, aísle el endpoint y preserve el archivo SED, el ejecutable generado y los archivos incluidos para análisis.",
+        "Bloquee los hashes identificados y busque el mismo ejecutable o SED en otros endpoints.",
+        "Elimine los artefactos maliciosos y la persistencia asociada tras verificarlos; restablezca credenciales si hubo ejecución del payload."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque compilar paquetes silenciosamente desde rutas temporales es poco común en usuarios legítimos y ha sido observado en ataques reales."
+    },
+    "en": {
+      "summary": "iexpress.exe ran with the /n switch to build a self-extracting package from a SED file stored in a temporary or uncommon location. This may mean an attacker is packaging a payload for execution or delivery.",
+      "what_it_detects": "Process creation where Image ends with \\iexpress.exe or OriginalFileName is IEXPRESS.exe, CommandLine contains the /n (or -n) switch, and references paths such as ProgramData, Temp, AppData\\Local\\Temp or Windows\\Tasks.",
+      "why_it_matters": "IExpress is a signed Windows binary that builds self-extracting executables able to drop and launch other files. Abusing it proxies execution through a trusted binary (T1218, System Binary Proxy Execution) to evade defenses.",
+      "triage_steps": [
+        "Read the full CommandLine: locate the .sed file path and the /q and /m switches, which indicate a silent build without user interaction.",
+        "Compare Image with OriginalFileName; a renamed iexpress.exe or a copy outside System32 raises priority.",
+        "Identify ParentImage and the parent chain: scripts, cmd.exe, PowerShell, wscript or Office documents are suspicious.",
+        "Collect the SED file and review TargetName, AppLaunched, PostInstallCmd and FILE entries to learn what was packaged and what will run.",
+        "On the same host within +/- 15 minutes, look for the output executable being written and later executed, including wextract.exe and makecab.exe activity.",
+        "Hash the generated executable and bundled files; check reputation and internal threat intelligence.",
+        "Check whether the user does software packaging and review earlier alerts for the same user and host."
+      ],
+      "false_positives": [
+        "Administrators or IT staff building installer packages with iexpress.exe from temporary SED files.",
+        "Packaging or software deployment tools that write SED files to Temp or ProgramData during builds."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT team whether the packaging was expected and documented.",
+        "If not legitimate, isolate the endpoint and preserve the SED file, generated executable and bundled files for analysis.",
+        "Block identified hashes and hunt for the same executable or SED on other endpoints.",
+        "After verification, remove malicious artifacts and related persistence; reset credentials if the payload executed."
+      ],
+      "severity_rationale": "High fits because silent package builds from temporary paths are rare for legitimate users and have been observed in real intrusions."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "iexpress.exe silently building a package from a SED file in the user's AppData\\Local\\Temp, launched by wscript.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\iexpress.exe",
+          "OriginalFileName": "IEXPRESS.exe",
+          "CommandLine": "C:\\Windows\\System32\\iexpress.exe /n /q /m C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.sed",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\Downloads\\invoice.js",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "Renamed IExpress copy (matched by OriginalFileName) using the -n dash variant with a SED file in ProgramData.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svc\\pkgtool.exe",
+          "OriginalFileName": "IEXPRESS.exe",
+          "CommandLine": "pkgtool.exe -n -q -m C:\\ProgramData\\svc\\build.sed",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\ProgramData\\svc\\run.bat",
+          "CurrentDirectory": "C:\\ProgramData\\svc\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator building an installer with iexpress.exe /n from a SED file in a documents folder, not a suspicious path.",
+        "event": {
+          "EventID": 1,
+          "Computer": "IT-PKG-01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\iexpress.exe",
+          "OriginalFileName": "IEXPRESS.exe",
+          "CommandLine": "C:\\Windows\\System32\\iexpress.exe /n /q C:\\Users\\adm_lgomez\\Documents\\Packaging\\vpnclient.sed",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CurrentDirectory": "C:\\Users\\adm_lgomez\\Documents\\Packaging\\"
+        }
+      },
+      {
+        "description": "iexpress.exe opening the wizard to edit a SED file in Temp without the /n build switch.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\iexpress.exe",
+          "OriginalFileName": "IEXPRESS.exe",
+          "CommandLine": "C:\\Windows\\System32\\iexpress.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\draft.sed",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

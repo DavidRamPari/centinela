@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "52788a70-f1da-40dd-8fbd-73b5865d6568",
+    "title": "JScript Compiler Execution",
+    "level": "low",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_jsc_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_jsc_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1127"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó jsc.exe, el compilador JScript de .NET Framework, o un binario renombrado cuyo OriginalFileName es jsc.exe. Puede ser trabajo legítimo de desarrollo o un intento de compilar código malicioso para evadir controles de aplicaciones.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\jsc.exe u OriginalFileName es jsc.exe. Esta segunda condición también detecta copias renombradas del compilador.",
+      "why_it_matters": "jsc.exe es una utilidad firmada por Microsoft que compila archivos JScript (.js) en ejecutables o DLL de .NET. Un atacante puede usarla para generar payloads en el propio equipo y así evitar las listas blancas de aplicaciones (ATT&CK T1127, Trusted Developer Utilities Proxy Execution).",
+      "triage_steps": [
+        "Revise Image y OriginalFileName. Si la ruta no está en C:\\Windows\\Microsoft.NET\\Framework*, considere el binario renombrado o copiado como sospechoso.",
+        "Analice CommandLine: identifique el archivo .js de origen y la salida indicada con /out o /target. Las rutas en Temp, AppData, Public o Downloads son señales de alerta.",
+        "Revise ParentImage y la línea de comandos del proceso padre. Es sospechoso que el padre sea Office, wscript, mshta, PowerShell o un navegador.",
+        "Valide si el usuario y el host son de desarrollo y si alguna vez usaron jsc.exe. Consulte con el equipo responsable.",
+        "Busque en el mismo host, dentro de +/- 15 minutos, la creación y la ejecución del .exe o .dll compilado y sus procesos hijos.",
+        "Obtenga el .js de origen y el binario generado, calcule su hash y revise su reputación y su contenido.",
+        "Revise las conexiones de red y las alertas anteriores del mismo host y usuario."
+      ],
+      "false_positives": [
+        "Desarrolladores que compilan JScript .NET de forma legítima en sus estaciones.",
+        "Scripts de build o instaladores antiguos que invocan jsc.exe desde la ruta estándar de .NET Framework.",
+        "Herramientas de administración internas que compilan utilidades JScript."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con el responsable del sistema si la compilación era esperada y documente el resultado.",
+        "Si es malicioso, aísle el endpoint y termine los procesos derivados del binario compilado.",
+        "Ponga en cuarentena el .js de origen y el ejecutable generado, y busque sus hashes en el resto de los endpoints.",
+        "Elimine los mecanismos de persistencia relacionados y restablezca las credenciales del usuario si hay indicios de compromiso.",
+        "Considere bloquear jsc.exe con AppLocker o WDAC en equipos que no son de desarrollo."
+      ],
+      "severity_rationale": "Nivel low porque jsc.exe tiene usos legítimos en desarrollo y por sí solo no prueba actividad maliciosa, aunque merece revisión en equipos que no son de desarrollo."
+    },
+    "en": {
+      "summary": "jsc.exe ran. It is the .NET Framework JScript compiler, or a renamed binary whose OriginalFileName is jsc.exe. This may be legitimate development work or an attempt to compile malicious code to get past application controls.",
+      "what_it_detects": "Windows process creation events where Image ends with \\jsc.exe or OriginalFileName is jsc.exe. The second condition also catches renamed copies of the compiler.",
+      "why_it_matters": "jsc.exe is a Microsoft-signed utility that compiles JScript (.js) files into .NET executables or DLLs. Attackers can use it to build payloads on the host itself and get around application allowlisting (ATT&CK T1127, Trusted Developer Utilities Proxy Execution).",
+      "triage_steps": [
+        "Check Image and OriginalFileName. If the path is outside C:\\Windows\\Microsoft.NET\\Framework*, treat it as a suspicious renamed or copied binary.",
+        "Inspect CommandLine: find the source .js file and the output set with /out or /target. Paths in Temp, AppData, Public or Downloads are red flags.",
+        "Review ParentImage and the parent's command line. A parent such as Office, wscript, mshta, PowerShell or a browser is suspicious.",
+        "Check whether the user and host are developers and whether they have used jsc.exe before. Confirm with the owning team.",
+        "Pivot on the same host within +/- 15 minutes to see whether the compiled .exe or .dll was created and run, and what child processes it started.",
+        "Collect the source .js and the compiled binary, hash them, and check their reputation and contents.",
+        "Review network connections and earlier alerts for the same host and user."
+      ],
+      "false_positives": [
+        "Developers legitimately compiling JScript .NET on their workstations.",
+        "Build scripts or legacy installers that call jsc.exe from the standard .NET Framework path.",
+        "Internal admin tooling that compiles JScript utilities."
+      ],
+      "response_steps": [
+        "Ask the user or system owner whether the compilation was expected, and record the outcome.",
+        "If it is malicious, isolate the endpoint and kill processes spawned from the compiled binary.",
+        "Quarantine the source .js and the compiled executable, then search for their hashes across all endpoints.",
+        "Remove any related persistence and reset the user's credentials if there are signs of compromise.",
+        "Consider blocking jsc.exe with AppLocker or WDAC on non-developer machines."
+      ],
+      "severity_rationale": "Low, because jsc.exe has legitimate development uses and its execution alone does not prove malicious activity, though it is worth reviewing on non-developer hosts."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "jsc.exe from the .NET Framework path, launched by cmd.exe, compiles a .js file in C:\\Users\\Public into an executable",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\jsc.exe",
+          "OriginalFileName": "jsc.exe",
+          "CommandLine": "jsc.exe /out:C:\\Users\\Public\\update.exe C:\\Users\\Public\\update.js",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      },
+      {
+        "description": "Renamed copy of the JScript compiler in a Temp folder, matched through OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\svchelper.exe",
+          "OriginalFileName": "jsc.exe",
+          "CommandLine": "svchelper.exe /target:library /out:C:\\Users\\mrojas\\AppData\\Local\\Temp\\lib.dll C:\\Users\\mrojas\\AppData\\Local\\Temp\\lib.js",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "The C# compiler csc.exe running in the same .NET folder; neither Image nor OriginalFileName is jsc.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe",
+          "OriginalFileName": "csc.exe",
+          "CommandLine": "csc.exe /out:C:\\build\\tool.exe C:\\build\\tool.cs",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\MSBuild\\Current\\Bin\\MSBuild.exe"
+        }
+      },
+      {
+        "description": "cscript.exe running a .js file, which is script execution, not JScript compilation",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cscript.exe",
+          "OriginalFileName": "cscript.exe",
+          "CommandLine": "cscript.exe //nologo C:\\Scripts\\inventory.js",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

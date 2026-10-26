@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "84972c80-251c-4c3a-9079-4f00aad93938",
+    "title": "Sensitive File Recovery From Backup Via Wbadmin.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), frack113",
+    "path": "windows/process_creation/proc_creation_win_wbadmin_restore_sensitive_files.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wbadmin_restore_sensitive_files.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó wbadmin.exe para restaurar desde una copia de seguridad un archivo sensible (NTDS.dit o las colmenas SAM, SECURITY o SYSTEM) hacia una ubicación alternativa. Es una técnica conocida para obtener hashes de credenciales sin tocar los archivos en uso.",
+      "what_it_detects": "Creación de un proceso wbadmin.exe (por Image u OriginalFileName, incluso si fue renombrado) cuyo CommandLine contiene 'start recovery', '-recoveryTarget', '-itemtype:File' y una ruta a \\config\\SAM, \\config\\SECURITY, \\config\\SYSTEM o \\Windows\\NTDS\\NTDS.dit.",
+      "why_it_matters": "Con NTDS.dit y la colmena SYSTEM un atacante puede extraer offline los hashes de todas las cuentas del dominio (MITRE ATT&CK T1003.003, NTDS). Con SAM y SECURITY obtiene cuentas locales y secretos LSA. Esto suele llevar al compromiso total del dominio.",
+      "triage_steps": [
+        "Revise el CommandLine completo: qué archivos aparecen en -items, la versión de backup elegida y la carpeta indicada en -recoveryTarget.",
+        "Confirme el valor de Image: si OriginalFileName es WBADMIN.EXE pero la ruta no es System32, el binario fue renombrado o copiado, lo que es muy sospechoso.",
+        "Identifique el User y el ParentImage. Un cmd.exe o powershell.exe iniciado desde una sesión remota, un web shell o una herramienta de ejecución remota agrava el caso.",
+        "Busque en el mismo host, +/- 15 minutos, ejecuciones de 'wbadmin get versions', 'wbadmin start backup' o comandos que compriman o copien la carpeta de destino.",
+        "Verifique si los archivos restaurados siguen en la ruta de -recoveryTarget y si se copiaron a recursos compartidos, servidores remotos o servicios externos.",
+        "Revise los inicios de sesión de la cuenta (eventos 4624/4672) y las alertas previas del mismo usuario o host, en especial movimiento lateral o volcado de credenciales."
+      ],
+      "false_positives": [
+        "No se conocen falsos positivos frecuentes, según la regla.",
+        "Una prueba documentada de recuperación ante desastres de un controlador de dominio, hecha por el equipo de backup con un ticket de cambio aprobado.",
+        "Ejercicios autorizados de red team o pruebas de penetración."
+      ],
+      "response_steps": [
+        "Confirme con el dueño de la cuenta y con el equipo de backup si existe un cambio aprobado. Si no existe, trátelo como un incidente.",
+        "Aísle el host y preserve evidencia: los archivos restaurados, el hash del binario y los registros relacionados, antes de borrar nada.",
+        "Si se trataba de NTDS.dit, suponga que todas las credenciales del dominio están comprometidas: restablezca dos veces la cuenta KRBTGT y cambie las contraseñas de las cuentas privilegiadas y de servicio.",
+        "Restrinja quién puede usar Backup Operators y los derechos de restauración. Revise el acceso a los medios de backup y elimine la persistencia que encuentre."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque restaurar estos archivos a otra ruta casi no tiene usos legítimos y da acceso directo a los hashes de credenciales del dominio o del equipo."
+    },
+    "en": {
+      "summary": "wbadmin.exe was used to restore a sensitive file (NTDS.dit or the SAM, SECURITY or SYSTEM hive) from a backup to an alternate location. Attackers use this to get credential hashes without touching the locked live files.",
+      "what_it_detects": "A wbadmin.exe process (matched by Image or OriginalFileName, so renamed copies are caught too) whose CommandLine contains 'start recovery', '-recoveryTarget', '-itemtype:File' and a path to \\config\\SAM, \\config\\SECURITY, \\config\\SYSTEM or \\Windows\\NTDS\\NTDS.dit.",
+      "why_it_matters": "With NTDS.dit plus the SYSTEM hive, an attacker can extract every domain account hash offline (MITRE ATT&CK T1003.003, NTDS). SAM plus SECURITY expose local accounts and LSA secrets. This often leads to full domain compromise.",
+      "triage_steps": [
+        "Read the full CommandLine: the files listed in -items, the backup version used and the -recoveryTarget folder.",
+        "Check Image. If OriginalFileName is WBADMIN.EXE but the path is not System32, the binary was renamed or copied, which is highly suspicious.",
+        "Identify the User and the ParentImage. cmd.exe or powershell.exe spawned from a remote session, a web shell or a remote execution tool makes this worse.",
+        "On the same host within +/- 15 minutes, look for 'wbadmin get versions', 'wbadmin start backup', or commands that archive or copy the target folder.",
+        "Check whether the restored files are still in the -recoveryTarget path and whether they were copied to shares, remote hosts or external services.",
+        "Review the account's logons (events 4624/4672) and earlier alerts for the same user or host, especially lateral movement or credential dumping."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "A documented disaster-recovery test of a domain controller run by the backup team under an approved change ticket.",
+        "Authorized red team or penetration testing exercises."
+      ],
+      "response_steps": [
+        "Ask the account owner and the backup team whether an approved change exists. If there is none, treat this as an incident.",
+        "Isolate the host and preserve evidence (the restored files, the binary hash and related logs) before deleting anything.",
+        "If NTDS.dit was involved, assume all domain credentials are compromised: reset KRBTGT twice and rotate privileged and service account passwords.",
+        "Limit Backup Operators membership and restore rights, review who can reach the backup media, and remove any persistence you find."
+      ],
+      "severity_rationale": "High fits because restoring these files to an alternate path has almost no legitimate use and gives direct access to domain or local credential hashes."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "wbadmin restores NTDS.dit from a backup version to a public folder on a domain controller",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbadmin.exe",
+          "OriginalFileName": "WBADMIN.EXE",
+          "CommandLine": "wbadmin start recovery -version:05/10/2024-09:00 -recoveryTarget:C:\\Users\\Public\\rec -itemtype:File -items:C:\\Windows\\NTDS\\NTDS.dit -notRestoreAcl -quiet",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed wbadmin copy (matched by OriginalFileName) restores the SAM and SYSTEM hives",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\wb.exe",
+          "OriginalFileName": "WBADMIN.EXE",
+          "CommandLine": "wb.exe start recovery -version:05/09/2024-22:00 -recoveryTarget:C:\\ProgramData\\tmp -itemtype:file -items:C:\\Windows\\System32\\config\\SAM,C:\\Windows\\System32\\config\\SYSTEM -quiet",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate wbadmin file recovery of a user document to an alternate folder (no sensitive path)",
+        "event": {
+          "EventID": 1,
+          "Computer": "FS-02.andes.example.com",
+          "User": "ANDES\\backupadmin",
+          "Image": "C:\\Windows\\System32\\wbadmin.exe",
+          "OriginalFileName": "WBADMIN.EXE",
+          "CommandLine": "wbadmin start recovery -version:05/10/2024-01:00 -recoveryTarget:D:\\Restore -itemtype:File -items:D:\\Shares\\Finance\\report.xlsx -quiet",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Routine system state backup that references the domain controller but is not a file recovery",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\wbadmin.exe",
+          "OriginalFileName": "WBADMIN.EXE",
+          "CommandLine": "wbadmin start systemstatebackup -backupTarget:E: -quiet",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

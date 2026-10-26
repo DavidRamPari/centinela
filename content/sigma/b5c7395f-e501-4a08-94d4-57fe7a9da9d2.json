@@ -1,0 +1,138 @@
+{
+  "rule": {
+    "id": "b5c7395f-e501-4a08-94d4-57fe7a9da9d2",
+    "title": "Potential Binary Proxy Execution Via Cdb.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Beyu Denis, oscd.community, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_cdb_arbitrary_command_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cdb_arbitrary_command_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1106",
+      "T1127",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó cdb.exe, el depurador de consola de Microsoft, con la opción -c o -cf, que corre comandos del depurador en línea o desde un archivo de script. Esta técnica permite lanzar procesos o shellcode usando un binario firmado por Microsoft.",
+      "what_it_detects": "Eventos de creación de proceso donde Image termina en \\cdb.exe u OriginalFileName es CDB.Exe, con un CommandLine que contiene ' -c ' (comandos en línea) o ' -cf ' (archivo de script del depurador).",
+      "why_it_matters": "cdb.exe es un binario firmado que puede ejecutar comandos como .shell, escribir memoria y redirigir la ejecución de un proceso. Sirve para eludir controles de aplicación mediante proxy de ejecución con binarios confiables (T1218, T1127) y llamadas a API nativas (T1106).",
+      "triage_steps": [
+        "Revise CommandLine: identifique el script pasado con -cf o los comandos de -c, y busque .shell, escrituras de memoria (eb, ed), cambios de registros (r @$ip) o g;q.",
+        "Compare Image y OriginalFileName: si cdb.exe se ejecuta fuera de la ruta de Windows Kits o con otro nombre, considérelo binario copiado o renombrado.",
+        "Obtenga el script referenciado por -cf, calcule su hash y revise su contenido y quién lo creó, usando eventos de creación de archivos del host.",
+        "Examine ParentImage y el árbol de procesos: un origen en Office, el navegador, wscript o cmd lanzado desde una tarea programada resulta sospechoso.",
+        "Liste los procesos hijos de cdb.exe y el proceso objetivo (-p, -pn o la imagen depurada) en el mismo host, dentro de +/- 15 minutos.",
+        "Busque conexiones de red, inyecciones o accesos a LSASS desde cdb.exe o el proceso objetivo durante el mismo período.",
+        "Valide con el usuario o el equipo dueño del host si hay una sesión de depuración autorizada, y revise alertas anteriores del mismo usuario y del mismo host."
+      ],
+      "false_positives": [
+        "Desarrolladores o ingenieros de soporte que automatizan análisis con -c, por ejemplo \"!analyze -v;q\", o con scripts -cf.",
+        "Pipelines de compilación o pruebas que usan cdb.exe para recolectar volcados o pilas de llamadas.",
+        "Herramientas de diagnóstico de fabricantes que incluyen el SDK de Debugging Tools for Windows."
+      ],
+      "response_steps": [
+        "Verifique la legitimidad con el dueño del host. Si no hay justificación, preserve el script, el binario y la memoria del proceso objetivo.",
+        "Aísle el endpoint si encuentra shellcode, .shell con payloads o procesos hijos maliciosos, y termine los procesos involucrados.",
+        "Elimine scripts, binarios copiados y mecanismos de persistencia relacionados tras documentarlos y calcular sus hash.",
+        "Restrinja cdb.exe mediante control de aplicaciones en equipos que no son de desarrollo y busque el mismo hash del script en toda la flota."
+      ],
+      "severity_rationale": "Medium es adecuado porque el uso de cdb.exe con scripts tiene usos legítimos de depuración, pero en equipos que no son de desarrollo es un fuerte indicio de proxy de ejecución."
+    },
+    "en": {
+      "summary": "cdb.exe, the Microsoft console debugger, was started with -c or -cf, which runs debugger commands inline or from a script file. Attackers use this to launch processes or shellcode through a Microsoft-signed binary.",
+      "what_it_detects": "Process creation events where Image ends with \\cdb.exe or OriginalFileName is CDB.Exe, and CommandLine contains ' -c ' (inline commands) or ' -cf ' (debugger script file).",
+      "why_it_matters": "cdb.exe is signed and can run .shell commands, write memory and redirect a process's execution. This lets attackers bypass application control by proxying execution through trusted binaries (T1218, T1127) and native APIs (T1106).",
+      "triage_steps": [
+        "Read CommandLine: find the script passed with -cf or the -c commands. Look for .shell, memory writes (eb, ed), register changes (r @$ip) or g;q.",
+        "Compare Image and OriginalFileName. If cdb.exe runs from outside Windows Kits or under another name, treat it as a copied or renamed binary.",
+        "Collect the script referenced by -cf. Hash it, review its contents and check who created it using file creation events.",
+        "Review ParentImage and the process tree. Office, a browser, wscript or a cmd started by a scheduled task as the parent is suspicious.",
+        "List cdb.exe child processes and the target process (-p, -pn or the debugged image) on the same host within +/- 15 minutes.",
+        "Look for network connections, injection or LSASS access from cdb.exe or the target process in the same window.",
+        "Ask the user or host owner whether a debugging session was authorized. Review earlier alerts for the same user and host."
+      ],
+      "false_positives": [
+        "Developers or support engineers automating analysis with -c, for example \"!analyze -v;q\", or with -cf scripts.",
+        "Build or test pipelines that use cdb.exe to collect dumps or call stacks.",
+        "Vendor diagnostic tools that bundle Debugging Tools for Windows."
+      ],
+      "response_steps": [
+        "Confirm legitimacy with the host owner. If there is no justification, preserve the script, the binary and the target process memory.",
+        "Isolate the endpoint if you find shellcode, .shell launching payloads or malicious child processes, then terminate the processes involved.",
+        "Document and hash the related scripts, copied binaries and persistence, then remove them.",
+        "Restrict cdb.exe with application control on non-developer machines and hunt for the script hash across the fleet."
+      ],
+      "severity_rationale": "Medium fits because scripted cdb.exe use has legitimate debugging purposes, but on non-developer hosts it strongly suggests proxy execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cdb.exe from a user-writable path running a debugger script file with -cf against notepad.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\Tools\\cdb.exe",
+          "OriginalFileName": "CDB.Exe",
+          "CommandLine": "C:\\Users\\Public\\Tools\\cdb.exe -cf C:\\Users\\Public\\Tools\\run.txt -o notepad.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\Tools\\start.bat",
+          "CurrentDirectory": "C:\\Users\\Public\\Tools\\"
+        }
+      },
+      {
+        "description": "Renamed copy of cdb.exe (identified by OriginalFileName) running inline commands with -c and attaching to a process by PID",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svc\\dbghost.exe",
+          "OriginalFileName": "CDB.Exe",
+          "CommandLine": "\"C:\\ProgramData\\svc\\dbghost.exe\" -pd -c \".shell -ci \\\"\\\" C:\\ProgramData\\svc\\update.exe;q\" -p 4312",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\ProgramData\\svc\\init.vbs",
+          "CurrentDirectory": "C:\\ProgramData\\svc\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Developer using cdb.exe to open a crash dump with -z and log output, no -c or -cf option",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\cdb.exe",
+          "OriginalFileName": "CDB.Exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\cdb.exe\" -z C:\\dumps\\app.dmp -logo C:\\dumps\\app_analysis.log",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\dumps\\"
+        }
+      },
+      {
+        "description": "WinDbg (not cdb.exe) run with -c on a developer workstation, so the image selection does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\windbg.exe",
+          "OriginalFileName": "windbg.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\windbg.exe\" -c \"!analyze -v\" -z C:\\dumps\\app.dmp",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CurrentDirectory": "C:\\dumps\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

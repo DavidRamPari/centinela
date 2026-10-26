@@ -1,0 +1,117 @@
+{
+  "rule": {
+    "id": "edadb1e5-5919-4e4c-8462-a9e643b02c4b",
+    "title": "Process Memory Dump via RdrLeakDiag.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Cedric MAURUGEON, Florian Roth (Nextron Systems), Swachchhanda Shrawan Poudel, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_rdrleakdiag_process_dumping.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_rdrleakdiag_process_dumping.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó rdrleakdiag.exe, la herramienta de diagnóstico de fugas de recursos de Windows, con opciones para volcar la memoria de un proceso. Los atacantes la usan para volcar la memoria de LSASS y extraer credenciales sin traer herramientas propias.",
+      "what_it_detects": "Una creación de proceso cuyo Image termina en \\rdrleakdiag.exe o cuyo OriginalFileName es RdrLeakDiag.exe (así se detectan también las copias renombradas). Además, el CommandLine contiene /memdmp o fullmemdmp junto con /p (ID del proceso) o /o (carpeta de salida). También coinciden las variantes de guion de estas opciones.",
+      "why_it_matters": "Es la técnica MITRE ATT&CK T1003.001, volcado de credenciales del sistema operativo desde la memoria de LSASS. rdrleakdiag.exe es un binario firmado por Microsoft y está catalogado en LOLBAS. Un volcado de LSASS puede darle al atacante hashes, tickets Kerberos y a veces contraseñas en texto claro, que luego usa para moverse lateralmente.",
+      "triage_steps": [
+        "Lea el CommandLine. Anote el PID que sigue a /p y la carpeta que sigue a /o.",
+        "Averigüe qué proceso tenía ese PID en ese momento en el host. Si era lsass.exe, trate la alerta como un probable robo de credenciales.",
+        "Revise el ParentImage y la línea de comandos del padre. Busque cmd.exe, powershell.exe, un shell remoto, WMI (WmiPrvSE.exe) o una tarea programada.",
+        "Verifique si el Image está fuera de C:\\Windows\\System32 o tiene otro nombre de archivo. Cualquiera de los dos indica que el binario fue renombrado o copiado.",
+        "Busque en la carpeta de /o archivos .dmp nuevos, por ejemplo minidump_<PID>.dmp. Luego busque si esos archivos se comprimieron o se transfirieron.",
+        "Pivotee en el mismo host en una ventana de +/- 15 minutos. Busque otros usos de LOLBAS, inicios de sesión, preparación de archivos y conexiones salientes.",
+        "Revise la cuenta de usuario. ¿Se esperaba que ejecutara diagnósticos en este host? ¿Tiene alertas previas u otros inicios de sesión?"
+      ],
+      "false_positives": [
+        "Poco frecuente: soporte de Microsoft o ingenieros internos que investigan una fuga de recursos, con un ticket documentado.",
+        "Ejercicios autorizados de red team o pruebas de penetración."
+      ],
+      "response_steps": [
+        "Confirme el volcado con el usuario o con un ticket aprobado antes de escalar. Si no hay aprobación, trátelo como un incidente.",
+        "Aísle el host. Recolecte y luego elimine de forma segura los archivos de volcado, y conserve una copia como evidencia.",
+        "Restablezca las contraseñas e invalide las sesiones de las cuentas que habían iniciado sesión en el host. Si pudo exponerse material Kerberos, planifique el restablecimiento de las cuentas privilegiadas.",
+        "Determine cómo entró el atacante, elimine su persistencia y busque la misma línea de comandos en otros endpoints."
+      ],
+      "severity_rationale": "El nivel alto corresponde porque los volcados legítimos con rdrleakdiag.exe son muy raros, y un volcado exitoso de LSASS expone credenciales directamente."
+    },
+    "en": {
+      "summary": "rdrleakdiag.exe, the Windows Resource Leak Diagnostic tool, ran with memory-dump options against a target process. Attackers use it to dump LSASS memory and extract credentials without bringing their own tools.",
+      "what_it_detects": "A process creation where the Image ends with \\rdrleakdiag.exe or OriginalFileName is RdrLeakDiag.exe (so renamed copies are also caught), and the CommandLine has /memdmp or fullmemdmp plus /p (process ID) or /o (output folder). Any dash variant of these options also matches.",
+      "why_it_matters": "This is MITRE ATT&CK T1003.001, OS Credential Dumping: LSASS Memory. rdrleakdiag.exe is a signed Microsoft binary listed in LOLBAS. A dump of LSASS can give the attacker password hashes, Kerberos tickets and sometimes cleartext credentials, which they can use to move laterally.",
+      "triage_steps": [
+        "Read the CommandLine. Note the PID after /p and the folder after /o.",
+        "Find out which process had that PID at that time on the host. If it was lsass.exe, treat the alert as a likely credential theft.",
+        "Check the ParentImage and parent command line. Look for cmd.exe, powershell.exe, a remote shell, WMI (WmiPrvSE.exe) or a scheduled task.",
+        "Check whether Image is outside C:\\Windows\\System32 or has a different file name. Either means the binary was renamed or copied.",
+        "Search the /o folder for new .dmp files, for example minidump_<PID>.dmp. Then look for archiving or transfer of those files.",
+        "Pivot to the same host within +/- 15 minutes. Look for other LOLBAS use, logons, file staging and outbound connections.",
+        "Review the user account. Was it expected to run diagnostics on this host? Does it have earlier alerts or other logons?"
+      ],
+      "false_positives": [
+        "Rare: Microsoft support or internal engineers investigating a resource leak, with a documented ticket.",
+        "Authorized red team or penetration testing."
+      ],
+      "response_steps": [
+        "Confirm the dump with the user or an approved ticket before you escalate. If there is no approval, treat it as an incident.",
+        "Isolate the host. Collect and then securely remove the dump files, keeping a copy as evidence.",
+        "Reset passwords and invalidate sessions for the accounts that were logged on to the host. If Kerberos material may be exposed, plan a reset of the privileged accounts.",
+        "Find out how the attacker got in, remove their persistence, and hunt for the same command line on other endpoints."
+      ],
+      "severity_rationale": "High fits because legitimate memory dumps with rdrleakdiag.exe are very rare, and a successful dump of LSASS directly exposes credentials."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "rdrleakdiag.exe dumps the LSASS PID with a full memory dump into a public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rdrleakdiag.exe",
+          "OriginalFileName": "RdrLeakDiag.exe",
+          "CommandLine": "C:\\Windows\\System32\\rdrleakdiag.exe /p 692 /o C:\\Users\\Public\\ /fullmemdmp /wait 1",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c rdrleakdiag.exe /p 692 /o C:\\Users\\Public\\ /fullmemdmp /wait 1"
+        }
+      },
+      {
+        "description": "Renamed copy identified by OriginalFileName, run with dash-style options",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-03.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\rld.exe",
+          "OriginalFileName": "RdrLeakDiag.exe",
+          "CommandLine": "rld.exe -p 812 -o C:\\ProgramData\\tmp -memdmp",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "rdrleakdiag.exe used to enable leak tracking for a process without any memory dump option",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\rdrleakdiag.exe",
+          "OriginalFileName": "RdrLeakDiag.exe",
+          "CommandLine": "C:\\Windows\\System32\\rdrleakdiag.exe /p 4321 /enable",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

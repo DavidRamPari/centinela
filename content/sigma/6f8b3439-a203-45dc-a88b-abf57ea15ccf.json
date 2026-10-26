@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "6f8b3439-a203-45dc-a88b-abf57ea15ccf",
+    "title": "HackTool - CrackMapExec PowerShell Obfuscation",
+    "level": "high",
+    "status": "test",
+    "author": "Thomas Patzke",
+    "path": "windows/process_creation/proc_creation_win_hktl_crackmapexec_powershell_obfuscation.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_crackmapexec_powershell_obfuscation.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027.005",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó PowerShell con una línea de comandos que contiene cadenas estáticas de la ofuscación que usa CrackMapExec para reconstruir IEX o encadenar -join y -split. Suele indicar ejecución remota desde un framework de pentesting o de un atacante.",
+      "what_it_detects": "Procesos powershell.exe o pwsh.exe (por Image u OriginalFileName) cuyo CommandLine incluye fragmentos como '( $ShellId[1]+$ShellId[13]+'x')', '( $env:ComSpec[4,*,25]-Join'')', '( $PSHome[*]+$PSHOME[*]+' o el patrón 'join*split'.",
+      "why_it_matters": "CrackMapExec ejecuta comandos de forma remota por SMB, WMI o WinRM con credenciales robadas. La ofuscación arma la palabra 'iex' a partir de variables del sistema para esquivar firmas (T1059.001 ejecución con PowerShell, T1027.005 eliminación de indicadores). Suele indicar movimiento lateral activo.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique la expresión ofuscada y decodifique el payload que se pasa a IEX sin ejecutarlo.",
+        "Examine ParentImage y ParentCommandLine: wmiprvse.exe, services.exe, wsmprovhost.exe o cmd.exe lanzado por un servicio apuntan a ejecución remota.",
+        "Identifique el usuario del proceso y si es una cuenta administrativa; verifique inicios de sesión de tipo 3 (red) en el host en +/- 15 minutos.",
+        "Obtenga la IP de origen de esos inicios de sesión (eventos 4624/4625) y busque la misma IP contra otros hosts.",
+        "Busque procesos hijos y conexiones de red salientes del proceso PowerShell, además de servicios nuevos (7045) o tareas programadas.",
+        "Busque alertas anteriores para el mismo host, usuario e IP de origen, sobre todo de volcado de credenciales o de SMB.",
+        "Confirme con el equipo de seguridad ofensiva si hay una prueba de penetración autorizada en curso."
+      ],
+      "false_positives": [
+        "Pruebas de penetración o ejercicios de red team autorizados que usan CrackMapExec o NetExec.",
+        "Scripts administrativos legítimos que usan -join seguido de -split en la misma línea; revise el contexto antes de escalar."
+      ],
+      "response_steps": [
+        "Si no hay una prueba autorizada, escale como incidente y aísle el endpoint afectado y el host de origen identificado.",
+        "Deshabilite o restablezca las credenciales usadas, priorizando las cuentas privilegiadas y las de administrador local compartidas.",
+        "Elimine la persistencia encontrada (servicios, tareas, cargas) después de documentarla y preservar evidencia.",
+        "Revise todos los hosts contactados desde la IP de origen y restaure el servicio solo después de confirmar que están limpios."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque estas cadenas son propias de la ofuscación de CrackMapExec y rara vez aparecen en uso administrativo legítimo."
+    },
+    "en": {
+      "summary": "PowerShell ran with a command line containing static strings from the obfuscation CrackMapExec uses to rebuild IEX or chain -join and -split. This usually means a pentest framework or an attacker is executing commands remotely.",
+      "what_it_detects": "powershell.exe or pwsh.exe processes (by Image or OriginalFileName) whose CommandLine contains fragments such as '( $ShellId[1]+$ShellId[13]+'x')', '( $env:ComSpec[4,*,25]-Join'')', '( $PSHome[*]+$PSHOME[*]+' or the 'join*split' pattern.",
+      "why_it_matters": "CrackMapExec runs commands remotely over SMB, WMI or WinRM with stolen credentials. Its obfuscation builds 'iex' from system variables to evade signatures (T1059.001 PowerShell, T1027.005 indicator removal). This often means active lateral movement.",
+      "triage_steps": [
+        "Read the full CommandLine: find the obfuscated expression and decode the payload passed to IEX without running it.",
+        "Check ParentImage and ParentCommandLine: wmiprvse.exe, services.exe, wsmprovhost.exe or a service-spawned cmd.exe point to remote execution.",
+        "Identify the process user and whether it is an admin account; look for type 3 (network) logons on the host within +/- 15 minutes.",
+        "Get the source IP of those logons (4624/4625) and search for the same IP against other hosts.",
+        "Look for child processes, outbound connections from the PowerShell process, new services (7045) or scheduled tasks.",
+        "Search earlier alerts for the same host, user and source IP, especially credential dumping or SMB activity.",
+        "Confirm with the offensive security team whether an authorized penetration test is running."
+      ],
+      "false_positives": [
+        "Authorized penetration tests or red team exercises using CrackMapExec or NetExec.",
+        "Legitimate admin scripts that use -join followed by -split on one line; review context before escalating."
+      ],
+      "response_steps": [
+        "If no test is authorized, escalate as an incident and isolate the affected endpoint and the identified source host.",
+        "Disable or reset the credentials used, prioritizing privileged accounts and shared local admin accounts.",
+        "Remove persistence found (services, tasks, payloads) after documenting it and preserving evidence.",
+        "Review every host contacted from the source IP and restore service only after confirming they are clean."
+      ],
+      "severity_rationale": "High fits because these strings are specific to CrackMapExec obfuscation and rarely appear in legitimate administration."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell launched via WMI with the $ShellId-based IEX obfuscation used by CrackMapExec",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\svc-backup",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "CommandLine": "powershell.exe -NoP -NonI -W 1 -Exec Bypass &( $ShellId[1]+$ShellId[13]+'x') ('Write-Output placeholder')"
+        }
+      },
+      {
+        "description": "pwsh.exe using the $env:ComSpec -Join variant to build IEX",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS02.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "pwsh.exe -NoP -NonI -c \"&( $env:ComSpec[4,15,25]-Join'') ('Get-Date')\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate admin one-liner that uses -split before -join (not join*split) and no CME strings",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"($env:PATH -split ';') -join [Environment]::NewLine\""
+        }
+      },
+      {
+        "description": "cmd.exe wrapper process carrying the string; the image is not PowerShell so selection_img fails",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0150.andes.example.com",
+          "User": "ANDES\\svc-backup",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "CommandLine": "cmd.exe /Q /c echo ( $ShellId[1]+$ShellId[13]+'x') > C:\\Windows\\Temp\\note.txt"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

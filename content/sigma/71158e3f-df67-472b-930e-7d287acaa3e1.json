@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "71158e3f-df67-472b-930e-7d287acaa3e1",
+    "title": "Execution Of Non-Existing File",
+    "level": "high",
+    "status": "test",
+    "author": "Max Altgelt (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_image_missing.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_image_missing.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1055"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se registró la creación de un proceso cuyo campo Image no tiene ruta absoluta. Esto indica que el archivo que respalda el proceso ya no existía en disco al momento del registro, lo cual es típico de Process Ghosting o de otras técnicas de creación de procesos poco convencionales.",
+      "what_it_detects": "Eventos process_creation de Windows en los que Image no contiene '\\', no es nulo, '-' ni vacío, y no corresponde a procesos mínimos del sistema (System, Registry, MemCompression, vmmem, vmmemWSL).",
+      "why_it_matters": "Process Ghosting y técnicas similares (T1055, inyección de procesos) ejecutan código desde una sección de imagen cuyo archivo se borró o se alteró. Así evaden el escaneo del antivirus sobre el archivo y ocultan el origen del código, lo que puede llevar a ejecución sigilosa y escalamiento de privilegios.",
+      "triage_steps": [
+        "Revise los campos Image, CommandLine, ProcessId, User e IntegrityLevel del evento para identificar qué se ejecutó y con qué privilegios.",
+        "Identifique ParentImage y ParentCommandLine. Si el padre es un binario poco común, un script o un proceso en una carpeta temporal o de usuario, aumente la sospecha.",
+        "En el mismo host, busque eventos de creación y borrado de archivos (Sysmon 11, 23 y 26) con el mismo nombre que Image en una ventana de +/- 15 minutos.",
+        "Revise si hay hijos del proceso, conexiones de red (Sysmon 3), consultas DNS (Sysmon 22) o acceso a LSASS por parte del ProcessId alertado.",
+        "Si el proceso sigue activo, use el EDR para escanear su memoria y comparar la imagen mapeada con un archivo en disco. Busque regiones ejecutables sin respaldo.",
+        "Busque alertas anteriores para el mismo host y usuario, y el mismo nombre de Image en otros endpoints."
+      ],
+      "false_positives": [
+        "El campo falsepositives de la regla dice 'Unknown'. Los casos legítimos son poco frecuentes.",
+        "Fallas de parsing o normalización en el pipeline que recortan la ruta de Image o la dejan solo con el nombre del archivo.",
+        "Procesos mínimos o virtuales del sistema que no están en los filtros, como procesos de seguridad basados en virtualización o de algunas plataformas de virtualización.",
+        "Instaladores o actualizadores que se borran a sí mismos muy rápido. Valide el editor y el hash."
+      ],
+      "response_steps": [
+        "Verifique: confirme con la telemetría del EDR que el archivo de origen no existe y que el proceso no tiene una ruta legítima.",
+        "Contenga: si se confirma actividad maliciosa, aísle el host desde el EDR y suspenda el proceso antes de terminarlo, para conservar la evidencia.",
+        "Adquiera un volcado de memoria del proceso y del host para análisis forense antes de reiniciar.",
+        "Erradique: identifique y elimine el dropper o padre responsable y sus mecanismos de persistencia. Restablezca las credenciales expuestas.",
+        "Recupere: reintegre el host después de verificar que está limpio y agregue los indicadores obtenidos a las detecciones."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque un proceso sin imagen en disco es muy poco común en operación normal y está fuertemente asociado con técnicas de evasión e inyección."
+    },
+    "en": {
+      "summary": "A process was created whose Image field has no absolute path. This means the backing file was gone from disk when the event was logged, which is typical of Process Ghosting or other unusual process-creation techniques.",
+      "what_it_detects": "Windows process_creation events where Image contains no '\\', is not null, '-' or empty, and is not a minimal system process (System, Registry, MemCompression, vmmem, vmmemWSL).",
+      "why_it_matters": "Process Ghosting and similar techniques (T1055, process injection) run code from an image section whose file was deleted or tampered with. This defeats file-based AV scanning and hides where the code came from, enabling stealthy execution and privilege escalation.",
+      "triage_steps": [
+        "Review Image, CommandLine, ProcessId, User and IntegrityLevel to see what ran and with what privileges.",
+        "Identify ParentImage and ParentCommandLine. A rare binary, a script or a parent in a temp or user folder raises suspicion.",
+        "On the same host within +/- 15 minutes, search for file create and delete events (Sysmon 11, 23, 26) matching the Image name.",
+        "Check the alerted ProcessId for child processes, network connections (Sysmon 3), DNS queries (Sysmon 22) and LSASS access.",
+        "If the process is still running, use EDR to scan its memory for unbacked executable regions and compare the mapped image to disk.",
+        "Look for earlier alerts on the same host and user, and the same Image name on other endpoints."
+      ],
+      "false_positives": [
+        "The rule's falsepositives field says 'Unknown'. Legitimate hits should be rare.",
+        "Log pipeline parsing or normalization errors that truncate Image to a bare file name.",
+        "Minimal or virtual system processes that the filters don't cover, such as virtualization-based security or some hypervisor processes.",
+        "Installers or updaters that delete themselves very quickly. Validate the signer and hash."
+      ],
+      "response_steps": [
+        "Verify: use EDR telemetry to confirm the backing file is missing and the process has no legitimate path.",
+        "Contain: if malicious, isolate the host through EDR and suspend the process before terminating it, so evidence is preserved.",
+        "Capture process and host memory for forensics before any reboot.",
+        "Eradicate: find and remove the responsible dropper or parent and its persistence. Reset exposed credentials.",
+        "Recover: return the host to service once it is verified clean, and add the recovered indicators to detections."
+      ],
+      "severity_rationale": "High fits because a process with no on-disk image is very rare in normal operations and strongly tied to evasion and injection techniques."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Sysmon process creation from a ghosted executable: Image holds only a file name, with no path, launched by a binary in the user's temp folder.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "update_helper.exe",
+          "CommandLine": "update_helper.exe -silent",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\loader.exe",
+          "ParentCommandLine": "C:\\Users\\jperez\\AppData\\Local\\Temp\\loader.exe",
+          "ProcessId": 6620,
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Security 4688-style event where the new process name is a bare name with no backslash.",
+        "event": {
+          "EventID": 4688,
+          "Computer": "SRV-FS02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "svchost.exe",
+          "CommandLine": "svchost.exe -k netsvcs",
+          "ParentImage": "C:\\ProgramData\\cache\\svcupd.exe",
+          "ProcessId": 4120
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal process creation with a full absolute Image path, excluded by filter_main_image_absolute_path.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "C:\\Windows\\System32\\svchost.exe -k netsvcs -p",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "ProcessId": 1288
+        }
+      },
+      {
+        "description": "Minimal MemCompression process logged in event 4688 without a path, excluded by filter_optional_4688.",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "MemCompression",
+          "CommandLine": "",
+          "ParentImage": "System",
+          "ProcessId": 2140
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,141 @@
+{
+  "rule": {
+    "id": "ef61af62-bc74-4f58-b49b-626448227652",
+    "title": "Suspicious Active Directory Database Snapshot Via ADExplorer",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_sysinternals_adexplorer_susp_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sysinternals_adexplorer_susp_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1069.002",
+      "T1087.002",
+      "T1482"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Sysinternals ADExplorer se ejecutó con la opción snapshot y guardó la copia en una ruta escribible por el usuario (Downloads, Users\\Public, AppData o Windows\\Temp), o se lanzó desde una de ellas. Suele indicar la recolección de una copia offline de Active Directory.",
+      "what_it_detects": "Creación de un proceso de ADExplorer, identificado por el nombre de imagen, OriginalFileName 'AdExp', Description o Product. Además, el CommandLine debe incluir 'snapshot' y una de estas rutas: \\Downloads\\, \\Users\\Public\\, \\AppData\\ o \\Windows\\Temp\\.",
+      "why_it_matters": "Un snapshot le entrega al atacante todo el directorio offline: usuarios, grupos, trusts y ACL. Sirve para BloodHound, para armar listas de password spraying o para buscar contraseñas en los comentarios. Corresponde a T1087.002, T1069.002 y T1482.",
+      "triage_steps": [
+        "Revise el CommandLine: identifique el archivo de salida del snapshot y el controlador de dominio. Compare Image con OriginalFileName para detectar un binario renombrado.",
+        "Identifique al usuario y el host. Verifique si el usuario es administrador de AD y si el equipo es una estación administrativa.",
+        "Analice ParentImage y la cadena de procesos padre. Un cmd o PowerShell lanzado desde una sesión remota, una herramienta RMM o un script es más sospechoso que explorer.exe.",
+        "En el mismo host, en una ventana de +/- 15 minutos, busque la creación del .dat, su compresión (7z, rar, zip) y cargas salientes o sincronización a la nube.",
+        "Determine cómo llegó ADExplorer al equipo: descarga web, recurso compartido o herramienta de transferencia remota. Registre el hash y la firma.",
+        "Busque alertas previas del mismo usuario, host o IP de origen: SharpHound o BloodHound, enumeración LDAP, inicios de sesión anómalos o robo de credenciales.",
+        "Confirme con el usuario o su jefe si había una auditoría de AD o un pentest autorizado."
+      ],
+      "false_positives": [
+        "Administradores o auditores de AD que ejecutan ADExplorer desde Downloads o AppData y guardan ahí el snapshot.",
+        "Pentests o ejercicios de red team autorizados que recolectan snapshots de AD.",
+        "Proyectos de migración o diagnóstico en los que consultores guardan el snapshot en carpetas temporales."
+      ],
+      "response_steps": [
+        "Si la actividad no está autorizada, aísle el host y preserve como evidencia el snapshot, el binario y la memoria del proceso.",
+        "Restablezca o deshabilite la cuenta que lo ejecutó y revise sus inicios de sesión y accesos recientes.",
+        "Busque indicios de exfiltración del .dat y bloquee los destinos identificados.",
+        "Revise los campos de descripción y comentario de AD en busca de contraseñas. Rote las que encuentre y luego retire la herramienta del equipo."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque un snapshot de AD en una carpeta típica de staging es una señal fuerte de reconocimiento previo a la escalada de privilegios o al ransomware, y el uso legítimo es poco común."
+    },
+    "en": {
+      "summary": "Sysinternals ADExplorer ran with the snapshot option and wrote, or was launched from, a user-writable path (Downloads, Users\\Public, AppData or Windows\\Temp). This often means someone is collecting an offline copy of Active Directory.",
+      "what_it_detects": "Process creation of ADExplorer, identified by image name, OriginalFileName 'AdExp', Description or Product. The CommandLine must contain 'snapshot' and one of the paths \\Downloads\\, \\Users\\Public\\, \\AppData\\ or \\Windows\\Temp\\.",
+      "why_it_matters": "A snapshot gives an attacker the full directory offline: users, groups, trusts and ACLs. They can feed it to BloodHound, build password-spraying lists or mine attribute comments for passwords. This maps to account, group and domain trust discovery (T1087.002, T1069.002, T1482).",
+      "triage_steps": [
+        "Read the CommandLine: find the snapshot output file and the domain controller, and check whether the binary path matches the Image or was renamed (compare OriginalFileName).",
+        "Identify the user and host. Ask whether this user is a known AD administrator and whether the host is an admin workstation.",
+        "Check ParentImage and the parent chain. cmd or PowerShell from a remote session, an RMM tool or a script host is more suspicious than explorer.exe.",
+        "On the same host within +/- 15 minutes, look for file creation of the .dat snapshot, archiving (7z, rar, zip) and outbound uploads or cloud-sync activity.",
+        "Check how ADExplorer arrived on the host: browser download, file share copy or remote transfer tool. Record its hash and signature.",
+        "Search for earlier alerts tied to the same user, host or source IP: BloodHound/SharpHound, LDAP enumeration, unusual logons or credential theft.",
+        "Confirm with the user or their manager whether a sanctioned AD audit or pentest was running."
+      ],
+      "false_positives": [
+        "AD administrators or auditors who run ADExplorer from Downloads or AppData and save snapshots there.",
+        "Authorized penetration tests or red team engagements that collect AD snapshots.",
+        "Troubleshooting or migration projects where consultants take a snapshot to a temporary folder."
+      ],
+      "response_steps": [
+        "If the activity is unauthorized, isolate the host and preserve the snapshot file, ADExplorer binary and process memory as evidence.",
+        "Reset or disable the account that ran it, and review its recent logons and access.",
+        "Look for exfiltration of the .dat file and block the destinations you find.",
+        "Review AD description and comment fields for stored passwords. Rotate any you find, then remove the tool from the host."
+      ],
+      "severity_rationale": "High fits because an AD snapshot written to a staging-type folder is a strong reconnaissance signal that often comes before privilege escalation or ransomware, and legitimate use is uncommon."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "ADExplorer64 run from the Downloads folder, saving a snapshot to C:\\Users\\Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\Downloads\\ADExplorer64.exe",
+          "OriginalFileName": "AdExp",
+          "Description": "Active Directory Editor",
+          "Product": "Sysinternals ADExplorer",
+          "CommandLine": "\"C:\\Users\\jperez\\Downloads\\ADExplorer64.exe\" -accepteula -snapshot \"\" C:\\Users\\Public\\ad.dat",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start.bat"
+        }
+      },
+      {
+        "description": "Renamed ADExplorer binary (matched by OriginalFileName) writing a snapshot to Windows\\Temp",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\Temp\\svch.exe",
+          "OriginalFileName": "AdExp",
+          "Description": "Active Directory Editor",
+          "Product": "Sysinternals ADExplorer",
+          "CommandLine": "svch.exe -snapshot \"\" C:\\Windows\\Temp\\s1.dat",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator takes a sanctioned snapshot from a tools folder to a dedicated backup drive; no suspicious path appears in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-WS-01.andes.example.com",
+          "User": "ANDES\\adm_mrodriguez",
+          "Image": "C:\\Tools\\Sysinternals\\ADExplorer.exe",
+          "OriginalFileName": "AdExp",
+          "Description": "Active Directory Editor",
+          "Product": "Sysinternals ADExplorer",
+          "CommandLine": "\"C:\\Tools\\Sysinternals\\ADExplorer.exe\" -snapshot \"\" D:\\ADBackups\\weekly.dat",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "ADExplorer opened interactively from Downloads without the snapshot option",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\Downloads\\ADExplorer.exe",
+          "OriginalFileName": "AdExp",
+          "Description": "Active Directory Editor",
+          "Product": "Sysinternals ADExplorer",
+          "CommandLine": "\"C:\\Users\\jperez\\Downloads\\ADExplorer.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

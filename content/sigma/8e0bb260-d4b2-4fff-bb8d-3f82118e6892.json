@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "8e0bb260-d4b2-4fff-bb8d-3f82118e6892",
+    "title": "Potentially Suspicious CMD Shell Output Redirect",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_cmd_redirection_susp_folder.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmd_redirection_susp_folder.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó cmd.exe con una línea de comandos que redirige la salida (> o >>) hacia una carpeta de usuario o temporal con permisos de escritura amplios. Puede indicar reconocimiento cuyo resultado se guarda para exfiltrarlo después.",
+      "what_it_detects": "Procesos cmd.exe (Image o OriginalFileName) cuyo CommandLine redirige la salida hacia %APPDATA%, %TEMP%, %TMP%, %USERPROFILE%, C:\\ProgramData, C:\\Temp, C:\\Users\\Public o C:\\Windows\\Temp, o hacia una ruta C:\\Users\\...\\AppData\\Local\\.",
+      "why_it_matters": "Es habitual que los atacantes ejecuten comandos como hostname, whoami, dir o net y guarden la salida en carpetas poco vigiladas para luego recogerla. La regla está etiquetada con T1218 (ejecución mediante binarios firmados del sistema) y la táctica de evasión, porque cmd.exe es un binario legítimo de Windows.",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique qué comando se ejecutó antes del > y el archivo de destino de la redirección.",
+        "Revise ParentImage y la línea de comandos del padre: sqlservr.exe, w3wp.exe, Office o wscript.exe como padre aumentan mucho la sospecha.",
+        "Identifique el usuario y el host. Confirme si la cuenta suele ejecutar scripts administrativos en ese equipo.",
+        "Busque otros procesos cmd.exe en el mismo host +/- 15 minutos con redirecciones parecidas: suelen aparecer en ráfagas de reconocimiento.",
+        "Verifique si el archivo de salida existe, su contenido y si después fue leído, comprimido o enviado por la red.",
+        "Revise conexiones de red salientes y creación de archivos (zip, rar, 7z) del mismo host después del evento.",
+        "Consulte alertas previas del mismo usuario, host o proceso padre en los últimos 7 días."
+      ],
+      "false_positives": [
+        "Scripts legítimos de administración o de terceros que recopilan diagnósticos y guardan la salida en carpetas temporales.",
+        "Instaladores, agentes de inventario o herramientas de soporte que escriben logs en %TEMP% o C:\\ProgramData mediante redirección.",
+        "Tareas programadas de TI documentadas que exportan configuraciones (ipconfig, systeminfo) a C:\\Temp."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host o del script si la ejecución es esperada; si lo es, documente y ajuste una exclusión específica por padre y ruta.",
+        "Si no es legítima, preserve el archivo de salida y obtenga el hash y el árbol de procesos antes de cualquier limpieza.",
+        "Aísle el endpoint si hay evidencias de exfiltración, persistencia o ejecución desde un servicio expuesto como SQL Server o IIS.",
+        "Restablezca credenciales de la cuenta implicada y busque los mismos indicadores en otros hosts.",
+        "Elimine artefactos maliciosos verificados y corrija el vector de acceso inicial antes de devolver el equipo a producción."
+      ],
+      "severity_rationale": "Nivel medio porque la redirección a carpetas temporales es común en scripts legítimos, pero junto con comandos de reconocimiento o un padre inusual es un indicio sólido de actividad maliciosa."
+    },
+    "en": {
+      "summary": "cmd.exe ran a command line that redirects output (> or >>) into a user or temporary folder that is broadly writable. This can mean reconnaissance output staged for later exfiltration.",
+      "what_it_detects": "cmd.exe processes (Image or OriginalFileName) whose CommandLine redirects output to %APPDATA%, %TEMP%, %TMP%, %USERPROFILE%, C:\\ProgramData, C:\\Temp, C:\\Users\\Public or C:\\Windows\\Temp, or to a C:\\Users\\...\\AppData\\Local\\ path.",
+      "why_it_matters": "Attackers often run hostname, whoami, dir or net commands and save the output in low-visibility folders to collect it later. The rule maps to T1218 (signed system binary proxy execution) and stealth, because cmd.exe is a trusted Windows binary.",
+      "triage_steps": [
+        "Read the full CommandLine: identify the command before the > and the redirect target file.",
+        "Check ParentImage and its command line; sqlservr.exe, w3wp.exe, Office apps or wscript.exe as parent strongly raise suspicion.",
+        "Identify the user and host. Confirm whether this account normally runs admin scripts on this machine.",
+        "Search for other cmd.exe processes on the same host within +/- 15 minutes with similar redirects; recon often comes in bursts.",
+        "Check whether the output file exists, what it contains, and whether it was later read, archived or sent over the network.",
+        "Review outbound connections and archive creation (zip, rar, 7z) on the same host after the event.",
+        "Look for earlier alerts for the same user, host or parent process over the last 7 days."
+      ],
+      "false_positives": [
+        "Legitimate admin or third-party scripts collecting diagnostics and saving output to temp folders.",
+        "Installers, inventory agents or support tools that write logs to %TEMP% or C:\\ProgramData via redirection.",
+        "Documented IT scheduled tasks exporting configuration (ipconfig, systeminfo) to C:\\Temp."
+      ],
+      "response_steps": [
+        "Confirm with the host or script owner whether the run is expected; if so, document it and add a narrow exclusion by parent and path.",
+        "If not legitimate, preserve the output file, its hash and the process tree before any cleanup.",
+        "Isolate the endpoint if there is evidence of exfiltration, persistence or execution from an exposed service such as SQL Server or IIS.",
+        "Reset credentials of the involved account and hunt for the same indicators on other hosts.",
+        "Remove verified malicious artifacts and fix the initial access vector before returning the host to production."
+      ],
+      "severity_rationale": "Medium because temp-folder redirection is common in legitimate scripts, but combined with recon commands or an unusual parent it is a strong sign of malicious activity."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "SQL Server spawns cmd.exe that writes hostname output to C:\\Users\\Public (selection_cli_1).",
+        "event": {
+          "EventID": 1,
+          "Computer": "SQL-01.andes.example.com",
+          "User": "ANDES\\svc_sql",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c hostname > C:\\Users\\Public\\h.txt",
+          "ParentImage": "C:\\Program Files\\Microsoft SQL Server\\MSSQL15.MSSQLSERVER\\MSSQL\\Binn\\sqlservr.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft SQL Server\\MSSQL15.MSSQLSERVER\\MSSQL\\Binn\\sqlservr.exe\" -sMSSQLSERVER"
+        }
+      },
+      {
+        "description": "cmd.exe redirects a directory listing into the user's AppData\\Local folder (selection_cli_2).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c dir C:\\ /s > C:\\Users\\jperez\\AppData\\Local\\d.txt",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\Downloads\\invoice.vbs"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "cmd.exe redirects ipconfig output to a non-suspicious log folder on D:.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\it_admin",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c ipconfig /all > D:\\Logs\\ipconfig.txt",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule"
+        }
+      },
+      {
+        "description": "Same redirect to C:\\Users\\Public but performed by PowerShell, not cmd.exe.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command \"hostname > C:\\Users\\Public\\h.txt\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

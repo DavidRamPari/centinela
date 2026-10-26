@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "fc0e89b5-adb0-43c1-b749-c12a10ec37de",
+    "title": "SafeBoot Registry Key Deleted Via Reg.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), Tim Shelton",
+    "path": "windows/process_creation/proc_creation_win_reg_delete_safeboot.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reg_delete_safeboot.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó reg.exe con la opción delete sobre una clave bajo HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot. Esto suele indicar un intento de impedir que productos de seguridad carguen en Modo seguro, una técnica que se observa antes del despliegue de ransomware.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en reg.exe u OriginalFileName es reg.exe, y CommandLine contiene ' delete ' junto con la ruta \\SYSTEM\\CurrentControlSet\\Control\\SafeBoot (subclaves Minimal o Network).",
+      "why_it_matters": "Las subclaves de SafeBoot definen qué servicios y drivers arrancan en Modo seguro. Si se borran las entradas de un antivirus o EDR, el atacante puede reiniciar en Modo seguro y cifrar o manipular el equipo sin protección. Corresponde a ATT&CK T1685, debilitamiento de defensas.",
+      "triage_steps": [
+        "Revise CommandLine e identifique la subclave borrada (Minimal o Network) y el servicio afectado, por ejemplo el nombre de un agente antivirus o EDR.",
+        "Valide Image frente a OriginalFileName: si OriginalFileName es reg.exe pero Image tiene otra ruta o nombre, trate el evento como binario renombrado y más sospechoso.",
+        "Examine ParentImage y la línea de comandos del proceso padre: cmd.exe, powershell.exe, scripts .bat o herramientas de acceso remoto suelen señalar actividad maliciosa.",
+        "Identifique el usuario y su nivel de privilegios; confirme si es una cuenta administrativa esperada o una cuenta comprometida.",
+        "Busque en el mismo host, +/- 15 minutos, otros comandos reg, sc, bcdedit (safeboot), detención de servicios de seguridad o borrado de shadow copies.",
+        "Verifique si el equipo se reinició o se configuró para arrancar en Modo seguro después del evento.",
+        "Revise alertas previas del mismo host y usuario, y busque el mismo CommandLine en otros endpoints para detectar despliegue masivo."
+      ],
+      "false_positives": [
+        "La regla indica que los falsos positivos son poco probables.",
+        "Desinstaladores de software de seguridad o scripts de limpieza de administradores que eliminan sus propias entradas de SafeBoot; confirme con el equipo responsable y el ticket de cambio."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del equipo o el equipo de TI si existe un cambio autorizado; sin justificación, escale como incidente de alta prioridad.",
+        "Aísle el endpoint de la red mediante el EDR, evitando reiniciarlo hasta revisar la configuración de arranque (bcdedit).",
+        "Restaure las subclaves SafeBoot eliminadas desde un equipo de referencia o respaldo y verifique que los servicios de seguridad estén activos.",
+        "Busque la cadena de ejecución completa, persistencia y credenciales usadas; restablezca las cuentas comprometidas y busque la misma actividad en otros hosts."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque borrar entradas de SafeBoot con reg.exe rara vez tiene uso legítimo y suele preceder la desactivación de defensas y el cifrado."
+    },
+    "en": {
+      "summary": "reg.exe was run with the delete option against a key under HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot. This usually means someone is trying to stop security products from loading in Safe Mode, a step often seen before ransomware deployment.",
+      "what_it_detects": "Process creation events where Image ends with reg.exe or OriginalFileName is reg.exe, and CommandLine contains both ' delete ' and the path \\SYSTEM\\CurrentControlSet\\Control\\SafeBoot (Minimal or Network subkeys).",
+      "why_it_matters": "SafeBoot subkeys control which services and drivers start in Safe Mode. Deleting an antivirus or EDR entry lets an attacker reboot into Safe Mode and encrypt or tamper with the host unprotected. Maps to ATT&CK T1685, defense impairment.",
+      "triage_steps": [
+        "Read CommandLine and identify the deleted subkey (Minimal or Network) and the affected service, such as an antivirus or EDR agent name.",
+        "Compare Image with OriginalFileName: if OriginalFileName is reg.exe but Image has another path or name, treat it as a renamed binary and more suspicious.",
+        "Inspect ParentImage and the parent command line: cmd.exe, powershell.exe, .bat scripts or remote access tools often indicate malicious activity.",
+        "Identify the user and privilege level; confirm whether it is an expected admin account or a compromised one.",
+        "On the same host within +/- 15 minutes, look for other reg, sc, bcdedit safeboot commands, security service stops or shadow copy deletion.",
+        "Check whether the host rebooted or was configured to boot into Safe Mode after the event.",
+        "Review earlier alerts for the same host and user, and search for the same CommandLine on other endpoints to spot mass deployment."
+      ],
+      "false_positives": [
+        "The rule states false positives are unlikely.",
+        "Security software uninstallers or admin cleanup scripts removing their own SafeBoot entries; confirm with the owning team and a change ticket."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether an authorized change exists; without one, escalate as a high-priority incident.",
+        "Isolate the endpoint via EDR and avoid rebooting it until the boot configuration (bcdedit) has been reviewed.",
+        "Restore the deleted SafeBoot subkeys from a reference host or backup and verify security services are running.",
+        "Trace the full execution chain, persistence and credentials used; reset compromised accounts and hunt for the same activity on other hosts."
+      ],
+      "severity_rationale": "High fits because deleting SafeBoot entries with reg.exe rarely has a legitimate purpose and typically precedes disabling defenses and encryption."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe deletes the Windows Defender entry from the SafeBoot Network subkey, launched from a batch script",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg delete \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot\\Network\\WinDefend\" /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\upd.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed reg.exe (OriginalFileName still reg.exe) deletes an EDR service from the SafeBoot Minimal subkey",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\svchelper.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "svchelper.exe delete HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot\\Minimal\\ExampleEDRSvc /f",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator queries the SafeBoot key with reg.exe without deleting anything",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.ops",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\SafeBoot\\Minimal\" /s",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "reg.exe deletes an unrelated Run key value, not a SafeBoot key",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg delete \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\" /v OldUpdater /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

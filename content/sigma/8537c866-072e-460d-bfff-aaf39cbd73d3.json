@@ -1,0 +1,140 @@
+{
+  "rule": {
+    "id": "8537c866-072e-460d-bfff-aaf39cbd73d3",
+    "title": "Potentially Suspicious Inline JavaScript Execution via NodeJS Binary",
+    "level": "medium",
+    "status": "experimental",
+    "author": "Microsoft (idea), Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_inline_node_js_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_inline_node_js_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.007"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Node.js ejecutó JavaScript en línea cuya línea de comandos carga a la vez módulos de red, ejecución de procesos, sistema de archivos y compresión. Este patrón es típico de loaders que descargan, descomprimen y ejecutan un payload.",
+      "what_it_detects": "Procesos node.exe (por Image, OriginalFileName o Product 'Node.js') cuyo CommandLine contiene todas las cadenas 'http', 'execSync', 'spawn', 'fs', 'path' y 'zlib', algo habitual en scripts pasados con -e o -p.",
+      "why_it_matters": "Los atacantes usan Node.js para ejecutar JavaScript fuera del navegador (T1059.007). Así descargan, descomprimen y lanzan payloads con un binario firmado, a menudo sin dejar ningún archivo de script en disco.",
+      "triage_steps": [
+        "Revise el CommandLine completo: busque URLs, IPs, Buffer.from/base64, zlib.inflate/gunzip y qué comando reciben execSync o spawn.",
+        "Verifique Image: ¿node.exe está en una ruta de instalación legítima o en AppData, Temp o Downloads? Si OriginalFileName es node.exe pero el nombre cambió, trátelo como renombrado.",
+        "Examine ParentImage y su línea de comandos: wscript, mshta, msiexec, cmd o un instalador recién descargado aumentan la sospecha.",
+        "Liste los procesos hijos de node.exe y los archivos creados en la misma ruta del host en un rango de +/- 15 minutos.",
+        "Pivote en las conexiones de red del proceso y resuelva los dominios o IPs contactados contra inteligencia de amenazas.",
+        "Busque persistencia creada cerca del evento: claves Run, tareas programadas o accesos directos en Startup que invoquen node.exe.",
+        "Revise alertas previas del mismo usuario y host, y si otros equipos ejecutaron la misma línea de comandos."
+      ],
+      "false_positives": [
+        "Scripts legítimos de Node.js que usan estos módulos, por ejemplo herramientas de build o despliegue que descargan y descomprimen artefactos.",
+        "Instaladores o actualizadores de aplicaciones Electron o CLI de desarrollo que ejecutan código en línea.",
+        "Pruebas de equipos de desarrollo o automatización CI/CD en estaciones de desarrolladores."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del sistema si la ejecución era esperada; documente el CommandLine y el árbol de procesos.",
+        "Si es maliciosa, aísle el endpoint desde el EDR y bloquee los dominios o IPs contactados.",
+        "Recolecte los archivos descargados o escritos, calcule sus hash y elimine la persistencia identificada tras validarla.",
+        "Restablezca las credenciales del usuario si hubo acceso a navegadores o almacenes de credenciales, y busque la misma actividad en toda la flota."
+      ],
+      "severity_rationale": "El nivel medio es adecuado: la combinación de módulos es muy sospechosa en ejecución en línea, aunque algunas herramientas legítimas de desarrollo pueden producirla."
+    },
+    "en": {
+      "summary": "Node.js ran inline JavaScript whose command line loads network, process execution, file system and compression modules together. This pattern is typical of loaders that download, decompress and run a payload.",
+      "what_it_detects": "node.exe processes (matched by Image, OriginalFileName or Product 'Node.js') whose CommandLine contains all of 'http', 'execSync', 'spawn', 'fs', 'path' and 'zlib', which is common in scripts passed with -e or -p.",
+      "why_it_matters": "Attackers use Node.js to run JavaScript outside the browser (T1059.007). It lets them fetch, unpack and launch payloads through a signed runtime, often without writing any script file to disk.",
+      "triage_steps": [
+        "Read the full CommandLine: look for URLs, IPs, Buffer.from/base64, zlib inflate/gunzip calls and the commands passed to execSync or spawn.",
+        "Check Image: is node.exe in a legitimate install path or in AppData, Temp or Downloads? If OriginalFileName is node.exe under another name, treat it as renamed.",
+        "Inspect ParentImage and its command line: wscript, mshta, msiexec, cmd or a freshly downloaded installer raise suspicion.",
+        "List node.exe child processes and files written on the same host within +/- 15 minutes.",
+        "Pivot on the process's network connections and check contacted domains or IPs against threat intelligence.",
+        "Look for persistence created around the event: Run keys, scheduled tasks or Startup shortcuts invoking node.exe.",
+        "Review earlier alerts for the same user and host, and whether other hosts ran the same command line."
+      ],
+      "false_positives": [
+        "Legitimate Node.js scripts using these modules, such as build or deployment tools that download and extract artifacts.",
+        "Installers or updaters for Electron apps or developer CLIs that run inline code.",
+        "Developer testing or CI/CD automation on developer workstations."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether the execution was expected; record the CommandLine and process tree.",
+        "If malicious, isolate the endpoint via EDR and block contacted domains or IPs.",
+        "Collect downloaded or written files, hash them, and remove verified persistence.",
+        "Reset the user's credentials if browsers or credential stores were accessed, and hunt for the same activity fleet-wide."
+      ],
+      "severity_rationale": "Medium fits because this module combination is highly suspicious for inline execution, yet some legitimate developer tooling can produce it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "node.exe from AppData launched by wscript with inline code loading http, child_process (execSync, spawn), fs, path and zlib",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\nodejs\\node.exe",
+          "OriginalFileName": "node.exe",
+          "Product": "Node.js",
+          "CommandLine": "\"C:\\Users\\jperez\\AppData\\Local\\nodejs\\node.exe\" -e \"const h=require('https'),{execSync,spawn}=require('child_process'),fs=require('fs'),path=require('path'),zlib=require('zlib');h.get('https://updates.example.com/pkg.gz',r=>{/* placeholder */});\"",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\Downloads\\invoice.js",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\nodejs\\"
+        }
+      },
+      {
+        "description": "Renamed Node.js runtime identified by OriginalFileName and Product, running the same inline module combination",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Users\\mrodriguez\\AppData\\Roaming\\Updater\\updsvc.exe",
+          "OriginalFileName": "node.exe",
+          "Product": "Node.js",
+          "CommandLine": "updsvc.exe -e \"var http=require('http');var cp=require('child_process');var fs=require('fs'),path=require('path'),zlib=require('zlib');/* cp.execSync and cp.spawn placeholders */\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start /min updsvc.exe",
+          "CurrentDirectory": "C:\\Users\\mrodriguez\\AppData\\Roaming\\Updater\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Developer running a project script file with node.exe; command line lacks the inline module keywords",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0033.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\nodejs\\node.exe",
+          "OriginalFileName": "node.exe",
+          "Product": "Node.js",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" C:\\repos\\webapp\\server.js --port 3000",
+          "ParentImage": "C:\\Program Files\\Microsoft VS Code\\Code.exe",
+          "CurrentDirectory": "C:\\repos\\webapp\\"
+        }
+      },
+      {
+        "description": "Inline Node.js using http, fs, path and zlib to compress a file but without execSync or child process creation",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0033.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\nodejs\\node.exe",
+          "OriginalFileName": "node.exe",
+          "Product": "Node.js",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" -e \"const http=require('http'),fs=require('fs'),path=require('path'),zlib=require('zlib');fs.createReadStream(path.join('dist','app.js')).pipe(zlib.createGzip()).pipe(fs.createWriteStream('dist/app.js.gz'));\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\repos\\webapp\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "cc4e02ba-9c06-48e2-b09e-2500cace9ae0",
+    "title": "Tasks Folder Evasion",
+    "level": "high",
+    "status": "test",
+    "author": "Sreeman",
+    "path": "windows/process_creation/proc_creation_win_susp_task_folder_evasion.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_task_folder_evasion.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1574.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó una línea de comandos que escribe o copia contenido (echo, copy, type o fsutil file createnew) en la carpeta Tasks de System32 o SysWOW64. Esto puede indicar que un atacante prepara un payload en una ruta con permisos de escritura para ejecutarlo o cargarlo después.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene 'echo ', 'copy ', 'type ' o 'file createnew' junto con una ruta precedida por espacio a C:\\Windows\\System32\\Tasks\\ o C:\\Windows\\SysWow64\\Tasks\\.",
+      "why_it_matters": "Según la regla, las carpetas Tasks admiten escritura global. Un atacante puede dejar ahí scripts, DLL o ensamblados .NET que luego cargan cscript, wscript, regsvr32, mshta o eventvwr. Esto corresponde a secuestro del orden de búsqueda de DLL (T1574.001) y sirve para persistencia, ejecución o escalamiento de privilegios.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el archivo origen, el archivo destino dentro de Tasks y su extensión (.dll, .js, .vbs, .hta, .exe, .config).",
+        "Identifique Image, ParentImage y el usuario. Un cmd.exe o powershell.exe lanzado por Office, un navegador o wscript es más sospechoso.",
+        "Verifique en el endpoint si el archivo destino sigue existiendo; obtenga su hash, tamaño, firma y fecha de creación, y consulte su reputación.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, ejecuciones de cscript, wscript, regsvr32, mshta, eventvwr o binarios .NET que hagan referencia a la ruta Tasks.",
+        "Revise si hubo creación o modificación de tareas programadas (schtasks, evento 4698) que apunten al archivo escrito.",
+        "Pivote por el mismo usuario y el archivo origen en otros hosts para detectar propagación o una campaña.",
+        "Consulte alertas previas del host y del usuario, sobre todo de descarga de archivos, ejecución de scripts o escalamiento de privilegios."
+      ],
+      "false_positives": [
+        "La regla indica falsos positivos desconocidos; la escritura manual en Tasks no es una práctica administrativa habitual.",
+        "Scripts de administración o despliegue que exportan o copian definiciones XML de tareas programadas con copy o type.",
+        "Pruebas autorizadas de red team o de emulación de adversarios que reproducen esta técnica."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del sistema o el equipo de TI si la acción estaba autorizada antes de actuar.",
+        "Si es maliciosa, aísle el endpoint y preserve el archivo escrito en Tasks y la memoria del proceso para análisis forense.",
+        "Elimine el archivo malicioso y cualquier tarea programada o clave de persistencia asociada, después de documentarlos.",
+        "Restablezca las credenciales del usuario involucrado si hay indicios de compromiso y busque el hash en toda la flota.",
+        "Considere restringir permisos de escritura en las carpetas Tasks y monitorear la creación de archivos en esas rutas."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque escribir archivos en las carpetas Tasks del sistema casi no tiene uso legítimo y se asocia a persistencia y secuestro de carga de código."
+    },
+    "en": {
+      "summary": "A process ran a command line that writes or copies content (echo, copy, type or fsutil file createnew) into the Tasks folder under System32 or SysWOW64. An attacker may be staging a payload in a writable system path to load or run later.",
+      "what_it_detects": "Process creation events whose CommandLine contains 'echo ', 'copy ', 'type ' or 'file createnew' together with a space-prefixed path to C:\\Windows\\System32\\Tasks\\ or C:\\Windows\\SysWow64\\Tasks\\.",
+      "why_it_matters": "The rule notes that the Tasks folders are globally writable. Attackers can drop scripts, DLLs or .NET assemblies there for cscript, wscript, regsvr32, mshta or eventvwr to load. This maps to DLL search order hijacking (T1574.001) and can give persistence, execution or privilege escalation.",
+      "triage_steps": [
+        "Read the full CommandLine: identify the source file, the destination file inside Tasks and its extension (.dll, .js, .vbs, .hta, .exe, .config).",
+        "Identify Image, ParentImage and the user. cmd.exe or powershell.exe spawned by Office, a browser or wscript is more suspicious.",
+        "Check whether the destination file still exists on the endpoint; collect its hash, size, signature and creation time, and check reputation.",
+        "On the same host within +/- 15 minutes, look for cscript, wscript, regsvr32, mshta, eventvwr or .NET binaries referencing the Tasks path.",
+        "Look for scheduled task creation or changes (schtasks, event 4698) pointing at the written file.",
+        "Pivot on the same user and the source file across other hosts to spot spread or a wider campaign.",
+        "Review earlier alerts for the host and user, especially file downloads, script execution or privilege escalation."
+      ],
+      "false_positives": [
+        "The rule lists false positives as unknown; manually writing into Tasks is not a common admin practice.",
+        "Admin or deployment scripts that export or copy scheduled task XML definitions with copy or type.",
+        "Authorized red team or adversary emulation exercises reproducing this technique."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or IT whether the action was authorized before acting.",
+        "If malicious, isolate the endpoint and preserve the file written to Tasks and process memory for forensics.",
+        "After documenting them, remove the malicious file and any related scheduled task or persistence key.",
+        "Reset the involved user's credentials if compromise is suspected and hunt for the file hash fleet-wide.",
+        "Consider tightening write permissions on the Tasks folders and monitoring file creation in those paths."
+      ],
+      "severity_rationale": "High fits because writing files into the system Tasks folders has almost no legitimate use and is tied to persistence and code-loading hijacks."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe copies a DLL from a user-writable folder into System32\\Tasks",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "cmd.exe /c copy C:\\Users\\Public\\update.dll C:\\Windows\\System32\\Tasks\\update.dll",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "fsutil creates an empty file in SysWOW64\\Tasks as a staging placeholder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\fsutil.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "fsutil file createnew C:\\Windows\\SysWow64\\Tasks\\loader.js 1024",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator only lists the contents of the System32 Tasks folder; no write command is present",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.soporte",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "cmd.exe /c dir C:\\Windows\\System32\\Tasks\\",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Copy into the legacy C:\\Windows\\Tasks folder, not the System32 or SysWOW64 Tasks path",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "cmd.exe /c copy C:\\Deploy\\backup_job.xml C:\\Windows\\Tasks\\backup_job.xml",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

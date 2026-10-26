@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "198effb6-6c98-4d0c-9ea3-451fa143c45c",
+    "title": "Run Once Task Execution as Configured in Registry",
+    "level": "low",
+    "status": "test",
+    "author": "Avneet Singh @v3t0_, oscd.community, Christopher Peacock @SecurePeacock (updated)",
+    "path": "windows/process_creation/proc_creation_win_runonce_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_runonce_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1112"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó runonce.exe (Run Once Wrapper) con /AlternateShellStartup o terminando en /r, lo que hace que ejecute comandos guardados en el registro. Un atacante puede usarlo para lanzar, mediante un binario confiable de Windows, un payload que dejó configurado antes.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\runonce.exe o Description es 'Run Once Wrapper', y CommandLine contiene '/AlternateShellStartup' o termina en '/r'. Ambas opciones hacen que runonce.exe procese tareas de ejecución única configuradas en el registro, por ejemplo en las claves RunOnce, RunOnceEx o Active Setup.",
+      "why_it_matters": "Corresponde a T1112 (Modify Registry), con etiquetas de persistencia y debilitamiento de defensas. El atacante escribe un comando en una clave del registro y lo dispara con un binario firmado por Microsoft (LOLBAS), ocultando la ejecución tras un proceso confiable.",
+      "triage_steps": [
+        "Revise CommandLine, ParentImage y el usuario. Un runonce.exe lanzado por un usuario común desde cmd.exe, powershell.exe, intérpretes de scripts u Office es más sospechoso que uno iniciado por el sistema durante una instalación.",
+        "Liste los procesos hijos de este runonce.exe; muestran qué ejecutó realmente la tarea del registro. Verifique rutas, firmas y hashes.",
+        "Inspeccione HKLM/HKCU ...\\CurrentVersion\\RunOnce, RunOnceEx y HKLM\\SOFTWARE\\Microsoft\\Active Setup\\Installed Components buscando valores StubPath o comandos recientes o inusuales.",
+        "Busque eventos de modificación del registro en el mismo host dentro de +/- 15 minutos antes de la alerta para identificar quién escribió la entrada.",
+        "Confirme si hubo un instalador, Windows Update, reinicio o arranque en Modo seguro en el mismo periodo.",
+        "Revise alertas previas del mismo host y usuario, y busque la misma línea de comandos en otros endpoints."
+      ],
+      "false_positives": [
+        "Instaladores o actualizadores de software que registran tareas de ejecución única y las disparan tras la instalación o el reinicio.",
+        "Instalación de Windows, actualizaciones de características o procesamiento de Active Setup en el primer inicio de sesión.",
+        "Arranques en Modo seguro que usan el inicio del shell alternativo.",
+        "Scripts administrativos o de despliegue que invocan runonce.exe /r de forma intencional."
+      ],
+      "response_steps": [
+        "Verifique con el responsable del equipo o los registros de cambios si una instalación o actualización legítima explica la actividad.",
+        "Si es malicioso, aísle el endpoint y preserve el contenido de las claves del registro y los binarios de los procesos hijos para su análisis.",
+        "Elimine las entradas maliciosas de RunOnce o Active Setup y los payloads referenciados, después de documentarlos.",
+        "Busque los mismos valores de registro y hashes en toda la flota, restablezca credenciales expuestas y restaure el host a un estado confiable si es necesario."
+      ],
+      "severity_rationale": "El nivel bajo es adecuado porque runonce.exe con estas opciones también se ejecuta en instalaciones y configuraciones normales, y requiere el contexto de procesos padre e hijos para confirmar un hallazgo."
+    },
+    "en": {
+      "summary": "runonce.exe (Run Once Wrapper) was started with /AlternateShellStartup or a trailing /r, which makes it run commands stored in the registry. Attackers can use this to launch a payload they planted earlier through a trusted Windows binary.",
+      "what_it_detects": "Process creation where Image ends with \\runonce.exe or Description is 'Run Once Wrapper', and CommandLine contains '/AlternateShellStartup' or ends with '/r'. Both options make runonce.exe process registry-configured run-once tasks, for example under RunOnce, RunOnceEx or Active Setup keys.",
+      "why_it_matters": "Maps to T1112 (Modify Registry) with persistence and defense-impairment tags. An attacker writes a command to a registry key, then triggers it with a signed Microsoft binary (a LOLBAS), hiding execution behind a trusted process.",
+      "triage_steps": [
+        "Review CommandLine, ParentImage and the user. A runonce.exe launched from cmd.exe, powershell.exe, script hosts or Office apps by a normal user is more suspicious than one started by the system during setup.",
+        "List child processes of this runonce.exe; they show what the registry task actually executed. Check their paths, signatures and hashes.",
+        "Inspect HKLM/HKCU ...\\CurrentVersion\\RunOnce, RunOnceEx and HKLM\\SOFTWARE\\Microsoft\\Active Setup\\Installed Components for recently added or unusual StubPath and command values.",
+        "Pivot on registry modification events on the same host within +/- 15 minutes before the alert to find who wrote the entry.",
+        "Check whether an installer, Windows Update, reboot or Safe Mode boot happened around the same time.",
+        "Search for earlier alerts on the same host and user, and for the same command line on other endpoints."
+      ],
+      "false_positives": [
+        "Software installers or updaters that register run-once tasks and trigger them after setup or reboot.",
+        "Windows setup, feature updates or Active Setup processing during first user logon.",
+        "Safe Mode boots that use the alternate shell startup path.",
+        "Administrative or deployment scripts that deliberately call runonce.exe /r."
+      ],
+      "response_steps": [
+        "Verify with the host owner or change records whether a legitimate install or update explains the activity.",
+        "If malicious, isolate the endpoint and preserve the registry key contents and child process binaries for analysis.",
+        "Remove the malicious run-once or Active Setup entries and the referenced payloads after documenting them.",
+        "Hunt for the same registry values and hashes across the fleet, reset exposed credentials, and restore the host from a known-good state if needed."
+      ],
+      "severity_rationale": "Low fits because runonce.exe with these options also runs during normal installs and setup, so the alert mostly needs context from the parent and child processes to become a real finding."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "runonce.exe launched from cmd.exe with /AlternateShellStartup by a standard user",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\runonce.exe",
+          "Description": "Run Once Wrapper",
+          "CommandLine": "runonce.exe /AlternateShellStartup",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c runonce.exe /AlternateShellStartup",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed binary identified by Description 'Run Once Wrapper' invoked with trailing /r from PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\ro.exe",
+          "Description": "Run Once Wrapper",
+          "OriginalFileName": "RUNONCE.EXE",
+          "CommandLine": "C:\\Users\\Public\\ro.exe /r",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal logon processing of 32-bit RunOnce entries by explorer.exe with /Run6432 (does not end with /r nor contain /AlternateShellStartup)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\runonce.exe",
+          "Description": "Run Once Wrapper",
+          "CommandLine": "\"C:\\Windows\\System32\\runonce.exe\" /Run6432",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Different binary whose command line ends with /r (not runonce.exe and no matching Description)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\shutdown.exe",
+          "Description": "Windows Shutdown and Annotation Tool",
+          "CommandLine": "shutdown.exe /t 0 /r",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "1a1ed54a-2ba4-4221-94d5-01dee560d71e",
+    "title": "Renamed CreateDump Utility Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_renamed_createdump.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_renamed_createdump.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.001",
+      "T1036"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó una copia renombrada de createdump.exe, la utilidad de volcado de memoria del runtime de .NET, o un binario con sus parámetros típicos fuera de su nombre original. Puede indicar un volcado de memoria de procesos como LSASS para robar credenciales.",
+      "what_it_detects": "Creación de procesos cuyo OriginalFileName es 'FX_VER_INTERNALNAME_STR' (el valor de metadatos PE de createdump.exe), o cuyo CommandLine contiene ' -u ', ' -f ' y '.dmp', o ' --full ', ' --name ' y '.dmp'. Se excluyen los casos en que Image termina en '\\createdump.exe'.",
+      "why_it_matters": "createdump.exe es un binario firmado por Microsoft que viene con .NET y se usa como LOLBin. Renombrarlo es enmascaramiento (T1036) para evadir detecciones por nombre. Su uso típico es volcar la memoria de LSASS (T1003.001) y extraer credenciales sin conexión.",
+      "triage_steps": [
+        "Revisar Image y CommandLine: identificar el PID objetivo y la ruta del archivo .dmp. Confirmar si ese PID era lsass.exe en ese momento.",
+        "Obtener el hash y la firma de Image y compararlos con createdump.exe legítimo de .NET, para confirmar que es una copia renombrada.",
+        "Analizar ParentImage y la cadena de procesos padre: shells, PowerShell, WMI, servicios remotos o herramientas de administración remota sugieren actividad maliciosa.",
+        "Revisar el usuario y el nivel de privilegios. Volcar LSASS requiere SeDebugPrivilege o privilegios de SYSTEM.",
+        "Buscar en el mismo host, en una ventana de +/- 15 minutos, la creación del .dmp, la compresión del archivo, copias por SMB o conexiones salientes.",
+        "Revisar si hay alertas previas para el mismo host o usuario, como movimiento lateral, nuevos servicios o accesos a lsass.exe (Sysmon EventID 10)."
+      ],
+      "false_positives": [
+        "Línea de comandos de otra herramienta legítima que usa los mismos parámetros -u -f o --full --name con un archivo .dmp.",
+        "Desarrolladores o equipos de soporte que copian y renombran createdump.exe para diagnosticar aplicaciones .NET; hay que verificar el proceso objetivo y si existe un ticket."
+      ],
+      "response_steps": [
+        "Confirmar el proceso objetivo y la existencia del .dmp. Si el objetivo fue LSASS, escalar de inmediato como incidente de robo de credenciales.",
+        "Aislar el endpoint de la red después de verificar la actividad, y conservar el .dmp y el binario renombrado como evidencia antes de eliminarlos.",
+        "Restablecer las contraseñas de las cuentas con sesión en el host y revisar si hubo reutilización de credenciales en otros sistemas.",
+        "Eliminar el binario renombrado y los mecanismos de persistencia, y luego restaurar el host tras validar que está limpio."
+      ],
+      "severity_rationale": "El nivel high se justifica porque un createdump renombrado casi nunca tiene un uso legítimo y suele preceder al robo de credenciales desde la memoria de procesos."
+    },
+    "en": {
+      "summary": "A renamed copy of createdump.exe, the .NET runtime memory dump utility, ran, or a binary ran with its typical dump arguments under another name. This may be a memory dump of a process such as LSASS for credential theft.",
+      "what_it_detects": "Process creation where OriginalFileName is 'FX_VER_INTERNALNAME_STR' (the PE metadata value of createdump.exe), or where CommandLine contains ' -u ', ' -f ' and '.dmp', or ' --full ', ' --name ' and '.dmp'. Events are excluded when Image ends with '\\createdump.exe'.",
+      "why_it_matters": "createdump.exe is a Microsoft-signed binary that ships with .NET and is abused as a LOLBin. Renaming it is masquerading (T1036) to evade name-based detections. It is typically used to dump LSASS memory (T1003.001) so that credentials can be extracted offline.",
+      "triage_steps": [
+        "Review Image and CommandLine to find the target PID and the .dmp output path. Confirm whether that PID was lsass.exe at the time.",
+        "Get the hash and signature of Image and compare them with the legitimate .NET createdump.exe to confirm it is a renamed copy.",
+        "Inspect ParentImage and the process tree. Shells, PowerShell, WMI, remote services or RMM tools point to malicious activity.",
+        "Check the user and the privilege level. Dumping LSASS needs SeDebugPrivilege or SYSTEM.",
+        "On the same host, within +/- 15 minutes, look for the .dmp being created, the file being compressed, SMB copies or outbound transfers.",
+        "Check earlier alerts for the same host or user, such as lateral movement, new services or access to lsass.exe (Sysmon EventID 10)."
+      ],
+      "false_positives": [
+        "Another legitimate tool's command line that uses the same -u -f or --full --name flags with a .dmp file.",
+        "Developers or support staff who copy and rename createdump.exe to debug .NET apps. Verify the target process and look for a ticket."
+      ],
+      "response_steps": [
+        "Confirm the target process and whether the .dmp exists. If LSASS was the target, escalate at once as a credential theft incident.",
+        "Once the activity is verified, isolate the endpoint. Keep the .dmp and the renamed binary as evidence before removing them.",
+        "Reset passwords for accounts that had sessions on the host, and check for credential reuse on other systems.",
+        "Remove the renamed binary and any persistence, then restore the host once it is validated as clean."
+      ],
+      "severity_rationale": "High fits because a renamed createdump almost never has a legitimate purpose and usually comes right before credentials are stolen from process memory."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Renamed createdump identified by its OriginalFileName, dumping PID 712 to ProgramData",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\ProgramData\\dbg\\winhelper.exe",
+          "OriginalFileName": "FX_VER_INTERNALNAME_STR",
+          "CommandLine": "C:\\ProgramData\\dbg\\winhelper.exe -u -f C:\\ProgramData\\dbg\\out.dmp 712",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Binary under a different name using the --full --name long options with a .dmp output",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\update.exe",
+          "OriginalFileName": "update.exe",
+          "CommandLine": "C:\\Users\\Public\\update.exe --full --name C:\\Users\\Public\\m.dmp 640",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate createdump.exe from the .NET runtime folder, excluded by the Image filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-WS-07.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App\\6.0.25\\createdump.exe",
+          "OriginalFileName": "FX_VER_INTERNALNAME_STR",
+          "CommandLine": "\"C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App\\6.0.25\\createdump.exe\" -u -f C:\\Temp\\myapp.dmp 4321",
+          "ParentImage": "C:\\Program Files\\dotnet\\dotnet.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "ProcDump writing a .dmp file without the createdump flags or its OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-WS-07.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Tools\\Sysinternals\\procdump64.exe",
+          "OriginalFileName": "procdump",
+          "CommandLine": "C:\\Tools\\Sysinternals\\procdump64.exe -ma 4321 C:\\Temp\\myapp.dmp",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

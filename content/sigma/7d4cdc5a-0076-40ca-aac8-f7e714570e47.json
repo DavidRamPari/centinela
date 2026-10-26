@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "7d4cdc5a-0076-40ca-aac8-f7e714570e47",
+    "title": "CMSTP Execution Process Creation",
+    "level": "high",
+    "status": "stable",
+    "author": "Nik Seetharaman",
+    "path": "windows/process_creation/proc_creation_win_cmstp_execution_by_creation.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmstp_execution_by_creation.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un proceso cuyo padre es cmstp.exe (Microsoft Connection Manager Profile Installer). CMSTP casi nunca genera procesos hijos, por lo que esto suele indicar que se está usando como intermediario para ejecutar código.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde ParentImage termina en \\cmstp.exe, es decir, cualquier proceso hijo generado por CMSTP.",
+      "why_it_matters": "Los atacantes abusan de CMSTP (ATT&CK T1218.003, ejecución mediante binario del sistema) con perfiles .inf manipulados. El binario firmado por Microsoft ejecuta comandos o carga DLL, lo que puede evadir listas de aplicaciones permitidas y saltarse el UAC.",
+      "triage_steps": [
+        "Revise Image y CommandLine del proceso hijo. Considere muy sospechosos shells, intérpretes de scripts, rundll32, regsvr32 o binarios en rutas con permiso de escritura del usuario.",
+        "Obtenga la línea de comandos de cmstp.exe (ParentCommandLine). Identifique la ruta del .inf y modificadores como /s, /ns o /au, y si el .inf está en Temp, Descargas o un recurso compartido.",
+        "Recupere el archivo .inf referenciado. Revise las secciones RunPreSetupCommandsSection, RegisterOCXSection o UnRegisterOCXs en busca de comandos, DLL o scriptlets remotos.",
+        "Verifique el nivel de integridad del proceso hijo y el usuario. Un hijo con privilegios elevados desde un contexto sin privilegios de administrador sugiere un bypass de UAC.",
+        "Pivotee en el mismo host en +/- 15 minutos: creación de archivos, conexiones de red, cambios en el registro y otros procesos hijos.",
+        "Determine cómo se lanzó cmstp.exe: el proceso abuelo (Office, navegador, script, descompresor) y los correos o descargas recientes del mismo usuario.",
+        "Busque alertas o ejecuciones previas de cmstp.exe para el mismo usuario, host y hash del .inf en todo el entorno."
+      ],
+      "false_positives": [
+        "Instalación legítima de un perfil de Connection Manager para VPN o acceso telefónico creado con CMAK, normalmente hecha por TI en equipos gestionados.",
+        "Paquetes antiguos de despliegue de acceso remoto que invocan cmstp.exe durante la distribución de software."
+      ],
+      "response_steps": [
+        "Confirme con TI o con el responsable del activo si se esperaba instalar un perfil de Connection Manager en este host.",
+        "Si es malicioso, aísle el endpoint y finalice los procesos hijos, preservando antes la memoria o los datos de triage si es posible.",
+        "Elimine el .inf malicioso, las DLL o scriptlets descargados y las entradas de registro o accesos directos de perfil creados por CMSTP.",
+        "Restablezca las credenciales del usuario afectado si sospecha elevación o robo de credenciales, y busque el hash del .inf en otros hosts.",
+        "Evalúe bloquear o monitorear cmstp.exe mediante control de aplicaciones donde no se use Connection Manager."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque los procesos hijos legítimos de CMSTP son raros y el comportamiento es una técnica conocida de ejecución indirecta y bypass de UAC."
+    },
+    "en": {
+      "summary": "A process was started with cmstp.exe (Microsoft Connection Manager Profile Installer) as its parent. CMSTP rarely launches child processes, so this often means it is being abused as a proxy to run code.",
+      "what_it_detects": "Windows process creation events where ParentImage ends with \\cmstp.exe, meaning any child process spawned by CMSTP.",
+      "why_it_matters": "Attackers abuse CMSTP (ATT&CK T1218.003, System Binary Proxy Execution) with crafted .inf profiles. The signed Microsoft binary then runs commands or loads DLLs, which can slip past application allowlisting and may bypass UAC.",
+      "triage_steps": [
+        "Review Image and CommandLine of the child process. Treat shells, script hosts, rundll32, regsvr32 or binaries in user-writable paths as highly suspicious.",
+        "Get the parent cmstp.exe command line (ParentCommandLine). Look for the .inf path and switches such as /s, /ns or /au, and note whether the .inf sits in Temp, Downloads or a share.",
+        "Collect the referenced .inf file. Check its RunPreSetupCommandsSection, RegisterOCXSection or UnRegisterOCXs entries for commands, DLLs or remote scriptlets.",
+        "Check the integrity level of the child process and the user it ran as. A child running elevated from a non-admin context suggests a UAC bypass.",
+        "Pivot on the same host within +/- 15 minutes for file creations, network connections, registry changes and further child processes.",
+        "Find out how cmstp.exe was launched: its grandparent (Office, browser, script, archive tool) and any recent email or download activity by the same user.",
+        "Look for earlier alerts or cmstp.exe executions for the same user, host and .inf hash across the environment."
+      ],
+      "false_positives": [
+        "Legitimate installation of a VPN or dial-up Connection Manager profile built with CMAK, usually by IT on managed machines.",
+        "Older remote-access deployment packages that call cmstp.exe during software distribution."
+      ],
+      "response_steps": [
+        "Confirm with IT or the asset owner whether a Connection Manager profile installation was expected on this host.",
+        "If it is malicious, isolate the endpoint and kill the child processes, keeping process memory or triage data first if you can.",
+        "Remove the malicious .inf, any dropped DLLs or scriptlets, and the CMSTP-related registry entries or profile shortcuts it created.",
+        "Reset the affected user's credentials if elevation or credential access is suspected, and hunt for the .inf hash on other hosts.",
+        "Consider blocking or monitoring cmstp.exe through application control where Connection Manager is not used."
+      ],
+      "severity_rationale": "High fits because legitimate CMSTP child processes are rare and the behavior is a well-documented proxy execution and UAC bypass technique."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmstp.exe silently installs a crafted .inf from the user's Temp folder and spawns cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami",
+          "ParentImage": "C:\\Windows\\System32\\cmstp.exe",
+          "ParentCommandLine": "cmstp.exe /ni /s C:\\Users\\jperez\\AppData\\Local\\Temp\\profile.inf",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "cmstp.exe launches rundll32.exe loading a DLL from a user-writable path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0219.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe C:\\Users\\Public\\update.dll,Start",
+          "ParentImage": "C:\\Windows\\SysWOW64\\cmstp.exe",
+          "ParentCommandLine": "cmstp.exe /s C:\\Users\\Public\\vpn.inf",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "cmstp.exe itself started by explorer.exe; CMSTP is the Image, not the parent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmstp.exe",
+          "CommandLine": "cmstp.exe C:\\IT\\Profiles\\corpvpn.inf",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Child of a similarly named but different binary (cmstpw.exe) does not end with \\cmstp.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0305.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "CommandLine": "notepad.exe C:\\IT\\readme.txt",
+          "ParentImage": "C:\\Program Files\\VendorVPN\\cmstpw.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

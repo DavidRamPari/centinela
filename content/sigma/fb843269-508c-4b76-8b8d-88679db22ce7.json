@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "fb843269-508c-4b76-8b8d-88679db22ce7",
+    "title": "Suspicious Execution of Powershell with Base64",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_powershell_encode.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_encode.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició powershell.exe o pwsh.exe con un parámetro abreviado de comando codificado (-e, -en, -enc, -enco*, -ec), lo que indica que se ejecutó un payload en Base64. Hay que decodificarlo y validar quién lo lanzó.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\powershell.exe o \\pwsh.exe y CommandLine contiene ' -e ', ' -en ', ' -enc ', ' -enco' o ' -ec '. Se excluyen las líneas con ' -Encoding ' y los procesos cuyo ParentImage pertenece al agente Azure Guest Configuration (gc_worker.exe).",
+      "why_it_matters": "Codificar comandos en Base64 oculta el código real a la revisión visual y a filtros simples. Los atacantes lo usan para descargar y ejecutar payloads, persistir o moverse lateralmente (ATT&CK T1059.001, intérprete de PowerShell).",
+      "triage_steps": [
+        "Extraer el bloque Base64 de CommandLine y decodificarlo como UTF-16LE en un entorno aislado; identificar descargas, IEX, reflection, AMSI bypass o URLs.",
+        "Revisar ParentImage y su línea de comandos: Office, navegador, wscript, mshta o servicios web como padre son mucho más sospechosos que una herramienta de gestión.",
+        "Validar el usuario y el host: ¿es una cuenta de servicio esperada, un administrador o un usuario estándar?",
+        "Buscar opciones adicionales en CommandLine como -NoP, -W Hidden, -NonI o -ExecutionPolicy Bypass, que suelen acompañar ejecuciones maliciosas.",
+        "Pivotar en el mismo host ±15 minutos: procesos hijos, conexiones de red, archivos creados, tareas programadas y servicios nuevos.",
+        "Consultar eventos 4104 (Script Block Logging) del host para ver el script ya decodificado y posibles etapas posteriores.",
+        "Buscar la misma cadena Base64 o el mismo hash de comando en otros endpoints y alertas previas del usuario o host."
+      ],
+      "false_positives": [
+        "Herramientas de administración, RMM o despliegue de software (SCCM, Intune, agentes de monitoreo) que envían scripts codificados para evitar problemas de comillas.",
+        "Scripts internos de TI o instaladores que invocan PowerShell con -EncodedCommand de forma documentada.",
+        "Agentes de nube u orquestación distintos del Guest Configuration de Azure que la regla ya excluye."
+      ],
+      "response_steps": [
+        "Verificar el contenido decodificado y el proceso padre; si es una herramienta legítima, documentarla y proponer una exclusión acotada por ParentImage y usuario.",
+        "Si es malicioso o no se puede explicar, aislar el endpoint desde el EDR y preservar memoria, logs de PowerShell y artefactos.",
+        "Bloquear dominios, IP y hashes identificados en el payload y buscarlos en toda la flota.",
+        "Eliminar la persistencia encontrada, restablecer credenciales del usuario afectado y restaurar el equipo tras confirmar que está limpio."
+      ],
+      "severity_rationale": "Es medium porque los comandos codificados son una técnica común de atacantes, pero también los usan herramientas legítimas de administración, por lo que se requiere contexto antes de escalar."
+    },
+    "en": {
+      "summary": "powershell.exe or pwsh.exe was started with an abbreviated encoded-command switch (-e, -en, -enc, -enco*, -ec), meaning a Base64 payload was executed. Decode it and validate who launched it.",
+      "what_it_detects": "Windows process creation events where Image ends with \\powershell.exe or \\pwsh.exe and CommandLine contains ' -e ', ' -en ', ' -enc ', ' -enco' or ' -ec '. Command lines containing ' -Encoding ' and processes whose ParentImage is the Azure Guest Configuration agent (gc_worker.exe) are excluded.",
+      "why_it_matters": "Base64-encoded commands hide the real code from visual review and simple filters. Attackers use them to download and run payloads, persist or move laterally (ATT&CK T1059.001, PowerShell interpreter).",
+      "triage_steps": [
+        "Extract the Base64 blob from CommandLine and decode it as UTF-16LE in a safe sandbox; look for downloads, IEX, reflection, AMSI bypasses or URLs.",
+        "Review ParentImage and its command line: Office, browsers, wscript, mshta or web server processes as parent are far more suspicious than management tools.",
+        "Validate the user and host: expected service account, administrator, or standard user?",
+        "Check CommandLine for companion flags such as -NoP, -W Hidden, -NonI or -ExecutionPolicy Bypass, common in malicious launches.",
+        "Pivot on the same host within +/- 15 minutes: child processes, network connections, dropped files, new scheduled tasks and services.",
+        "Query event 4104 (Script Block Logging) on the host to see the decoded script and any later stages.",
+        "Search for the same Base64 string or command hash on other endpoints and in earlier alerts for the user or host."
+      ],
+      "false_positives": [
+        "Administration, RMM or software deployment tools (SCCM, Intune, monitoring agents) that push encoded scripts to avoid quoting issues.",
+        "Internal IT scripts or installers that call PowerShell with -EncodedCommand in a documented way.",
+        "Cloud or orchestration agents other than the Azure Guest Configuration agent already excluded by the rule."
+      ],
+      "response_steps": [
+        "Verify the decoded content and parent process; if legitimate, document it and propose a narrow exclusion by ParentImage and user.",
+        "If malicious or unexplained, isolate the endpoint via EDR and preserve memory, PowerShell logs and artifacts.",
+        "Block domains, IPs and hashes found in the payload and hunt for them across the fleet.",
+        "Remove any persistence, reset the affected user's credentials and restore the host once confirmed clean."
+      ],
+      "severity_rationale": "Medium fits because encoded commands are a common attacker technique but are also used by legitimate admin tooling, so context is needed before escalating."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Word spawns hidden PowerShell with -enc and a Base64 payload",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoP -W Hidden -enc RwBlAHQALQBEAGEAdABlAA==",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n C:\\Users\\jperez\\Downloads\\factura.docm",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "PowerShell 7 launched from cmd with the -ec switch",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "CommandLine": "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NonInteractive -ec RwBlAHQALQBEAGEAdABlAA==",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Get-Content with -Encoding: matches ' -enco' but excluded by filter_encoding",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -Command Get-Content C:\\logs\\app.log -Encoding UTF8",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Azure Guest Configuration agent running encoded PowerShell, excluded by filter_azure",
+        "event": {
+          "EventID": 1,
+          "Computer": "AZVM-WEB-01",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -enc RwBlAHQALQBEAGEAdABlAA==",
+          "ParentImage": "C:\\Packages\\Plugins\\Microsoft.GuestConfiguration.ConfigurationforWindows\\1.29.0\\dsc\\GC\\gc_worker.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

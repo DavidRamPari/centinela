@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "138d3531-8793-4f50-a2cd-f291b2863d78",
+    "title": "Suspicious Service Path Modification",
+    "level": "high",
+    "status": "test",
+    "author": "Victor Sergeev, oscd.community, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_sc_service_path_modification.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sc_service_path_modification.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1543.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó sc.exe con «config» y «binPath» para cambiar la ruta binaria de un servicio existente a un intérprete, LOLBin o directorio escribible por usuarios. Esto suele indicar persistencia o escalamiento de privilegios mediante un servicio secuestrado.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\sc.exe y CommandLine contiene 'config' y 'binPath' junto con un comando sospechoso (powershell, cmd /c, mshta, wscript, cscript, rundll32, svchost, dllhost) o una ruta sospechosa (C:\\Users\\Public, Downloads, Desktop, Startup, C:\\Windows\\TEMP, AppData\\Local\\Temp).",
+      "why_it_matters": "Modificar un servicio de Windows (ATT&CK T1543.003) permite ejecutar código como SYSTEM en cada arranque o reinicio del servicio. Reutilizar un servicio legítimo ayuda al atacante a pasar desapercibido y mantener persistencia.",
+      "triage_steps": [
+        "Revisar CommandLine: identificar el nombre del servicio y el nuevo valor de binPath, y si apunta a un intérprete, LOLBin o ruta temporal o pública.",
+        "Revisar ParentImage, ParentCommandLine y User: determinar si sc.exe fue lanzado por un script, una shell interactiva, una herramienta remota o un instalador conocido.",
+        "Consultar en el host la configuración actual del servicio (sc qc <servicio>) y la clave HKLM\\SYSTEM\\CurrentControlSet\\Services\\<servicio>\\ImagePath para confirmar el cambio.",
+        "Si binPath referencia un archivo, obtener su hash, firma digital, fecha de creación y reputación; buscar el mismo hash en otros endpoints.",
+        "Pivotar en el mismo host +/- 15 minutos: sc start/stop, eventos 7045/7040 del System log, descargas, nuevas cuentas o conexiones de red.",
+        "Buscar alertas previas para el mismo usuario, host y nombre de servicio, y ejecuciones similares de sc.exe en otros equipos (movimiento lateral con sc \\\\host)."
+      ],
+      "false_positives": [
+        "Scripts de reparación o administración que restauran el binPath original con svchost.exe -k para servicios de Windows.",
+        "Instaladores o herramientas de TI que ejecutan temporalmente binarios de servicio desde C:\\Windows\\TEMP o AppData\\Local\\Temp.",
+        "Pruebas autorizadas de red team o Atomic Red Team (T1543.003)."
+      ],
+      "response_steps": [
+        "Verificar con el dueño del sistema o el equipo de TI si el cambio estaba autorizado y documentado.",
+        "Si no lo estaba, aislar el endpoint y detener el servicio afectado sin borrar evidencia.",
+        "Preservar el binario o script referenciado, la clave de registro del servicio y los logs relevantes para análisis forense.",
+        "Restaurar el ImagePath original del servicio a partir de un equipo de referencia o de la documentación, y eliminar los artefactos maliciosos confirmados.",
+        "Restablecer credenciales de la cuenta usada y revisar otros hosts en busca del mismo patrón."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque redirigir un servicio a un intérprete o ruta escribible por usuarios casi nunca es legítimo y otorga ejecución persistente como SYSTEM."
+    },
+    "en": {
+      "summary": "sc.exe was run with 'config' and 'binPath' to repoint an existing service to an interpreter, LOLBin or user-writable directory. This usually signals persistence or privilege escalation through a hijacked service.",
+      "what_it_detects": "Process creation events where Image ends with \\sc.exe and CommandLine contains 'config' and 'binPath' plus a suspicious command (powershell, cmd /c, mshta, wscript, cscript, rundll32, svchost, dllhost) or path (C:\\Users\\Public, Downloads, Desktop, Startup, C:\\Windows\\TEMP, AppData\\Local\\Temp).",
+      "why_it_matters": "Modifying a Windows service (ATT&CK T1543.003) lets an attacker run code as SYSTEM whenever the service starts. Reusing a legitimate service helps them blend in and persist.",
+      "triage_steps": [
+        "Read CommandLine: note the service name and the new binPath, and whether it points to an interpreter, LOLBin or temp/public path.",
+        "Check ParentImage, ParentCommandLine and User: was sc.exe launched by a script, interactive shell, remote tool or a known installer?",
+        "On the host, query the service (sc qc <service>) and HKLM\\SYSTEM\\CurrentControlSet\\Services\\<service>\\ImagePath to confirm the change.",
+        "If binPath references a file, collect its hash, signature, creation time and reputation; hunt for the hash on other endpoints.",
+        "Pivot on the same host +/- 15 minutes: sc start/stop, System log events 7045/7040, downloads, new accounts or network connections.",
+        "Look for earlier alerts for the same user, host and service name, and similar sc.exe runs elsewhere (lateral movement via sc \\\\host)."
+      ],
+      "false_positives": [
+        "Repair or admin scripts restoring a Windows service's original binPath with svchost.exe -k.",
+        "Installers or IT tools temporarily running service binaries from C:\\Windows\\TEMP or AppData\\Local\\Temp.",
+        "Authorized red team or Atomic Red Team testing (T1543.003)."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or IT whether the change was authorized and documented.",
+        "If not, isolate the endpoint and stop the affected service without deleting evidence.",
+        "Preserve the referenced binary or script, the service registry key and relevant logs for forensics.",
+        "Restore the service's original ImagePath from a reference host or documentation, and remove confirmed malicious artifacts.",
+        "Reset credentials of the account used and hunt other hosts for the same pattern."
+      ],
+      "severity_rationale": "High fits because pointing a service at an interpreter or user-writable path is rarely legitimate and grants persistent SYSTEM-level execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sc.exe repoints a service binPath to cmd.exe /c launching a payload from C:\\Users\\Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe config UpdaterSvc binPath= \"cmd.exe /c C:\\Users\\Public\\upd.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "sc.exe changes a service to run a binary from C:\\Windows\\TEMP",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "CommandLine": "sc config BrokerSvc binPath= \"C:\\Windows\\TEMP\\svc64.exe\" start= auto",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\svc_backup",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate vendor update setting binPath to a Program Files location",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "CommandLine": "sc.exe config VendorAgent binPath= \"C:\\Program Files\\Vendor\\Agent\\agent.exe\"",
+          "ParentImage": "C:\\Program Files\\Vendor\\Agent\\updater.exe",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "sc.exe config changing only the start type, no binPath",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "CommandLine": "sc.exe config Spooler start= disabled",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\admin_it",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

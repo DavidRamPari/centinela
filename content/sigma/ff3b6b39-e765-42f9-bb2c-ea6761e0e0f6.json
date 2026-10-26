@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "ff3b6b39-e765-42f9-bb2c-ea6761e0e0f6",
+    "title": "Mstsc.EXE Execution From Uncommon Parent",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_mstsc_run_local_rpd_file_susp_parent.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_mstsc_run_local_rpd_file_susp_parent.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició mstsc.exe (Escritorio remoto) directamente desde un navegador o desde Outlook. Esto suele indicar que el usuario abrió un archivo .rdp descargado o adjunto, una técnica conocida como \"rogue RDP\".",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\mstsc.exe u OriginalFileName es mstsc.exe, y ParentImage es un navegador (Chrome, Edge, Firefox, Brave, Opera, Vivaldi, Whale, etc.) o outlook.exe.",
+      "why_it_matters": "Un archivo .rdp malicioso puede conectar al usuario con un servidor RDP del atacante y redirigir unidades locales, portapapeles o dispositivos. Así el atacante puede robar archivos o credenciales, o dejar payloads en el endpoint. La regla lo clasifica como movimiento lateral mediante servicios remotos.",
+      "triage_steps": [
+        "Revise CommandLine para identificar la ruta del archivo .rdp; las rutas en Downloads, INetCache\\Content.Outlook o Temp son las más sospechosas.",
+        "Obtenga el archivo .rdp y revise full address, gatewayhostname, redirectdrives, drivestoredirect, redirectclipboard, remoteapplicationprogram y si está firmado.",
+        "Revise las conexiones de red de mstsc.exe en el mismo host (+/- 15 min): destino externo, puertos 3389/443 y reputación de la IP o el dominio.",
+        "Si ParentImage es outlook.exe, busque el correo origen en el rastreo de mensajes: remitente, asunto, adjunto y otros destinatarios.",
+        "Si es un navegador, revise el historial y los eventos de descarga para identificar la URL y el dominio de origen del .rdp.",
+        "Busque archivos creados o modificados mediante \\\\tsclient, cambios en carpetas de inicio y procesos nuevos en el host tras la conexión.",
+        "Pregunte al usuario si esperaba la conexión y si ingresó credenciales; consulte alertas previas del mismo usuario y host."
+      ],
+      "false_positives": [
+        "La regla indica que son poco probables.",
+        "Portales internos o de proveedores que entregan archivos .rdp legítimos (por ejemplo, RD Web Access o jump hosts) y que el usuario abre desde el navegador.",
+        "Archivos .rdp enviados por correo por el equipo de TI para acceder a servidores corporativos."
+      ],
+      "response_steps": [
+        "Verifique con el usuario y con TI si el destino de la conexión es un servidor corporativo conocido antes de escalar.",
+        "Si es malicioso, termine la sesión de mstsc.exe, bloquee la IP o el dominio de destino en el firewall y el proxy, y aísle el endpoint si hubo redirección de unidades.",
+        "Elimine el correo de todos los buzones afectados y bloquee al remitente o la URL de descarga.",
+        "Restablezca las credenciales que se hayan ingresado y revise los inicios de sesión posteriores de esa cuenta.",
+        "Analice y elimine los archivos dejados por el atacante, y considere bloquear archivos .rdp entrantes o exigir que estén firmados."
+      ],
+      "severity_rationale": "Es alta porque es muy raro que un navegador o un cliente de correo inicie mstsc.exe de forma legítima, y una conexión rogue RDP puede exponer archivos y credenciales de inmediato."
+    },
+    "en": {
+      "summary": "mstsc.exe (Remote Desktop) was launched directly by a web browser or Outlook. This usually means the user opened a downloaded or attached .rdp file, a technique known as \"rogue RDP\".",
+      "what_it_detects": "Process creation events where Image ends with \\mstsc.exe or OriginalFileName is mstsc.exe, and ParentImage is a browser (Chrome, Edge, Firefox, Brave, Opera, Vivaldi, Whale, etc.) or outlook.exe.",
+      "why_it_matters": "A malicious .rdp file can connect the user to an attacker's RDP server and redirect local drives, clipboard or devices. The attacker can then steal files or credentials, or drop payloads on the endpoint. The rule tags this as lateral movement through remote services.",
+      "triage_steps": [
+        "Check CommandLine for the .rdp file path. Paths in Downloads, INetCache\\Content.Outlook or Temp are the most suspicious.",
+        "Get the .rdp file and review full address, gatewayhostname, redirectdrives, drivestoredirect, redirectclipboard, remoteapplicationprogram, and whether it is signed.",
+        "Check mstsc.exe network connections on the same host (+/- 15 min): external destination, ports 3389/443, and IP or domain reputation.",
+        "If ParentImage is outlook.exe, find the source email in message trace: sender, subject, attachment and other recipients.",
+        "If the parent is a browser, check history and download events for the URL and domain that served the .rdp file.",
+        "Look for files written through \\\\tsclient, changes to startup folders and new processes on the host after the connection.",
+        "Ask the user whether they expected the connection and whether they entered credentials. Check earlier alerts for the same user and host."
+      ],
+      "false_positives": [
+        "The rule says false positives are unlikely.",
+        "Internal or vendor portals (RD Web Access, jump hosts) that serve legitimate .rdp files the user opens from the browser.",
+        "IT staff emailing .rdp files for access to corporate servers."
+      ],
+      "response_steps": [
+        "Before escalating, confirm with the user and IT whether the connection target is a known corporate server.",
+        "If malicious, end the mstsc.exe session and block the destination IP or domain at the firewall and proxy. Isolate the endpoint if drives were redirected.",
+        "Purge the email from all affected mailboxes and block the sender or the download URL.",
+        "Reset any credentials the user entered and review later sign-ins for that account.",
+        "Analyze and remove files the attacker dropped. Consider blocking inbound .rdp files or requiring them to be signed."
+      ],
+      "severity_rationale": "High, because browsers and email clients almost never launch mstsc.exe legitimately, and a rogue RDP connection can expose files and credentials right away."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Outlook launches mstsc.exe to open an .rdp attachment from the Outlook temporary cache",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE\"",
+          "Image": "C:\\Windows\\System32\\mstsc.exe",
+          "OriginalFileName": "mstsc.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\mstsc.exe\" \"C:\\Users\\jperez\\AppData\\Local\\Microsoft\\Windows\\INetCache\\Content.Outlook\\Q7Z2K1LM\\vpn-access.rdp\""
+        }
+      },
+      {
+        "description": "A renamed copy of mstsc (identified by OriginalFileName) launched from Chrome to open a downloaded .rdp file",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\rd.exe",
+          "OriginalFileName": "mstsc.exe",
+          "CommandLine": "rd.exe \"C:\\Users\\mrojas\\Downloads\\invoice-portal.rdp\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "User opens a saved .rdp file from Explorer, so the parent is explorer.exe and not a browser or Outlook",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\mstsc.exe",
+          "OriginalFileName": "mstsc.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\mstsc.exe\" \"C:\\Users\\jperez\\Documents\\srv-app01.rdp\""
+        }
+      },
+      {
+        "description": "Outlook opens a Word attachment, so the parent matches but the child is not mstsc",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE",
+          "Image": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "OriginalFileName": "WinWord.exe",
+          "CommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n \"C:\\Users\\jperez\\AppData\\Local\\Microsoft\\Windows\\INetCache\\Content.Outlook\\Q7Z2K1LM\\report.docx\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

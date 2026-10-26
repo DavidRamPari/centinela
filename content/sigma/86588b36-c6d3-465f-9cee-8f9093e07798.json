@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "86588b36-c6d3-465f-9cee-8f9093e07798",
+    "title": "Scheduled Task Executing Payload from Registry",
+    "level": "medium",
+    "status": "test",
+    "author": "X__Junior (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_schtasks_reg_loader.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_schtasks_reg_loader.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1053.005",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "schtasks.exe creó una tarea programada cuya acción usa PowerShell para leer un valor del Registro de Windows. Es común que el malware guarde su payload en el registro y lo cargue periódicamente mediante una tarea.",
+      "what_it_detects": "Creación de proceso de schtasks.exe (por Image u OriginalFileName) con '/Create' en CommandLine, además de 'Get-ItemProperty' o el alias ' gp ' y una ruta de registro (HKCU:, HKLM:, registry::, HKEY_). Se excluyen líneas con FromBase64String o encodedcommand, porque esa variante en Base64 la cubre una regla relacionada.",
+      "why_it_matters": "Guardar el payload en el registro deja pocos rastros en disco, y la tarea lo vuelve a ejecutar de forma recurrente. Combina persistencia por tarea programada (T1053.005) con ejecución de PowerShell (T1059.001), un patrón documentado en intrusiones de QBot.",
+      "triage_steps": [
+        "Revise el CommandLine completo: nombre de la tarea (/TN), acción (/TR), frecuencia (/SC, /MO) y cuenta de ejecución (/RU). Un nombre tipo GUID o aleatorio es sospechoso.",
+        "Ubique la clave y el valor de registro referidos y exporte su contenido desde el endpoint. Verifique si contienen script, llamadas IEX o datos ofuscados.",
+        "Analice ParentImage y el árbol de procesos. Si la tarea la crea Office, wscript, rundll32, regsvr32 o un binario en carpetas temporales, es un indicador fuerte.",
+        "Identifique el usuario y la sesión. Confirme si esa cuenta suele administrar tareas programadas en este equipo.",
+        "Pivotee en el mismo host +/- 15 minutos: escrituras en la misma clave, script block logging de PowerShell (4104), conexiones de red y archivos nuevos.",
+        "Consulte la tarea en el equipo (schtasks /Query /TN <nombre> /V o evento 4698) y verifique si ya se ejecutó.",
+        "Busque en otros endpoints el mismo nombre de tarea, clave de registro o patrón de comando, y revise alertas previas del usuario y del host."
+      ],
+      "false_positives": [
+        "La regla no indica falsos positivos conocidos. Pueden ocurrir con scripts internos de administración o despliegue que guardan configuración en el registro y la leen desde una tarea programada de PowerShell.",
+        "Instaladores o agentes de gestión que crean tareas que leen una configuración del registro. Valide proveedor, firma y registros de cambios."
+      ],
+      "response_steps": [
+        "Confirme si es malicioso revisando el contenido del valor de registro y la definición de la tarea. Preserve ambos como evidencia antes de modificar nada.",
+        "Si es malicioso, aísle el endpoint y deshabilite la tarea programada para evitar nuevas ejecuciones.",
+        "Una vez recolectada la evidencia, elimine la tarea y el valor de registro malicioso. Busque otros mecanismos de persistencia y elimínelos también.",
+        "Restablezca las credenciales del usuario afectado e investigue movimiento lateral, ya que intrusiones tipo QBot suelen escalar hasta comprometer el dominio.",
+        "Reinstale o restaure el equipo si su integridad es dudosa, y monitoree si reaparecen el nombre de la tarea o la clave."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque el patrón es inusual y sugiere persistencia fileless, pero se confirma solo con contexto como el contenido del registro y el proceso padre."
+    },
+    "en": {
+      "summary": "schtasks.exe created a scheduled task whose action uses PowerShell to read a value from the Windows Registry. Malware often hides its payload in a registry value and uses a task to load it on a schedule.",
+      "what_it_detects": "Process creation of schtasks.exe (by Image or OriginalFileName) with '/Create' in CommandLine, plus 'Get-ItemProperty' or the ' gp ' alias, and a registry path (HKCU:, HKLM:, registry::, HKEY_). Command lines that contain FromBase64String or encodedcommand are excluded because a related rule covers the Base64 variant.",
+      "why_it_matters": "Keeping the payload in the registry leaves little on disk, and the task re-runs it on a schedule. This combines Scheduled Task persistence (T1053.005) with PowerShell execution (T1059.001), a pattern seen in reported QBot intrusions.",
+      "triage_steps": [
+        "Read the full CommandLine: task name (/TN), action (/TR), schedule (/SC, /MO) and run-as account (/RU). A GUID-style or random task name is suspicious.",
+        "Find the registry key and value named in the command and export their contents from the host. Check whether they hold script, IEX calls or obfuscated data.",
+        "Check ParentImage and the process tree. A task created by Office, wscript, rundll32, regsvr32 or a temp-folder binary is a strong indicator.",
+        "Identify the user and logon session. Confirm whether that account normally administers scheduled tasks on this host.",
+        "Pivot on the same host for +/- 15 minutes: registry writes to the same key, PowerShell script block logs (4104), network connections and new files.",
+        "List the task on the host (schtasks /Query /TN <name> /V, or Task Scheduler event 4698) and check whether it has already run.",
+        "Search other endpoints for the same task name, registry key or command pattern, and check earlier alerts for this user and host."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. Rare in-house admin or deployment scripts that store configuration in the registry and read it from a scheduled PowerShell task.",
+        "Software installers or management agents that create tasks reading a registry setting. Verify the vendor, signer and change records."
+      ],
+      "response_steps": [
+        "Verify maliciousness by reviewing the registry value content and the task definition, and preserve both as evidence before changing anything.",
+        "If malicious, isolate the endpoint and disable the scheduled task to stop it running again.",
+        "After evidence is collected, delete the task and the malicious registry value. Hunt for other persistence and remove it too.",
+        "Reset credentials for the affected user and investigate lateral movement, since QBot-style intrusions often escalate to domain compromise.",
+        "Reimage or restore the host if integrity is in doubt, then monitor for recurrence of the task name or key."
+      ],
+      "severity_rationale": "Medium fits because this pattern is unusual and strongly suggests fileless persistence, but it needs context such as the registry content and parent process before it can be confirmed."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "schtasks creates a task that runs PowerShell IEX on a plain-text payload read from HKCU with Get-ItemProperty",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "ParentImage": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "schtasks.exe /Create /F /TN \"{97F2F70B-10D1-4447-A2F3-9B070C86E261}\" /TR \"cmd /c start /min \\\"\\\" powershell.exe -Command IEX((Get-ItemProperty -Path HKCU:\\SOFTWARE\\Pvoeooxf).yzbbvhhdypa)\" /SC MINUTE /MO 30"
+        }
+      },
+      {
+        "description": "Renamed schtasks matched by OriginalFileName, using the gp alias and a registry:: path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\st.exe",
+          "OriginalFileName": "schtasks.exe",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "CommandLine": "st.exe /Create /TN UpdaterCheck /TR \"powershell -w hidden -c iex (gp registry::HKEY_CURRENT_USER\\Software\\Cfgdata).run\" /SC ONLOGON"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Same registry-loader task but the payload is Base64 decoded with FromBase64String, so filter_main_encoding excludes it (the related rule covers it)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "ParentImage": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "schtasks.exe /Create /F /TN \"{97F2F70B-10D1-4447-A2F3-9B070C86E261}\" /TR \"powershell.exe -Command IEX([System.Text.Encoding]::ASCII.GetString([System.Convert]::FromBase64String((Get-ItemProperty -Path HKCU:\\SOFTWARE\\Pvoeooxf).yzbbvhhdypa)))\" /SC MINUTE /MO 30"
+        }
+      },
+      {
+        "description": "Legitimate task creation that runs a signed script file and reads no registry value",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "schtasks.exe /Create /TN \"Nightly Backup\" /TR \"powershell.exe -File C:\\Scripts\\backup.ps1\" /SC DAILY /ST 02:00 /RU SYSTEM"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

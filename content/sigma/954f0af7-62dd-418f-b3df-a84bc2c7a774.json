@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "954f0af7-62dd-418f-b3df-a84bc2c7a774",
+    "title": "New Remote Desktop Connection Initiated Via Mstsc.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_mstsc_remote_connection.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_mstsc_remote_connection.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó mstsc.exe con el parámetro /v: para abrir una sesión de Escritorio remoto (RDP) hacia un servidor específico. Puede ser administración legítima o movimiento lateral con credenciales válidas.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\mstsc.exe u OriginalFileName es mstsc.exe, y CommandLine contiene ' /v:' (o variantes con guion como ' -v:'). Se excluyen las sesiones gráficas de WSLg lanzadas por wslhost.exe con wslg.rdp.",
+      "why_it_matters": "Los atacantes usan cuentas válidas para conectarse por RDP a otros equipos y operar como el usuario autenticado (MITRE ATT&CK T1021.001, Remote Desktop Protocol). Es una vía común de movimiento lateral y acceso interactivo a servidores críticos.",
+      "triage_steps": [
+        "Extraiga de CommandLine el destino de /v: (host o IP y puerto) y determine si es un servidor interno conocido, una IP externa o un equipo de usuario.",
+        "Identifique el usuario que ejecutó el proceso y valide si su rol justifica usar RDP hacia ese destino.",
+        "Revise ParentImage y la cadena de procesos: explorer.exe es habitual; cmd.exe, powershell.exe, scripts o herramientas remotas son más sospechosos.",
+        "Busque otros parámetros en CommandLine, como /admin, /restrictedAdmin, /f o archivos .rdp en rutas temporales.",
+        "En el destino, correlacione eventos 4624 tipo 10 y eventos de TerminalServices para el mismo usuario dentro de +/- 15 minutos.",
+        "Pivote en el mismo host +/- 15 minutos: uso de cmdkey, volcado de credenciales, escaneo de red o conexiones salientes al puerto 3389.",
+        "Consulte alertas previas del mismo usuario, host origen y destino para detectar patrones de salto entre equipos."
+      ],
+      "false_positives": [
+        "Sesiones gráficas de WSL (WSLg) no cubiertas por el filtro, por ejemplo con rutas o procesos padre distintos.",
+        "Administradores o mesa de ayuda conectándose a servidores mediante accesos directos o scripts con /v:.",
+        "Herramientas de gestión de conexiones o jump servers que lanzan mstsc.exe con el destino en la línea de comandos."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o su responsable si la conexión era esperada y autorizada.",
+        "Si no está autorizada, aísle el host origen y revise el destino; finalice las sesiones RDP activas tras verificar el impacto.",
+        "Restablezca las credenciales de la cuenta usada y revise si se usaron otras cuentas desde el mismo origen.",
+        "Restrinja RDP mediante firewall, grupos de usuarios de Escritorio remoto y jump hosts; documente las exclusiones legítimas confirmadas."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque RDP con /v: es frecuente en administración legítima, pero también es una técnica habitual de movimiento lateral que requiere validación."
+    },
+    "en": {
+      "summary": "mstsc.exe was launched with the /v: parameter to open a Remote Desktop (RDP) session to a specific server. This may be legitimate administration or lateral movement with valid credentials.",
+      "what_it_detects": "Process creation where Image ends with \\mstsc.exe or OriginalFileName is mstsc.exe, and CommandLine contains ' /v:' (or dash variants such as ' -v:'). WSLg graphical sessions started by wslhost.exe with wslg.rdp are excluded.",
+      "why_it_matters": "Adversaries use valid accounts to log into other systems over RDP and act as the logged-on user (MITRE ATT&CK T1021.001, Remote Desktop Protocol). It is a common path for lateral movement and interactive access to critical servers.",
+      "triage_steps": [
+        "Extract the /v: target (host or IP and port) from CommandLine and decide whether it is a known internal server, an external IP or a workstation.",
+        "Identify the executing user and confirm their role justifies RDP to that target.",
+        "Review ParentImage and the process chain: explorer.exe is typical; cmd.exe, powershell.exe, scripts or remote tools are more suspicious.",
+        "Look for extra CommandLine options such as /admin, /restrictedAdmin, /f or .rdp files in temporary paths.",
+        "On the target, correlate 4624 logon type 10 and TerminalServices events for the same user within +/- 15 minutes.",
+        "Pivot on the same host +/- 15 minutes: cmdkey usage, credential dumping, network scanning or outbound connections to port 3389.",
+        "Check earlier alerts for the same user, source host and target to spot hop-by-hop movement."
+      ],
+      "false_positives": [
+        "WSL graphical sessions (WSLg) not covered by the filter, for example with different paths or parent processes.",
+        "Administrators or help desk connecting to servers via shortcuts or scripts using /v:.",
+        "Connection managers or jump servers that launch mstsc.exe with the target on the command line."
+      ],
+      "response_steps": [
+        "Confirm with the user or their manager whether the connection was expected and authorized.",
+        "If unauthorized, isolate the source host and review the target; end active RDP sessions after verifying impact.",
+        "Reset credentials for the account used and check whether other accounts were used from the same source.",
+        "Restrict RDP with firewall rules, Remote Desktop Users membership and jump hosts; document confirmed legitimate exclusions."
+      ],
+      "severity_rationale": "Medium fits because RDP with /v: is common in legitimate administration but is also a frequent lateral movement technique that needs validation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "mstsc.exe launched from PowerShell with /v: to an internal IP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\mstsc.exe",
+          "OriginalFileName": "mstsc.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\mstsc.exe\" /v:192.0.2.25:3389 /admin",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden"
+        }
+      },
+      {
+        "description": "Renamed binary identified by OriginalFileName, using dash variant -v:",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0187.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Users\\mlopez\\AppData\\Local\\Temp\\rd.exe",
+          "OriginalFileName": "mstsc.exe",
+          "CommandLine": "rd.exe -v:srv-files01.example.com /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "WSLg session started by wslhost.exe, excluded by the WSL filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\mstsc.exe",
+          "OriginalFileName": "mstsc.exe",
+          "CommandLine": "mstsc.exe /v:1b2c3d4e-0000-1111-2222-333344445555 /hvsocketserviceid:5a6b7c8d-0000-1111-2222-333344445555 /silent /wslg /plugin:WSLDVC /wslgsharedmemorypath:WSL\\1b2c3d4e-0000-1111-2222-333344445555\\wslg C:\\ProgramData\\Microsoft\\WSL\\wslg.rdp",
+          "ParentImage": "C:\\Windows\\System32\\lxss\\wslhost.exe"
+        }
+      },
+      {
+        "description": "mstsc.exe opening a saved .rdp file without the /v: parameter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\mstsc.exe",
+          "OriginalFileName": "mstsc.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\mstsc.exe\" \"C:\\Users\\jperez\\Documents\\srv-app01.rdp\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:29+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

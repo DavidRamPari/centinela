@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "b97cd4b1-30b8-4a9d-bd72-6293928d52bc",
+    "title": "Indirect Command Execution By Program Compatibility Wizard",
+    "level": "low",
+    "status": "test",
+    "author": "A. Sungurov , oscd.community",
+    "path": "windows/process_creation/proc_creation_win_lolbin_pcwrun.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_pcwrun.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso fue iniciado por pcwrun.exe (Asistente de compatibilidad de programas). Puede ser uso legítimo del solucionador de compatibilidad o ejecución indirecta de un binario para evadir controles.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo ParentImage termina en \\pcwrun.exe, es decir, cualquier proceso hijo lanzado por el Asistente de compatibilidad de programas.",
+      "why_it_matters": "pcwrun.exe es un binario firmado por Microsoft que acepta la ruta de un ejecutable y puede lanzarlo. Un atacante lo usa como proxy de ejecución (ATT&CK T1218, ejecución mediante binario del sistema) para que su payload aparezca bajo un padre confiable y eluda reglas basadas en el proceso padre.",
+      "triage_steps": [
+        "Revise Image y CommandLine del proceso hijo: ¿es el solucionador de compatibilidad esperado o un ejecutable, script o shell arbitrario?",
+        "Verifique la ruta del hijo: ubicaciones como %TEMP%, %APPDATA%, C:\\Users\\Public o Downloads son sospechosas.",
+        "Revise ParentCommandLine de pcwrun.exe y su proceso abuelo: un lanzamiento desde cmd.exe, powershell.exe, Office o wscript.exe es más sospechoso que desde explorer.exe.",
+        "Obtenga el hash y la firma del ejecutable hijo y consúltelos en su inteligencia de amenazas y en la telemetría de la flota.",
+        "Pivote en el mismo host +/- 15 minutos: descargas de archivos, conexiones de red, creación de servicios o tareas programadas y procesos nietos del hijo.",
+        "Revise el usuario (User): ¿tiene un motivo de negocio para ejecutar el asistente de compatibilidad? Busque alertas previas para ese usuario y host.",
+        "Calcule la frecuencia de la combinación padre/hijo en el entorno para identificar valores atípicos."
+      ],
+      "false_positives": [
+        "Usuarios o soporte técnico que ejecutan el solucionador de compatibilidad sobre aplicaciones antiguas desde el menú contextual del Explorador.",
+        "Scripts legítimos de administración o empaquetado de software que invocan pcwrun.exe para probar compatibilidad.",
+        "Artefactos recurrentes del entorno; use unique_count o filtros para centrarse en combinaciones padre/hijo poco comunes."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de soporte si la ejecución fue intencional antes de tomar acciones.",
+        "Si el hijo es malicioso o desconocido, aísle el endpoint desde el EDR y preserve memoria, el binario y los registros relevantes.",
+        "Termine el proceso malicioso, ponga en cuarentena el archivo y elimine la persistencia asociada que se haya identificado.",
+        "Busque el mismo hash, ruta o línea de comandos en otros hosts y restablezca credenciales si hubo exposición.",
+        "Considere restringir pcwrun.exe con AppLocker o WDAC donde no sea necesario y documente exclusiones legítimas."
+      ],
+      "severity_rationale": "El nivel bajo es adecuado porque pcwrun.exe tiene usos legítimos y la regla no filtra hijos, por lo que requiere contexto adicional para confirmar abuso."
+    },
+    "en": {
+      "summary": "A process was started by pcwrun.exe (Program Compatibility Assistant). This may be legitimate compatibility troubleshooting or indirect execution of a binary to evade controls.",
+      "what_it_detects": "Windows process creation events where ParentImage ends with \\pcwrun.exe, meaning any child process launched by the Program Compatibility Wizard.",
+      "why_it_matters": "pcwrun.exe is a Microsoft-signed binary that accepts an executable path and can launch it. Attackers use it as an execution proxy (ATT&CK T1218, system binary proxy execution) so their payload runs under a trusted parent and bypasses parent-based detections.",
+      "triage_steps": [
+        "Review the child Image and CommandLine: is it the expected compatibility troubleshooter, or an arbitrary executable, script or shell?",
+        "Check the child path: %TEMP%, %APPDATA%, C:\\Users\\Public or Downloads locations are suspicious.",
+        "Review pcwrun.exe ParentCommandLine and its grandparent: launch from cmd.exe, powershell.exe, Office or wscript.exe is more suspicious than from explorer.exe.",
+        "Collect the child executable's hash and signature; check threat intelligence and fleet-wide prevalence.",
+        "Pivot on the same host +/- 15 minutes: file downloads, network connections, new services or scheduled tasks, and grandchild processes.",
+        "Check the User: is there a business reason to run the compatibility wizard? Look for earlier alerts on the same user and host.",
+        "Count how often this parent/child pair occurs across the environment to spot outliers."
+      ],
+      "false_positives": [
+        "Users or helpdesk running the compatibility troubleshooter on legacy applications from the Explorer context menu.",
+        "Legitimate admin or software packaging scripts that call pcwrun.exe to test compatibility.",
+        "Recurring environmental artifacts; use unique_count or filters to focus on rare parent/child combinations."
+      ],
+      "response_steps": [
+        "Confirm with the user or helpdesk whether the execution was intentional before acting.",
+        "If the child is malicious or unknown, isolate the endpoint via EDR and preserve memory, the binary and relevant logs.",
+        "Kill the malicious process, quarantine the file and remove any persistence identified.",
+        "Hunt for the same hash, path or command line on other hosts; reset credentials if exposure is suspected.",
+        "Consider restricting pcwrun.exe with AppLocker or WDAC where unneeded, and document legitimate exclusions."
+      ],
+      "severity_rationale": "Low fits because pcwrun.exe has legitimate uses and the rule does not filter children, so extra context is needed to confirm abuse."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "pcwrun.exe used to proxy-launch an unsigned executable from the Public folder, started from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\updater.exe",
+          "CommandLine": "\"C:\\Users\\Public\\updater.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\pcwrun.exe",
+          "ParentCommandLine": "pcwrun.exe C:\\Users\\Public\\updater.exe",
+          "IntegrityLevel": "Medium",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      {
+        "description": "Command shell spawned as a child of pcwrun.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami > C:\\Users\\mlopez\\AppData\\Local\\Temp\\o.txt",
+          "ParentImage": "C:\\WINDOWS\\SYSTEM32\\PCWRUN.EXE",
+          "ParentCommandLine": "pcwrun.exe C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "pcwrun.exe itself launched from Explorer; the parent is explorer.exe, not pcwrun.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\pcwrun.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\pcwrun.exe\" \"C:\\Program Files (x86)\\LegacyApp\\legacy.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Troubleshooter host started by a differently named parent (pcwutl.dll via rundll32.exe), which does not end with \\pcwrun.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\rgomez",
+          "Image": "C:\\Windows\\System32\\msdt.exe",
+          "CommandLine": "msdt.exe -id PCWDiagnostic",
+          "ParentImage": "C:\\Windows\\System32\\rundll32.exe",
+          "ParentCommandLine": "rundll32.exe pcwutl.dll,LaunchApplication",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

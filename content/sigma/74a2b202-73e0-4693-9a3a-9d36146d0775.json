@@ -1,0 +1,123 @@
+{
+  "rule": {
+    "id": "74a2b202-73e0-4693-9a3a-9d36146d0775",
+    "title": "Remote Access Tool - MeshAgent Command Execution via MeshCentral",
+    "level": "medium",
+    "status": "test",
+    "author": "@Kostastsale",
+    "path": "windows/process_creation/proc_creation_win_remote_access_tools_meshagent_exec.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_remote_access_tools_meshagent_exec.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1219.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso meshagent.exe (agente de MeshCentral) inició cmd.exe, powershell.exe o pwsh.exe. Esto puede ser administración remota legítima o un atacante ejecutando comandos a través de una herramienta de acceso remoto.",
+      "what_it_detects": "Eventos de creación de procesos en los que ParentImage termina en \\meshagent.exe e Image termina en \\cmd.exe, \\powershell.exe o \\pwsh.exe. Así se ven los comandos lanzados desde la consola remota de MeshCentral o desde los módulos win-console y win-dispatcher.",
+      "why_it_matters": "Los atacantes instalan o reutilizan MeshAgent para conservar el control remoto con una herramienta legítima (T1219.002, software de acceso remoto). Desde ahí ejecutan comandos, se mueven lateralmente y despliegan payloads sin que se note entre el tráfico normal de administración.",
+      "triage_steps": [
+        "Confirme si MeshCentral está autorizado en este endpoint. Verifique la ruta de ParentImage, la firma y el hash de meshagent.exe contra el inventario de TI.",
+        "Revise la CommandLine del shell hijo y busque codificación (-enc), descargas, IEX, comandos de reconocimiento (whoami, net, nltest) o la creación de usuarios.",
+        "Identifique el abuelo de meshagent.exe (normalmente services.exe) y la fecha de instalación del servicio, para detectar instalaciones recientes o hechas por un usuario.",
+        "Revise los procesos hijos del cmd o PowerShell en el mismo host durante +/- 15 minutos, incluidos los binarios nuevos que se hayan escrito en disco.",
+        "Identifique el servidor MeshCentral al que se conecta el agente (archivo .msh, conexiones de red) y compárelo con los servidores aprobados.",
+        "Busque alertas anteriores para este host y para el usuario, y busque meshagent.exe en otros endpoints."
+      ],
+      "false_positives": [
+        "Personal de TI o un MSP que usa MeshCentral para dar soporte remoto y abre una consola o ejecuta scripts.",
+        "Tareas automatizadas de inventario o mantenimiento que MeshAgent ejecuta mediante PowerShell (por ejemplo, el módulo win-info)."
+      ],
+      "response_steps": [
+        "Confirme con el equipo de TI o con el MSP si la sesión estaba autorizada y quién la inició en el servidor MeshCentral.",
+        "Si no está autorizada, aísle el endpoint y bloquee el dominio o la IP del servidor MeshCentral no aprobado.",
+        "Conserve evidencias (configuración .msh, logs, binarios). Después detenga y desinstale el servicio de MeshAgent no autorizado.",
+        "Restablezca las credenciales que se usaron en el host y busque persistencia adicional antes de devolverlo a producción."
+      ],
+      "severity_rationale": "El nivel medio es adecuado: en entornos con MeshCentral esto es habitual, pero si la instalación no está autorizada indica control remoto activo por un atacante."
+    },
+    "en": {
+      "summary": "A meshagent.exe process (MeshCentral agent) started cmd.exe, powershell.exe or pwsh.exe. This may be legitimate remote administration or an attacker running commands through a remote access tool.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\meshagent.exe and Image ends with \\cmd.exe, \\powershell.exe or \\pwsh.exe. This is how commands launched from the MeshCentral remote console, or from the win-console and win-dispatcher modules, appear.",
+      "why_it_matters": "Attackers install or reuse MeshAgent to keep remote control through a legitimate tool (T1219.002, remote access software). From there they run commands, move laterally and stage payloads, and the activity blends in with normal administration traffic.",
+      "triage_steps": [
+        "Confirm MeshCentral is approved on this endpoint. Check the ParentImage path, signature and meshagent.exe hash against the IT inventory.",
+        "Review the child shell CommandLine for encoding (-enc), downloads, IEX, recon commands (whoami, net, nltest) or user creation.",
+        "Identify meshagent.exe's parent (normally services.exe) and the service install date, to spot recent or user-driven installs.",
+        "Review child processes of the cmd or PowerShell on the same host within +/- 15 minutes, including newly written binaries.",
+        "Determine which MeshCentral server the agent connects to (.msh file, network connections) and compare it with approved servers.",
+        "Search for earlier alerts on this host and user, and look for meshagent.exe on other endpoints."
+      ],
+      "false_positives": [
+        "IT staff or an MSP using MeshCentral for remote support who open a console or run scripts.",
+        "Automated inventory or maintenance tasks that MeshAgent runs through PowerShell (for example, the win-info module)."
+      ],
+      "response_steps": [
+        "Confirm with IT or the MSP whether the session was authorized and who started it on the MeshCentral server.",
+        "If it was unauthorized, isolate the endpoint and block the domain or IP of the unapproved MeshCentral server.",
+        "Preserve evidence (.msh config, logs, binaries). Then stop and uninstall the rogue MeshAgent service.",
+        "Reset the credentials that were used on the host and hunt for additional persistence before returning it to production."
+      ],
+      "severity_rationale": "Medium fits: this is common where MeshCentral is deployed, but an unauthorized install means an attacker has active remote control."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "MeshAgent spawns PowerShell running an encoded command",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Program Files\\Mesh Agent\\MeshAgent.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Mesh Agent\\MeshAgent.exe\"",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -enc dwBoAG8AYQBtAGkA"
+        }
+      },
+      {
+        "description": "MeshAgent from a user-writable path spawns cmd.exe for reconnaissance",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0210.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Users\\Public\\meshagent.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami /all & nltest /domain_trusts"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "MeshAgent launches a non-shell child process (tasklist)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Program Files\\Mesh Agent\\MeshAgent.exe",
+          "Image": "C:\\Windows\\System32\\tasklist.exe",
+          "CommandLine": "tasklist.exe /v"
+        }
+      },
+      {
+        "description": "PowerShell started by explorer.exe, not by MeshAgent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

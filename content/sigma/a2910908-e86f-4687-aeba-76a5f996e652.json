@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "a2910908-e86f-4687-aeba-76a5f996e652",
+    "title": "DLL Execution Via Register-cimprovider.exe",
+    "level": "medium",
+    "status": "test",
+    "author": "Ivan Dyachkov, Yulia Fomina, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_registry_cimprovider_dll_load.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_registry_cimprovider_dll_load.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1574"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó register-cimprovider.exe con el parámetro -path apuntando a una DLL. Este binario firmado por Microsoft puede cargar una DLL arbitraria y servir como LOLBin para ejecutar código.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\register-cimprovider.exe y CommandLine contiene tanto '-path' como 'dll', es decir, el registro o la carga de un proveedor CIM desde un archivo DLL.",
+      "why_it_matters": "Un atacante puede usar esta utilidad legítima para cargar su propia DLL dentro de un proceso de confianza, evadir controles de lista blanca y lograr ejecución o persistencia mediante el secuestro del flujo de ejecución (ATT&CK T1574).",
+      "triage_steps": [
+        "Revise CommandLine y extraiga la ruta completa de la DLL indicada en -path; las rutas de usuario, Temp, ProgramData, Public o recursos compartidos UNC son sospechosas.",
+        "Obtenga el hash de la DLL, verifique su firma digital, editor y fecha de creación, y consúltelo en su plataforma de threat intelligence.",
+        "Examine ParentImage y la cadena de procesos padre: cmd.exe, powershell.exe, wscript.exe, mshta.exe o aplicaciones de Office indican abuso probable.",
+        "Confirme el usuario que ejecutó el proceso y si tiene un motivo administrativo para registrar proveedores WMI/CIM en ese host.",
+        "Revise los procesos hijos, conexiones de red y escrituras de archivos o registro en el mismo host dentro de +/- 15 minutos.",
+        "Busque cómo llegó la DLL al equipo (descarga del navegador, adjunto de correo, copia por SMB) y alertas previas del mismo host o usuario.",
+        "Busque la misma ruta de DLL, hash o línea de comandos en otros endpoints para medir el alcance."
+      ],
+      "false_positives": [
+        "Instaladores de software o agentes de gestión que registran proveedores CIM/WMI legítimos y firmados durante la instalación o actualización.",
+        "Administradores o desarrolladores que prueban proveedores WMI propios en equipos de laboratorio o desarrollo."
+      ],
+      "response_steps": [
+        "Valide con el dueño del sistema o el equipo de TI si el registro fue autorizado; si no hay justificación, trate el caso como incidente.",
+        "Aísle el endpoint de la red si la DLL no está firmada, está en una ruta inusual o hubo actividad de red sospechosa.",
+        "Preserve la DLL y la memoria del proceso para análisis antes de eliminar artefactos; luego quite el proveedor registrado y la DLL maliciosa.",
+        "Restablezca las credenciales del usuario involucrado, bloquee el hash en el EDR y busque persistencia adicional antes de reincorporar el equipo."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque el uso legítimo existe pero es raro, y la carga de una DLL arbitraria por un binario firmado es una técnica de ejecución conocida que requiere revisión."
+    },
+    "en": {
+      "summary": "register-cimprovider.exe ran with a -path argument pointing to a DLL. This Microsoft-signed binary can load an arbitrary DLL and be abused as a LOLBin for code execution.",
+      "what_it_detects": "Process creation events where Image ends with \\register-cimprovider.exe and CommandLine contains both '-path' and 'dll', meaning a CIM provider is being registered or loaded from a DLL file.",
+      "why_it_matters": "Attackers can use this trusted utility to load their own DLL inside a legitimate process, bypass application allowlisting and gain execution or persistence by hijacking execution flow (ATT&CK T1574).",
+      "triage_steps": [
+        "Read CommandLine and extract the full DLL path passed to -path; user profiles, Temp, ProgramData, Public or UNC shares are suspicious.",
+        "Hash the DLL, check its digital signature, publisher and creation time, and look it up in threat intelligence.",
+        "Inspect ParentImage and the process ancestry: cmd.exe, powershell.exe, wscript.exe, mshta.exe or Office applications suggest abuse.",
+        "Confirm which user ran it and whether they have an administrative reason to register WMI/CIM providers on this host.",
+        "Review child processes, network connections and file or registry writes on the same host within +/- 15 minutes.",
+        "Determine how the DLL arrived (browser download, email attachment, SMB copy) and check earlier alerts for the same host or user.",
+        "Hunt for the same DLL path, hash or command line on other endpoints to scope the activity."
+      ],
+      "false_positives": [
+        "Software installers or management agents registering legitimate, signed CIM/WMI providers during installation or upgrade.",
+        "Administrators or developers testing in-house WMI providers on lab or development machines."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or IT whether the registration was authorized; without a justification, handle it as an incident.",
+        "Isolate the endpoint if the DLL is unsigned, sits in an unusual path or suspicious network activity followed.",
+        "Preserve the DLL and process memory for analysis first, then unregister the provider and remove the malicious DLL.",
+        "Reset the involved user's credentials, block the hash in EDR and hunt for further persistence before returning the host to service."
+      ],
+      "severity_rationale": "Medium fits because legitimate use exists but is rare, and a signed binary loading an arbitrary DLL is a known execution technique that warrants review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "register-cimprovider.exe launched from PowerShell loading a DLL from the Public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\register-cimprovider.exe",
+          "OriginalFileName": "Register-CimProvider.exe",
+          "CommandLine": "register-cimprovider.exe -path C:\\Users\\Public\\update.dll",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      },
+      {
+        "description": "Uppercase variant with a DLL in the user Temp directory, matched case-insensitively",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\Register-CimProvider.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\Register-CimProvider.exe\" -Path \"C:\\Users\\mrojas\\AppData\\Local\\Temp\\cimprov.DLL\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "register-cimprovider.exe run only to display help, without -path or a DLL",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-MGMT-01.andes.example.com",
+          "User": "ANDES\\admin.lgarcia",
+          "Image": "C:\\Windows\\System32\\register-cimprovider.exe",
+          "CommandLine": "register-cimprovider.exe -?",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "A different binary whose command line contains -path and a DLL; Image does not end with register-cimprovider.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Example\\Tools\\depscan.exe",
+          "CommandLine": "depscan.exe -path C:\\Program Files\\Example\\lib\\core.dll",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

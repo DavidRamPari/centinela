@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "43e32da2-fdd0-4156-90de-50dfd62636f9",
+    "title": "Dism Remove Online Package",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_dism_remove.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_dism_remove.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Dism.exe, o su proceso auxiliar DismHost.exe, con /Online y /Disable-Feature. Esto deshabilita una característica de Windows en el sistema en ejecución y puede usarse para quitar Windows Defender u otras protecciones.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\Dism.exe y CommandLine contiene '/Online' y '/Disable-Feature', o donde Image termina en \\DismHost.exe y ParentCommandLine contiene ambos valores.",
+      "why_it_matters": "Un atacante puede usar DISM, una herramienta firmada de Windows, para deshabilitar o eliminar características de seguridad como Windows Defender antes de desplegar ransomware u otras herramientas. Esto corresponde al debilitamiento de defensas (T1685; la prueba de Atomic Red Team referenciada la clasifica como T1562.001).",
+      "triage_steps": [
+        "Revise en CommandLine o ParentCommandLine el valor de /FeatureName: y si incluye /Remove, /NoRestart o /quiet. Las características relacionadas con Defender o seguridad elevan la prioridad.",
+        "Identifique el proceso padre de Dism.exe (PowerShell, cmd, wscript, un instalador o un agente de gestión) y su línea de comandos completa.",
+        "Verifique el usuario que ejecutó el proceso y si es una cuenta administrativa o de despliegue esperada en ese equipo.",
+        "Busque en el mismo host, +/- 15 minutos, cambios en el registro de Defender, Set-MpPreference, detención de servicios, borrado de logs o carga de drivers nuevos.",
+        "Confirme si existe un cambio aprobado, una tarea de SCCM/Intune o un script de imagen que justifique la acción.",
+        "Consulte alertas previas del mismo host y usuario, y busque el mismo CommandLine en otros endpoints para detectar ejecución masiva."
+      ],
+      "false_positives": [
+        "Scripts legítimos de administración o de hardening que deshabilitan características como SMB1, Internet Explorer o funciones opcionales.",
+        "Secuencias de tareas de SCCM, MDT o Intune durante el aprovisionamiento o la creación de imágenes.",
+        "Administradores que deshabilitan características manualmente durante tareas de mantenimiento documentadas."
+      ],
+      "response_steps": [
+        "Valide con el propietario del sistema o con el equipo de TI si la acción estaba autorizada antes de intervenir.",
+        "Si no está autorizada, aísle el endpoint y preserve evidencias: árbol de procesos, scripts asociados y logs de DISM (C:\\Windows\\Logs\\DISM\\dism.log).",
+        "Investigue la cuenta usada; si está comprometida, restablezca credenciales y revise su actividad reciente en otros equipos.",
+        "Reactive la característica deshabilitada con DISM /Enable-Feature o restaure la configuración de seguridad, y confirme que Defender funcione y reporte correctamente."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque DISM con /Disable-Feature tiene usos administrativos frecuentes, pero, sin justificación, puede indicar que alguien intenta quitar protecciones del equipo."
+    },
+    "en": {
+      "summary": "Dism.exe, or its helper process DismHost.exe, ran with /Online and /Disable-Feature. This disables a Windows feature on the running system and can be used to remove Windows Defender or other protections.",
+      "what_it_detects": "Process creation where Image ends with \\Dism.exe and CommandLine contains '/Online' and '/Disable-Feature', or where Image ends with \\DismHost.exe and ParentCommandLine contains both values.",
+      "why_it_matters": "Attackers can use DISM, a signed Windows tool, to disable or remove security features such as Windows Defender before deploying ransomware or other tools. This is defense impairment (T1685; the referenced Atomic Red Team test maps it to T1562.001).",
+      "triage_steps": [
+        "Check the /FeatureName: value in CommandLine or ParentCommandLine, and whether /Remove, /NoRestart or /quiet are present. Defender or other security features raise the priority.",
+        "Identify the parent process of Dism.exe (PowerShell, cmd, wscript, an installer or a management agent) and its full command line.",
+        "Check which user ran the process and whether that admin or deployment account is expected on this host.",
+        "On the same host within +/- 15 minutes, look for Defender registry changes, Set-MpPreference, stopped services, log clearing or new drivers being loaded.",
+        "Confirm whether an approved change, an SCCM/Intune task or an imaging script explains the action.",
+        "Review earlier alerts for the same host and user, and search other endpoints for the same CommandLine to spot mass execution."
+      ],
+      "false_positives": [
+        "Legitimate admin or hardening scripts that disable features such as SMB1, Internet Explorer or other optional features.",
+        "SCCM, MDT or Intune task sequences during provisioning or image builds.",
+        "Administrators manually disabling features during documented maintenance."
+      ],
+      "response_steps": [
+        "Before acting, check with the system owner or IT whether the action was authorized.",
+        "If it was not, isolate the endpoint and keep the evidence: process tree, related scripts and DISM logs (C:\\Windows\\Logs\\DISM\\dism.log).",
+        "Investigate the account that was used. If it is compromised, reset its credentials and review its recent activity on other hosts.",
+        "Turn the disabled feature back on with DISM /Enable-Feature or restore the security settings, then confirm that Defender is running and reporting."
+      ],
+      "severity_rationale": "Medium fits because DISM with /Disable-Feature has common admin uses, but when no one can explain it, it may mean someone is removing the host's protections."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Dism.exe launched from PowerShell to disable and remove the Windows Defender feature quietly",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\Dism.exe",
+          "CommandLine": "Dism.exe /Online /Disable-Feature /FeatureName:Windows-Defender /Remove /NoRestart /quiet",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -ExecutionPolicy Bypass -File C:\\Users\\Public\\run.ps1"
+        }
+      },
+      {
+        "description": "DismHost.exe child process whose parent Dism command line disables a feature online",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\5B2C1F7A-3D4E-4A1B-9C8D-0E1F2A3B4C5D\\DismHost.exe",
+          "CommandLine": "C:\\Users\\jperez\\AppData\\Local\\Temp\\5B2C1F7A-3D4E-4A1B-9C8D-0E1F2A3B4C5D\\DismHost.exe {7E2F1B3C-9A4D-4C5E-8F6A-1B2C3D4E5F60}",
+          "ParentImage": "C:\\Windows\\System32\\Dism.exe",
+          "ParentCommandLine": "Dism.exe /Online /Disable-Feature /FeatureName:Windows-Defender-Default-Definitions /Remove /NoRestart"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Dism.exe enabling a feature online, which does not contain /Disable-Feature",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\adm-mlopez",
+          "Image": "C:\\Windows\\System32\\Dism.exe",
+          "CommandLine": "Dism.exe /Online /Enable-Feature /FeatureName:NetFx3 /All /NoRestart",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c install_prereqs.cmd"
+        }
+      },
+      {
+        "description": "Dism.exe listing features online, a read-only query with no /Disable-Feature",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\adm-mlopez",
+          "Image": "C:\\Windows\\System32\\Dism.exe",
+          "CommandLine": "Dism.exe /Online /Get-Features /Format:Table",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "782d6f3e-4c5d-4b8c-92a3-1d05fed72e63",
+    "title": "RDP Port Forwarding Rule Added Via Netsh.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), oscd.community",
+    "path": "windows/process_creation/proc_creation_win_netsh_port_forwarding_3389.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_netsh_port_forwarding_3389.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1090"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó netsh.exe con una línea de comandos que crea una regla de port forwarding (portproxy) relacionada con el puerto 3389 (RDP). Puede indicar un túnel RDP para evadir restricciones de red o moverse lateralmente.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\netsh.exe u OriginalFileName es netsh.exe, y CommandLine contiene ' i', ' p', '=3389' y ' c', patrón típico de 'netsh interface portproxy add ... connectport=3389' o sus abreviaturas.",
+      "why_it_matters": "Un atacante puede redirigir un puerto expuesto hacia el RDP de otro equipo interno, o exponer RDP en un puerto alternativo, para tunelizar acceso y moverse lateralmente (ATT&CK T1090, Proxy).",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique listenaddress, listenport, connectaddress y connectport para saber qué se expone y hacia dónde.",
+        "Identifique el usuario y si tiene privilegios administrativos; confirme con el equipo de TI si existe un cambio aprobado.",
+        "Examine ParentImage y la cadena de procesos: cmd.exe o powershell.exe lanzados desde una sesión remota, webshell u otra herramienta es sospechoso.",
+        "Ejecute o solicite 'netsh interface portproxy show all' y revise la clave HKLM\\SYSTEM\\CurrentControlSet\\Services\\PortProxy para confirmar la regla activa.",
+        "Busque en el mismo host, +/- 15 minutos, reglas de firewall nuevas (netsh advfirewall), cambios en fDenyTSConnections o habilitación del servicio RDP.",
+        "Revise conexiones de red entrantes al listenport y salientes hacia connectaddress; correlacione inicios de sesión tipo 10 (RemoteInteractive) en el destino.",
+        "Consulte alertas previas del mismo usuario, host y dirección IP de origen."
+      ],
+      "false_positives": [
+        "Administradores que configuran portproxy de forma legítima para acceso RDP a servidores en segmentos aislados o laboratorios.",
+        "Scripts de aprovisionamiento o herramientas de gestión que publican RDP en un puerto alternativo de forma documentada."
+      ],
+      "response_steps": [
+        "Verifique con el responsable del sistema si el cambio está autorizado antes de actuar.",
+        "Si no está autorizado, elimine la regla con 'netsh interface portproxy delete' tras documentarla y aísle el endpoint si hay indicios de compromiso.",
+        "Restablezca las credenciales de la cuenta usada y revise sesiones RDP abiertas en el host destino.",
+        "Busque reglas portproxy similares en otros equipos y bloquee el listenport en el firewall perimetral si aplica."
+      ],
+      "severity_rationale": "Nivel alto porque redirigir RDP mediante portproxy es una técnica de tunelización poco común en operación normal y habilita acceso remoto encubierto."
+    },
+    "en": {
+      "summary": "netsh.exe ran with a command line that creates a port forwarding (portproxy) rule involving port 3389 (RDP). This may indicate RDP tunneling to bypass network restrictions or move laterally.",
+      "what_it_detects": "Process creation where Image ends with \\netsh.exe or OriginalFileName is netsh.exe, and CommandLine contains ' i', ' p', '=3389' and ' c', matching 'netsh interface portproxy add ... connectport=3389' and its abbreviations.",
+      "why_it_matters": "Attackers can forward an exposed port to RDP on an internal host, or expose RDP on an alternate port, to tunnel access and move laterally (ATT&CK T1090, Proxy).",
+      "triage_steps": [
+        "Read the full CommandLine: note listenaddress, listenport, connectaddress and connectport to learn what is exposed and where it points.",
+        "Identify the user and whether it is privileged; check with IT for an approved change.",
+        "Review ParentImage and the process tree; cmd.exe or powershell.exe spawned from a remote session, webshell or other tool is suspicious.",
+        "Run or request 'netsh interface portproxy show all' and check HKLM\\SYSTEM\\CurrentControlSet\\Services\\PortProxy to confirm the active rule.",
+        "On the same host within +/- 15 minutes, look for new firewall rules (netsh advfirewall), fDenyTSConnections changes or RDP service enablement.",
+        "Check inbound connections to the listenport and outbound to connectaddress; correlate logon type 10 (RemoteInteractive) on the target.",
+        "Look for earlier alerts for the same user, host and source IP."
+      ],
+      "false_positives": [
+        "Administrators legitimately using portproxy to reach RDP on servers in isolated segments or labs.",
+        "Provisioning scripts or management tools that publish RDP on an alternate port in a documented way."
+      ],
+      "response_steps": [
+        "Confirm with the system owner whether the change is authorized before acting.",
+        "If unauthorized, document then remove the rule with 'netsh interface portproxy delete'; isolate the endpoint if compromise is indicated.",
+        "Reset credentials of the account used and review open RDP sessions on the target host.",
+        "Hunt for similar portproxy rules on other hosts and block the listenport at the perimeter if relevant."
+      ],
+      "severity_rationale": "High because forwarding RDP via portproxy is an uncommon tunneling technique in normal operations and enables covert remote access."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Full portproxy rule forwarding an alternate port to RDP on an internal host",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=50050 connectaddress=192.0.2.25 connectport=3389",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c netsh-setup.bat"
+        }
+      },
+      {
+        "description": "Abbreviated netsh syntax exposing local RDP on a high port",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh i p a v4tov4 listenport=8443 connectaddress=127.0.0.1 connectport=3389",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate firewall rule allowing RDP; no portproxy, lacks ' i' and ' c'",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh advfirewall firewall add rule name=\"Allow RDP\" dir=in action=allow protocol=TCP localport=3389",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Portproxy rule for a web service, not port 3389",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-WEB-01",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh interface portproxy add v4tov4 listenport=8080 connectaddress=192.0.2.10 connectport=80",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

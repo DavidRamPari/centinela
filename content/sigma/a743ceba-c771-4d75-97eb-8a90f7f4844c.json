@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "a743ceba-c771-4d75-97eb-8a90f7f4844c",
+    "title": "UAC Bypass Using PkgMgr and DISM",
+    "level": "high",
+    "status": "test",
+    "author": "Christian Burkard (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_uac_bypass_pkgmgr_dism.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_uac_bypass_pkgmgr_dism.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1548.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "pkgmgr.exe inició dism.exe con integridad High o System. Esto coincide con el método 23 de UACMe, un bypass de UAC que abusa de pkgmgr.exe, que se autoeleva, para ejecutar código elevado sin mostrar solicitud de consentimiento.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage termina en \\pkgmgr.exe, Image termina en \\dism.exe e IntegrityLevel es High, System, S-1-16-12288 o S-1-16-16384.",
+      "why_it_matters": "pkgmgr.exe es un binario heredado que se autoeleva. UACMe 23 deja una DismCore.dll maliciosa que dism.exe carga ya elevado, así un atacante con integridad media obtiene privilegios de administrador sin aviso (T1548.002, Bypass User Account Control).",
+      "triage_steps": [
+        "Revise User, CommandLine y ParentCommandLine. El uso legítimo de pkgmgr lleva argumentos de características como /iu: o /uu:; si faltan o son extraños, es sospechoso.",
+        "Identifique el proceso que lanzó pkgmgr.exe. Busque scripts, Office o rutas con permiso de escritura del usuario, como %TEMP% o Downloads.",
+        "Revise eventos de carga de imágenes y de archivos en busca de DismCore.dll u otras DLL cargadas por dism.exe desde fuera de System32\\Dism o WinSxS.",
+        "Busque escrituras recientes en C:\\Windows\\System32 o System32\\Dism hechas por procesos que no sean instaladores; pueden indicar una copia vía IFileOperation.",
+        "Liste los procesos hijos de dism.exe y otros procesos elevados nuevos en el mismo host en +/- 15 minutos.",
+        "Verifique si el usuario tenía sesión interactiva, si es administrador local y si hay alertas previas para ese host o esa cuenta."
+      ],
+      "false_positives": [
+        "La regla no indica falsos positivos conocidos. Un administrador o un script heredado que ejecuta pkgmgr /iu: desde una consola elevada puede generar el mismo par padre-hijo.",
+        "Instaladores antiguos o herramientas de imágenes que todavía llaman a pkgmgr.exe para habilitar características de Windows."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o en los registros de cambios si había una instalación de características planificada. Obtenga los hash de dism.exe y de las DLL que cargó.",
+        "Si confirma que la actividad es maliciosa, aísle el endpoint y suspenda los procesos elevados sospechosos. Antes, preserve la memoria y la DLL plantada.",
+        "Elimine la DLL plantada y cualquier persistencia. Restablezca las credenciales de la cuenta afectada, ya que el atacante obtuvo privilegios de administrador.",
+        "Busque el mismo hash y el mismo patrón pkgmgr-dism en otros equipos. Considere configurar UAC en Notificar siempre y quitar administradores locales innecesarios."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque este patrón es poco común en el uso legítimo actual y un bypass exitoso le da al atacante control administrativo del equipo."
+    },
+    "en": {
+      "summary": "pkgmgr.exe started dism.exe with High or System integrity. This matches UACMe method 23, a UAC bypass that abuses auto-elevated pkgmgr.exe so code runs elevated without a consent prompt.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\pkgmgr.exe, Image ends with \\dism.exe, and IntegrityLevel is High, System, S-1-16-12288 or S-1-16-16384.",
+      "why_it_matters": "pkgmgr.exe is a legacy auto-elevating binary. UACMe 23 plants a malicious DismCore.dll that the elevated dism.exe loads, so a medium-integrity attacker gets admin rights silently (T1548.002, Bypass User Account Control).",
+      "triage_steps": [
+        "Check the User, CommandLine and ParentCommandLine. Legitimate pkgmgr use takes /iu: or /uu: feature arguments; missing or odd arguments are suspicious.",
+        "Find the process that launched pkgmgr.exe (its parent). Look for scripts, Office, or user-writable paths such as %TEMP% or Downloads.",
+        "Review image load and file events for DismCore.dll or other DLLs loaded by dism.exe from outside C:\\Windows\\System32\\Dism or Windows\\WinSxS.",
+        "Look for recent file writes to C:\\Windows\\System32 or C:\\Windows\\System32\\Dism by non-installer processes, which can mean an IFileOperation copy.",
+        "List child processes of dism.exe and any new elevated processes on the host within +/- 15 minutes.",
+        "Check whether the user was logged on interactively, is a local admin, and has earlier alerts for this host or account."
+      ],
+      "false_positives": [
+        "The rule lists none known. An administrator or legacy deployment script running pkgmgr /iu: from an elevated prompt can produce the same parent-child pair.",
+        "Old software installers or imaging tools that still call pkgmgr.exe to enable Windows features."
+      ],
+      "response_steps": [
+        "Confirm with the user or change records whether a feature install was planned. Get hashes for dism.exe and any DLLs it loaded.",
+        "If you confirm malicious activity, isolate the endpoint and suspend the suspicious elevated processes. Preserve memory and the planted DLL first.",
+        "Remove the planted DLL and any persistence. Reset credentials of the affected account, since admin rights were obtained.",
+        "Hunt for the same DLL hash and the same pkgmgr-to-dism pattern on other hosts. Consider setting UAC to Always Notify and removing unneeded local admins."
+      ],
+      "severity_rationale": "High fits because the pattern rarely appears in modern legitimate use and a successful bypass gives an attacker administrative control of the host."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Auto-elevated pkgmgr.exe spawns dism.exe at High integrity without feature arguments (UACMe 23 pattern).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\PkgMgr.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\pkgmgr.exe\" /n:C:\\Users\\jperez\\AppData\\Local\\Temp\\pkg.xml",
+          "Image": "C:\\Windows\\System32\\Dism.exe",
+          "CommandLine": "C:\\Windows\\system32\\dism.exe /Apply-Unattend:C:\\Users\\jperez\\AppData\\Local\\Temp\\pkg.xml",
+          "IntegrityLevel": "High",
+          "OriginalFileName": "DISM.EXE"
+        }
+      },
+      {
+        "description": "Same parent-child pair recorded with the High integrity SID instead of the label.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Windows\\System32\\pkgmgr.exe",
+          "Image": "C:\\Windows\\System32\\dism.exe",
+          "CommandLine": "dism.exe",
+          "IntegrityLevel": "S-1-16-12288"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "pkgmgr.exe launches dism.exe at Medium integrity, so no elevation took place.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\pkgmgr.exe",
+          "Image": "C:\\Windows\\System32\\dism.exe",
+          "CommandLine": "dism.exe /Online /Get-Features",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Legitimate elevated DISM servicing run from an admin command prompt; parent is cmd.exe, not pkgmgr.exe.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-01.andes.example.com",
+          "User": "ANDES\\adm-lgomez",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Image": "C:\\Windows\\System32\\Dism.exe",
+          "CommandLine": "dism.exe /Online /Cleanup-Image /RestoreHealth",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

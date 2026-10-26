@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "1444443e-6757-43e4-9ea4-c8fc705f79a2",
+    "title": "Boot Configuration Tampering Via Bcdedit.EXE",
+    "level": "high",
+    "status": "stable",
+    "author": "E.M. Anhaus (originally from Atomic Blue Detections, Endgame), oscd.community",
+    "path": "windows/process_creation/proc_creation_win_bcdedit_boot_conf_tamper.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_bcdedit_boot_conf_tamper.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1490"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó bcdedit.exe con el subcomando set para desactivar la recuperación de Windows o hacer que el sistema ignore los fallos de arranque. Suele ocurrir justo antes de desplegar ransomware.",
+      "what_it_detects": "Creación de procesos de bcdedit.exe (por Image u OriginalFileName) cuyo CommandLine contiene 'set' y además 'bootstatuspolicy' con 'ignoreallfailures', o 'recoveryenabled' con 'no'.",
+      "why_it_matters": "Desactivar el entorno de recuperación y ocultar los fallos de arranque impide que la víctima repare o restaure el sistema. Corresponde a T1490 (Inhibir la recuperación del sistema), táctica Impacto.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el identificador modificado ({default}, {current}) y si se cambiaron recoveryenabled, bootstatuspolicy o ambos.",
+        "Identifique el ParentImage y la cadena de procesos padre. Desconfíe de cmd.exe o powershell.exe lanzados desde binarios fuera de rutas estándar, scripts o herramientas de administración remota.",
+        "Verifique el usuario y el nivel de integridad. Bcdedit requiere privilegios de administrador; confirme si esa cuenta suele administrar ese host.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, vssadmin delete shadows, wmic shadowcopy delete, wbadmin delete catalog o la detención de servicios de respaldo.",
+        "Busque actividad de cifrado masivo: renombrado de archivos, notas de rescate o un pico de escrituras en disco en el host.",
+        "Revise alertas previas del mismo usuario y host: accesos remotos (RDP, PsExec, WMI), volcado de credenciales o movimiento lateral.",
+        "Compruebe si el mismo comando se ejecutó en otros endpoints, porque eso indicaría un despliegue masivo vía GPO, PsExec o una herramienta de gestión."
+      ],
+      "false_positives": [
+        "El campo falsepositives de la regla dice 'Unlikely' (poco probable).",
+        "Imágenes de kiosco, laboratorio o VDI configuradas a propósito para no entrar en recuperación; deben estar documentadas.",
+        "Ejercicios de Atomic Red Team o pruebas de red team autorizadas que simulan T1490."
+      ],
+      "response_steps": [
+        "Valide con el dueño del sistema o con un cambio aprobado; si no hay justificación, trate el caso como incidente de ransomware.",
+        "Aísle el endpoint de la red con el EDR y conserve memoria y logs antes de reiniciar.",
+        "Deshabilite o restablezca las credenciales de la cuenta implicada y revise sus sesiones en otros hosts.",
+        "Identifique y elimine el binario o script que lanzó bcdedit; busque su hash en toda la flota.",
+        "Restaure la configuración con 'bcdedit /set {default} recoveryenabled yes' y 'bootstatuspolicy displayallfailures', y verifique respaldos y shadow copies."
+      ],
+      "severity_rationale": "Es alta porque esta modificación casi nunca es legítima y suele preceder de inmediato a un ataque destructivo de ransomware."
+    },
+    "en": {
+      "summary": "bcdedit.exe was run with the set subcommand to disable Windows recovery or make boot ignore all failures. This commonly happens right before ransomware is deployed.",
+      "what_it_detects": "Process creation of bcdedit.exe (by Image or OriginalFileName) whose CommandLine contains 'set' plus either 'bootstatuspolicy' and 'ignoreallfailures', or 'recoveryenabled' and 'no'.",
+      "why_it_matters": "Turning off the recovery environment and hiding boot failures stops victims from repairing or restoring the system. This is T1490, Inhibit System Recovery, under the Impact tactic.",
+      "triage_steps": [
+        "Read the full CommandLine: which identifier ({default}, {current}) was changed, and whether recoveryenabled, bootstatuspolicy or both were modified.",
+        "Identify the ParentImage and the parent process chain. Be suspicious of cmd.exe or powershell.exe spawned by binaries in unusual paths, scripts or remote admin tools.",
+        "Check the user and integrity level. bcdedit needs admin rights, so confirm whether this account normally administers this host.",
+        "On the same host within +/- 15 minutes, look for vssadmin delete shadows, wmic shadowcopy delete, wbadmin delete catalog or backup services being stopped.",
+        "Look for mass encryption activity: file renames, ransom notes or a spike in disk writes.",
+        "Review earlier alerts for the same user and host: remote access (RDP, PsExec, WMI), credential dumping or lateral movement.",
+        "Check whether the same command ran on other endpoints, which would point to mass deployment via GPO, PsExec or a management tool."
+      ],
+      "false_positives": [
+        "The rule's falsepositives field says 'Unlikely'.",
+        "Kiosk, lab or VDI images that are deliberately set up to skip recovery; these should be documented.",
+        "Atomic Red Team or authorized red team exercises that simulate T1490."
+      ],
+      "response_steps": [
+        "Check with the system owner or look for an approved change. If there is no justification, handle it as a ransomware incident.",
+        "Isolate the endpoint with EDR and preserve memory and logs before any reboot.",
+        "Disable or reset the account's credentials and review its sessions on other hosts.",
+        "Find and remove the binary or script that launched bcdedit, then hunt for its hash across the fleet.",
+        "Restore the settings with 'bcdedit /set {default} recoveryenabled yes' and 'bootstatuspolicy displayallfailures', then check backups and shadow copies."
+      ],
+      "severity_rationale": "High fits because this change is rarely legitimate and usually comes right before a destructive ransomware attack."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "bcdedit disables Windows recovery on the default boot entry, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\bcdedit.exe",
+          "OriginalFileName": "bcdedit.exe",
+          "CommandLine": "bcdedit.exe /set {default} recoveryenabled no",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed bcdedit binary matched via OriginalFileName, setting bootstatuspolicy to ignoreallfailures",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\bd.exe",
+          "OriginalFileName": "bcdedit.exe",
+          "CommandLine": "bd.exe /set {default} bootstatuspolicy ignoreallfailures",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator re-enables Windows recovery (recoveryenabled yes), with no 'no' or ignoreallfailures in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin_it",
+          "Image": "C:\\Windows\\System32\\bcdedit.exe",
+          "OriginalFileName": "bcdedit.exe",
+          "CommandLine": "bcdedit.exe /set {default} recoveryenabled yes",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Read-only enumeration of the boot configuration, with no set subcommand",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0200.andes.example.com",
+          "User": "ANDES\\admin_it",
+          "Image": "C:\\Windows\\System32\\bcdedit.exe",
+          "OriginalFileName": "bcdedit.exe",
+          "CommandLine": "bcdedit.exe /enum all",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

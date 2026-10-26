@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "76f55eaa-d27f-4213-9d45-7b0e4b60bbae",
+    "title": "Service Reconnaissance Via Wmic.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wmic_recon_service.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmic_recon_service.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1047"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó WMIC.exe con un CommandLine que consulta la clase de servicios (service / Win32_Service) sin métodos de modificación, lo que indica enumeración de servicios locales o remotos.",
+      "what_it_detects": "Procesos cuyo Image termina en \\WMIC.exe u OriginalFileName es wmic.exe y cuyo CommandLine contiene 'service', excluyendo llamadas a StartService, StopService, Change, Create, Delete, PauseService, ResumeService, SetSecurityDescriptor o UserControlService, que cubre otra regla.",
+      "why_it_matters": "Los atacantes usan WMI (ATT&CK T1047, Windows Management Instrumentation) para saber qué servicios corren en un equipo, a menudo remoto con /node, y así detectar antivirus, EDR, respaldos o servicios explotables antes de moverse lateralmente.",
+      "triage_steps": [
+        "Revise el CommandLine completo: ¿incluye /node con una IP o host remoto, filtros where sobre servicios concretos (EDR, antivirus, respaldos) o un listado general?",
+        "Identifique al usuario y si es una cuenta de administración esperada o un usuario estándar ejecutando WMIC.",
+        "Examine ParentImage y la cadena de procesos: cmd.exe o powershell.exe lanzados desde Office, un navegador o un script en %TEMP% son sospechosos.",
+        "Si hay /node, valide que el host de origen suela administrar el destino y busque en el destino inicios de sesión de red del mismo usuario.",
+        "Busque en el mismo host, +/- 15 minutos, otros comandos de reconocimiento (whoami, net, nltest, tasklist, wmic process) o herramientas de acceso remoto.",
+        "Consulte alertas previas del mismo host y usuario, y si el comando se repite contra muchos destinos (barrido)."
+      ],
+      "false_positives": [
+        "Administradores o personal de soporte que consultan el estado de servicios con WMIC durante tareas de diagnóstico.",
+        "Scripts de inventario, monitoreo o despliegue (SCCM, herramientas RMM) que enumeran servicios periódicamente.",
+        "Instaladores o herramientas de soporte de proveedores que verifican si un servicio existe antes de configurarse."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o su responsable si la ejecución fue legítima; si lo fue, documente y considere una exclusión acotada por script o cuenta.",
+        "Si no se justifica, aísle el endpoint y conserve evidencia: árbol de procesos, historial de comandos y conexiones de red.",
+        "Revise los hosts consultados con /node en busca de actividad posterior del mismo usuario (servicios creados, ejecución remota).",
+        "Restablezca credenciales de la cuenta implicada si hay indicios de compromiso y elimine los artefactos maliciosos identificados."
+      ],
+      "severity_rationale": "Es media porque la enumeración de servicios es reconocimiento sin impacto directo y tiene usos administrativos, pero suele preceder a evasión de defensas o movimiento lateral."
+    },
+    "en": {
+      "summary": "WMIC.exe ran with a CommandLine that queries services (service / Win32_Service) without modifying methods, indicating enumeration of local or remote services.",
+      "what_it_detects": "Processes whose Image ends in \\WMIC.exe or OriginalFileName is wmic.exe and whose CommandLine contains 'service', excluding StartService, StopService, Change, Create, Delete, PauseService, ResumeService, SetSecurityDescriptor or UserControlService calls, which another rule covers.",
+      "why_it_matters": "Attackers use WMI (ATT&CK T1047, Windows Management Instrumentation) to learn which services run on a host, often remotely via /node, to spot AV, EDR, backup or exploitable services before lateral movement.",
+      "triage_steps": [
+        "Read the full CommandLine: does it use /node with a remote IP or host, where filters on specific services (EDR, AV, backup), or a generic listing?",
+        "Identify the user and whether it is an expected admin account or a standard user running WMIC.",
+        "Check ParentImage and the process chain: cmd.exe or powershell.exe spawned by Office, a browser or a script in %TEMP% is suspicious.",
+        "If /node is present, confirm the source normally manages the target and look for network logons by the same user on the target.",
+        "On the same host within +/- 15 minutes, look for other recon (whoami, net, nltest, tasklist, wmic process) or remote access tools.",
+        "Review earlier alerts for the same host and user, and whether the command repeats against many targets (sweep)."
+      ],
+      "false_positives": [
+        "Administrators or help desk staff checking service state with WMIC while troubleshooting.",
+        "Inventory, monitoring or deployment scripts (SCCM, RMM tools) that enumerate services on a schedule.",
+        "Vendor installers or support tools that check whether a service exists before configuring it."
+      ],
+      "response_steps": [
+        "Confirm with the user or their manager whether the run was legitimate; if so, document it and consider a narrow exclusion by script or account.",
+        "If unexplained, isolate the endpoint and preserve evidence: process tree, command history and network connections.",
+        "Review hosts queried via /node for follow-up activity by the same user (new services, remote execution).",
+        "Reset credentials of the involved account if compromise is suspected and remove identified malicious artifacts."
+      ],
+      "severity_rationale": "Medium fits because service enumeration is reconnaissance with no direct impact and has admin uses, but it often precedes defense evasion or lateral movement."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Remote service enumeration with WMIC against a remote host",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic /node:\"192.0.2.15\" service where (caption like \"%Spooler%\") get name,state",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c recon.bat",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Local listing of all services via WMIC",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\SysWOW64\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic service list brief",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "WMIC stopping a service - excluded by the manipulation/method filters",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.soporte",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic service where name=\"Spooler\" call StopService",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "WMIC process listing - CommandLine does not contain 'service'",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic process list brief",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

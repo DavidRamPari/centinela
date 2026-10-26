@@ -1,0 +1,124 @@
+{
+  "rule": {
+    "id": "f1f3bf22-deb2-418d-8cce-e1a45e46a5bd",
+    "title": "MMC20 Lateral Movement",
+    "level": "high",
+    "status": "test",
+    "author": "@2xxeformyshirt (Security Risk Advisors) - rule; Teymur Kheirkhabarov (idea)",
+    "path": "windows/process_creation/proc_creation_win_mmc_mmc20_lateral_movement.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_mmc_mmc20_lateral_movement.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició mmc.exe con el argumento -Embedding como hijo de svchost.exe, lo que indica que el objeto COM MMC20.Application se activó mediante DCOM, posiblemente desde otro equipo, para ejecutar comandos de forma remota.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde ParentImage termina en \\svchost.exe, Image termina en \\mmc.exe y CommandLine contiene -Embedding. Es el patrón que se ve cuando el servicio DCOM (DcomLaunch) instancia MMC20.Application por solicitud de un cliente local o remoto.",
+      "why_it_matters": "Los atacantes con credenciales válidas pueden instanciar MMC20.Application en un host remoto y usar su método ExecuteShellCommand para ejecutar comandos sin copiar servicios ni binarios. Es movimiento lateral mediante DCOM (ATT&CK T1021.003) y suele ir seguido de ejecución de payloads o robo de credenciales.",
+      "triage_steps": [
+        "Confirme el host, la hora y la línea de comandos de mmc.exe, y verifique que ParentImage sea C:\\Windows\\System32\\svchost.exe (idealmente con -k DcomLaunch).",
+        "Revise los procesos hijos de mmc.exe: cmd.exe, powershell.exe, rundll32.exe o mshta.exe son una fuerte señal de abuso de ExecuteShellCommand.",
+        "Busque eventos 4624 de tipo 3 en el mismo host dentro de +/- 15 minutos para identificar el usuario y la IP de origen del inicio de sesión remoto.",
+        "Correlacione conexiones de red entrantes al puerto 135 y a puertos RPC dinámicos desde esa IP de origen en la misma ventana de tiempo.",
+        "En el equipo de origen, busque procesos que invoquen MMC20.Application, por ejemplo PowerShell con GetTypeFromProgID o scripts con ExecuteShellCommand.",
+        "Valide con el equipo de TI si la cuenta y el host de origen pertenecen a una tarea administrativa documentada.",
+        "Revise alertas previas del mismo usuario, host de origen y host destino, y busque el mismo patrón en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla indica que es poco probable; aun así, herramientas o scripts de administración que automatizan MMC por DCOM pueden generarla.",
+        "Ejercicios autorizados de red team o pruebas de penetración que usan MMC20.Application para movimiento lateral."
+      ],
+      "response_steps": [
+        "Verifique con el responsable de la cuenta y del host de origen si la actividad fue autorizada antes de actuar.",
+        "Si no está autorizada, aísle el host destino y, si hay evidencia, también el host de origen.",
+        "Deshabilite o restablezca las credenciales de la cuenta usada y revise sus sesiones activas.",
+        "Termine los procesos hijos maliciosos tras recopilar evidencia (árbol de procesos, hashes, memoria si es posible) y elimine la persistencia encontrada.",
+        "Considere restringir DCOM remoto y el acceso de administración lateral mediante firewall o GPO, y monitoree reincidencias."
+      ],
+      "severity_rationale": "Nivel alto porque este patrón casi nunca aparece en uso legítimo y suele indicar ejecución remota de comandos con credenciales comprometidas."
+    },
+    "en": {
+      "summary": "mmc.exe started with -Embedding as a child of svchost.exe, meaning the MMC20.Application COM object was activated through DCOM, possibly from another machine, to run commands remotely.",
+      "what_it_detects": "Windows process creation events where ParentImage ends with \\svchost.exe, Image ends with \\mmc.exe and CommandLine contains -Embedding. This is what appears when the DCOM service (DcomLaunch) instantiates MMC20.Application for a local or remote client.",
+      "why_it_matters": "Attackers with valid credentials can instantiate MMC20.Application on a remote host and call ExecuteShellCommand to run commands without dropping services or binaries. This is lateral movement over DCOM (ATT&CK T1021.003), often followed by payload execution or credential theft.",
+      "triage_steps": [
+        "Confirm host, time and mmc.exe CommandLine; check ParentImage is C:\\Windows\\System32\\svchost.exe, ideally with -k DcomLaunch.",
+        "Review child processes of mmc.exe: cmd.exe, powershell.exe, rundll32.exe or mshta.exe strongly suggest ExecuteShellCommand abuse.",
+        "Find 4624 logon type 3 events on the same host within +/- 15 minutes to identify the user and source IP.",
+        "Correlate inbound connections to port 135 and dynamic RPC ports from that source IP in the same window.",
+        "On the source host, look for processes invoking MMC20.Application, such as PowerShell using GetTypeFromProgID or scripts calling ExecuteShellCommand.",
+        "Check with IT whether the account and source host match documented administrative work.",
+        "Review earlier alerts for the same user, source and destination hosts, and hunt for the pattern on other endpoints."
+      ],
+      "false_positives": [
+        "The rule rates false positives as unlikely; admin tools or scripts that automate MMC over DCOM could still trigger it.",
+        "Authorized red team exercises or penetration tests that use MMC20.Application for lateral movement."
+      ],
+      "response_steps": [
+        "Verify with the account owner and source host owner whether the activity was authorized before acting.",
+        "If unauthorized, isolate the destination host and, where evidence supports it, the source host.",
+        "Disable or reset the credentials used and review their active sessions.",
+        "Collect evidence (process tree, hashes, memory if possible), then kill malicious child processes and remove any persistence found.",
+        "Consider restricting remote DCOM and lateral admin access via firewall or GPO, and monitor for recurrence."
+      ],
+      "severity_rationale": "High because this pattern rarely appears in legitimate use and usually indicates remote command execution with compromised credentials."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "MMC launched by DcomLaunch svchost with -Embedding after remote MMC20.Application activation",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k DcomLaunch -p",
+          "Image": "C:\\Windows\\System32\\mmc.exe",
+          "CommandLine": "C:\\Windows\\system32\\mmc.exe -Embedding",
+          "IntegrityLevel": "High",
+          "UtcTime": "2024-05-14 10:22:31.512"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator opens Computer Management interactively from Explorer; parent is not svchost.exe and no -Embedding",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.lopez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE",
+          "Image": "C:\\Windows\\System32\\mmc.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\mmc.exe\" \"C:\\Windows\\system32\\compmgmt.msc\" /s",
+          "IntegrityLevel": "High",
+          "UtcTime": "2024-05-14 11:05:02.104"
+        }
+      },
+      {
+        "description": "svchost.exe launches mmc.exe with a snap-in file but without the -Embedding argument",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\svc.backup",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule",
+          "Image": "C:\\Windows\\System32\\mmc.exe",
+          "CommandLine": "C:\\Windows\\system32\\mmc.exe C:\\Windows\\system32\\eventvwr.msc /s",
+          "IntegrityLevel": "High",
+          "UtcTime": "2024-05-14 12:00:00.731"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

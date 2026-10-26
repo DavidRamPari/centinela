@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "49d9671b-0a0a-4c09-8280-d215bfd30662",
+    "title": "Application Termination Attempt via Wmic.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wmic_terminate_application.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmic_terminate_application.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1047"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó WMIC.exe con una línea de comandos que contiene \"call\" y \"terminate\", lo que indica un intento de finalizar uno o más procesos mediante WMI. La alerta se genera con el intento, aunque la terminación haya fallado.",
+      "what_it_detects": "Creación de procesos de WMIC.exe (por Image o OriginalFileName) cuyo CommandLine contiene \"call\" y \"terminate\", por ejemplo: wmic process where name='MsMpEng.exe' call terminate.",
+      "why_it_matters": "Los adversarios usan WMI (ATT&CK T1047, Windows Management Instrumentation) para cerrar productos de seguridad, respaldos o bases de datos antes de cifrar o exfiltrar. Así debilitan las defensas o liberan archivos bloqueados para el ransomware.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el proceso objetivo (name, processid o filtro where) y si apunta a EDR, antivirus, respaldos, bases de datos o varios procesos a la vez.",
+        "Verifique el uso de /node: para saber si la terminación se dirigió a un host remoto y, en ese caso, investigue también ese equipo.",
+        "Analice ParentImage y la cadena de procesos: cmd.exe, powershell.exe, scripts, servicios o binarios en rutas de usuario o temporales son más sospechosos que una herramienta de gestión conocida.",
+        "Identifique el usuario y su contexto: cuenta de servicio, administrador conocido o cuenta inusual con privilegios elevados.",
+        "Busque en el mismo host, +/- 15 minutos, otros comandos wmic, vssadmin, bcdedit, net stop, sc stop o taskkill y la creación de archivos sospechosos.",
+        "Confirme si el proceso objetivo realmente se detuvo y si hubo eventos de manipulación o pérdida de telemetría del agente de seguridad.",
+        "Revise alertas anteriores del mismo host y usuario, y busque el mismo CommandLine en otros endpoints para detectar ejecución masiva."
+      ],
+      "false_positives": [
+        "Scripts administrativos o de soporte que cierran aplicaciones colgadas con wmic process call terminate.",
+        "Herramientas de despliegue o actualización de software (SCCM, instaladores) que finalizan procesos antes de reemplazar archivos.",
+        "Tareas de mantenimiento programadas documentadas por el equipo de TI."
+      ],
+      "response_steps": [
+        "Valide con el dueño del host o el equipo de TI si la acción estaba autorizada; documente el ticket de cambio si existe.",
+        "Si no está autorizada, aísle el endpoint desde el EDR y preserve evidencia: árbol de procesos, línea de comandos, hash del proceso padre.",
+        "Restaure y verifique el funcionamiento de los productos de seguridad o servicios finalizados.",
+        "Restablezca credenciales de la cuenta involucrada y busque movimiento lateral o actividad de ransomware relacionada en otros hosts.",
+        "Elimine artefactos maliciosos identificados y agregue exclusiones solo para scripts legítimos verificados."
+      ],
+      "severity_rationale": "Nivel medio: terminar procesos con WMIC es poco común pero tiene usos administrativos legítimos, y su gravedad aumenta si el objetivo es un producto de seguridad."
+    },
+    "en": {
+      "summary": "WMIC.exe ran with a command line containing \"call\" and \"terminate\", meaning someone attempted to kill one or more processes through WMI. The alert fires on the attempt, even if termination failed.",
+      "what_it_detects": "Process creation of WMIC.exe (by Image or OriginalFileName) whose CommandLine contains both \"call\" and \"terminate\", e.g. wmic process where name='MsMpEng.exe' call terminate.",
+      "why_it_matters": "Adversaries use WMI (ATT&CK T1047, Windows Management Instrumentation) to stop security tools, backup agents or databases before encryption or exfiltration, weakening defenses or releasing locked files for ransomware.",
+      "triage_steps": [
+        "Read the full CommandLine: identify the target process (name, processid or where filter) and whether it targets EDR, antivirus, backup, database or many processes.",
+        "Check for /node: to see whether a remote host was targeted; if so, investigate that host too.",
+        "Review ParentImage and the process tree: cmd.exe, powershell.exe, scripts or binaries in user or temp paths are more suspicious than known management tools.",
+        "Identify the user and context: service account, known administrator, or unusual account with elevated privileges.",
+        "On the same host within +/- 15 minutes, look for other wmic, vssadmin, bcdedit, net stop, sc stop or taskkill commands and suspicious file writes.",
+        "Confirm whether the target process actually stopped and whether security agent telemetry was lost or tampered with.",
+        "Check earlier alerts for the same host and user, and search for the same CommandLine across other endpoints."
+      ],
+      "false_positives": [
+        "Admin or helpdesk scripts that kill hung applications with wmic process call terminate.",
+        "Software deployment or update tools (SCCM, installers) stopping processes before replacing files.",
+        "Documented scheduled maintenance tasks run by IT."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the action was authorized; reference any change ticket.",
+        "If unauthorized, isolate the endpoint via EDR and preserve evidence: process tree, command line, parent hash.",
+        "Restore and verify any stopped security products or services.",
+        "Reset credentials for the involved account and hunt for lateral movement or ransomware activity on other hosts.",
+        "Remove identified malicious artifacts; tune exclusions only for verified legitimate scripts."
+      ],
+      "severity_rationale": "Medium: killing processes via WMIC is uncommon but has legitimate admin uses, and it becomes serious when the target is a security product."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WMIC launched from cmd.exe terminating Microsoft Defender process",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic process where name='MsMpEng.exe' call terminate",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat"
+        }
+      },
+      {
+        "description": "Renamed WMIC binary matched by OriginalFileName, terminating a backup agent on a remote node",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc-backup",
+          "Image": "C:\\ProgramData\\tools\\wm.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wm.exe /node:198.51.100.20 process where \"name like '%backup%'\" CALL Terminate",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "WMIC used only to list processes, no call terminate",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic process where name='MsMpEng.exe' get processid,executablepath",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "taskkill used to terminate a process, not WMIC",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\taskkill.exe",
+          "OriginalFileName": "taskkill.exe",
+          "CommandLine": "taskkill /IM notepad.exe /F rem call terminate",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

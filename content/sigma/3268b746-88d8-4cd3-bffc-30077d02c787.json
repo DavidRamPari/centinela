@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "3268b746-88d8-4cd3-bffc-30077d02c787",
+    "title": "HackTool - Empire PowerShell UAC Bypass",
+    "level": "critical",
+    "status": "stable",
+    "author": "Ecco",
+    "path": "windows/process_creation/proc_creation_win_hktl_empire_powershell_uac_bypass.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_empire_powershell_uac_bypass.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1548.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un proceso con la línea de comandos exacta de PowerShell que usan los módulos de bypass de UAC de Empire (EventVwr y FodHelper) para leer y ejecutar un payload guardado en el registro. Trátelo como un probable framework de post-explotación activo en el equipo.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene ' -NoP -NonI -w Hidden -c $x=$((gp HKCU:Software\\Microsoft\\Windows Update).Update)' o la misma cadena sin '-w Hidden'. Es el lanzador que Invoke-EventVwrBypass e Invoke-FodHelperBypass escriben en una clave de handler secuestrada en HKCU.",
+      "why_it_matters": "ATT&CK T1548.002 (Bypass User Account Control): un atacante que ya ejecuta código como administrador local con integridad media obtiene un proceso de integridad alta sin aviso de UAC. El payload queda en la clave HKCU 'Windows Update' y no aparece en la línea de comandos.",
+      "triage_steps": [
+        "Revise ParentImage: si el padre es eventvwr.exe o fodhelper.exe, se confirma el patrón de bypass. Registre también el IntegrityLevel del proceso y el User.",
+        "Lea HKCU\\Software\\Microsoft\\Windows Update, valor 'Update', del usuario. Expórtelo y decodifique el base64 fuera de línea para obtener el stager y los datos del C2.",
+        "Revise HKCU\\Software\\Classes\\mscfile\\shell\\open\\command y HKCU\\Software\\Classes\\ms-settings\\shell\\open\\command y busque valores que apunten a este comando de PowerShell.",
+        "Liste los procesos hijos y las conexiones de red del proceso PowerShell. Busque un segundo powershell -enc y beaconing HTTP(S) saliente.",
+        "Pivote en el mismo equipo +/- 15 minutos: PowerShell previo de integridad media, procesos hijos de Office o del navegador, descargas y vector de acceso inicial.",
+        "Busque en otros equipos la misma cadena de CommandLine, el mismo usuario y los destinos C2 que salgan del payload decodificado.",
+        "Confirme si había un ejercicio autorizado de red team o pentest en ese equipo a la hora de la alerta."
+      ],
+      "false_positives": [
+        "La regla indica Unknown; esta cadena exacta de Empire casi nunca es legítima.",
+        "Ejercicios autorizados de red team, pentest o emulación de adversarios que usan los módulos de bypass de UAC de Empire.",
+        "Validación de detecciones en laboratorios o equipos de prueba que reproducen técnicas de Empire."
+      ],
+      "response_steps": [
+        "Valide con el calendario del red team. Si la actividad no está autorizada, aísle el endpoint desde el EDR y manténgalo encendido para capturar la memoria.",
+        "Antes de modificar nada, recolecte la memoria, el árbol de procesos de PowerShell, las claves de registro y los logs de PowerShell.",
+        "Bloquee los dominios e IPs de C2 del payload. Deshabilite o restablezca las credenciales del usuario afectado y las credenciales en caché del equipo.",
+        "Con la evidencia ya guardada, elimine el valor 'Windows Update' y las claves mscfile/ms-settings secuestradas. Busque persistencia creada por el proceso elevado.",
+        "Si se ejecutó código con integridad alta, reinstale el equipo desde imagen. Luego restáurelo, monitoréelo y revise por qué el usuario tenía privilegios de administrador local."
+      ],
+      "severity_rationale": "El nivel critical corresponde porque esta línea de comandos es exclusiva del framework Empire e indica un intento de elevación exitoso por parte de un atacante que ya ejecuta código."
+    },
+    "en": {
+      "summary": "A process started with the exact PowerShell command line that Empire's EventVwr and FodHelper UAC bypass modules use to read and run a payload stored in the registry. Treat this as a likely active post-exploitation framework on the host.",
+      "what_it_detects": "Process creation events whose CommandLine contains ' -NoP -NonI -w Hidden -c $x=$((gp HKCU:Software\\Microsoft\\Windows Update).Update)' or the same string without '-w Hidden'. This is the launcher that Empire's Invoke-EventVwrBypass and Invoke-FodHelperBypass write into a hijacked HKCU handler key.",
+      "why_it_matters": "ATT&CK T1548.002 (Bypass User Account Control): an attacker who already runs code as a local administrator at medium integrity gets a high-integrity process without a UAC prompt. The payload sits in the HKCU 'Windows Update' key, so the command line hides it.",
+      "triage_steps": [
+        "Check ParentImage. eventvwr.exe or fodhelper.exe as parent confirms the bypass pattern. Also record the process IntegrityLevel and the User.",
+        "Read HKCU\\Software\\Microsoft\\Windows Update, value 'Update', for that user. Export it and decode the base64 payload offline to get the stager and C2 details.",
+        "Look at HKCU\\Software\\Classes\\mscfile\\shell\\open\\command and HKCU\\Software\\Classes\\ms-settings\\shell\\open\\command for values pointing to this PowerShell command.",
+        "List child processes and network connections from the PowerShell process. Look for a second powershell -enc and outbound HTTP(S) beaconing.",
+        "Pivot on the same host within +/- 15 minutes: earlier medium-integrity PowerShell, Office or browser child processes, downloads, and how the attacker got in.",
+        "Search other hosts for the same CommandLine string, the same user, and the C2 destinations taken from the decoded payload.",
+        "Check whether an authorized red team or penetration test was running on this host at the alert time."
+      ],
+      "false_positives": [
+        "Rule lists Unknown; this exact Empire string is very rarely legitimate.",
+        "Authorized red team, penetration test or adversary emulation exercises that run Empire UAC bypass modules.",
+        "Detection validation in lab or test hosts that replays Empire techniques."
+      ],
+      "response_steps": [
+        "Confirm with the red team schedule. If the activity is not authorized, isolate the endpoint over EDR and keep the system running so memory can be captured.",
+        "Collect memory, the PowerShell process tree, the registry keys and PowerShell logs before you change anything.",
+        "Block the C2 domains and IPs from the payload. Disable or reset the affected user's credentials and any credentials cached on the host.",
+        "Once evidence is saved, remove the 'Windows Update' value and the hijacked mscfile/ms-settings command keys. Hunt for persistence the elevated process created.",
+        "Reimage the host if high-integrity code ran. Then restore it, monitor it, and look into why the user had local admin rights."
+      ],
+      "severity_rationale": "Critical fits because this command line is specific to the Empire framework and shows a successful elevation attempt by an attacker who already has code running."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Empire Invoke-EventVwrBypass: eventvwr.exe launches hidden PowerShell that reads the payload from HKCU Windows Update",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoP -NonI -w Hidden -c $x=$((gp HKCU:Software\\Microsoft\\Windows Update).Update); powershell -NoP -NonI -w Hidden -enc $x",
+          "ParentImage": "C:\\Windows\\System32\\eventvwr.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\eventvwr.exe\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Empire Invoke-FodHelperBypass variant without -w Hidden, spawned by fodhelper.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoP -NonI -c $x=$((gp HKCU:Software\\Microsoft\\Windows Update).Update); powershell -NoP -NonI -enc $x",
+          "ParentImage": "C:\\Windows\\System32\\fodhelper.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\fodhelper.exe\"",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin script reads a Windows Update registry setting with Get-ItemProperty; no Empire launcher string",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.soporte",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -NonInteractive -Command Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate'",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Hidden non-interactive PowerShell from a management agent with similar flags but no gp of the HKCU Windows Update key",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoP -NonI -w Hidden -c Get-Service wuauserv | Select-Object Status",
+          "ParentImage": "C:\\Program Files\\ExampleAgent\\agent.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:57:07+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

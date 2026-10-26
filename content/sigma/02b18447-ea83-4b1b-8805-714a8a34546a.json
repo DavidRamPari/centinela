@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "02b18447-ea83-4b1b-8805-714a8a34546a",
+    "title": "Potential Mpclient.DLL Sideloading Via OfflineScannerShell.EXE Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_offlinescannershell_mpclient_sideloading.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_offlinescannershell_mpclient_sideloading.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó OfflineScannerShell.exe de Windows Defender con un directorio de trabajo distinto de C:\\Program Files\\Windows Defender\\Offline\\. Esto puede indicar sideloading de un mpclient.dll malicioso.",
+      "what_it_detects": "Eventos de creación de procesos cuyo Image termina en \\OfflineScannerShell.exe, o cuyo OriginalFileName es OfflineScannerShell.exe, con un CurrentDirectory que no está vacío y no es la carpeta Offline de Windows Defender.",
+      "why_it_matters": "OfflineScannerShell.exe carga cualquier mpclient.dll que encuentre en su directorio de trabajo actual. Un atacante puede usar este binario firmado por Microsoft para ejecutar su propio código y evadir controles (T1218, ejecución de proxy mediante binarios del sistema).",
+      "triage_steps": [
+        "Revise Image, OriginalFileName y CurrentDirectory. Confirme si el binario se copió o renombró fuera de C:\\Program Files\\Windows Defender\\Offline\\.",
+        "Busque un mpclient.dll en el CurrentDirectory. Obtenga su hash, su firma digital y su fecha de creación, y compárelos con el mpclient.dll legítimo de Defender.",
+        "Revise los eventos de carga de imágenes (Sysmon ID 7) del proceso y confirme desde qué ruta cargó mpclient.dll.",
+        "Analice ParentImage, CommandLine y User. Un shell, un script o una macro de Office como proceso padre aumenta la sospecha.",
+        "Revise los procesos hijos, las conexiones de red y las escrituras de archivos o del registro en el mismo host dentro de +/- 15 minutos.",
+        "Busque cómo llegaron los archivos al directorio (descargas, archivos ZIP o ISO, recursos compartidos) y si hay alertas anteriores para el mismo usuario o host."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Pruebas de soporte o de administradores que ejecutan el escáner sin conexión desde otro directorio de trabajo.",
+        "Ejercicios de red team o validaciones de LOLBAS autorizados."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de TI si la ejecución era legítima antes de actuar.",
+        "Si se confirma que es maliciosa, aísle el endpoint y preserve como evidencia el mpclient.dll, la copia del ejecutable y la memoria del proceso.",
+        "Detenga el proceso y elimine los artefactos maliciosos una vez verificados. Busque el hash del DLL en toda la flota.",
+        "Revise los mecanismos de persistencia y las credenciales del usuario afectado. Restablézcalas si hubo compromiso y luego restaure el equipo a un estado conocido."
+      ],
+      "severity_rationale": "Es de nivel medio porque la ejecución fuera del directorio estándar es inusual y permite ejecutar código con un binario firmado, pero falta confirmar que se cargó un DLL malicioso."
+    },
+    "en": {
+      "summary": "Windows Defender's OfflineScannerShell.exe ran with a working directory other than C:\\Program Files\\Windows Defender\\Offline\\. This may mean a malicious mpclient.dll is being sideloaded.",
+      "what_it_detects": "Process creation events where Image ends with \\OfflineScannerShell.exe or OriginalFileName is OfflineScannerShell.exe, and CurrentDirectory is not empty and is not the Defender Offline folder.",
+      "why_it_matters": "OfflineScannerShell.exe loads any mpclient.dll it finds in its current working directory. An attacker can use this Microsoft-signed binary to run their own code and get around defenses (T1218, system binary proxy execution).",
+      "triage_steps": [
+        "Check Image, OriginalFileName and CurrentDirectory. Confirm whether the binary was copied or renamed outside C:\\Program Files\\Windows Defender\\Offline\\.",
+        "Look for mpclient.dll in CurrentDirectory. Get its hash, signature and creation time, and compare it with the legitimate Defender mpclient.dll.",
+        "Check the process's image load events (Sysmon ID 7) to confirm which path mpclient.dll was loaded from.",
+        "Review ParentImage, CommandLine and User. A shell, script host or Office parent process makes this more suspicious.",
+        "Review child processes, network connections, and file or registry writes on the same host within +/- 15 minutes.",
+        "Find out how the files reached the directory (downloads, ZIP or ISO archives, shares), and check for earlier alerts on the same user or host."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Admin or support tests that run the offline scanner from a different working directory.",
+        "Authorized red team exercises or LOLBAS validation."
+      ],
+      "response_steps": [
+        "Before acting, confirm with the user or IT whether the execution was legitimate.",
+        "If it is malicious, isolate the endpoint and keep the mpclient.dll, the copied executable and the process memory as evidence.",
+        "Kill the process and remove the malicious artifacts once verified. Search the fleet for the DLL hash.",
+        "Check for persistence and review the affected user's credentials. Reset them if they were compromised, then restore the host to a known-good state."
+      ],
+      "severity_rationale": "Medium fits because running from a non-standard directory is unusual and allows code to run under a signed binary, but a malicious DLL load still needs to be confirmed."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "OfflineScannerShell.exe copied to a user's Downloads folder and run there, so it would load a planted mpclient.dll",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\Downloads\\update\\OfflineScannerShell.exe",
+          "OriginalFileName": "OfflineScannerShell.exe",
+          "CommandLine": "\"C:\\Users\\jperez\\Downloads\\update\\OfflineScannerShell.exe\"",
+          "CurrentDirectory": "C:\\Users\\jperez\\Downloads\\update\\",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start OfflineScannerShell.exe"
+        }
+      },
+      {
+        "description": "Renamed copy identified by OriginalFileName, run from a Temp working directory",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\svchelper.exe",
+          "OriginalFileName": "OfflineScannerShell.exe",
+          "CommandLine": "svchelper.exe",
+          "CurrentDirectory": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate run from the standard Windows Defender Offline directory, which the filter excludes",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Program Files\\Windows Defender\\Offline\\OfflineScannerShell.exe",
+          "OriginalFileName": "OfflineScannerShell.exe",
+          "CommandLine": "\"C:\\Program Files\\Windows Defender\\Offline\\OfflineScannerShell.exe\"",
+          "CurrentDirectory": "C:\\Program Files\\Windows Defender\\Offline\\",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      },
+      {
+        "description": "A different Defender binary run from a user directory; neither Image nor OriginalFileName matches",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Windows Defender\\MpCmdRun.exe",
+          "OriginalFileName": "MpCmdRun.exe",
+          "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" -Scan -ScanType 1",
+          "CurrentDirectory": "C:\\Users\\jperez\\",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

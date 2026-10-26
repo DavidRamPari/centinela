@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "949f1ffb-6e85-4f00-ae1e-c3c5b190d605",
+    "title": "Explorer Process Tree Break",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems), @gott_cyber",
+    "path": "windows/process_creation/proc_creation_win_explorer_break_process_tree.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_explorer_break_process_tree.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se detectó un proceso que usa explorer.exe para lanzar comandos o binarios, o la creación de una nueva instancia de explorer vía COM. Esto rompe el árbol de procesos y oculta el verdadero proceso de origen.",
+      "what_it_detects": "Eventos de creación de procesos donde CommandLine contiene 'explorer.exe' junto con la opción ' /root,' (o sus variantes de guion), o contiene '/factory,{75dff2b7-6936-4c06-a8bb-676a7b00b24b}', que indica una nueva instancia de explorer iniciada desde svchost.",
+      "why_it_matters": "Un atacante puede ejecutar un payload a través de explorer.exe para que su padre aparente ser un explorer legítimo y no el script o documento malicioso. Es enmascaramiento (ATT&CK T1036) que dificulta el análisis del árbol de procesos.",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique el binario o ruta después de /root, y si apunta a carpetas de usuario, Temp, Public o recursos de red.",
+        "Si coincide la variante /root, identifique ParentImage: cmd.exe, wscript.exe, mshta.exe, powershell.exe u Office como padre son sospechosos.",
+        "Si coincide la variante /factory, busque en el mismo host, +/- 15 minutos, el proceso que invocó explorer con /root u opciones inusuales; requiere datos históricos.",
+        "Enumere los procesos hijos de la nueva instancia de explorer.exe y obtenga el hash y la firma de cada binario ejecutado.",
+        "Correlacione con conexiones de red, archivos creados y cambios de persistencia (Run keys, tareas programadas) del mismo host en la ventana de tiempo.",
+        "Verifique el usuario: confirme si estaba activo y si la actividad coincide con su rol; revise alertas previas del mismo usuario y host."
+      ],
+      "false_positives": [
+        "Accesos directos o scripts de inicio de sesión que abren carpetas con explorer.exe /root, para limitar la vista a un recurso compartido.",
+        "Aplicaciones o instaladores que abren carpetas mediante una instancia separada de explorer (activación COM), generando la línea /factory.",
+        "Herramientas administrativas antiguas que usan la sintaxis /root, para mostrar rutas locales o UNC."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o el responsable del equipo si la ejecución era esperada antes de actuar.",
+        "Si el binario lanzado es desconocido o malicioso, aísle el endpoint y preserve memoria, el binario y los logs relevantes.",
+        "Termine los procesos maliciosos, elimine el payload y la persistencia asociada tras confirmar su naturaleza.",
+        "Busque el mismo hash y CommandLine en otros hosts; restablezca credenciales si hubo compromiso y documente exclusiones para usos legítimos."
+      ],
+      "severity_rationale": "Nivel medio: la técnica es poco común y evasiva, pero existen usos legítimos de /root, y de la instancia COM de explorer que requieren contexto para confirmar."
+    },
+    "en": {
+      "summary": "A process used explorer.exe to launch a command or binary, or a new explorer instance was created through COM. This breaks the process tree and hides the real originating process.",
+      "what_it_detects": "Process creation events where CommandLine contains 'explorer.exe' plus the ' /root,' option (or dash variants), or contains '/factory,{75dff2b7-6936-4c06-a8bb-676a7b00b24b}', marking a new explorer instance spawned from svchost.",
+      "why_it_matters": "Running a payload through explorer.exe makes its parent look like a normal explorer instead of the malicious script or document. This is masquerading (ATT&CK T1036) and hampers process-tree analysis.",
+      "triage_steps": [
+        "Read the full CommandLine: identify the binary or path after /root, and whether it points to user folders, Temp, Public or network shares.",
+        "For the /root variant, check ParentImage: cmd.exe, wscript.exe, mshta.exe, powershell.exe or Office apps as parent are suspicious.",
+        "For the /factory variant, search the same host +/- 15 minutes for the process that invoked explorer with /root or unusual flags; this needs historical data.",
+        "List child processes of the new explorer.exe instance and collect hash and signature for each executed binary.",
+        "Correlate network connections, file writes and persistence changes (Run keys, scheduled tasks) on the same host in that window.",
+        "Check the user: was the session active and does the activity fit their role; review earlier alerts for the same user and host."
+      ],
+      "false_positives": [
+        "Shortcuts or logon scripts that open folders with explorer.exe /root, to restrict the view to a share.",
+        "Applications or installers opening folders through a separate explorer instance (COM activation), producing the /factory line.",
+        "Legacy admin tools using /root, syntax to display local or UNC paths."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether the execution was expected before acting.",
+        "If the launched binary is unknown or malicious, isolate the endpoint and preserve memory, the binary and relevant logs.",
+        "Kill malicious processes, remove the payload and related persistence after confirming their nature.",
+        "Hunt for the same hash and CommandLine on other hosts; reset credentials if compromised and document exclusions for legitimate use."
+      ],
+      "severity_rationale": "Medium fits: the technique is uncommon and evasive, but legitimate /root, usage and COM-launched explorer instances exist and need context to confirm."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe spawned by wscript uses explorer.exe /root, to launch a binary from the Public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c explorer.exe /root,\"C:\\Users\\Public\\update.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\Downloads\\invoice.js"
+        }
+      },
+      {
+        "description": "New explorer instance created by svchost via the separate-process factory CLSID",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\explorer.exe",
+          "CommandLine": "C:\\Windows\\explorer.exe /factory,{75dff2b7-6936-4c06-a8bb-676a7b00b24b} -Embedding",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k DcomLaunch -p"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate explorer.exe /select, call to highlight a downloaded file; no /root, or factory CLSID",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\explorer.exe",
+          "CommandLine": "explorer.exe /select,\"C:\\Users\\jperez\\Downloads\\report.pdf\"",
+          "ParentImage": "C:\\Program Files\\Mozilla Firefox\\firefox.exe"
+        }
+      },
+      {
+        "description": "Normal user shell explorer started by userinit at logon",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\explorer.exe",
+          "CommandLine": "C:\\Windows\\Explorer.EXE",
+          "ParentImage": "C:\\Windows\\System32\\userinit.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

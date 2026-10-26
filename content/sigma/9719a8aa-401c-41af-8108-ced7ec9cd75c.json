@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "9719a8aa-401c-41af-8108-ced7ec9cd75c",
+    "title": "Windows Defender Definition Files Removed",
+    "level": "high",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_mpcmdrun_remove_windows_defender_definition.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_mpcmdrun_remove_windows_defender_definition.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó MpCmdRun.exe con -RemoveDefinitions -All, lo que eliminó todas las firmas instaladas de Microsoft Defender. Mientras no se restauren, el endpoint queda sin detección basada en firmas.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\MpCmdRun.exe u OriginalFileName es MpCmdRun.exe, y CommandLine contiene ' -RemoveDefinitions' y ' -All'. OriginalFileName permite detectar copias renombradas.",
+      "why_it_matters": "Un atacante elimina las definiciones de Defender para evitar la detección de sus herramientas antes de ejecutarlas. Es una técnica de debilitamiento de defensas (T1685 en la regla; la referencia de Atomic Red Team corresponde a T1562.001).",
+      "triage_steps": [
+        "Revise la CommandLine completa y la ruta de Image. Si OriginalFileName es MpCmdRun.exe pero la ruta no es de Windows Defender, trátelo como binario renombrado y valide hash y firma.",
+        "Identifique User y ParentImage: un administrador interactivo, un agente de gestión, o intérpretes como cmd.exe, powershell.exe, wscript.exe o procesos de Office.",
+        "Verifique si después hubo MpCmdRun.exe -SignatureUpdate dentro de 15 minutos (patrón típico de soporte). Si no lo hubo, la eliminación es más sospechosa.",
+        "En el mismo host, en un rango de +/- 15 minutos, busque otra manipulación de Defender: Set-MpPreference, cambios de políticas en el registro, servicios detenidos o exclusiones nuevas.",
+        "Revise el log Microsoft-Windows-Windows Defender/Operational y la creación de procesos en busca de ejecutables nuevos, descargas o persistencia posteriores.",
+        "Busque la misma CommandLine en otros hosts y revise alertas previas del mismo usuario o host para detectar actividad masiva o automatizada.",
+        "Consulte con el responsable del equipo o en los registros de cambios si hubo mantenimiento autorizado de Defender."
+      ],
+      "false_positives": [
+        "Un administrador restablece firmas corruptas de Defender con -RemoveDefinitions -All y luego ejecuta -SignatureUpdate.",
+        "Scripts de despliegue o remediación de TI que reinician las definiciones de Defender en varios endpoints.",
+        "Pruebas de seguridad autorizadas, como Atomic Red Team T1562.001 o ejercicios de red team."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con TI si la acción estaba autorizada y tiene un ticket de cambio asociado.",
+        "Si no estaba autorizada, aísle el host mediante EDR o controles de red, y preserve el árbol de procesos y los logs.",
+        "Restaure la protección con MpCmdRun.exe -SignatureUpdate y valide las versiones de firmas con Get-MpComputerStatus.",
+        "Ejecute un escaneo completo y elimine el malware o la persistencia que se confirme.",
+        "Si la actividad fue maliciosa, restablezca las credenciales de la cuenta involucrada y busque la misma técnica en toda la flota."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque eliminar todas las firmas anula la detección principal de Defender, y el uso legítimo es poco frecuente y fácil de verificar."
+    },
+    "en": {
+      "summary": "MpCmdRun.exe, the Microsoft Defender command-line tool, ran with -RemoveDefinitions -All. All installed Defender signatures were removed, so Defender cannot detect known malware until the signatures are restored.",
+      "what_it_detects": "Process creation events where the image ends with \\MpCmdRun.exe or OriginalFileName is MpCmdRun.exe, and CommandLine contains both ' -RemoveDefinitions' and ' -All'. The OriginalFileName check also catches renamed copies.",
+      "why_it_matters": "Attackers remove Defender definitions to switch off signature-based detection before they drop or run their tools. This impairs defenses (the rule tags T1685; the referenced Atomic Red Team test is T1562.001, Disable or Modify Tools). Malware that runs next is unlikely to be blocked.",
+      "triage_steps": [
+        "Read the full CommandLine and confirm the Image path. If OriginalFileName is MpCmdRun.exe but Image is not in a Windows Defender folder, treat the binary as a renamed copy and check its hash and signature.",
+        "Identify the User and ParentImage. Look for an interactive admin, a management agent, or a script host such as cmd.exe, powershell.exe, wscript.exe or an Office process.",
+        "Check whether MpCmdRun.exe -SignatureUpdate ran within 15 minutes after the removal. That is the usual troubleshooting pattern. If no update followed, the removal is more suspicious.",
+        "Pivot on the same host within +/- 15 minutes for other Defender tampering: Set-MpPreference, Defender registry policy changes, stopped services or new exclusions.",
+        "Review the Windows Defender Operational log and process creation events for new executables, downloads or persistence after the removal.",
+        "Search for the same CommandLine on other hosts and for earlier alerts on the same user or host, to spot scripted, widespread activity.",
+        "Check with the asset owner or the change records for authorized Defender maintenance."
+      ],
+      "false_positives": [
+        "An administrator resets corrupted Defender signatures with -RemoveDefinitions -All, followed by -SignatureUpdate.",
+        "IT deployment or remediation scripts that reset Defender definitions on many endpoints.",
+        "Authorized security testing, such as Atomic Red Team T1562.001 tests or red team exercises."
+      ],
+      "response_steps": [
+        "Confirm with the user or the IT team whether the action was authorized and matches a change ticket.",
+        "If it was not authorized, isolate the host through EDR or network controls and preserve the process tree and logs.",
+        "Restore protection with MpCmdRun.exe -SignatureUpdate, then confirm the signature versions with Get-MpComputerStatus.",
+        "Run a full Defender scan, or a scan with another tool, and remove any malware or persistence you confirm.",
+        "If the activity was malicious, reset the credentials of the account involved and hunt for the same technique across the fleet."
+      ],
+      "severity_rationale": "High fits because removing every signature turns off Defender's main detection capability, and legitimate use is rare and easy to verify."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "MpCmdRun.exe launched from cmd.exe to remove all Defender definitions",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Windows Defender\\MpCmdRun.exe",
+          "OriginalFileName": "MpCmdRun.exe",
+          "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" -RemoveDefinitions -All",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c \"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" -RemoveDefinitions -All",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed copy of MpCmdRun.exe matched through OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "MpCmdRun.exe",
+          "CommandLine": "C:\\Users\\Public\\svchelper.exe -RemoveDefinitions -All",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate removal of dynamic signatures only, without -All",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\soporte.ti",
+          "Image": "C:\\Program Files\\Windows Defender\\MpCmdRun.exe",
+          "OriginalFileName": "MpCmdRun.exe",
+          "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" -RemoveDefinitions -DynamicSignatures",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Routine signature update by MpCmdRun.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18.23050.5-0\\MpCmdRun.exe",
+          "OriginalFileName": "MpCmdRun.exe",
+          "CommandLine": "\"C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18.23050.5-0\\MpCmdRun.exe\" -SignatureUpdate -MMPC",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

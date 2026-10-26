@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "d2eb17db-1d39-41dc-b57f-301f6512fa75",
+    "title": "Potentially Suspicious Command Targeting Teams Sensitive Files",
+    "level": "medium",
+    "status": "test",
+    "author": "@SerkinValery",
+    "path": "windows/process_creation/proc_creation_win_teams_suspicious_command_line_cred_access.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_teams_suspicious_command_line_cred_access.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1528"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso distinto de Teams.exe ejecutó una línea de comandos que hace referencia a los archivos Cookies o Local Storage\\leveldb de Microsoft Teams. Esto puede indicar un intento de robar tokens de autenticación.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene '\\Microsoft\\Teams\\Cookies' o '\\Microsoft\\Teams\\Local Storage\\leveldb', excepto cuando la Image termina en '\\Microsoft\\Teams\\current\\Teams.exe'.",
+      "why_it_matters": "El cliente clásico de Teams guarda cookies y tokens de sesión en estos archivos. Si un atacante los copia o los lee, puede suplantar al usuario en servicios de Microsoft 365 sin conocer su contraseña ni pasar por MFA (ATT&CK T1528, robo de tokens de acceso de aplicaciones).",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique si copia, comprime, lee o exfiltra los archivos (copy, xcopy, robocopy, type, findstr, Compress-Archive, curl).",
+        "Valide Image y su ruta: binarios en %TEMP%, %APPDATA% o Downloads, o intérpretes como powershell.exe, cmd.exe y python.exe, son más sospechosos.",
+        "Examine ParentImage y la cadena de procesos padre e hijos para determinar el origen, por ejemplo un documento de Office, un script o una sesión remota.",
+        "Confirme si el usuario del proceso es el dueño del perfil de Teams referenciado; acceder al perfil de otro usuario es una señal fuerte.",
+        "Busque en el mismo host, en un rango de +/- 15 minutos, creación de archivos de archivo comprimido, conexiones de red salientes o accesos a otros almacenes de credenciales del navegador.",
+        "Revise los inicios de sesión de Entra ID / Microsoft 365 del usuario en busca de sesiones desde IP, dispositivos o user agents inusuales después del evento.",
+        "Consulte alertas previas para el mismo host y usuario, y obtenga el hash de Image para comparar con inteligencia de amenazas."
+      ],
+      "false_positives": [
+        "Herramientas de respaldo o migración de perfiles que copian el directorio %APPDATA%\\Microsoft\\Teams.",
+        "Scripts de soporte técnico que limpian la caché de Teams borrando Cookies o leveldb para resolver problemas del cliente.",
+        "Herramientas forenses o EDR que recolectan artefactos de Teams durante una investigación autorizada."
+      ],
+      "response_steps": [
+        "Verifique con el usuario y con el equipo de TI si la actividad estaba autorizada antes de actuar.",
+        "Si no está autorizada, aísle el endpoint y conserve los archivos referenciados, el binario ejecutado y la memoria del proceso.",
+        "Revoque las sesiones y los refresh tokens del usuario en Entra ID y fuerce un nuevo inicio de sesión; restablezca credenciales si hay indicios de compromiso.",
+        "Elimine el malware o los scripts identificados y busque la misma línea de comandos o el mismo hash en otros hosts.",
+        "Recomiende migrar al nuevo cliente de Teams y aplicar políticas de acceso condicional que limiten la reutilización de tokens."
+      ],
+      "severity_rationale": "Medium es adecuado porque el acceso a estos archivos fuera de Teams es poco común y apunta a robo de tokens, aunque herramientas de soporte o respaldo legítimas pueden provocarlo."
+    },
+    "en": {
+      "summary": "A process other than Teams.exe ran a command line referencing Microsoft Teams Cookies or Local Storage\\leveldb files, which may be an attempt to steal authentication tokens.",
+      "what_it_detects": "Process creation events whose CommandLine contains '\\Microsoft\\Teams\\Cookies' or '\\Microsoft\\Teams\\Local Storage\\leveldb', unless Image ends with '\\Microsoft\\Teams\\current\\Teams.exe'.",
+      "why_it_matters": "The classic Teams client keeps cookies and session tokens in these files. An attacker who copies or reads them can impersonate the user in Microsoft 365 without the password or MFA (ATT&CK T1528, Steal Application Access Token).",
+      "triage_steps": [
+        "Read the full CommandLine: is it copying, archiving, reading or exfiltrating the files (copy, robocopy, type, findstr, Compress-Archive, curl)?",
+        "Check Image and its path; binaries in %TEMP%, %APPDATA% or Downloads, or interpreters like powershell.exe, cmd.exe, python.exe, deserve more suspicion.",
+        "Review ParentImage and the parent/child process chain to find the origin, such as an Office document, script or remote session.",
+        "Confirm the process user owns the referenced Teams profile; touching another user's profile is a strong signal.",
+        "Pivot on the same host +/- 15 minutes for archive creation, outbound network connections or access to browser credential stores.",
+        "Review the user's Entra ID / Microsoft 365 sign-ins for sessions from unusual IPs, devices or user agents after the event.",
+        "Check earlier alerts for the same host and user, and look up the Image hash in threat intelligence."
+      ],
+      "false_positives": [
+        "Backup or profile migration tools copying %APPDATA%\\Microsoft\\Teams.",
+        "Helpdesk scripts clearing the Teams cache by deleting Cookies or leveldb to fix client issues.",
+        "Forensic or EDR tools collecting Teams artifacts during an authorized investigation."
+      ],
+      "response_steps": [
+        "Verify with the user and IT whether the activity was authorized before acting.",
+        "If unauthorized, isolate the endpoint and preserve the referenced files, the executed binary and process memory.",
+        "Revoke the user's sessions and refresh tokens in Entra ID and force re-authentication; reset credentials if compromise is indicated.",
+        "Remove identified malware or scripts and hunt for the same command line or hash on other hosts.",
+        "Recommend moving to the new Teams client and conditional access policies that limit token replay."
+      ],
+      "severity_rationale": "Medium fits because non-Teams access to these files is uncommon and points to token theft, yet legitimate support or backup tooling can trigger it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell copies the Teams Cookies file to a temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -c Copy-Item \"C:\\Users\\jperez\\AppData\\Roaming\\Microsoft\\Teams\\Cookies\" C:\\Users\\Public\\c.db",
+          "ProcessId": 6120
+        }
+      },
+      {
+        "description": "cmd uses robocopy to stage the Teams leveldb directory",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\Robocopy.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "robocopy \"C:\\Users\\jperez\\AppData\\Roaming\\Microsoft\\Teams\\Local Storage\\leveldb\" C:\\Users\\jperez\\AppData\\Local\\Temp\\ld /E",
+          "ProcessId": 7344
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Teams.exe process referencing its own Cookies file (excluded by filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Microsoft\\Teams\\current\\Teams.exe",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Microsoft\\Teams\\Update.exe",
+          "CommandLine": "\"C:\\Users\\jperez\\AppData\\Local\\Microsoft\\Teams\\current\\Teams.exe\" --type=renderer --cookie-file=C:\\Users\\jperez\\AppData\\Roaming\\Microsoft\\Teams\\Cookies",
+          "ProcessId": 5012
+        }
+      },
+      {
+        "description": "Explorer opening the Teams folder without touching Cookies or leveldb",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\explorer.exe",
+          "ParentImage": "C:\\Windows\\System32\\userinit.exe",
+          "CommandLine": "explorer.exe C:\\Users\\jperez\\AppData\\Roaming\\Microsoft\\Teams\\logs",
+          "ProcessId": 4410
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

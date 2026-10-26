@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "c615d676-f655-46b9-b913-78729021e5d7",
+    "title": "Data Export From MSSQL Table Via BCP.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Omar Khaled (@beacon_exe), MahirAli Khan (in/mahiralikhan), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_bcp_export_data.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_bcp_export_data.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1048"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó bcp.exe, la utilidad de copia masiva de SQL Server, en modo exportación (out o queryout). Esto puede ser una exportación legítima, o un atacante que extrae un payload guardado en una tabla o que exfiltra datos.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\bcp.exe u OriginalFileName es BCP.exe (aunque el binario esté renombrado) y CommandLine contiene ' out ' (exporta una tabla) o ' queryout ' (exporta el resultado de una consulta SQL).",
+      "why_it_matters": "Se ha visto a atacantes que comprometen servidores MSSQL guardar malware en una columna y luego escribirlo a disco con bcp.exe. También sirve para sacar datos de la base de datos (T1048, exfiltración por un protocolo alternativo).",
+      "triage_steps": [
+        "Lea CommandLine: tabla o consulta, archivo de destino, servidor (-S), autenticación (-T o -U/-P) y formato (-c, -n, -f). Un destino .exe, .dll, .ps1 o .bat es muy sospechoso.",
+        "Revise ParentImage: si el padre es sqlservr.exe, cmd.exe lanzado por sqlservr.exe o una shell web, apunta a xp_cmdshell o a un MSSQL comprometido.",
+        "Compare Image con OriginalFileName. Si BCP.exe se ejecuta desde una ruta fuera de las carpetas de SQL Server (por ejemplo, C:\\ProgramData o Public), trate el alerta como prioritaria.",
+        "Busque el archivo de salida en el endpoint. Obtenga su hash, tamaño y firma, y revise si se ejecutó después.",
+        "Pivote en el mismo host +/- 15 minutos: procesos hijos, conexiones de red salientes, creación de archivos y otras alertas.",
+        "Valide si el usuario y la cuenta del servicio SQL suelen hacer exportaciones; revise los logins fallidos o nuevos en los logs de SQL Server.",
+        "Busque alertas previas para el mismo host o usuario relacionadas con xp_cmdshell, fuerza bruta a MSSQL o ransomware."
+      ],
+      "false_positives": [
+        "Exportaciones legítimas de datos hechas por DBAs o por trabajos ETL programados (SQL Agent, tareas programadas).",
+        "Scripts de respaldo, migración o reportes que usan bcp queryout hacia archivos CSV o TXT en rutas conocidas."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del servidor o el DBA si la exportación estaba autorizada y si el destino es esperado.",
+        "Si no estaba autorizada, aísle el host, ponga en cuarentena el archivo de salida y conserve la evidencia antes de borrar nada.",
+        "Deshabilite xp_cmdshell si está activo, rote las credenciales SQL usadas y revise las tablas que puedan contener payloads.",
+        "Busque el hash del archivo extraído en otros endpoints y bloquéelo; restaure el sistema desde una base confiable si hubo ejecución."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque bcp out es habitual en la administración de bases de datos, pero también sirve para extraer malware o exfiltrar datos, así que siempre requiere revisar el contexto."
+    },
+    "en": {
+      "summary": "bcp.exe, the SQL Server bulk copy utility, ran in export mode (out or queryout). This can be a legitimate export, or an attacker extracting a payload stored in a table or exfiltrating data.",
+      "what_it_detects": "Process creation where Image ends with \\bcp.exe or OriginalFileName is BCP.exe (even if the binary is renamed), and CommandLine contains ' out ' (table export) or ' queryout ' (export of a SQL query result).",
+      "why_it_matters": "Attackers who compromise MSSQL servers have stored malware in a database column, then used bcp.exe to write it to disk. It can also move database data out (T1048, exfiltration over an alternative protocol).",
+      "triage_steps": [
+        "Read CommandLine: table or query, output file, server (-S), authentication (-T or -U/-P) and format flags (-c, -n, -f). A .exe, .dll, .ps1 or .bat output file is highly suspicious.",
+        "Check ParentImage. A parent of sqlservr.exe, cmd.exe spawned by sqlservr.exe, or a web shell points to xp_cmdshell abuse or a compromised MSSQL.",
+        "Compare Image with OriginalFileName. Escalate if BCP.exe runs renamed or from a path outside the SQL Server folders, such as C:\\ProgramData or Public.",
+        "Find the output file on the endpoint. Collect its hash, size and signature, and check whether it was executed afterward.",
+        "Pivot on the same host +/- 15 minutes: child processes, outbound network connections, file creations and other alerts.",
+        "Check whether this user and the SQL service account normally export data. Review SQL Server logs for new or failed logins.",
+        "Look for earlier alerts on the same host or user involving xp_cmdshell, MSSQL brute force or ransomware."
+      ],
+      "false_positives": [
+        "Legitimate data exports by DBAs or scheduled ETL jobs (SQL Agent, scheduled tasks).",
+        "Backup, migration or reporting scripts that use bcp queryout to write CSV or TXT files to known paths."
+      ],
+      "response_steps": [
+        "Confirm with the server owner or DBA whether the export was authorized and the destination expected.",
+        "If it was not authorized, isolate the host, quarantine the output file and preserve evidence before deleting anything.",
+        "Disable xp_cmdshell if it is enabled, rotate the SQL credentials used and inspect tables that may hold payloads.",
+        "Hunt for the extracted file's hash on other endpoints and block it. If it was executed, rebuild the host from a trusted baseline."
+      ],
+      "severity_rationale": "Medium fits because bcp out is common in database administration but can also extract malware or exfiltrate data, so the context always needs review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "bcp.exe launched via cmd.exe from sqlservr.exe exports a query result to an executable in a public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "SQL-01.andes.example.com",
+          "User": "NT SERVICE\\MSSQLSERVER",
+          "Image": "C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\bcp.exe",
+          "OriginalFileName": "BCP.exe",
+          "CommandLine": "bcp \"SELECT blob FROM tempdb.dbo.cache\" queryout C:\\Users\\Public\\svc.exe -T -f C:\\Users\\Public\\fmt.txt -S localhost",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c bcp \"SELECT blob FROM tempdb.dbo.cache\" queryout C:\\Users\\Public\\svc.exe -T -f C:\\Users\\Public\\fmt.txt -S localhost"
+        }
+      },
+      {
+        "description": "Renamed BCP binary (OriginalFileName BCP.exe) exports a table to a DLL",
+        "event": {
+          "EventID": 1,
+          "Computer": "SQL-02.andes.example.com",
+          "User": "ANDES\\svc_sql",
+          "Image": "C:\\ProgramData\\Microsoft\\b.exe",
+          "OriginalFileName": "BCP.exe",
+          "CommandLine": "b.exe master.dbo.blobstore out C:\\ProgramData\\Microsoft\\x.dll -T -n -S SQL-02",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate bcp.exe import of a CSV file into a table (in mode, not out or queryout)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SQL-01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\bcp.exe",
+          "OriginalFileName": "BCP.exe",
+          "CommandLine": "bcp SalesDB.dbo.Orders in D:\\loads\\orders.csv -S SQL-01 -T -c",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "sqlcmd.exe writes a query to an output file; it is not bcp.exe and has no ' out ' argument",
+        "event": {
+          "EventID": 1,
+          "Computer": "SQL-01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\SQLCMD.EXE",
+          "OriginalFileName": "sqlcmd.exe",
+          "CommandLine": "sqlcmd -S SQL-01 -E -Q \"SELECT TOP 10 * FROM SalesDB.dbo.Orders\" -o D:\\reports\\orders.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

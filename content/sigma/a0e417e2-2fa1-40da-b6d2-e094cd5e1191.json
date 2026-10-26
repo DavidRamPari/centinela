@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "a0e417e2-2fa1-40da-b6d2-e094cd5e1191",
+    "title": "Registry Enumeration via WMI Stdregprov",
+    "level": "medium",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wmic_stdregprov_reg_enumeration.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmic_stdregprov_reg_enumeration.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1012",
+      "T1047"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó wmic.exe para llamar a un método de lectura de la clase WMI StdRegProv (EnumKey, EnumValues, GetStringValue, etc.). Puede tratarse de reconocimiento del registro que evita el uso de reg.exe.",
+      "what_it_detects": "Creación de procesos en Windows donde Image termina en \\wmic.exe u OriginalFileName es wmic.exe, y CommandLine contiene 'stdregprov', 'call' y un método de lectura de StdRegProv como EnumKey, EnumValues, GetStringValue, GetDWORDValue, GetBinaryValue, CheckAccess o GetSecurityDescriptor.",
+      "why_it_matters": "Un atacante puede usar WMI (T1047) para consultar el registro (T1012) y descubrir software instalado, configuraciones, rutas de persistencia o credenciales almacenadas, evitando detecciones centradas en reg.exe. Con /node: la consulta también puede apuntar a equipos remotos.",
+      "triage_steps": [
+        "Revise CommandLine completo: método invocado, hDefKey (por ejemplo &H80000002 = HKLM, &H80000001 = HKCU) y sSubKeyName para saber qué clave se consultó.",
+        "Determine si CommandLine incluye /node:, /user: o /password:; esto indica consulta remota y posible uso de credenciales robadas.",
+        "Analice ParentImage y la cadena de procesos: cmd.exe o powershell.exe lanzados desde Office, navegadores o servicios web son sospechosos.",
+        "Verifique el usuario y el host: ¿es un administrador o una cuenta de servicio que usa WMI habitualmente, o un usuario estándar?",
+        "Busque en el mismo host, +/- 15 minutos, otros comandos de descubrimiento (whoami, net, systeminfo, reg query) y llamadas a StdRegProv con métodos Set o Create.",
+        "Valide si las claves consultadas son sensibles: Winlogon, Run/RunOnce, Uninstall, configuraciones de VNC/PuTTY, LSA o rutas de credenciales.",
+        "Revise alertas previas para el mismo usuario, host o equipo destino de /node: en los últimos 30 días."
+      ],
+      "false_positives": [
+        "Actividad administrativa legítima o scripts de soporte que inventarían software mediante la clave Uninstall.",
+        "Herramientas de gestión de activos, monitoreo o despliegue que usan wmic con StdRegProv.",
+        "Scripts de inicio de sesión o auditorías de cumplimiento que leen valores de configuración del registro."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del equipo o el equipo de TI si la ejecución corresponde a una tarea autorizada.",
+        "Si no está autorizada, aísle el endpoint y preserve evidencia: árbol de procesos, historial de comandos y artefactos del script padre.",
+        "Si se usaron credenciales en /user: o se consultaron claves con secretos, restablezca esas contraseñas y revise accesos remotos.",
+        "Elimine scripts o persistencia identificados y busque la misma CommandLine en el resto de la flota.",
+        "Documente las excepciones legítimas por host, usuario y ParentImage para afinar la regla."
+      ],
+      "severity_rationale": "Nivel medio porque las lecturas del registro vía WMI son de reconocimiento y también comunes en administración, pero pueden preceder a robo de credenciales o movimiento lateral."
+    },
+    "en": {
+      "summary": "wmic.exe was used to call a read method of the WMI StdRegProv class (EnumKey, EnumValues, GetStringValue, etc.). This may be registry reconnaissance that avoids reg.exe.",
+      "what_it_detects": "Windows process creation where Image ends with \\wmic.exe or OriginalFileName is wmic.exe, and CommandLine contains 'stdregprov', 'call' and a StdRegProv read method such as EnumKey, EnumValues, GetStringValue, GetDWORDValue, GetBinaryValue, CheckAccess or GetSecurityDescriptor.",
+      "why_it_matters": "Attackers can use WMI (T1047) to query the registry (T1012) and discover installed software, configuration, persistence locations or stored credentials while evading reg.exe-focused detections. With /node: the query can target remote hosts.",
+      "triage_steps": [
+        "Read the full CommandLine: the method called, hDefKey (e.g. &H80000002 = HKLM, &H80000001 = HKCU) and sSubKeyName to learn which key was read.",
+        "Check whether CommandLine includes /node:, /user: or /password:, indicating a remote query and possible use of stolen credentials.",
+        "Review ParentImage and the process chain; cmd.exe or powershell.exe spawned by Office, browsers or web services is suspicious.",
+        "Assess the user and host: an admin or service account that routinely uses WMI, or a standard user?",
+        "On the same host within +/- 15 minutes, look for other discovery commands (whoami, net, systeminfo, reg query) and StdRegProv Set or Create calls.",
+        "Judge key sensitivity: Winlogon, Run/RunOnce, Uninstall, VNC/PuTTY settings, LSA or credential locations.",
+        "Check earlier alerts for the same user, host or /node: target over the last 30 days."
+      ],
+      "false_positives": [
+        "Legitimate administrative activity or support scripts inventorying software via the Uninstall key.",
+        "Asset management, monitoring or deployment tools that use wmic with StdRegProv.",
+        "Logon scripts or compliance audits reading registry configuration values."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the execution was an authorized task.",
+        "If unauthorized, isolate the endpoint and preserve evidence: process tree, command history and parent script artifacts.",
+        "If credentials appeared in /user: or keys holding secrets were read, reset those passwords and review remote access.",
+        "Remove identified scripts or persistence and hunt for the same CommandLine across the fleet.",
+        "Document legitimate exceptions by host, user and ParentImage to tune the rule."
+      ],
+      "severity_rationale": "Medium fits because WMI registry reads are reconnaissance and common in administration, yet can precede credential theft or lateral movement."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "wmic enumerates the Uninstall key via StdRegProv EnumKey, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "WMIC /NameSpace:\\\\root\\default Class StdRegProv Call EnumKey hDefKey=&H80000002 sSubKeyName=\"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat"
+        }
+      },
+      {
+        "description": "Remote read of a Winlogon value via GetStringValue with /node:",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\wbem\\wmic.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic /node:192.0.2.25 /namespace:\\\\root\\default path stdregprov call GetStringValue hDefKey=&H80000002 sSubKeyName=\"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\" sValueName=\"DefaultUserName\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "wmic calls StdRegProv SetStringValue (write method, not in the read list)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic /namespace:\\\\root\\default path stdregprov call SetStringValue hDefKey=&H80000001 sSubKeyName=\"Software\\ExampleApp\" sValueName=\"Mode\" sValue=\"1\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Registry query with reg.exe instead of wmic",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg query \"HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

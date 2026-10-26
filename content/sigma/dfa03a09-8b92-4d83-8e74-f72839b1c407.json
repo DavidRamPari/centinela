@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "dfa03a09-8b92-4d83-8e74-f72839b1c407",
+    "title": "Potentially Suspicious Child Processes Spawned by ConHost",
+    "level": "high",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_conhost_susp_winshell_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_conhost_susp_winshell_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1202",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "conhost.exe, el host de consola de Windows, inició un intérprete o un binario de proxy de ejecución (cmd, PowerShell, mshta, regsvr32, wscript o cscript). En condiciones normales conhost no crea estos procesos, así que esto apunta a una posible ejecución indirecta.",
+      "what_it_detects": "Eventos de creación de procesos cuyo ParentImage termina en \\conhost.exe y cuyo Image u OriginalFileName corresponde a cmd.exe, cscript.exe, mshta.exe, powershell.exe, powershell_ise.exe, pwsh (pwsh.dll), regsvr32.exe o wscript.exe.",
+      "why_it_matters": "conhost.exe acepta un comando para lanzar (por ejemplo con --headless), y un atacante puede usarlo como intermediario firmado por Microsoft para ocultar el origen real y evadir reglas basadas en el proceso padre. Corresponde a ejecución indirecta de comandos (T1202) y proxy de ejecución mediante binarios del sistema (T1218).",
+      "triage_steps": [
+        "Revise ParentCommandLine de conhost.exe: busque --headless, rutas de scripts, URL o comandos embebidos después del ejecutable.",
+        "Analice CommandLine del hijo: PowerShell codificado (-enc), descargas, mshta con URL, regsvr32 con /i:http o scrobj.dll.",
+        "Identifique el abuelo (el proceso que lanzó conhost): tarea programada, documento de Office, LNK, servicio o explorer.exe.",
+        "Compare Image con OriginalFileName para detectar binarios renombrados o copiados fuera de System32.",
+        "Pivotee en el mismo host +/- 15 minutos: procesos hijos, conexiones de red, archivos nuevos en %TEMP% o %APPDATA% y cambios en claves Run.",
+        "Valide el usuario: ¿es interactivo, de servicio o administrativo? ¿Tiene alertas previas o inicios de sesión inusuales?",
+        "Busque el mismo ParentCommandLine o el hash del script en otros endpoints para medir el alcance."
+      ],
+      "false_positives": [
+        "Tareas administrativas legítimas que usan conhost.exe para lanzar cmd.exe, powershell.exe o regsvr32.exe.",
+        "Scripts de despliegue o herramientas de gestión que ejecutan comandos en consola oculta con conhost --headless.",
+        "Software de terceros o instaladores que invocan conhost como lanzador de consola."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del equipo o el equipo de TI si la ejecución estaba prevista; documente la línea de comandos completa.",
+        "Si es maliciosa, aísle el endpoint desde el EDR y termine el árbol de procesos tras preservar evidencia (memoria y artefactos).",
+        "Elimine la persistencia identificada (tareas, claves Run, archivos descargados) y bloquee dominios o IP contactados.",
+        "Restablezca las credenciales del usuario afectado si hubo ejecución de payloads y monitoree el host después de la limpieza."
+      ],
+      "severity_rationale": "Nivel alto porque conhost.exe rara vez crea intérpretes de comandos de forma legítima y este patrón sirve para evadir controles con binarios confiables."
+    },
+    "en": {
+      "summary": "conhost.exe, the Windows console host, started a shell or proxy-execution binary (cmd, PowerShell, mshta, regsvr32, wscript or cscript). conhost normally does not create these processes, so this suggests possible indirect execution.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\conhost.exe and Image or OriginalFileName matches cmd.exe, cscript.exe, mshta.exe, powershell.exe, powershell_ise.exe, pwsh (pwsh.dll), regsvr32.exe or wscript.exe.",
+      "why_it_matters": "conhost.exe accepts a command to launch (for example with --headless), so attackers can use this Microsoft-signed binary as a go-between to hide the real origin and evade parent-based rules. Maps to Indirect Command Execution (T1202) and System Binary Proxy Execution (T1218).",
+      "triage_steps": [
+        "Read conhost.exe's ParentCommandLine: look for --headless, script paths, URLs or commands embedded after the executable.",
+        "Inspect the child's CommandLine: encoded PowerShell (-enc), downloads, mshta with a URL, regsvr32 with /i:http or scrobj.dll.",
+        "Identify the grandparent that launched conhost: scheduled task, Office document, LNK file, service or explorer.exe.",
+        "Compare Image with OriginalFileName to spot renamed binaries or copies outside System32.",
+        "Pivot on the same host +/- 15 minutes: child processes, network connections, new files in %TEMP% or %APPDATA%, Run key changes.",
+        "Check the user: interactive, service or admin account? Any earlier alerts or unusual logons?",
+        "Search other endpoints for the same ParentCommandLine or script hash to scope the activity."
+      ],
+      "false_positives": [
+        "Legitimate admin tasks using conhost.exe to spawn cmd.exe, powershell.exe or regsvr32.exe.",
+        "Deployment scripts or management tools running hidden console commands via conhost --headless.",
+        "Third-party software or installers using conhost as a console launcher."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the execution was expected; record the full command line.",
+        "If malicious, isolate the endpoint via EDR and kill the process tree after preserving evidence (memory, artifacts).",
+        "Remove identified persistence (tasks, Run keys, downloaded files) and block contacted domains or IPs.",
+        "Reset the affected user's credentials if payloads ran, and monitor the host after cleanup."
+      ],
+      "severity_rationale": "High fits because conhost.exe rarely spawns shells legitimately, and attackers use this pattern to slip past controls with trusted binaries."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "conhost.exe launched headless and spawning cmd.exe that runs a script from a user folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\conhost.exe",
+          "ParentCommandLine": "conhost.exe --headless cmd.exe /c C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.bat",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.bat"
+        }
+      },
+      {
+        "description": "Renamed PowerShell Core binary spawned by conhost, matched through OriginalFileName pwsh.dll",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Windows\\System32\\conhost.exe",
+          "ParentCommandLine": "conhost.exe --headless C:\\ProgramData\\svc\\hostsvc.exe -nop -w hidden -c \"Get-Date\"",
+          "Image": "C:\\ProgramData\\svc\\hostsvc.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "C:\\ProgramData\\svc\\hostsvc.exe -nop -w hidden -c \"Get-Date\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal behavior: cmd.exe is the parent and conhost.exe is the child console host",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "OriginalFileName": "CONHOST.EXE",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1"
+        }
+      },
+      {
+        "description": "conhost.exe spawning a non-listed binary (WerFault.exe)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "ParentImage": "C:\\Windows\\System32\\conhost.exe",
+          "Image": "C:\\Windows\\System32\\WerFault.exe",
+          "OriginalFileName": "WerFault.exe",
+          "CommandLine": "C:\\Windows\\system32\\WerFault.exe -u -p 4412 -s 512"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

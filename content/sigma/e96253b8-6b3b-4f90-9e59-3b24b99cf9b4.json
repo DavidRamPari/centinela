@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "e96253b8-6b3b-4f90-9e59-3b24b99cf9b4",
+    "title": "HackTool - KrbRelay Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_krbrelay.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_krbrelay.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1558.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó KrbRelay, una herramienta ofensiva de relay de Kerberos, o un proceso cuya línea de comandos coincide con sus parámetros típicos. Suele indicar un intento de escalamiento de privilegios local o de abuso de delegación en Active Directory.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\KrbRelay.exe, OriginalFileName es KrbRelay.exe (binario renombrado) o CommandLine contiene combinaciones de parámetros de KrbRelay: -spn/-clsid/-rbcd, shadowcred/clsid/spn o spn/session/clsid.",
+      "why_it_matters": "KrbRelay fuerza una autenticación Kerberos mediante un CLSID de DCOM y la reenvía, normalmente a LDAP, para configurar RBCD o Shadow Credentials sobre una cuenta de equipo. Con eso puede conseguir privilegios de SYSTEM o moverse lateralmente. La regla lo asocia a robo o falsificación de tickets Kerberos (T1558.003).",
+      "triage_steps": [
+        "Revise Image, OriginalFileName, el hash y la ruta. Una ruta en carpetas de usuario, Temp o C:\\Users\\Public es más sospechosa.",
+        "Analice CommandLine: anote el SPN de destino (p. ej. ldap/DC), el CLSID, el SID indicado en -rbcd y si aparece -shadowcred o -session.",
+        "Identifique al usuario y el ParentImage. Revise la cadena de procesos padre e hijo, por ejemplo cmd, PowerShell, una webshell o un C2.",
+        "En los controladores de dominio, busque cambios en msDS-AllowedToActOnBehalfOfOtherIdentity o msDS-KeyCredentialLink de la cuenta de equipo del host (eventos 5136).",
+        "Busque en el mismo host, +/- 15 minutos, la creación de cuentas de equipo (4741), solicitudes S4U o TGT (4768/4769) y la creación de servicios nuevos (7045).",
+        "Revise si hay alertas previas para el mismo host o usuario y si se ejecutaron herramientas como Rubeus o KrbRelayUp."
+      ],
+      "false_positives": [
+        "Poco probable fuera de pruebas de penetración o ejercicios de red team autorizados. Confirme el alcance y el horario con el equipo responsable.",
+        "Investigadores de seguridad que compilan o prueban la herramienta en equipos de laboratorio."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del activo y el equipo de seguridad que no se trata de una prueba autorizada.",
+        "Aísle el endpoint y conserve evidencia: el binario, el hash, la memoria y los logs relevantes.",
+        "Revierta los cambios de RBCD o Shadow Credentials en AD y elimine las cuentas de equipo creadas por el atacante, después de verificarlas.",
+        "Restablezca las credenciales de la cuenta de equipo y de los usuarios afectados. Invalide los tickets Kerberos emitidos.",
+        "Refuerce LDAP con signing y channel binding y limite MachineAccountQuota para reducir la exposición."
+      ],
+      "severity_rationale": "Es alta porque la herramienta es exclusivamente ofensiva, casi no genera falsos positivos y puede dar SYSTEM o comprometer cuentas de dominio."
+    },
+    "en": {
+      "summary": "KrbRelay, an offensive Kerberos relaying tool, was executed, or a process ran with its characteristic arguments. This usually means someone is attempting local privilege escalation or Active Directory delegation abuse.",
+      "what_it_detects": "Process creation where Image ends with \\KrbRelay.exe, OriginalFileName is KrbRelay.exe (renamed binary), or CommandLine contains one of the KrbRelay argument combinations: -spn/-clsid/-rbcd, shadowcred/clsid/spn, or spn/session/clsid.",
+      "why_it_matters": "KrbRelay uses a DCOM CLSID to coerce Kerberos authentication and relays it, typically to LDAP, to set RBCD or Shadow Credentials on a computer account. This can lead to SYSTEM or lateral movement. The rule maps it to Kerberos ticket theft or forgery (T1558.003).",
+      "triage_steps": [
+        "Check Image, OriginalFileName, the hash and the path. Paths in user folders, Temp or C:\\Users\\Public are more suspicious.",
+        "Parse CommandLine: note the target SPN (e.g. ldap/DC), the CLSID, any SID passed to -rbcd, and whether -shadowcred or -session is used.",
+        "Identify the user and ParentImage. Review the parent and child process chain, for example cmd, PowerShell, a webshell or a C2 implant.",
+        "On domain controllers, look for changes to msDS-AllowedToActOnBehalfOfOtherIdentity or msDS-KeyCredentialLink on the host's computer account (event 5136).",
+        "On the same host within +/- 15 minutes, look for computer account creation (4741), S4U or TGT requests (4768/4769) and new services (7045).",
+        "Check for earlier alerts on the same host or user, and for related tools such as Rubeus or KrbRelayUp."
+      ],
+      "false_positives": [
+        "Unlikely outside authorized penetration tests or red team exercises. Confirm the scope and timing with the team responsible.",
+        "Security researchers compiling or testing the tool on lab machines."
+      ],
+      "response_steps": [
+        "Confirm with the asset owner and the security team that this is not an authorized test.",
+        "Isolate the endpoint and preserve evidence: the binary, its hash, memory and relevant logs.",
+        "After verification, revert RBCD or Shadow Credentials changes in AD and remove any attacker-created computer accounts.",
+        "Reset the computer account credentials and those of affected users. Invalidate issued Kerberos tickets.",
+        "Enforce LDAP signing and channel binding and restrict MachineAccountQuota to reduce exposure."
+      ],
+      "severity_rationale": "High fits because the tool is purely offensive, false positives are rare, and successful use can grant SYSTEM or compromise domain accounts."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "KrbRelay.exe run from a public folder to relay to LDAP and configure RBCD",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.local",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\KrbRelay.exe",
+          "OriginalFileName": "KrbRelay.exe",
+          "CommandLine": "C:\\Users\\Public\\KrbRelay.exe -spn ldap/dc01.andes.local -clsid 90f18417-f0f1-484e-9d3c-59dceee5dbd8 -rbcd S-1-5-21-1111111111-2222222222-3333333333-4105",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      },
+      {
+        "description": "Renamed KrbRelay binary using session and shadow credentials options",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.local",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\svcupd.exe",
+          "OriginalFileName": "KrbRelay.exe",
+          "CommandLine": "svcupd.exe -session 1 -clsid 354ff91b-5e49-4bdc-a8e6-1cb6c6877182 -spn ldap/dc01.andes.local -shadowcred",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate setspn query by an administrator; contains 'spn' but no clsid or session arguments",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-ADM01.andes.local",
+          "User": "ANDES\\adm_lrojas",
+          "Image": "C:\\Windows\\System32\\setspn.exe",
+          "OriginalFileName": "setspn.exe",
+          "CommandLine": "setspn.exe -Q HTTP/web01.andes.local",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      },
+      {
+        "description": "Registry query of a DCOM CLSID; contains 'clsid' but none of the other required strings",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.local",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe query HKCR\\CLSID\\{90f18417-f0f1-484e-9d3c-59dceee5dbd8}",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

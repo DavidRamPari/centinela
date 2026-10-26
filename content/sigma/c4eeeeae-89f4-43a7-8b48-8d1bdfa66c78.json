@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "c4eeeeae-89f4-43a7-8b48-8d1bdfa66c78",
+    "title": "Scheduled Task Executing Encoded Payload from Registry",
+    "level": "high",
+    "status": "test",
+    "author": "pH-T (Nextron Systems), @Kostastsale, TheDFIRReport, X__Junior (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_schtasks_reg_loader_encoded.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_schtasks_reg_loader_encoded.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1053.005",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó una tarea programada con schtasks.exe cuyo comando lee un valor del Registro con PowerShell y lo decodifica desde base64 para ejecutarlo. Es un patrón típico de persistencia fileless.",
+      "what_it_detects": "Ejecuciones de schtasks.exe (por Image u OriginalFileName) con /Create cuyo CommandLine contiene a la vez una referencia a decodificación (FromBase64String o encodedcommand), una lectura del Registro (Get-ItemProperty o el alias gp) y una ruta de hive (HKCU:, HKLM:, registry:: o HKEY_).",
+      "why_it_matters": "El atacante guarda el payload codificado en el Registro y lo ejecuta periódicamente mediante una tarea programada (T1053.005) que invoca PowerShell (T1059.001). Así obtiene persistencia y ejecución sin dejar archivos en disco, como se ha observado en intrusiones de Qbot.",
+      "triage_steps": [
+        "Revise el CommandLine completo: extraiga el nombre de la tarea (/TN), la acción (/TR), la frecuencia (/SC, /MO) y la clave y el valor del Registro referenciados.",
+        "Identifique el usuario y el ParentImage que lanzó schtasks.exe; un padre como cmd.exe, wscript.exe, rundll32.exe o un proceso de Office es muy sospechoso.",
+        "Lea el valor del Registro indicado en el endpoint, decodifique el base64 en un entorno aislado y analice el script resultante (descargas, inyección, C2).",
+        "Consulte la tarea con schtasks /Query /TN <nombre> /V /FO LIST o en C:\\Windows\\System32\\Tasks y confirme el autor y la fecha de creación.",
+        "Busque en el mismo host, +/- 15 minutos, escrituras en esa clave del Registro, ejecuciones de powershell.exe hijas de svchost.exe/taskeng y conexiones de red salientes.",
+        "Revise alertas previas del mismo host y usuario, y busque el mismo nombre de tarea o clave del Registro en otros equipos."
+      ],
+      "false_positives": [
+        "Poco probable según la regla; algún software de gestión o script interno podría guardar configuración codificada en el Registro y ejecutarla con una tarea.",
+        "Pruebas autorizadas de red team o simulaciones de adversario."
+      ],
+      "response_steps": [
+        "Confirme la maliciosidad decodificando el payload y validando con el dueño del equipo que la tarea no es legítima.",
+        "Aísle el endpoint de la red si el payload es malicioso y preserve evidencia: exporte la tarea y la clave del Registro.",
+        "Deshabilite y luego elimine la tarea programada y el valor del Registro tras documentarlos.",
+        "Restablezca las credenciales del usuario afectado y busque movimiento lateral, ya que este patrón suele preceder al robo de credenciales.",
+        "Busque los IOC (nombre de tarea, clave, dominios del payload) en toda la flota y bloquéelos."
+      ],
+      "severity_rationale": "Nivel alto porque la combinación de tarea programada, payload base64 y lectura del Registro casi nunca es legítima y señala persistencia fileless activa."
+    },
+    "en": {
+      "summary": "schtasks.exe created a scheduled task whose action uses PowerShell to read a registry value, decode it from base64 and run it. This is a common fileless persistence pattern.",
+      "what_it_detects": "schtasks.exe executions (by Image or OriginalFileName) with /Create whose CommandLine contains a decoding marker (FromBase64String or encodedcommand), a registry read (Get-ItemProperty or the gp alias) and a hive path (HKCU:, HKLM:, registry:: or HKEY_).",
+      "why_it_matters": "The attacker stores an encoded payload in the registry and runs it on a schedule via a task (T1053.005) that launches PowerShell (T1059.001), gaining persistence and execution with no file on disk, as seen in Qbot intrusions.",
+      "triage_steps": [
+        "Read the full CommandLine: extract the task name (/TN), action (/TR), schedule (/SC, /MO) and the referenced registry key and value.",
+        "Identify the user and the ParentImage that launched schtasks.exe; parents like cmd.exe, wscript.exe, rundll32.exe or Office processes are highly suspicious.",
+        "Read the referenced registry value on the endpoint, decode the base64 in an isolated environment and analyze the script (downloads, injection, C2).",
+        "Query the task with schtasks /Query /TN <name> /V /FO LIST or C:\\Windows\\System32\\Tasks and confirm author and creation time.",
+        "On the same host within +/- 15 minutes, look for writes to that registry key, powershell.exe spawned by svchost.exe, and outbound network connections.",
+        "Check earlier alerts for the same host and user, and hunt for the same task name or registry key on other hosts."
+      ],
+      "false_positives": [
+        "Unlikely per the rule; a management tool or internal script might store encoded configuration in the registry and run it via a task.",
+        "Authorized red team exercises or adversary emulation."
+      ],
+      "response_steps": [
+        "Confirm maliciousness by decoding the payload and verifying with the host owner that the task is not legitimate.",
+        "Isolate the endpoint if malicious and preserve evidence: export the task and the registry key.",
+        "Disable, then delete the scheduled task and the registry value after documenting them.",
+        "Reset the affected user's credentials and look for lateral movement, since this pattern often precedes credential theft.",
+        "Hunt for the IOCs (task name, key, payload domains) across the fleet and block them."
+      ],
+      "severity_rationale": "High fits because a scheduled task combined with a base64 payload read from the registry is almost never legitimate and indicates active fileless persistence."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "schtasks creates a task that decodes a base64 payload from an HKCU registry value with FromBase64String and Get-ItemProperty.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "schtasks.exe /Create /F /TN \"{97F2F70B-10D1-4447-A2F3-9B070C86E261}\" /TR \"cmd /c start /min \\\"\\\" powershell.exe -Command IEX([System.Text.Encoding]::ASCII.GetString([System.Convert]::FromBase64String((Get-ItemProperty -Path HKCU:\\SOFTWARE\\Pvoeooxf).yzbbvhhdypa)))\" /SC MINUTE /MO 30"
+        }
+      },
+      {
+        "description": "Renamed schtasks binary (matched by OriginalFileName) using the gp alias, HKLM: and -EncodedCommand.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\st.exe",
+          "OriginalFileName": "schtasks.exe",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "CommandLine": "st.exe /Create /TN Updater /TR \"powershell -w hidden -Command $e=(gp HKLM:\\SOFTWARE\\Contoso).data; powershell -EncodedCommand $e\" /SC ONLOGON"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate scheduled task running a PowerShell script file, with no registry read or base64 decoding.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-BKP-01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "schtasks.exe /Create /TN \"NightlyBackup\" /TR \"powershell.exe -File C:\\Scripts\\backup.ps1\" /SC DAILY /ST 02:00"
+        }
+      },
+      {
+        "description": "PowerShell itself decodes a registry value; not a schtasks process, so the image selection fails.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -Command IEX([System.Text.Encoding]::ASCII.GetString([System.Convert]::FromBase64String((Get-ItemProperty -Path HKCU:\\SOFTWARE\\Pvoeooxf).yzbbvhhdypa))) /Create"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

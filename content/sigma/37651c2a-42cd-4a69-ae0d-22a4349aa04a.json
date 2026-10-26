@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "37651c2a-42cd-4a69-ae0d-22a4349aa04a",
+    "title": "Unsigned AppX Installation Attempt Using Add-AppxPackage",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_install_unsigned_appx_packages.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_install_unsigned_appx_packages.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó PowerShell (powershell.exe o pwsh.exe) con Add-AppxPackage o su alias Add-AppPackage y el parámetro -AllowUnsigned, es decir, un intento de instalar un paquete AppX/MSIX sin firmar.",
+      "what_it_detects": "Procesos de PowerShell identificados por Image u OriginalFileName cuyo CommandLine contiene 'Add-AppxPackage ' o 'Add-AppPackage ' junto con ' -AllowUnsigned'.",
+      "why_it_matters": "Un paquete sin firma no tiene un editor verificable y salta el control de confianza basado en firmas. Un atacante puede usarlo para instalar una aplicación maliciosa que persista en el equipo y pase desapercibida (tácticas de persistencia y evasión).",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique la ruta o URL del paquete .appx/.msix, otros parámetros (-Register, -ExecutionPolicy Bypass, -EncodedCommand) y si el comando está ofuscado.",
+        "Revise ParentImage y la cadena de procesos padre: un script de despliegue o IDE es esperable; Office, navegador, wscript o mshta es sospechoso.",
+        "Identifique el usuario y el host; confirme si es un desarrollador, un equipo de pruebas o un endpoint de usuario estándar.",
+        "Obtenga el paquete, calcule su hash, revise AppxManifest.xml (Publisher, ejecutables, extensiones de inicio) y consulte la reputación del hash.",
+        "Revise el log Microsoft-Windows-AppXDeploymentServer/Operational y Get-AppxPackage para confirmar si la instalación tuvo éxito.",
+        "En el mismo host, +/- 15 minutos: busque descargas del paquete, archivos .msix/.appx nuevos, conexiones de red y procesos hijos de la aplicación instalada.",
+        "Busque alertas previas del mismo usuario o host y el mismo hash o nombre de paquete en otros endpoints."
+      ],
+      "false_positives": [
+        "Instalación de paquetes sin firmar con fines de prueba por desarrolladores de aplicaciones MSIX.",
+        "Pipelines de compilación o laboratorios de QA que despliegan builds internas sin firmar.",
+        "Equipos de empaquetado de TI que validan paquetes antes de firmarlos."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o el equipo de desarrollo si la instalación fue autorizada y documente la justificación.",
+        "Si no está autorizada, aísle el host y preserve el paquete, el manifiesto y los logs de despliegue AppX.",
+        "Tras confirmar que es malicioso, desinstale el paquete con Remove-AppxPackage y elimine los archivos asociados y mecanismos de persistencia.",
+        "Bloquee el hash y el origen de descarga; busque el mismo paquete en toda la flota.",
+        "Restrinja la instalación de paquetes sin firmar mediante políticas (AppLocker/WDAC) en equipos que no sean de desarrollo."
+      ],
+      "severity_rationale": "Media porque el uso de -AllowUnsigned es poco común y evita la validación de firmas, pero tiene usos legítimos de prueba que requieren contexto para confirmar malicia."
+    },
+    "en": {
+      "summary": "PowerShell (powershell.exe or pwsh.exe) ran Add-AppxPackage or its alias Add-AppPackage with -AllowUnsigned, an attempt to install an unsigned AppX/MSIX package.",
+      "what_it_detects": "PowerShell processes matched by Image or OriginalFileName whose CommandLine contains 'Add-AppxPackage ' or 'Add-AppPackage ' together with ' -AllowUnsigned'.",
+      "why_it_matters": "An unsigned package has no verifiable publisher and sidesteps signature-based trust. Attackers can use it to install a malicious app that persists on the host and blends in (persistence and stealth tactics).",
+      "triage_steps": [
+        "Read the full CommandLine: note the .appx/.msix path or URL, extra flags (-Register, -ExecutionPolicy Bypass, -EncodedCommand) and any obfuscation.",
+        "Check ParentImage and the parent chain: a deployment script or IDE is expected; Office, a browser, wscript or mshta is suspicious.",
+        "Identify the user and host; confirm whether it is a developer, test machine or standard user endpoint.",
+        "Collect the package, hash it, review AppxManifest.xml (Publisher, executables, startup extensions) and check hash reputation.",
+        "Check Microsoft-Windows-AppXDeploymentServer/Operational and Get-AppxPackage to confirm whether installation succeeded.",
+        "On the same host within +/- 15 minutes, look for package downloads, new .msix/.appx files, network connections and child processes of the installed app.",
+        "Search earlier alerts for the same user or host, and the same hash or package name on other endpoints."
+      ],
+      "false_positives": [
+        "Developers installing unsigned MSIX packages for testing.",
+        "Build pipelines or QA labs deploying internal unsigned builds.",
+        "IT packaging teams validating packages before signing."
+      ],
+      "response_steps": [
+        "Confirm with the user or development team whether the install was authorized and record the justification.",
+        "If unauthorized, isolate the host and preserve the package, manifest and AppX deployment logs.",
+        "Once confirmed malicious, uninstall with Remove-AppxPackage and remove related files and persistence.",
+        "Block the hash and download source; hunt for the same package fleet-wide.",
+        "Restrict unsigned package installation with AppLocker/WDAC policies on non-developer machines."
+      ],
+      "severity_rationale": "Medium because -AllowUnsigned is uncommon and bypasses signature validation, yet has legitimate testing uses that need context to confirm malice."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Windows PowerShell launched from Word installs an unsigned MSIX from the temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -ExecutionPolicy Bypass -Command Add-AppxPackage -Path C:\\Users\\jperez\\AppData\\Local\\Temp\\update.msix -AllowUnsigned"
+        }
+      },
+      {
+        "description": "PowerShell 7 uses the Add-AppPackage alias with -AllowUnsigned",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NoProfile -Command \"Add-AppPackage C:\\Users\\Public\\Downloads\\helper.appx -AllowUnsigned\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal installation of a signed package without -AllowUnsigned",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -Command Add-AppxPackage -Path \\\\fs01.example.com\\apps\\ContosoNotes.msix"
+        }
+      },
+      {
+        "description": "Command text appears in a cmd.exe echo, not a PowerShell process",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "cmd.exe /c echo Add-AppxPackage -Path app.msix -AllowUnsigned >> C:\\Users\\mrodriguez\\notes.txt"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "d4ca7c59-e9e4-42d8-bf57-91a776efcb87",
+    "title": "LOLBIN Execution From Abnormal Drive",
+    "level": "medium",
+    "status": "test",
+    "author": "Christopher Peacock '@securepeacock', SCYTHE '@scythe_io', Angelo Violetti - SEC Consult '@angelo_violetti', Aaron Herman",
+    "path": "windows/process_creation/proc_creation_win_susp_lolbin_exec_from_non_c_drive.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_lolbin_exec_from_non_c_drive.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un LOLBIN conocido (rundll32, regsvr32, mshta, wscript, certutil, etc.) se ejecutó con un directorio de trabajo fuera de la unidad C:, por ejemplo una ISO montada o una unidad USB. Es un patrón típico de cargadores entregados en imágenes de disco.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en uno de nueve LOLBINs o el OriginalFileName coincide con ellos, y CurrentDirectory no está vacío, no es nulo y no contiene 'C:\\'.",
+      "why_it_matters": "Los atacantes entregan ISO o VHD con un LNK que lanza rundll32, regsvr32 o scripts desde la unidad montada para evadir Mark-of-the-Web y controles de ruta. Corresponde a evasión de defensas mediante ejecución de binarios firmados del sistema (System Binary Proxy Execution).",
+      "triage_steps": [
+        "Revisar CurrentDirectory e identificar el tipo de unidad: ISO/VHD montada, USB, recurso de red mapeado o disco secundario de servidor.",
+        "Analizar CommandLine: buscar DLL, HTA, JS, VBS o INF cargados desde la misma unidad y exportaciones o URLs inusuales.",
+        "Revisar ParentImage: explorer.exe abriendo un LNK desde la unidad montada es sospechoso; un agente de despliegue conocido lo es menos.",
+        "Buscar en el mismo host +/- 15 minutos eventos de montaje de imágenes, descargas de .iso/.img/.vhd por navegador o correo y archivos creados en Downloads.",
+        "Revisar procesos hijos y conexiones de red del LOLBIN y de sus descendientes, incluida inyección en procesos legítimos.",
+        "Obtener el hash del archivo cargado y consultarlo en inteligencia de amenazas interna o sandbox.",
+        "Pivotar por el usuario y por el mismo hash o nombre de archivo en otros endpoints, y revisar alertas previas de la entidad."
+      ],
+      "false_positives": [
+        "Servidores con varias unidades donde scripts administrativos o tareas programadas se ejecutan con directorio de trabajo en D: o E:.",
+        "Instaladores legítimos distribuidos en ISO o medios físicos que usan rundll32, msiexec auxiliares o scripts.",
+        "Scripts de inicio de sesión o herramientas ejecutadas desde unidades de red mapeadas.",
+        "Equipos donde Windows está instalado en una letra distinta de C:."
+      ],
+      "response_steps": [
+        "Verificar con el usuario o el propietario del sistema si la ejecución desde esa unidad era esperada.",
+        "Si es sospechoso, aislar el endpoint desde el EDR y conservar la imagen montada, el LNK y los archivos cargados como evidencia.",
+        "Terminar los procesos maliciosos tras confirmar, eliminar persistencia y bloquear hashes y dominios relacionados.",
+        "Restablecer credenciales del usuario si hubo actividad posterior, y considerar bloquear el montaje automático de ISO/VHD por GPO."
+      ],
+      "severity_rationale": "Media porque el patrón es un indicador fuerte de cargadores en ISO, pero existen usos administrativos legítimos en servidores con varias unidades."
+    },
+    "en": {
+      "summary": "A known LOLBIN (rundll32, regsvr32, mshta, wscript, certutil, etc.) ran with a working directory outside drive C:, such as a mounted ISO or USB drive. This is a common pattern for loaders delivered in disk images.",
+      "what_it_detects": "Process creation events where Image ends with one of nine LOLBINs or OriginalFileName matches them, and CurrentDirectory is not empty, not null and does not contain 'C:\\'.",
+      "why_it_matters": "Attackers ship ISO or VHD files with an LNK that launches rundll32, regsvr32 or scripts from the mounted drive to evade Mark-of-the-Web and path controls. This is defense evasion via System Binary Proxy Execution.",
+      "triage_steps": [
+        "Check CurrentDirectory and identify the drive type: mounted ISO/VHD, USB, mapped network share or secondary server disk.",
+        "Review CommandLine for DLL, HTA, JS, VBS or INF files loaded from the same drive, and unusual exports or URLs.",
+        "Review ParentImage: explorer.exe opening an LNK on the mounted drive is suspicious; a known deployment agent is less so.",
+        "On the same host +/- 15 minutes, look for image mount events, .iso/.img/.vhd downloads via browser or email, and new files in Downloads.",
+        "Inspect child processes and network connections of the LOLBIN and its descendants, including injection into legitimate processes.",
+        "Hash the loaded file and check it against internal threat intelligence or a sandbox.",
+        "Pivot on the user and the same hash or file name across other endpoints; review earlier alerts for these entities."
+      ],
+      "false_positives": [
+        "Multi-drive servers where admin scripts or scheduled tasks run with a working directory on D: or E:.",
+        "Legitimate installers shipped on ISO or physical media that call rundll32 or scripts.",
+        "Logon scripts or tools run from mapped network drives.",
+        "Hosts where Windows is installed on a drive letter other than C:."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether execution from that drive was expected.",
+        "If suspicious, isolate the endpoint via EDR and preserve the mounted image, LNK and loaded files as evidence.",
+        "After confirmation, kill malicious processes, remove persistence and block related hashes and domains.",
+        "Reset user credentials if follow-on activity occurred, and consider blocking ISO/VHD auto-mount via GPO."
+      ],
+      "severity_rationale": "Medium because the pattern strongly suggests ISO-delivered loaders, yet legitimate admin use exists on multi-drive servers."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "rundll32 launched by explorer from an LNK on a mounted ISO (E:), loading a DLL from the same drive",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "\"C:\\Windows\\System32\\rundll32.exe\" E:\\documents.dll,IternalJob",
+          "CurrentDirectory": "E:\\",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      },
+      {
+        "description": "wscript executing a JS file with the working directory on a removable drive D:",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\wscript.exe",
+          "OriginalFileName": "wscript.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\WScript.exe\" \"D:\\Invoice_2024\\invoice.js\"",
+          "CurrentDirectory": "D:\\Invoice_2024\\",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Same rundll32 run normally with the working directory in C:\\Windows\\System32 (excluded by filter_main_currentdirectory)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe shell32.dll,Control_RunDLL desk.cpl",
+          "CurrentDirectory": "C:\\Windows\\system32\\",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Non-LOLBIN (notepad) opened from a mounted drive E: does not match the selection",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "OriginalFileName": "NOTEPAD.EXE",
+          "CommandLine": "\"C:\\Windows\\System32\\notepad.exe\" E:\\readme.txt",
+          "CurrentDirectory": "E:\\",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

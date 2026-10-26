@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "f8ad2e2c-40b6-4117-84d7-20b89896ab23",
+    "title": "Suspicious Scan Loop Network",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_susp_network_scan_loop.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_network_scan_loop.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1018",
+      "T1059"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un proceso cuya línea de comandos combina un bucle (for o foreach) con ping o nslookup. Suele indicar que alguien recorre un rango de red o una lista de hosts para encontrar sistemas activos.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde CommandLine contiene 'for ' o 'foreach ' y además 'nslookup' o 'ping'. Ejemplos típicos: barridos con 'for /L' en cmd y rangos de PowerShell enviados a ForEach-Object.",
+      "why_it_matters": "El descubrimiento de sistemas remotos (T1018) mediante scripting en línea de comandos (T1059) permite al atacante mapear hosts alcanzables antes del movimiento lateral. Ping y nslookup vienen integrados, por eso es un paso habitual tras el acceso inicial.",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique el rango de direcciones, la lista de hosts o el archivo recorrido, y si la salida se redirige a un archivo.",
+        "Revise el usuario y la sesión: ¿es una cuenta administrativa o de servicio que normalmente ejecuta pruebas de red en este equipo?",
+        "Analice ParentImage y el árbol de procesos: un padre como Office, un servidor web o un shell remoto (wmiprvse, psexesvc) eleva el riesgo.",
+        "Pivotee en el mismo host +/- 15 minutos buscando otro descubrimiento: net view, net group, nltest, arp -a, ipconfig, whoami o escáneres de puertos.",
+        "Busque procesos hijos ping.exe o nslookup.exe y telemetría de red con ráfagas de ICMP o DNS hacia muchos destinos.",
+        "Consulte alertas previas del host y del usuario, y verifique si el mismo CommandLine aparece en otros equipos.",
+        "Compruebe movimiento lateral posterior: SMB, RDP, WinRM o creación de servicios remotos hacia los hosts descubiertos."
+      ],
+      "false_positives": [
+        "Scripts legítimos de administradores o herramientas de monitoreo que verifican disponibilidad o resolución DNS de una lista de equipos.",
+        "Scripts de despliegue o inventario que recorren servidores y les hacen ping antes de conectarse.",
+        "Líneas de comandos no relacionadas que contienen 'for ' y subcadenas como 'ping' (por ejemplo 'mapping' o 'shipping')."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del sistema si la actividad estaba planificada; si es legítima, documente y ajuste por host, usuario o ruta del script.",
+        "Si no hay explicación, aísle el endpoint de la red preservando datos volátiles y recolectando el árbol de procesos y artefactos relacionados.",
+        "Restablezca o deshabilite las credenciales de la cuenta involucrada y revise sus inicios de sesión recientes en el entorno.",
+        "Busque movimiento lateral hacia el rango escaneado y elimine cualquier persistencia antes de devolver el equipo a producción."
+      ],
+      "severity_rationale": "Nivel medio porque un barrido de red es una señal real de reconocimiento, pero los administradores también usan estos bucles y el contexto define si es malicioso."
+    },
+    "en": {
+      "summary": "A process started with a command line that combines a loop (for or foreach) with ping or nslookup. This often means someone is sweeping a network range or a list of hostnames to find live systems.",
+      "what_it_detects": "Windows process creation events where CommandLine contains 'for ' or 'foreach ' and also contains 'nslookup' or 'ping'. Typical examples are cmd 'for /L' ping sweeps and PowerShell ranges piped to ForEach-Object.",
+      "why_it_matters": "Remote System Discovery (T1018) through command-line scripting (T1059) lets an attacker map reachable hosts before lateral movement. Ping and nslookup are built-in tools, so this is a common hands-on-keyboard step after initial access.",
+      "triage_steps": [
+        "Read the full CommandLine: identify the address range, hostname list or input file being iterated, and whether output is redirected to a file.",
+        "Check the user and logon session: is it an admin or service account expected to run network checks on this host?",
+        "Review ParentImage and the process tree: an interactive cmd or PowerShell, Office, a web server or a remote shell (wmiprvse, psexesvc) parent changes the risk.",
+        "Pivot on the same host within +/- 15 minutes for other discovery: net view, net group, nltest, arp -a, ipconfig, whoami, port scanners.",
+        "Look for child ping.exe or nslookup.exe processes and network telemetry showing ICMP or DNS bursts to many destinations.",
+        "Search earlier alerts for this host and user, and check whether the same CommandLine appears on other hosts (scripted tool or spreading actor).",
+        "Check for follow-up lateral movement: SMB, RDP, WinRM or remote service creation toward hosts found by the sweep."
+      ],
+      "false_positives": [
+        "Legitimate scripts by administrators or monitoring tools that check host availability or DNS resolution across a list.",
+        "Deployment or inventory scripts that loop over servers and ping them before connecting.",
+        "Unrelated command lines that happen to contain 'for ' and substrings like 'ping' (for example 'mapping' or 'shipping')."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether the activity was planned; record the script or ticket if legitimate and tune by host, user or script path.",
+        "If unexplained, isolate the endpoint from the network while preserving volatile data and collecting the process tree and related artifacts.",
+        "Reset or disable the involved account credentials and review its recent logons across the environment.",
+        "Hunt for lateral movement toward the scanned range and remove any persistence found before returning the host to production."
+      ],
+      "severity_rationale": "Medium fits because network sweeps are a real reconnaissance signal but admins also run such loops, so context decides whether it is malicious."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe for /L ping sweep across a /24 range launched from an interactive shell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c for /L %i in (1,1,254) do ping -n 1 -w 100 192.0.2.%i | find \"TTL=\" >> C:\\Users\\Public\\up.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      },
+      {
+        "description": "PowerShell range piped to foreach running nslookup on each address",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"1..254 | foreach { nslookup 198.51.100.$_ }\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Single ping to one host without any loop construct",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\PING.EXE",
+          "CommandLine": "ping -n 4 192.0.2.10",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      },
+      {
+        "description": "for loop over log files with no ping or nslookup",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c for %f in (D:\\logs\\*.log) do copy %f \\\\fs01.example.com\\archive\\",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

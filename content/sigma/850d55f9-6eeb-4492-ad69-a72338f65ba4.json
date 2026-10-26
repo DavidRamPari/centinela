@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "850d55f9-6eeb-4492-ad69-a72338f65ba4",
+    "title": "C# IL Code Compilation Via Ilasm.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_ilasm_il_code_compilation.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_ilasm_il_code_compilation.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1127"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Ilasm.exe, el ensamblador de IL de .NET, con /dll o /exe para compilar código intermedio en un binario. Fuera de equipos de desarrollo o servidores de build, esto puede indicar que alguien está generando malware en el host.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\ilasm.exe u OriginalFileName es ilasm.exe (así también se detectan copias renombradas), y CommandLine contiene ' /dll' o ' /exe'.",
+      "why_it_matters": "Ilasm.exe es un binario firmado por Microsoft incluido en .NET Framework. Un atacante puede dejar código IL en el equipo y compilarlo ahí mismo, sin transferir un ejecutable y evadiendo listas de aplicaciones permitidas (ATT&CK T1127, Trusted Developer Utilities Proxy Execution).",
+      "triage_steps": [
+        "Revise CommandLine: ubique el archivo .il de entrada, la ruta de /output y el tipo de binario. Las rutas con permisos de escritura para el usuario, como Temp, Public, AppData o Downloads, son sospechosas.",
+        "Compare Image con OriginalFileName. Escale si ilasm.exe se ejecuta fuera de %WINDIR%\\Microsoft.NET\\Framework* o con otro nombre.",
+        "Analice ParentImage y su línea de comandos. Un padre como cmd, powershell, wscript, mshta u Office es más sospechoso que Visual Studio, MSBuild o un agente de CI.",
+        "Valide el usuario y el host: ¿es un desarrollador o un servidor de build con toolchain .NET documentado?",
+        "Pivote en el mismo host +/- 15 minutos: averigüe cómo llegó el .il, si el binario generado se ejecutó o se cargó, y si hizo conexiones de red.",
+        "Obtenga el .il y el binario compilado. Calcule los hashes, consulte su reputación y busque un payload ofuscado o carga por reflexión.",
+        "Busque alertas previas del mismo usuario o host, en especial otros LOLBAS como InstallUtil, RegAsm o MSBuild."
+      ],
+      "false_positives": [
+        "Desarrolladores o pipelines de build que compilan IL o hacen round-trip con ildasm e ilasm.",
+        "Herramientas de ofuscación, parcheo o empaquetado que invocan ilasm.exe en builds legítimos.",
+        "Laboratorios de investigación de seguridad o ingeniería inversa."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del sistema si la compilación era esperada y corresponde a un proyecto conocido.",
+        "Si es maliciosa, aísle el endpoint y detenga los procesos iniciados desde el binario compilado.",
+        "Ponga en cuarentena el .il y el binario solo después de conservar copias y hashes como evidencia, y luego busque esos hashes en toda la flota.",
+        "Elimine la persistencia que haga referencia al binario, restablezca las credenciales del usuario si pudieron verse comprometidas y restrinja ilasm.exe en hosts que no sean de desarrollo."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque compilar binarios con una utilidad firmada es una técnica real de evasión, pero esa misma actividad es habitual en entornos de desarrollo y build."
+    },
+    "en": {
+      "summary": "Ilasm.exe, the .NET IL assembler, was run with /dll or /exe to compile intermediate language code into a binary. Outside developer workstations or build servers this can mean someone is building malware on the host.",
+      "what_it_detects": "Process creation events where Image ends with \\ilasm.exe or OriginalFileName is ilasm.exe (so renamed copies are caught too), and CommandLine contains ' /dll' or ' /exe'.",
+      "why_it_matters": "Ilasm.exe is a signed Microsoft binary that ships with the .NET Framework. Attackers can drop IL source and compile it locally, so they never transfer an executable and can get past application allowlisting (ATT&CK T1127, Trusted Developer Utilities Proxy Execution).",
+      "triage_steps": [
+        "Read CommandLine: find the .il input file, the /output path and the binary type. Treat user-writable paths like Temp, Public, AppData or Downloads as suspicious.",
+        "Check Image against OriginalFileName. If ilasm.exe runs from outside %WINDIR%\\Microsoft.NET\\Framework*, or under another name, escalate.",
+        "Review ParentImage and its command line. A parent of cmd, powershell, wscript, mshta or an Office application is more suspicious than Visual Studio, MSBuild or a CI agent.",
+        "Confirm the user and host: is this a developer or build server with a documented .NET toolchain?",
+        "Pivot on the host within +/- 15 minutes: find how the .il file got there, whether the output binary was run or loaded, and any network connections it made.",
+        "Get the .il source and the compiled output. Compute hashes, check reputation and look for an obfuscated payload or reflection-based loading.",
+        "Look for earlier alerts on the same user or host, especially other LOLBAS usage such as InstallUtil, RegAsm or MSBuild."
+      ],
+      "false_positives": [
+        "Developers or build pipelines compiling or round-tripping IL with ildasm and ilasm.",
+        "Obfuscation, patching or packaging tools that call ilasm.exe during legitimate software builds.",
+        "Security research or reverse-engineering labs."
+      ],
+      "response_steps": [
+        "Check with the user or system owner whether the compilation was expected and matches a known project.",
+        "If it is malicious, isolate the endpoint and stop any processes started from the compiled output.",
+        "Quarantine the .il file and output binary only after keeping copies and hashes as evidence, then search the fleet for those hashes.",
+        "Remove persistence that references the binary, reset the user's credentials if they may be compromised, and restrict ilasm.exe on non-developer hosts."
+      ],
+      "severity_rationale": "Medium fits because compiling binaries with a signed utility is a real evasion technique, but the same activity is routine on developer and build systems."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Ilasm.exe from the .NET Framework directory compiles an IL file in C:\\Users\\Public into a DLL, launched by PowerShell.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\ilasm.exe",
+          "OriginalFileName": "ilasm.exe",
+          "CommandLine": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\ilasm.exe C:\\Users\\Public\\update.il /dll /output=C:\\Users\\Public\\update.dll /quiet",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile -WindowStyle Hidden",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed copy of ilasm.exe in the user's Temp folder, identified by OriginalFileName, compiles an EXE.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\svchelper.exe",
+          "OriginalFileName": "ilasm.exe",
+          "CommandLine": "svchelper.exe C:\\Users\\mrojas\\AppData\\Local\\Temp\\a.il /exe /output=C:\\Users\\mrojas\\AppData\\Local\\Temp\\a.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Ilasm.exe run only to show its help, with no /dll or /exe option.",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-BUILD-01.andes.example.com",
+          "User": "ANDES\\build-svc",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\ilasm.exe",
+          "OriginalFileName": "ilasm.exe",
+          "CommandLine": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\ilasm.exe /?",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Ildasm.exe (the disassembler, not the assembler) dumps a DLL to IL on a developer workstation.",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-WS-12.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\ildasm.exe",
+          "OriginalFileName": "ildasm.exe",
+          "CommandLine": "ildasm.exe C:\\src\\App\\bin\\App.dll /out=C:\\src\\App\\App.il",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\Common7\\IDE\\devenv.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

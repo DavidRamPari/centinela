@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "fd877b94-9bb5-4191-bb25-d79cbd93c167",
+    "title": "Dumping of Sensitive Hives Via Reg.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Teymur Kheirkhabarov, Endgame, JHasenbusch, Daniil Yugoslavskiy, oscd.community, frack113",
+    "path": "windows/process_creation/proc_creation_win_reg_dumping_sensitive_hives.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reg_dumping_sensitive_hives.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.002",
+      "T1003.004",
+      "T1003.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó reg.exe con save o export sobre HKLM y una ruta que contiene SAM, SYSTEM o SECURITY. Esto suele indicar un intento de copiar hives sensibles para extraer credenciales sin conexión.",
+      "what_it_detects": "Procesos cuyo Image termina en \\reg.exe u OriginalFileName es reg.exe, con CommandLine que incluye ' save ' o ' export ', una referencia a HKLM y \\sam, \\system o \\security, incluidas variantes ofuscadas con caracteres Unicode parecidos (ˢ, ˣ, ˪).",
+      "why_it_matters": "Con los hives SAM y SYSTEM un atacante obtiene hashes NTLM locales; con SECURITY, secretos LSA y credenciales de dominio en caché (ATT&CK T1003.002, T1003.004, T1003.005). Esto permite pass-the-hash y movimiento lateral.",
+      "triage_steps": [
+        "Lea el CommandLine completo: confirme qué hive se exportó y la ruta de destino. Ojo: '\\system' también coincide con C:\\Windows\\System32 en la ruta del ejecutable.",
+        "Revise ParentImage y la cadena de procesos: cmd.exe o powershell.exe lanzados desde una sesión remota, WMI, PsExec o una web shell son muy sospechosos.",
+        "Verifique el usuario y el tipo de sesión; exportar estos hives requiere privilegios de administrador o SYSTEM.",
+        "Compare Image con OriginalFileName: si reg.exe fue renombrado o copiado fuera de System32, trátelo como malicioso.",
+        "Busque en el mismo host, +/- 15 minutos, otras exportaciones de hives (normalmente SAM y SYSTEM juntos), compresión de archivos o subida a la red.",
+        "Revise si los archivos de destino siguen en disco y si hubo conexiones SMB o HTTP salientes justo después.",
+        "Consulte alertas previas del mismo usuario y del mismo host, en especial de volcado de LSASS o shadow copies."
+      ],
+      "false_positives": [
+        "Respaldos legítimos de hives realizados por administradores o software de backup documentado.",
+        "Investigaciones forenses o de respuesta a incidentes autorizadas que recolectan hives.",
+        "Ejercicios de red team o pruebas autorizadas (por ejemplo, Atomic Red Team) con ticket de cambio."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del host o el equipo de TI si la actividad estaba autorizada antes de actuar.",
+        "Si no está autorizada, aísle el endpoint y preserve los archivos exportados, el hash del ejecutable y la línea de tiempo.",
+        "Restablezca las contraseñas de las cuentas locales, incluida la del administrador local, y rote las credenciales de dominio cacheadas en el host.",
+        "Busque el uso de esos hashes (inicios de sesión NTLM inusuales) en otros hosts y elimine la persistencia identificada antes de reincorporar el equipo."
+      ],
+      "severity_rationale": "Es alta porque exportar SAM, SYSTEM o SECURITY casi siempre precede al robo de credenciales y rara vez ocurre en la operación normal."
+    },
+    "en": {
+      "summary": "reg.exe was run with save or export against HKLM and a path containing SAM, SYSTEM or SECURITY. This usually means someone is copying sensitive hives to extract credentials offline.",
+      "what_it_detects": "Processes whose Image ends in \\reg.exe or whose OriginalFileName is reg.exe, with a CommandLine containing ' save ' or ' export ', an HKLM reference and \\sam, \\system or \\security, including Unicode look-alike obfuscation (ˢ, ˣ, ˪).",
+      "why_it_matters": "SAM plus SYSTEM give local NTLM hashes; SECURITY gives LSA secrets and cached domain credentials (ATT&CK T1003.002, T1003.004, T1003.005). That enables pass-the-hash and lateral movement.",
+      "triage_steps": [
+        "Read the full CommandLine: confirm which hive was exported and the output path. Note that '\\system' also matches C:\\Windows\\System32 in the executable path.",
+        "Check ParentImage and the process chain: cmd.exe or powershell.exe spawned by remote sessions, WMI, PsExec or a web shell is highly suspicious.",
+        "Verify the user and logon type; exporting these hives needs administrator or SYSTEM rights.",
+        "Compare Image with OriginalFileName: a renamed reg.exe or one running outside System32 should be treated as malicious.",
+        "On the same host, +/- 15 minutes, look for other hive exports (SAM and SYSTEM usually go together), archiving or network upload.",
+        "Check whether the output files still exist and whether outbound SMB or HTTP connections followed.",
+        "Review earlier alerts for the same user and host, especially LSASS dumping or shadow copy activity."
+      ],
+      "false_positives": [
+        "Legitimate hive backups by administrators or documented backup software.",
+        "Authorized forensic or incident response collection of hives.",
+        "Authorized red team or test exercises (for example Atomic Red Team) with a change ticket."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the activity was authorized before acting.",
+        "If unauthorized, isolate the endpoint and preserve the exported files, the executable hash and the timeline.",
+        "Reset local account passwords, including local administrator, and rotate domain credentials cached on the host.",
+        "Hunt for use of those hashes (unusual NTLM logons) on other hosts and remove identified persistence before returning the host to service."
+      ],
+      "severity_rationale": "High fits because exporting SAM, SYSTEM or SECURITY almost always precedes credential theft and rarely happens in normal operations."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe saves the SAM hive to a temp folder from an elevated command prompt.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe save hklm\\sam C:\\Windows\\Temp\\sam.save",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed copy of reg.exe (matched via OriginalFileName) saving the SYSTEM hive.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\r.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "r.exe save HKLM\\SYSTEM C:\\Users\\Public\\sys.hiv /y",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin exports a vendor software key from HKLM; no SAM, SYSTEM or SECURITY path in the command line.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.soporte",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe export HKLM\\SOFTWARE\\ExampleVendor C:\\Temp\\vendor.reg",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "reg.exe queries a SYSTEM subkey without save or export.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe query HKLM\\SYSTEM\\CurrentControlSet\\Control\\ComputerName",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

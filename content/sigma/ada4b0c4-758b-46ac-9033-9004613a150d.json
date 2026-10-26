@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "ada4b0c4-758b-46ac-9033-9004613a150d",
+    "title": "Modify Group Policy Settings",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_reg_modify_group_policy_settings.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reg_modify_group_policy_settings.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1484.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó reg.exe sobre HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System haciendo referencia a un valor de actualización de directivas de grupo o de SmartScreen. Podría indicar que un atacante busca debilitar la aplicación de directivas o desactivar SmartScreen.",
+      "what_it_detects": "Creación de procesos de reg.exe (por Image u OriginalFileName) cuyo CommandLine contiene la ruta Policies\\Microsoft\\Windows\\System y alguno de GroupPolicyRefreshTime(DC), GroupPolicyRefreshTimeOffset(DC), EnableSmartScreen o ShellSmartScreenLevel.",
+      "why_it_matters": "Estas claves suelen escribirlas las directivas de grupo, no un usuario a mano. Modificarlas con reg.exe puede alterar la actualización de GPO o apagar SmartScreen, lo que permite persistir y ejecutar archivos no confiables (ATT&CK T1484.001, modificación de directivas de grupo).",
+      "triage_steps": [
+        "Revise el CommandLine: operación (add, delete, query), nombre del valor, dato /d y uso de /f. EnableSmartScreen en 0 o un intervalo de actualización muy alto es lo más sospechoso.",
+        "Verifique ParentImage y su línea de comandos. Lo esperado son herramientas de GPO, instaladores o agentes de gestión, no cmd, PowerShell, intérpretes de scripts ni Office.",
+        "Identifique el User y el nivel de integridad. Confirme que la cuenta es administradora y tiene motivo para cambiar directivas locales en ese equipo.",
+        "Compare el valor con lo definido en la GPO del dominio (gpresult /h o RSOP) para detectar desviaciones de la línea base.",
+        "Pivote en el mismo host +/- 15 minutos: otros reg.exe, PowerShell, cambios en Defender o firewall, servicios o tareas programadas nuevas, ejecutables descargados.",
+        "Busque el mismo CommandLine en otros equipos y alertas previas del usuario o host. Si aparece en muchos equipos, sugiere un script; si es un solo host, actividad manual."
+      ],
+      "false_positives": [
+        "Administradores o scripts de despliegue que configuran valores de directiva directamente en equipos fuera del dominio o de laboratorio.",
+        "Herramientas de hardening, imágenes o gestión de configuración (SCCM, scripts de Intune, baselines) que ajustan SmartScreen o la actualización de directivas.",
+        "Scripts de inventario o auditoría que consultan estos valores con reg query."
+      ],
+      "response_steps": [
+        "Antes de actuar, confirme con el responsable del cambio o el usuario si fue autorizado.",
+        "Si no fue autorizado, aísle el endpoint y preserve el árbol de procesos, la colmena del registro y los logs relacionados como evidencia.",
+        "Restaure los valores desde la GPO del dominio (gpupdate /force) y verifique que SmartScreen y la actualización vuelvan a la línea base.",
+        "Busque payloads ejecutados después del cambio, restablezca las credenciales de la cuenta involucrada y bloquee el script o binario padre."
+      ],
+      "severity_rationale": "Media, porque cambiar estos valores sí debilita las defensas, pero administradores y herramientas de configuración también lo hacen, así que requiere contexto antes de escalar."
+    },
+    "en": {
+      "summary": "reg.exe was run against HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System and referenced a Group Policy refresh or SmartScreen value. An attacker may be weakening local policy enforcement or disabling SmartScreen.",
+      "what_it_detects": "Process creation of reg.exe (matched by Image or OriginalFileName) whose CommandLine contains the Policies\\Microsoft\\Windows\\System path and one of GroupPolicyRefreshTime(DC), GroupPolicyRefreshTimeOffset(DC), EnableSmartScreen or ShellSmartScreenLevel.",
+      "why_it_matters": "Policy keys are normally written by Group Policy, not by hand. Writing them with reg.exe can change GPO refresh timing or turn off SmartScreen, which helps attackers keep malicious settings in place and run untrusted files (ATT&CK T1484.001, Group Policy Modification).",
+      "triage_steps": [
+        "Read the CommandLine: note the operation (add, delete, query), the value name, the /d data and /f. EnableSmartScreen 0 or a large refresh interval is the most suspicious.",
+        "Check ParentImage and the parent's command line. Expect GPO tools, an installer or a management agent, not cmd, PowerShell, script hosts or Office.",
+        "Identify the User and integrity level. Confirm the account is an administrator with a reason to change local policy on this host.",
+        "Compare the value with the intended domain GPO setting (gpresult /h or RSOP) to see whether it differs from the baseline.",
+        "Pivot on the same host +/- 15 minutes for other reg.exe, PowerShell, Defender or firewall changes, new services, scheduled tasks, or downloaded executables.",
+        "Search for the same CommandLine on other hosts and for earlier alerts on this user or host. Wide spread suggests a script; a single host suggests hands-on activity."
+      ],
+      "false_positives": [
+        "Administrators or deployment scripts setting policy values directly on machines that are not domain-joined or are under test.",
+        "Hardening, imaging or configuration management tools (SCCM, Intune scripts, baseline scripts) writing SmartScreen or refresh settings.",
+        "Inventory or audit scripts using reg query on these values."
+      ],
+      "response_steps": [
+        "Check with the change owner or user whether the change was authorized before acting.",
+        "If it was not authorized, isolate the endpoint and keep the process tree, the registry hive and related logs as evidence.",
+        "Restore the policy values from the domain GPO (gpupdate /force) and confirm SmartScreen and refresh settings are back to baseline.",
+        "Hunt for payloads run after the change, reset the credentials of the account involved, and block the parent script or binary."
+      ],
+      "severity_rationale": "Medium fits because changing these values is a real defense-weakening step, but admins and config tools also make this change, so it needs context before escalation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe launched from cmd disables SmartScreen through the System policy key",
+        "event": {
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg add \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System\" /v EnableSmartScreen /t REG_DWORD /d 0 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.example.com",
+          "IntegrityLevel": "High",
+          "EventID": 1
+        }
+      },
+      {
+        "description": "reg.exe renamed elsewhere (matched via OriginalFileName) sets a domain controller GPO refresh interval",
+        "event": {
+          "Image": "C:\\Users\\Public\\svc.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "svc.exe add HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System /v GroupPolicyRefreshTimeDC /t REG_DWORD /d 0 /f",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\adm-mlopez",
+          "Computer": "DC-01.example.com",
+          "IntegrityLevel": "High",
+          "EventID": 1
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "reg.exe queries a different value under the same System policy key; no Group Policy refresh or SmartScreen value",
+        "event": {
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg query \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System\" /v DisableLockScreenAppNotifications",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.example.com",
+          "IntegrityLevel": "Medium",
+          "EventID": 1
+        }
+      },
+      {
+        "description": "PowerShell (not reg.exe) reads EnableSmartScreen, so the reg.exe selection does not match",
+        "event": {
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\System' -Name EnableSmartScreen",
+          "ParentImage": "C:\\Program Files\\Microsoft Configuration Manager\\CCMExec.exe",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Computer": "WS-0207.example.com",
+          "IntegrityLevel": "System",
+          "EventID": 1
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

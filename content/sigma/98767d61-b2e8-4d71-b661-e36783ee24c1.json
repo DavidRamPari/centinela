@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "98767d61-b2e8-4d71-b661-e36783ee24c1",
+    "title": "Gzip Archive Decode Via PowerShell",
+    "level": "medium",
+    "status": "test",
+    "author": "Hieu Tran",
+    "path": "windows/process_creation/proc_creation_win_powershell_decode_gzip.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_decode_gzip.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1132.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso cuya línea de comandos usa GZipStream con el modo ::Decompress, lo que indica que PowerShell está descomprimiendo en memoria un contenido Gzip, normalmente codificado en Base64.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene a la vez 'GZipStream' y '::Decompress', patrón típico de loaders que descomprimen un payload incrustado en el comando.",
+      "why_it_matters": "Comprimir y codificar el payload oculta su contenido ante la inspección y las firmas (T1132.001, codificación estándar de datos). Esta técnica se ha visto en campañas de malware distribuidas con adjuntos de OneNote para cargar scripts o binarios.",
+      "triage_steps": [
+        "Revise el CommandLine completo: extraiga la cadena Base64 o la ruta del archivo de origen y decodifíquela en un entorno aislado para ver qué contenido se descomprime.",
+        "Verifique si el resultado se pasa a IEX, Invoke-Expression, [Reflection.Assembly]::Load o se escribe en disco; esto indica ejecución del contenido.",
+        "Examine ParentImage: un padre como onenote.exe, winword.exe, outlook.exe, mshta.exe, wscript.exe o explorer.exe con un adjunto es más sospechoso que un agente de gestión.",
+        "Identifique el usuario y el host; confirme si el usuario suele ejecutar scripts administrativos y si el equipo es una estación de trabajo o un servidor.",
+        "Busque procesos hijos y conexiones de red del mismo proceso PowerShell en el host dentro de +/- 15 minutos.",
+        "Revise archivos recientes (.one, .hta, .lnk, .js) y correos recibidos por el usuario antes del evento.",
+        "Consulte alertas previas para el mismo host, usuario o hash del script, y busque el mismo CommandLine en otros endpoints."
+      ],
+      "false_positives": [
+        "Scripts administrativos legítimos que descomprimen datos Gzip; filtre por ParentImage, nombre del script y usuarios autorizados.",
+        "Herramientas de despliegue, RMM o gestión de configuración que incrustan módulos comprimidos en el comando.",
+        "Scripts de desarrolladores o pipelines de CI que procesan archivos .gz o respuestas HTTP comprimidas."
+      ],
+      "response_steps": [
+        "Confirme la intención decodificando el payload; si es legítimo, documente el script y agregue una exclusión acotada por ParentImage y usuario.",
+        "Si es malicioso, aísle el endpoint desde el EDR y preserve memoria, el script decodificado y los registros de PowerShell (4104).",
+        "Bloquee los hashes, dominios e IPs obtenidos del payload y búsquelos en el resto de la flota.",
+        "Elimine la persistencia y los archivos dejados, restablezca las credenciales del usuario afectado y restaure el equipo cuando esté limpio."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque el patrón es común en loaders maliciosos, pero también aparece en scripts administrativos legítimos y requiere contexto para confirmarse."
+    },
+    "en": {
+      "summary": "A process command line used GZipStream in ::Decompress mode, meaning PowerShell decompressed Gzip content in memory, usually embedded as Base64.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains both 'GZipStream' and '::Decompress', a common pattern for loaders that unpack a payload embedded in the command.",
+      "why_it_matters": "Compressing and encoding a payload hides it from inspection and signatures (T1132.001, standard encoding). The technique has been seen in malware campaigns delivered through OneNote attachments to load scripts or binaries.",
+      "triage_steps": [
+        "Read the full CommandLine: extract the Base64 string or source file path and decode it in an isolated environment to see what is decompressed.",
+        "Check whether the output goes to IEX, Invoke-Expression, [Reflection.Assembly]::Load or is written to disk, which indicates execution.",
+        "Examine ParentImage: onenote.exe, winword.exe, outlook.exe, mshta.exe, wscript.exe or explorer.exe opening an attachment is more suspicious than a management agent.",
+        "Identify the user and host; confirm whether this user normally runs admin scripts and whether the host is a workstation or server.",
+        "Look for child processes and network connections from the same PowerShell process on the host within +/- 15 minutes.",
+        "Review recent files (.one, .hta, .lnk, .js) and emails received by the user before the event.",
+        "Check earlier alerts for the same host, user or script hash, and hunt for the same CommandLine on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate admin scripts that decompress Gzip data; filter by ParentImage, script name and allowed users.",
+        "Deployment, RMM or configuration management tools that embed compressed modules in the command line.",
+        "Developer scripts or CI pipelines handling .gz files or compressed HTTP responses."
+      ],
+      "response_steps": [
+        "Confirm intent by decoding the payload; if legitimate, document the script and add a narrow exclusion by ParentImage and user.",
+        "If malicious, isolate the endpoint via EDR and preserve memory, the decoded script and PowerShell logs (4104).",
+        "Block hashes, domains and IPs found in the payload and hunt for them across the fleet.",
+        "Remove persistence and dropped files, reset the affected user's credentials and restore the host once clean."
+      ],
+      "severity_rationale": "Medium fits because the pattern is common in malicious loaders but also appears in legitimate admin scripts, so context is needed to confirm."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell launched from OneNote decompresses an embedded Base64 Gzip blob and pipes it to IEX",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\ONENOTE.EXE",
+          "CommandLine": "powershell.exe -nop -w hidden -c \"$d=[Convert]::FromBase64String('H4sIAAAAAAAEAPLPSs0rKQEAAAD//wMA');$m=New-Object IO.MemoryStream(,$d);$g=New-Object IO.Compression.GZipStream($m,[IO.Compression.CompressionMode]::Decompress);$r=New-Object IO.StreamReader($g);IEX $r.ReadToEnd()\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Lowercase variant run via cmd.exe decompressing a downloaded file",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell -c \"$s=new-object system.io.compression.gzipstream([io.file]::openread('C:\\Users\\mrojas\\AppData\\Local\\Temp\\data.bin'),[io.compression.compressionmode]::decompress);$s.copyto([io.file]::create('C:\\Users\\mrojas\\AppData\\Local\\Temp\\out.dll'))\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Backup script that compresses logs with GZipStream in Compress mode (no ::Decompress)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -c \"$o=[IO.File]::Create('D:\\Logs\\app.log.gz');$g=New-Object IO.Compression.GZipStream($o,[IO.Compression.CompressionMode]::Compress);[IO.File]::OpenRead('D:\\Logs\\app.log').CopyTo($g);$g.Close()\"",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Admin script expanding a ZIP archive with Expand-Archive, no GZipStream usage",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\it_admin",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -c \"Expand-Archive -Path C:\\Temp\\tools.zip -DestinationPath C:\\Tools -Force\"",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

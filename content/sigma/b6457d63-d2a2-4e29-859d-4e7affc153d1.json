@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "b6457d63-d2a2-4e29-859d-4e7affc153d1",
+    "title": "Potential Discovery Activity Via Dnscmd.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "@gott_cyber",
+    "path": "windows/process_creation/proc_creation_win_dnscmd_discovery.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_dnscmd_discovery.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó dnscmd.exe con una opción de consulta (/enumzones, /enumrecords, /ZonePrint o /info). Esto puede indicar que alguien está enumerando las zonas y registros DNS del dominio para mapear la red.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\dnscmd.exe y CommandLine contiene /enumrecords, /enumzones, /ZonePrint o /info. Estas opciones listan zonas, vuelcan registros o muestran la configuración del servidor DNS.",
+      "why_it_matters": "Si se vuelcan las zonas DNS internas, el atacante obtiene un inventario de hosts, servidores y servicios que le sirve para elegir objetivos y moverse lateralmente. Es actividad de la táctica Discovery de ATT&CK y usa un binario legítimo de Windows (LOLBAS).",
+      "triage_steps": [
+        "Revise CommandLine: identifique la opción usada, el servidor DNS de destino y la zona consultada. Un /ZonePrint o /enumrecords de una zona completa es más relevante que un /info.",
+        "Identifique el usuario y el host. Confirme si la cuenta pertenece a administradores de DNS o de dominio y si el equipo es un servidor de administración.",
+        "Examine ParentImage y la cadena de procesos. Un padre cmd.exe o powershell.exe lanzado desde Office, un navegador o un servicio web es sospechoso.",
+        "Busque en el mismo host, +/- 15 minutos, otros comandos de reconocimiento como net, nltest, whoami, AdFind o consultas LDAP.",
+        "Verifique si la salida se redirigió a un archivo y si después hubo compresión o transferencia de ese archivo.",
+        "Consulte alertas previas para el mismo usuario y el mismo host, y si hubo inicios de sesión anómalos antes de la ejecución.",
+        "Contacte al equipo de infraestructura para confirmar si existe un cambio o una tarea de mantenimiento programada."
+      ],
+      "false_positives": [
+        "Administradores de DNS o de Active Directory que revisan zonas y registros en tareas de rutina.",
+        "Scripts de inventario, auditoría o respaldo de DNS que usan dnscmd de forma periódica.",
+        "Herramientas de monitoreo que ejecutan dnscmd /info para comprobar el estado del servidor."
+      ],
+      "response_steps": [
+        "Valide con el dueño de la cuenta y el equipo de infraestructura si la ejecución fue autorizada.",
+        "Si no está autorizada, aísle el endpoint y restablezca las credenciales de la cuenta involucrada tras confirmar el compromiso.",
+        "Recolecte artefactos: árbol de procesos, archivos de salida, historial de PowerShell y conexiones de red del host.",
+        "Busque en otros equipos la misma actividad y otros indicadores de reconocimiento asociados al usuario.",
+        "Restrinja quién puede ejecutar dnscmd y consultar zonas DNS, y documente las excepciones legítimas para ajustar la regla."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque es reconocimiento sin impacto directo y el uso administrativo es común, aunque fuera de cuentas de administración suele anticipar movimiento lateral."
+    },
+    "en": {
+      "summary": "dnscmd.exe ran with a query option (/enumzones, /enumrecords, /ZonePrint or /info). Someone may be enumerating the domain's DNS zones and records to map the network.",
+      "what_it_detects": "Windows process creation events where Image ends with \\dnscmd.exe and CommandLine contains /enumrecords, /enumzones, /ZonePrint or /info. These options list zones, dump records or show the DNS server configuration.",
+      "why_it_matters": "Dumping internal DNS zones gives an attacker an inventory of hosts, servers and services to pick targets and move laterally. This is ATT&CK Discovery activity that uses a built-in, signed Windows binary (LOLBAS).",
+      "triage_steps": [
+        "Read CommandLine: note the option, target DNS server and zone. A full-zone /ZonePrint or /enumrecords matters more than /info.",
+        "Identify the user and host. Check whether the account is a DNS or domain admin and the host an admin server.",
+        "Review ParentImage and the process chain. A cmd.exe or powershell.exe parent spawned by Office, a browser or a web service is suspicious.",
+        "Search the same host +/- 15 minutes for other recon: net, nltest, whoami, AdFind or LDAP queries.",
+        "Check whether output was redirected to a file that was later compressed or transferred.",
+        "Look for earlier alerts on the same user and host, and unusual logons before the execution.",
+        "Ask the infrastructure team whether a change or maintenance task was scheduled."
+      ],
+      "false_positives": [
+        "DNS or Active Directory administrators reviewing zones and records during routine work.",
+        "DNS inventory, audit or backup scripts that run dnscmd periodically.",
+        "Monitoring tools running dnscmd /info to check server health."
+      ],
+      "response_steps": [
+        "Confirm with the account owner and infrastructure team whether the execution was authorized.",
+        "If unauthorized, isolate the endpoint and reset the involved account's credentials once compromise is confirmed.",
+        "Collect artifacts: process tree, output files, PowerShell history and the host's network connections.",
+        "Hunt for the same activity and related recon by the user on other hosts.",
+        "Restrict who can run dnscmd and query DNS zones; document legitimate exceptions to tune the rule."
+      ],
+      "severity_rationale": "Medium fits because this is reconnaissance with no direct impact and admin use is common, yet outside admin accounts it often precedes lateral movement."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "dnscmd enumerating all zones on a domain controller, launched from cmd.exe by a non-admin user",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.andes.local",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\dnscmd.exe",
+          "CommandLine": "dnscmd.exe dc01.andes.local /enumzones",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c dnscmd.exe dc01.andes.local /enumzones > C:\\Users\\Public\\z.txt"
+        }
+      },
+      {
+        "description": "dnscmd dumping a full zone with lowercase /zoneprint (case-insensitive match)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.local",
+          "User": "ANDES\\svc_web",
+          "Image": "C:\\Windows\\System32\\dnscmd.exe",
+          "CommandLine": "dnscmd dc01 /zoneprint andes.local",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "dnscmd used by an admin to clear the server cache; no enumeration option present",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC01.andes.local",
+          "User": "ANDES\\adm_mrojas",
+          "Image": "C:\\Windows\\System32\\dnscmd.exe",
+          "CommandLine": "dnscmd dc01 /clearcache",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Different binary (nslookup.exe) querying DNS; Image does not end with dnscmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.local",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\nslookup.exe",
+          "CommandLine": "nslookup -type=SOA andes.local dc01.andes.local",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

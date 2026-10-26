@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "6b369ced-4b1d-48f1-b427-fdc0de0790bd",
+    "title": "Suspicious Diantz Alternate Data Stream Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_lolbin_diantz_ads.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_diantz_ads.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1564.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó diantz.exe con una línea de comandos que contiene un archivo .cab y un carácter dos puntos seguido de algo distinto de una barra invertida. Esto suele indicar que se escribe un CAB en un Alternate Data Stream (ADS) de otro archivo.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde CommandLine contiene 'diantz.exe' y '.cab', y la expresión regular ':[^\\]' encuentra dos puntos que no forman parte de una ruta de unidad como 'C:\\', por ejemplo 'notas.txt:oculto.cab'.",
+      "why_it_matters": "Diantz es un binario firmado de Windows (LOLBin) que comprime archivos en formato CAB. Un atacante puede guardar el CAB dentro de un ADS para ocultar herramientas o datos, lo que corresponde a ATT&CK T1564.004 (ocultar artefactos mediante atributos NTFS).",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique el archivo de origen, el archivo host del ADS y el nombre del stream después de los dos puntos.",
+        "Verifique Image, ParentImage y ParentCommandLine; un padre como cmd.exe, powershell.exe, wscript.exe o una aplicación de Office aumenta la sospecha.",
+        "Identifique al usuario y si ejecuta diantz habitualmente; compare con ejecuciones previas en el mismo host y en toda la flota.",
+        "Obtenga el hash del archivo de origen comprimido y búsquelo en inteligencia de amenazas y en otros endpoints.",
+        "Liste los streams del archivo host con 'dir /r' o Get-Item -Stream * para confirmar que el ADS existe y revisar su tamaño.",
+        "Revise la actividad del mismo host en +/- 15 minutos: descargas, extrac.exe o expand.exe leyendo el ADS, conexiones de red y procesos hijos.",
+        "Busque alertas anteriores para el mismo usuario y host, sobre todo de evasión o persistencia."
+      ],
+      "false_positives": [
+        "Uso legítimo de diantz o makecab por instaladores, scripts de empaquetado o equipos de desarrollo que crean archivos CAB (la regla indica falsos positivos muy posibles).",
+        "Líneas de comandos con URL (http://) o rutas relativas de unidad como 'D:salida.cab', que también contienen dos puntos sin barra invertida.",
+        "Herramientas de despliegue de software que generan CAB con nombres o parámetros que incluyen dos puntos."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del sistema si la ejecución fue esperada; documente la evidencia antes de modificar archivos.",
+        "Si es malicioso, aísle el endpoint y copie el ADS y el archivo de origen para análisis forense.",
+        "Elimine el ADS y los artefactos relacionados solo después de preservarlos, y termine los procesos asociados.",
+        "Busque el mismo patrón y hashes en otros hosts, restablezca credenciales comprometidas y considere restringir diantz.exe con AppLocker o WDAC."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque escribir un CAB en un ADS es una técnica de ocultamiento poco común, pero diantz es una herramienta legítima y la expresión regular genera coincidencias benignas."
+    },
+    "en": {
+      "summary": "diantz.exe ran with a command line containing a .cab file and a colon followed by something other than a backslash. This usually means a CAB is being written into an Alternate Data Stream (ADS) of another file.",
+      "what_it_detects": "Windows process creation events where CommandLine contains 'diantz.exe' and '.cab', and the regex ':[^\\]' finds a colon that is not part of a drive path like 'C:\\', for example 'notes.txt:hidden.cab'.",
+      "why_it_matters": "Diantz is a signed Windows binary (LOLBin) that compresses files into CAB format. Attackers can store the CAB inside an ADS to hide tools or data, which maps to ATT&CK T1564.004 (hiding artifacts with NTFS file attributes).",
+      "triage_steps": [
+        "Read the full CommandLine: identify the source file, the host file carrying the ADS and the stream name after the colon.",
+        "Check Image, ParentImage and ParentCommandLine; parents like cmd.exe, powershell.exe, wscript.exe or Office apps raise suspicion.",
+        "Identify the user and whether they normally run diantz; compare with earlier executions on this host and across the fleet.",
+        "Hash the compressed source file and look it up in threat intelligence and on other endpoints.",
+        "List streams on the host file with 'dir /r' or Get-Item -Stream * to confirm the ADS exists and check its size.",
+        "Review the same host within +/- 15 minutes: downloads, extrac.exe or expand.exe reading the ADS, network connections and child processes.",
+        "Look for earlier alerts on the same user and host, especially evasion or persistence."
+      ],
+      "false_positives": [
+        "Legitimate diantz or makecab use by installers, packaging scripts or developers building CAB files (the rule notes false positives are very possible).",
+        "Command lines with URLs (http://) or drive-relative paths such as 'D:output.cab', which also contain a colon without a backslash.",
+        "Software deployment tools generating CABs with names or arguments that include colons."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether the execution was expected; record evidence before changing any files.",
+        "If malicious, isolate the endpoint and copy the ADS and source file for forensic analysis.",
+        "Remove the ADS and related artifacts only after preserving them, and terminate associated processes.",
+        "Hunt for the same pattern and hashes on other hosts, reset exposed credentials and consider restricting diantz.exe with AppLocker or WDAC."
+      ],
+      "severity_rationale": "Medium fits because writing a CAB into an ADS is an uncommon hiding technique, but diantz is a legitimate tool and the regex produces benign matches."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "diantz.exe compresses an executable into an ADS named payload.cab attached to a text file.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\diantz.exe",
+          "CommandLine": "diantz.exe C:\\Users\\Public\\tool.exe C:\\Users\\Public\\notes.txt:payload.cab",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      },
+      {
+        "description": "Full-path diantz.exe launched from PowerShell writing a CAB into an ADS of a log file.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\diantz.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\diantz.exe\" C:\\ProgramData\\data.dll C:\\ProgramData\\update.log:cache.cab",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile -File C:\\ProgramData\\pack.ps1"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate diantz.exe use writing a normal CAB file; the only colons are drive letters followed by a backslash.",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-03.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Windows\\System32\\diantz.exe",
+          "CommandLine": "diantz.exe C:\\Build\\report.txt C:\\Build\\report.cab",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c package.cmd"
+        }
+      },
+      {
+        "description": "diantz.exe run with a directive file; no .cab appears in the command line.",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-03.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Windows\\System32\\diantz.exe",
+          "CommandLine": "diantz.exe /F C:\\Build\\setup.ddf",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c build.cmd"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

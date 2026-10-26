@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "2617e7ed-adb7-40ba-b0f3-8f9945fe6c09",
+    "title": "Suspicious SYSTEM User Process Creation",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), David ANDRE (additional keywords)",
+    "path": "windows/process_creation/proc_creation_win_susp_system_user_anomaly.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_system_user_anomaly.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003",
+      "T1027",
+      "T1134"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso se creó con nivel de integridad System bajo la cuenta NT AUTHORITY\\SYSTEM (o su equivalente localizado), y su binario o su línea de comandos coincide con herramientas o parámetros habituales de ataque.",
+      "what_it_detects": "Creación de procesos con IntegrityLevel System o S-1-16-16384, con un User que contiene AUTHORI o AUTORI. Además, el Image debe ser calc, cscript, wscript, mshta, hh, forfiles o ping, o el CommandLine debe contener 'net user', PowerShell oculto o codificado, certutil -decode o -urlcache, reg save HKLM, vssadmin delete shadows, procdump -ma, MiniDump, módulos de Mimikatz o Rubeus /ticket:. Se excluyen ping a 127.0.0.1, DismFoDInstall.cmd, Guest Configuration de Azure y Java Web Start.",
+      "why_it_matters": "Un atacante que ya tiene SYSTEM puede volcar credenciales (T1003), manipular tokens (T1134) o ejecutar payloads ofuscados (T1027). Ese nivel de acceso suele venir de una escalada de privilegios, un servicio malicioso o ejecución remota tipo PsExec.",
+      "triage_steps": [
+        "Revise Image y CommandLine completos. Decodifique los parámetros -enc en Base64 e identifique qué indicador provocó la coincidencia: Mimikatz, reg save, MiniDump o descarga.",
+        "Examine ParentImage y ParentCommandLine. Si el padre es services.exe, un servicio recién creado o PSEXESVC.exe, apunta a ejecución remota.",
+        "Busque eventos 7045/4697 de instalación de servicios y tareas programadas en el mismo host, en una ventana de +/- 15 minutos.",
+        "Revise los procesos hijos, los archivos creados (.hiv, .dmp, scripts en Temp) y las conexiones de red del proceso.",
+        "Correlacione con inicios de sesión 4624 tipo 3 o 10 previos, para identificar el usuario y la IP de origen que obtuvieron SYSTEM.",
+        "Busque alertas anteriores del mismo host y el mismo hash en otros endpoints."
+      ],
+      "false_positives": [
+        "Herramientas de administración o despliegue (SCCM, Intune, RMM) que ejecutan scripts cscript o PowerShell como SYSTEM.",
+        "Scripts de mantenimiento legítimos que usan net user, ping o certutil.",
+        "Agentes de monitoreo o respaldo que generan volcados de memoria o exportan claves del registro."
+      ],
+      "response_steps": [
+        "Valide con el responsable del host o con el equipo de TI si la tarea, el servicio o la herramienta estaban autorizados.",
+        "Si es malicioso, aísle el endpoint desde el EDR y conserve la memoria y los artefactos (.dmp, .hiv, scripts) antes de limpiar.",
+        "Restablezca las credenciales que pudieron quedar expuestas: cuentas que iniciaron sesión en el host, cuentas de servicio y, si hubo lsadump o DCSync, krbtgt.",
+        "Elimine los servicios, tareas o claves Run maliciosos y restaure las instantáneas o los respaldos si hubo borrado de shadow copies.",
+        "Documente los IOC y ajuste los filtros solo con exclusiones específicas por ruta de padre."
+      ],
+      "severity_rationale": "Es alta porque combina el máximo privilegio local con herramientas típicas de robo de credenciales u ofuscación. Tiene pocos usos legítimos y un impacto potencial grave."
+    },
+    "en": {
+      "summary": "A process started at System integrity level under NT AUTHORITY\\SYSTEM (or its localized name), and its binary or command line matches attacker tools or parameters.",
+      "what_it_detects": "Process creation with IntegrityLevel System or S-1-16-16384 and a User containing AUTHORI or AUTORI. The Image must also be calc, cscript, wscript, mshta, hh, forfiles or ping, or the CommandLine must contain 'net user', hidden or encoded PowerShell, certutil decode or urlcache, reg save HKLM, vssadmin delete shadows, procdump -ma, MiniDump, Mimikatz modules or Rubeus /ticket:. Excluded: localhost ping, DismFoDInstall.cmd, Azure Guest Configuration and Java Web Start.",
+      "why_it_matters": "An attacker with SYSTEM rights can dump credentials (T1003), abuse tokens (T1134) or run obfuscated payloads (T1027). This access usually follows privilege escalation, a malicious service or PsExec-style remote execution.",
+      "triage_steps": [
+        "Read the full Image and CommandLine. Decode any -enc Base64 and find which indicator matched: Mimikatz, reg save, MiniDump or a download.",
+        "Check ParentImage and ParentCommandLine. services.exe, a new service binary or PSEXESVC.exe as the parent points to remote execution.",
+        "Search for service installs (7045/4697) and scheduled tasks on the same host within +/- 15 minutes.",
+        "Review child processes, written files (.hiv, .dmp, Temp scripts) and the process's network connections.",
+        "Correlate with earlier 4624 type 3 or 10 logons to find the user and source IP that gained SYSTEM.",
+        "Look for prior alerts on this host and the same hash on other endpoints."
+      ],
+      "false_positives": [
+        "Management or deployment tools (SCCM, Intune, RMM) running cscript or PowerShell as SYSTEM.",
+        "Legitimate maintenance scripts using net user, ping or certutil.",
+        "Monitoring or backup agents creating memory dumps or exporting registry hives."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the task, service or tool was authorized.",
+        "If malicious, isolate the endpoint through EDR and preserve memory and artifacts (.dmp, .hiv, scripts) before cleanup.",
+        "Reset exposed credentials: accounts that logged on to the host, service accounts and, if lsadump or DCSync appears, krbtgt.",
+        "Remove malicious services, tasks or Run keys. Restore from backups if shadow copies were deleted.",
+        "Record the IOCs. Tune only with narrow exclusions based on the parent path."
+      ],
+      "severity_rationale": "High fits because it pairs the highest local privilege with typical credential-theft or obfuscation tooling, which has few legitimate uses and serious impact."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Hidden, encoded PowerShell launched as SYSTEM from cmd.exe spawned by a service",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "IntegrityLevel": "System",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoP -W Hidden -enc JABjAGwAaQBlAG4AdAA=",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Windows\\Temp\\svc.bat"
+        }
+      },
+      {
+        "description": "SAM hive exported with reg save by SYSTEM on a French-localized host",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02",
+          "User": "AUTORITE NT\\Système",
+          "IntegrityLevel": "S-1-16-16384",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg save HKLM\\SAM C:\\Windows\\Temp\\sam.save",
+          "ParentImage": "C:\\Windows\\PSEXESVC.exe",
+          "ParentCommandLine": "C:\\Windows\\PSEXESVC.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "SYSTEM localhost ping used as a sleep delay, excluded by filter_main_ping",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "IntegrityLevel": "System",
+          "Image": "C:\\Windows\\System32\\PING.EXE",
+          "CommandLine": "ping 127.0.0.1 -n 5",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\ProgramData\\Agent\\update.cmd"
+        }
+      },
+      {
+        "description": "The same PowerShell flags run by a regular admin at High integrity, not SYSTEM",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "High",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoP -W Hidden -File C:\\Scripts\\inventory.ps1",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

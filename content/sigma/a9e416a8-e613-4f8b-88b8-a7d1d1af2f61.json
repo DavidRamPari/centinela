@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "a9e416a8-e613-4f8b-88b8-a7d1d1af2f61",
+    "title": "Suspicious Use of CSharp Interactive Console",
+    "level": "high",
+    "status": "test",
+    "author": "Michael R. (@nahamike01)",
+    "path": "windows/process_creation/proc_creation_win_csi_use_of_csharp_console.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_csi_use_of_csharp_console.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1127"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "PowerShell (powershell.exe, pwsh.exe o powershell_ise.exe) inició csi.exe, la consola interactiva de C# de Microsoft. Un atacante puede usarla para ejecutar código C# arbitrario mediante un binario firmado y confiable.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\csi.exe, OriginalFileName es csi.exe y ParentImage es powershell.exe, pwsh.exe o powershell_ise.exe.",
+      "why_it_matters": "csi.exe viene con Visual Studio y las herramientas de compilación Roslyn. Puede compilar y ejecutar scripts C# (.csx) o código escrito directamente sin generar un ejecutable nuevo. Esto corresponde a T1127 (Trusted Developer Utilities Proxy Execution) y sirve para evadir controles de aplicaciones y la detección de ejecución.",
+      "triage_steps": [
+        "Revise el CommandLine de csi.exe: busque archivos .csx, rutas en carpetas temporales o de usuario, opciones como /r: para referenciar ensamblados, o código pasado directamente en la línea de comandos.",
+        "Revise el CommandLine del proceso PowerShell padre y de su propio padre: busque -EncodedCommand, descargas (IEX, DownloadString) o ejecución oculta.",
+        "Identifique al usuario y al host. ¿Es un desarrollador con Visual Studio instalado y es habitual que use csi.exe?",
+        "Obtenga los archivos .csx o los scripts referenciados y analice su contenido: llamadas a P/Invoke, carga de shellcode, reflexión o conexiones de red.",
+        "En el mismo host, busque en +/- 15 minutos conexiones de red de csi.exe, procesos hijo, archivos escritos y cambios en el registro.",
+        "Busque alertas anteriores del mismo usuario o host, y otros endpoints donde csi.exe se haya ejecutado desde PowerShell."
+      ],
+      "false_positives": [
+        "Desarrolladores que prueban código C# o ejecutan scripts .csx desde PowerShell en estaciones con Visual Studio.",
+        "Scripts de build, CI/CD o automatización que llaman a csi.exe desde PowerShell para tareas de compilación o pruebas.",
+        "Administradores que usan scripts C# para tareas de mantenimiento documentadas."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o su responsable si la ejecución fue legítima y documente la justificación.",
+        "Si el script es malicioso o no tiene explicación, aísle el endpoint y preserve memoria, los scripts .csx y el historial de PowerShell.",
+        "Termine los procesos maliciosos, elimine los scripts y la persistencia identificados, y bloquee los indicadores de red asociados.",
+        "Restablezca las credenciales del usuario si hay indicios de robo de credenciales, y restrinja csi.exe mediante WDAC o AppLocker en equipos que no sean de desarrollo."
+      ],
+      "severity_rationale": "El nivel high se justifica porque es poco común que PowerShell inicie csi.exe fuera de equipos de desarrollo, y esta combinación permite ejecutar código arbitrario con un binario firmado."
+    },
+    "en": {
+      "summary": "PowerShell (powershell.exe, pwsh.exe or powershell_ise.exe) started csi.exe, Microsoft's C# interactive console. An attacker can use it to run arbitrary C# code through a signed, trusted binary.",
+      "what_it_detects": "Process creation events where Image ends with \\csi.exe, OriginalFileName is csi.exe, and ParentImage is powershell.exe, pwsh.exe or powershell_ise.exe.",
+      "why_it_matters": "csi.exe ships with Visual Studio and the Roslyn build tools. It can compile and run C# scripts (.csx) or inline code without dropping a new executable. This maps to T1127 (Trusted Developer Utilities Proxy Execution) and helps bypass application control and execution detection.",
+      "triage_steps": [
+        "Review the csi.exe CommandLine: look for .csx files, paths in temp or user folders, /r: assembly references, or inline code.",
+        "Review the CommandLine of the parent PowerShell process and its own parent: look for -EncodedCommand, download cradles (IEX, DownloadString) or hidden windows.",
+        "Identify the user and host. Is this a developer with Visual Studio installed who normally uses csi.exe?",
+        "Collect any .csx files or referenced scripts and inspect them for P/Invoke, shellcode loading, reflection or network calls.",
+        "On the same host within +/- 15 minutes, check for network connections from csi.exe, child processes, written files and registry changes.",
+        "Look for earlier alerts for the same user or host, and other endpoints where PowerShell launched csi.exe."
+      ],
+      "false_positives": [
+        "Developers testing C# snippets or running .csx scripts from PowerShell on machines with Visual Studio.",
+        "Build, CI/CD or automation scripts that call csi.exe from PowerShell for compilation or testing.",
+        "Administrators using documented C# scripts for maintenance tasks."
+      ],
+      "response_steps": [
+        "Confirm with the user or their manager whether the execution was legitimate, and document why.",
+        "If the script is malicious or unexplained, isolate the endpoint and preserve memory, the .csx scripts and the PowerShell history.",
+        "Kill malicious processes, remove the scripts and any persistence you found, and block related network indicators.",
+        "Reset the user's credentials if credential theft is suspected. Restrict csi.exe with WDAC or AppLocker on machines not used for development."
+      ],
+      "severity_rationale": "High fits because PowerShell rarely starts csi.exe outside development machines, and this pairing lets someone run arbitrary code through a signed binary."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell starts csi.exe to run a .csx script from the user's Temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\BuildTools\\MSBuild\\Current\\Bin\\Roslyn\\csi.exe",
+          "OriginalFileName": "csi.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\BuildTools\\MSBuild\\Current\\Bin\\Roslyn\\csi.exe\" C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.csx",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoP -W Hidden -Command \"& 'C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\BuildTools\\MSBuild\\Current\\Bin\\Roslyn\\csi.exe' $env:TEMP\\upd.csx\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "PowerShell 7 (pwsh.exe) launches csi.exe interactively",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\Roslyn\\csi.exe",
+          "OriginalFileName": "csi.exe",
+          "CommandLine": "\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\Roslyn\\csi.exe\"",
+          "ParentImage": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "csi.exe started by Visual Studio (devenv.exe), so the parent is not PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\Roslyn\\csi.exe",
+          "OriginalFileName": "csi.exe",
+          "CommandLine": "\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\Roslyn\\csi.exe\" /i",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\devenv.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "PowerShell starts csc.exe (the C# compiler), not csi.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe",
+          "OriginalFileName": "csc.exe",
+          "CommandLine": "\"C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe\" /noconfig /fullpaths @\"C:\\Users\\jperez\\AppData\\Local\\Temp\\abc123.cmdline\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

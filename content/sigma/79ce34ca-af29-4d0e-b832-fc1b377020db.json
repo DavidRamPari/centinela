@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "79ce34ca-af29-4d0e-b832-fc1b377020db",
+    "title": "Whoami.EXE Execution From Privileged Process",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Teymur Kheirkhabarov",
+    "path": "windows/process_creation/proc_creation_win_whoami_execution_from_high_priv_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_whoami_execution_from_high_priv_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1033"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó whoami.exe bajo una cuenta privilegiada (NT AUTHORITY\\SYSTEM, LOCAL SERVICE, NETWORK SERVICE o TrustedInstaller). Suele indicar que un atacante acaba de obtener ejecución privilegiada y verifica su contexto.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\whoami.exe u OriginalFileName es whoami.exe, y el campo User contiene 'AUTHORI', 'AUTORI' (variantes localizadas como AUTORIDAD NT) o 'TrustedInstaller'.",
+      "why_it_matters": "Tras explotar un servicio, escalar privilegios o usar herramientas como PsExec -s o NSudo, los atacantes ejecutan whoami para confirmar que son SYSTEM. Es descubrimiento de usuario/propietario del sistema (T1033) ligado a escalada de privilegios.",
+      "triage_steps": [
+        "Revise ParentImage y ParentCommandLine: w3wp.exe, sqlservr.exe, java.exe, un servicio desconocido o cmd/powershell lanzado por un servicio son muy sospechosos.",
+        "Analice CommandLine: opciones como /priv, /all o /groups indican reconocimiento de privilegios disponibles (por ejemplo SeImpersonatePrivilege).",
+        "Reconstruya el árbol de procesos completo hacia arriba y hacia abajo para identificar cómo se obtuvo el contexto privilegiado.",
+        "Busque en el mismo host, +/- 15 minutos, instalación de servicios (evento 7045), tareas programadas, PsExec, NSudo o herramientas de suplantación de tokens.",
+        "Verifique el hash y la firma de whoami.exe y si Image está fuera de System32 o tiene nombre distinto al OriginalFileName.",
+        "Consulte alertas previas del host y si el mismo ParentImage generó esta alerta en otros equipos.",
+        "Confirme con el equipo de TI si había despliegues de software, scripts de RMM o mantenimiento en esa ventana."
+      ],
+      "false_positives": [
+        "Scripts de despliegue o gestión (SCCM, Intune, RMM) que se ejecutan como SYSTEM y registran el contexto con whoami.",
+        "Administradores que depuran con PsExec -s u otras consolas SYSTEM de forma autorizada.",
+        "Instaladores o agentes de monitoreo que verifican la cuenta de servicio."
+      ],
+      "response_steps": [
+        "Verifique con el responsable del host si la ejecución corresponde a una tarea legítima documentada.",
+        "Si no está justificada, aísle el endpoint y preserve memoria y artefactos del proceso padre.",
+        "Identifique y corrija el vector de entrada (servicio web vulnerable, credenciales comprometidas, servicio malicioso) y elimine la persistencia confirmada.",
+        "Rote credenciales expuestas en el host y busque movimiento lateral desde él antes de restaurarlo a producción."
+      ],
+      "severity_rationale": "Es alta porque whoami bajo SYSTEM o TrustedInstaller rara vez ocurre en uso normal y suele seguir inmediatamente a una escalada de privilegios exitosa."
+    },
+    "en": {
+      "summary": "whoami.exe ran under a privileged account (NT AUTHORITY\\SYSTEM, LOCAL SERVICE, NETWORK SERVICE or TrustedInstaller). This often means an attacker just gained privileged execution and is checking their context.",
+      "what_it_detects": "Process creation where Image ends with \\whoami.exe or OriginalFileName is whoami.exe, and User contains 'AUTHORI', 'AUTORI' (localized forms such as AUTORIDAD NT) or 'TrustedInstaller'.",
+      "why_it_matters": "After exploiting a service, escalating privileges or using tools like PsExec -s or NSudo, attackers run whoami to confirm SYSTEM access. This is System Owner/User Discovery (T1033) tied to privilege escalation.",
+      "triage_steps": [
+        "Review ParentImage and ParentCommandLine: w3wp.exe, sqlservr.exe, java.exe, an unknown service, or cmd/powershell spawned by a service are highly suspicious.",
+        "Inspect CommandLine: /priv, /all or /groups indicate reconnaissance of available privileges such as SeImpersonatePrivilege.",
+        "Rebuild the full process tree, ancestors and children, to determine how privileged context was obtained.",
+        "On the same host within +/- 15 minutes, look for service installs (event 7045), scheduled tasks, PsExec, NSudo or token impersonation tools.",
+        "Check the whoami.exe hash and signature, and whether Image sits outside System32 or differs from OriginalFileName.",
+        "Review earlier alerts for the host and whether the same ParentImage triggered this rule elsewhere.",
+        "Ask IT whether deployments, RMM scripts or maintenance ran in that window."
+      ],
+      "false_positives": [
+        "Deployment or management scripts (SCCM, Intune, RMM) running as SYSTEM that log their context with whoami.",
+        "Administrators debugging via PsExec -s or other authorized SYSTEM shells.",
+        "Installers or monitoring agents verifying their service account."
+      ],
+      "response_steps": [
+        "Confirm with the host owner whether the execution matches a documented legitimate task.",
+        "If unexplained, isolate the endpoint and preserve memory and parent process artifacts.",
+        "Identify and fix the entry vector (vulnerable web service, compromised credentials, malicious service) and remove confirmed persistence.",
+        "Rotate credentials exposed on the host and hunt for lateral movement before returning it to production."
+      ],
+      "severity_rationale": "High fits because whoami under SYSTEM or TrustedInstaller is rare in normal use and usually follows a successful privilege escalation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "whoami /priv run as NT AUTHORITY\\SYSTEM from cmd.exe spawned by IIS worker process",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-01.andes.example.com",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "OriginalFileName": "whoami.exe",
+          "CommandLine": "whoami /priv",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c whoami /priv",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Renamed whoami copy run under Spanish-localized SYSTEM account (AUTORIDAD NT)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "Image": "C:\\ProgramData\\svc\\chk.exe",
+          "OriginalFileName": "whoami.exe",
+          "CommandLine": "chk.exe /all",
+          "User": "AUTORIDAD NT\\SYSTEM",
+          "ParentImage": "C:\\ProgramData\\svc\\updater.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Regular domain user running whoami interactively",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "OriginalFileName": "whoami.exe",
+          "CommandLine": "whoami /groups",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "SYSTEM running hostname.exe, not whoami",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "Image": "C:\\Windows\\System32\\HOSTNAME.EXE",
+          "OriginalFileName": "hostname.exe",
+          "CommandLine": "hostname",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

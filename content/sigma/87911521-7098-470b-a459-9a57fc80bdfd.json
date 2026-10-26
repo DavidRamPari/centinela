@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "87911521-7098-470b-a459-9a57fc80bdfd",
+    "title": "Sysmon Configuration Update",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_sysinternals_sysmon_config_update.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sysinternals_sysmon_config_update.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó el binario de Sysmon (o un binario con la descripción 'System activity monitor') con la opción -c, que actualiza o muestra la configuración del driver. Puede ser mantenimiento legítimo o un intento de debilitar la telemetría sin detener el servicio.",
+      "what_it_detects": "Creación de procesos cuyo Image termina en \\Sysmon.exe, \\Sysmon64.exe o \\Sysmon64a.exe, o cuya Description es 'System activity monitor' (cubre binarios renombrados), y cuyo CommandLine contiene -c o /c u otra variante de guion.",
+      "why_it_matters": "Un atacante puede reemplazar la configuración de Sysmon por una mínima o restaurar la predeterminada (-c --) y así dejar de registrar procesos, red o registro sin que el servicio aparezca detenido. La regla lo etiqueta como deterioro de defensas (T1685).",
+      "triage_steps": [
+        "Revise el CommandLine: -c sin argumento solo muestra la configuración; -c <archivo.xml> la reemplaza; -c -- restaura la configuración predeterminada.",
+        "Si se usa un XML, obtenga la ruta y el hash del archivo y compárelos con la configuración aprobada en su repositorio de gestión.",
+        "Verifique Image y Description: si la descripción coincide pero el nombre o la ruta no son los habituales, trate el binario como renombrado y sospechoso.",
+        "Analice ParentImage y el usuario: SCCM, Intune, GPO o scripts de despliegue conocidos son esperables; cmd, PowerShell interactivo o procesos de Office no lo son.",
+        "Busque el evento 16 de Sysmon (cambio de configuración) y caídas en el volumen de eventos del host después de la ejecución.",
+        "Revise el host ±15 minutos y alertas previas del mismo usuario o equipo: ejecución remota, creación de cuentas o borrado de logs."
+      ],
+      "false_positives": [
+        "Administradores que actualizan la configuración de Sysmon de forma planificada, dentro de una ventana de cambios.",
+        "Herramientas de despliegue (SCCM, Intune, GPO, Ansible) que distribuyen una nueva versión del XML de configuración.",
+        "Administradores o scripts de auditoría que ejecutan -c sin argumentos para consultar la configuración vigente."
+      ],
+      "response_steps": [
+        "Confirme con el equipo responsable de Sysmon si existe un cambio aprobado; si no, escale como incidente.",
+        "Si no está autorizado, aísle el endpoint y conserve el XML usado, el binario y los eventos disponibles.",
+        "Restaure la configuración aprobada con su herramienta de gestión y verifique que la telemetría se recupere.",
+        "Investigue la actividad del periodo sin cobertura con otras fuentes (EDR, Security log, proxy) y revise las credenciales del usuario implicado."
+      ],
+      "severity_rationale": "Media porque actualizar la configuración es una tarea administrativa frecuente, pero un cambio no autorizado puede ocultar actividad posterior y merece revisión rápida."
+    },
+    "en": {
+      "summary": "The Sysmon binary (or a binary described as 'System activity monitor') ran with the -c option, which updates or displays the driver configuration. This may be routine maintenance or an attempt to weaken telemetry without stopping the service.",
+      "what_it_detects": "Process creation where Image ends with \\Sysmon.exe, \\Sysmon64.exe or \\Sysmon64a.exe, or Description is 'System activity monitor' (catches renamed copies), and CommandLine contains -c, /c or another dash variant.",
+      "why_it_matters": "An attacker can swap the Sysmon configuration for a bare one or reset it to defaults (-c --), silently dropping process, network or registry logging while the service still looks healthy. Tagged as defense impairment (T1685).",
+      "triage_steps": [
+        "Read CommandLine: -c alone only dumps the config; -c <file.xml> replaces it; -c -- resets to the default configuration.",
+        "If an XML file is used, collect its path and hash and compare them to the approved configuration in your management repository.",
+        "Check Image and Description: a matching description with an unusual name or path suggests a renamed binary and is suspicious.",
+        "Review ParentImage and the user: SCCM, Intune, GPO or known deployment scripts are expected; interactive cmd, PowerShell or Office processes are not.",
+        "Look for Sysmon event ID 16 (config change) and drops in the host's event volume after execution.",
+        "Pivot on the host +/- 15 minutes and prior alerts for the same user or host: remote execution, account creation, log clearing."
+      ],
+      "false_positives": [
+        "Administrators applying a planned Sysmon configuration update within a change window.",
+        "Deployment tools (SCCM, Intune, GPO, Ansible) pushing a new configuration XML.",
+        "Admins or audit scripts running -c without arguments to view the current configuration."
+      ],
+      "response_steps": [
+        "Confirm with the Sysmon owners whether an approved change exists; if not, escalate as an incident.",
+        "If unauthorized, isolate the endpoint and preserve the XML used, the binary and available events.",
+        "Reapply the approved configuration through your management tooling and verify telemetry resumes.",
+        "Investigate the blind period with other sources (EDR, Security log, proxy) and review the involved user's credentials."
+      ],
+      "severity_rationale": "Medium because config updates are common admin work, but an unauthorized change can hide follow-on activity and needs prompt review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Sysmon64.exe replacing the configuration with a minimal XML from a temp folder, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\Sysmon64.exe",
+          "Description": "System activity monitor",
+          "OriginalFileName": "Sysmon.exe",
+          "CommandLine": "Sysmon64.exe -c C:\\Windows\\Temp\\minimal.xml",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      },
+      {
+        "description": "Renamed Sysmon binary identified by Description, resetting config to defaults with /c --",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\svcmon.exe",
+          "Description": "System activity monitor",
+          "OriginalFileName": "Sysmon.exe",
+          "CommandLine": "svcmon.exe /c --",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Sysmon64.exe printing the schema with -s, no configuration option",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\Sysmon64.exe",
+          "Description": "System activity monitor",
+          "CommandLine": "Sysmon64.exe -s",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "cmd.exe with /c switch; not a Sysmon binary and different description",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "Description": "Windows Command Processor",
+          "CommandLine": "cmd.exe /c ipconfig /all",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "646ea171-dded-4578-8a4d-65e9822892e3",
+    "title": "Process Memory Dump Via Comsvcs.DLL",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Modexp, Nasreddine Bencherchali (Nextron Systems), Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_rundll32_process_dump_via_comsvcs.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_rundll32_process_dump_via_comsvcs.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.001",
+      "T1036"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó rundll32 (o un binario renombrado) que invoca la función MiniDump de comsvcs.dll, por nombre u ordinal, para volcar la memoria de un proceso. Casi siempre el objetivo es LSASS, para robar credenciales.",
+      "what_it_detects": "Eventos de creación de procesos donde Image, OriginalFileName o CommandLine indican rundll32 y el CommandLine contiene 'comsvcs', 'full' y MiniDump o un ordinal (#24, #65560, #-, #+). También detecta la forma genérica con '24', 'comsvcs', 'full' y '#', aunque el binario esté renombrado.",
+      "why_it_matters": "comsvcs.dll es una DLL legítima de Windows que exporta MiniDumpW. Un atacante la usa para volcar LSASS sin subir herramientas propias (T1003.001, volcado de memoria de LSASS) y puede renombrar rundll32 para no ser detectado (T1036, enmascaramiento). Con el volcado obtiene hashes, tickets y contraseñas.",
+      "triage_steps": [
+        "Lea el CommandLine: identifique el PID objetivo y la ruta del archivo de volcado. Confirme si el PID corresponde a lsass.exe en ese host y a esa hora.",
+        "Compare Image con OriginalFileName. Si rundll32 se ejecuta desde una ruta distinta de System32/SysWOW64 o con otro nombre, considere que hay evasión.",
+        "Revise ParentImage y la cadena de procesos. Si el padre es WmiPrvSE.exe, services.exe, cmd.exe remoto o un shell web, puede tratarse de ejecución remota tipo lsassy.",
+        "Busque eventos de creación de archivo (Sysmon 11) con la ruta del volcado en el mismo host, +/- 15 minutos, y su posterior copia, compresión o borrado.",
+        "Verifique el usuario y su sesión: tipo de logon, IP de origen, si es cuenta administrativa y si es habitual que use ese host.",
+        "Busque accesos a LSASS (Sysmon 10), conexiones SMB/WinRM entrantes y alertas previas del mismo host, usuario o IP de origen.",
+        "Busque el mismo patrón de CommandLine en otros endpoints para detectar si el ataque se extendió."
+      ],
+      "false_positives": [
+        "Personal de soporte que genera un volcado de una aplicación que no es LSASS para depurarla; confirme el PID y que exista un ticket.",
+        "Ejercicios autorizados de red team, pruebas de penetración o validación de EDR que usan esta técnica."
+      ],
+      "response_steps": [
+        "Valide con el responsable del host o del usuario si la actividad estaba autorizada. Si no lo estaba, trátela como robo de credenciales confirmado.",
+        "Aísle el endpoint con el EDR y guarde el archivo de volcado y la telemetría como evidencia antes de borrarlo de forma segura.",
+        "Restablezca las contraseñas e invalide las sesiones y tickets de todas las cuentas que tenían sesión en el host, incluidas las cuentas de servicio y las privilegiadas.",
+        "Busque uso posterior de esas credenciales (logons anómalos, movimiento lateral) y erradique la persistencia antes de reincorporar el host."
+      ],
+      "severity_rationale": "Es alta porque volcar memoria con comsvcs.dll casi no tiene usos legítimos y suele indicar robo de credenciales de LSASS."
+    },
+    "en": {
+      "summary": "rundll32 (or a renamed copy) called the MiniDump export of comsvcs.dll, by name or by ordinal, to dump a process's memory. The target is almost always LSASS, for credential theft.",
+      "what_it_detects": "Process creation events where Image, OriginalFileName or CommandLine shows rundll32 and the CommandLine contains 'comsvcs', 'full' and either MiniDump or an ordinal (#24, #65560, #-, #+). It also catches a generic form with '24', 'comsvcs', 'full' and '#', even when the binary is renamed.",
+      "why_it_matters": "comsvcs.dll is a signed Windows DLL that exports MiniDumpW. Attackers use it to dump LSASS without dropping tools (T1003.001, LSASS memory) and may rename rundll32 to evade detection (T1036, masquerading). The dump gives them hashes, Kerberos tickets and passwords.",
+      "triage_steps": [
+        "Read the CommandLine and note the target PID and the dump file path. Check whether that PID was lsass.exe on the host at that time.",
+        "Compare Image with OriginalFileName. If rundll32 runs from outside System32/SysWOW64 or under another name, treat it as evasion.",
+        "Check ParentImage and the process tree. A WmiPrvSE.exe, services.exe, remote cmd.exe or web shell parent can point to remote execution such as lsassy.",
+        "Look for file creation events (Sysmon 11) for the dump path on the same host within +/- 15 minutes, and for later copying, compression or deletion of that file.",
+        "Check the user's session: logon type, source IP, whether the account is privileged, and whether the user normally works on this host.",
+        "Pivot to LSASS access events (Sysmon 10), inbound SMB/WinRM connections and earlier alerts for the same host, user or source IP.",
+        "Search other endpoints for the same CommandLine pattern to see whether the activity has spread."
+      ],
+      "false_positives": [
+        "Support staff dumping a non-LSASS application for debugging. Confirm the PID and look for a matching ticket.",
+        "Authorized red team, penetration testing or EDR validation exercises that use this technique."
+      ],
+      "response_steps": [
+        "Confirm with the host or user owner whether the activity was authorized. If it was not, treat it as confirmed credential theft.",
+        "Isolate the endpoint with the EDR. Keep the dump file and telemetry as evidence, then delete the dump securely.",
+        "Reset passwords and revoke sessions and tickets for every account logged on to the host, including service and privileged accounts.",
+        "Hunt for later use of those credentials, such as unusual logons or lateral movement. Remove any persistence before returning the host to service."
+      ],
+      "severity_rationale": "High fits because memory dumping through comsvcs.dll has almost no legitimate use and usually means LSASS credential theft."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "rundll32 calls the comsvcs.dll MiniDump export to dump the LSASS PID to a temp file",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe C:\\Windows\\System32\\comsvcs.dll, MiniDump 712 C:\\Windows\\Temp\\lsass.dmp full",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /Q /c rundll32.exe C:\\Windows\\System32\\comsvcs.dll, MiniDump 712 C:\\Windows\\Temp\\lsass.dmp full",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Renamed rundll32 copy uses ordinal #24 of comsvcs.dll; matched by selection_generic",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "C:\\Users\\Public\\svchelper.exe C:\\Windows\\System32\\comsvcs.dll,#24 688 C:\\ProgramData\\out.bin full",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "rundll32 registers comsvcs.dll with no dump export, no 'full' keyword and no ordinal",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe C:\\Windows\\System32\\comsvcs.dll,DllRegisterServer",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Ordinary rundll32 call that opens a Control Panel applet; comsvcs.dll is not involved",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0203.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe shell32.dll,Control_RunDLL desk.cpl,,0",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

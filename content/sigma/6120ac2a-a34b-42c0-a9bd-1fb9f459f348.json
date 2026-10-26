@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "6120ac2a-a34b-42c0-a9bd-1fb9f459f348",
+    "title": "AddinUtil.EXE Execution From Uncommon Directory",
+    "level": "medium",
+    "status": "test",
+    "author": "Michael McKinley (@McKinleyMike), Tony Latteri (@TheLatteri)",
+    "path": "windows/process_creation/proc_creation_win_addinutil_uncommon_dir_exec.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_addinutil_uncommon_dir_exec.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó AddInUtil.exe, la utilidad de .NET Framework que actualiza la caché de implementación de complementos, desde una ruta distinta a los directorios de .NET Framework o WinSxS. Esto puede indicar que alguien copió o renombró el binario para ejecutar código de forma indirecta.",
+      "what_it_detects": "Creación de procesos cuyo Image termina en \\addinutil.exe o cuyo OriginalFileName es AddInUtil.exe, cuando Image no está bajo \\Windows\\Microsoft.NET\\Framework*, FrameworkArm* ni \\Windows\\WinSxS\\. Como se evalúa OriginalFileName, también detecta copias renombradas.",
+      "why_it_matters": "AddInUtil.exe es un binario firmado por Microsoft que se documenta como LOLBIN: con -AddinRoot procesa un archivo AddIns.store de un directorio controlado por el atacante, lo que permite ejecutar código mediante proxy y evadir controles (T1218, System Binary Proxy Execution).",
+      "triage_steps": [
+        "Revise Image y OriginalFileName: confirme si el binario fue copiado o renombrado y en qué carpeta está (Temp, AppData, ProgramData, Public).",
+        "Analice CommandLine: busque -AddinRoot, -PipelineRoot u otras rutas, y verifique si el directorio indicado contiene un archivo AddIns.store.",
+        "Obtenga el hash del ejecutable y compárelo con el AddInUtil.exe legítimo del mismo host; revise la firma digital.",
+        "Examine ParentImage y la línea de comandos del padre: Office, scripts, mshta o descargas recientes son sospechosos.",
+        "Liste los procesos hijos y las conexiones de red de AddInUtil en +/- 15 minutos en el mismo host.",
+        "Busque eventos de creación de archivos de addinutil.exe y AddIns.store en esa carpeta para identificar quién los escribió.",
+        "Pivotee por el usuario y el host en busca de alertas previas, otros LOLBINs o la misma ruta en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no declara falsos positivos conocidos.",
+        "Herramientas de desarrollo o pruebas de .NET que copian AddInUtil.exe a una carpeta del proyecto o de compilación.",
+        "Instaladores o software empaquetado que incluyen su propia copia de la utilidad; valide el proveedor y el hash."
+      ],
+      "response_steps": [
+        "Verifique la legitimidad con el dueño del equipo o del software antes de actuar.",
+        "Si es malicioso, aísle el endpoint y termine el proceso y sus hijos.",
+        "Preserve como evidencia el binario copiado, AddIns.store y el directorio asociado, y luego elimínelos.",
+        "Busque persistencia creada por el padre o los hijos (tareas programadas, claves Run, servicios) y elimínela.",
+        "Restablezca las credenciales del usuario si hubo ejecución confirmada y busque la misma actividad en toda la flota."
+      ],
+      "severity_rationale": "Nivel medio: es un patrón raro y típico del abuso de LOLBINs, pero requiere contexto (padre, AddIns.store, hijos) para confirmar que es malicioso."
+    },
+    "en": {
+      "summary": "AddInUtil.exe, the .NET Framework add-in deployment cache utility, ran from a path outside the .NET Framework or WinSxS directories. This may mean the binary was copied or renamed to proxy code execution.",
+      "what_it_detects": "Process creation where Image ends with \\addinutil.exe or OriginalFileName is AddInUtil.exe, and Image is not under \\Windows\\Microsoft.NET\\Framework*, FrameworkArm* or \\Windows\\WinSxS\\. Because OriginalFileName is checked, renamed copies also match.",
+      "why_it_matters": "AddInUtil.exe is a Microsoft-signed binary documented as a LOLBIN: with -AddinRoot it processes an AddIns.store file from an attacker-controlled folder, enabling proxied code execution and defense evasion (T1218, System Binary Proxy Execution).",
+      "triage_steps": [
+        "Check Image and OriginalFileName: was the binary copied or renamed, and into which folder (Temp, AppData, ProgramData, Public)?",
+        "Review CommandLine for -AddinRoot, -PipelineRoot or other paths, and check whether the referenced folder contains an AddIns.store file.",
+        "Hash the executable, compare it with the host's legitimate AddInUtil.exe and verify the signature.",
+        "Inspect ParentImage and its command line; Office apps, script hosts, mshta or recent downloads are suspicious.",
+        "List child processes and network connections from AddInUtil on the same host within +/- 15 minutes.",
+        "Find file-creation events for addinutil.exe and AddIns.store in that folder to learn which process wrote them.",
+        "Pivot on user and host for earlier alerts, other LOLBIN use, or the same path on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        ".NET development or test tooling that copies AddInUtil.exe into a project or build folder.",
+        "Installers or packaged software shipping their own copy; validate the vendor and hash."
+      ],
+      "response_steps": [
+        "Confirm legitimacy with the host or software owner before acting.",
+        "If malicious, isolate the endpoint and terminate the process and its children.",
+        "Preserve the copied binary, AddIns.store and related folder as evidence, then remove them.",
+        "Hunt for persistence created by the parent or children (scheduled tasks, Run keys, services) and remove it.",
+        "Reset the user's credentials if execution is confirmed and sweep the fleet for the same activity."
+      ],
+      "severity_rationale": "Medium fits because this is a rare pattern typical of LOLBIN abuse, but context such as parent, AddIns.store and children is needed to confirm malice."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "AddInUtil.exe copied to the user's Temp folder and run with -AddinRoot pointing at the current directory.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\addinutil.exe",
+          "OriginalFileName": "AddInUtil.exe",
+          "CommandLine": "C:\\Users\\jperez\\AppData\\Local\\Temp\\addinutil.exe -AddinRoot:.",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start addinutil.exe -AddinRoot:."
+        }
+      },
+      {
+        "description": "Renamed AddInUtil binary in ProgramData, matched via OriginalFileName.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svcupd\\updater.exe",
+          "OriginalFileName": "AddInUtil.exe",
+          "CommandLine": "\"C:\\ProgramData\\svcupd\\updater.exe\" -AddinRoot:C:\\ProgramData\\svcupd",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate AddInUtil.exe run from the .NET Framework64 directory; excluded by the location filter.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\AddInUtil.exe",
+          "OriginalFileName": "AddInUtil.exe",
+          "CommandLine": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\AddInUtil.exe -PipelineRoot:C:\\Program Files\\ExampleApp\\Pipeline -Rebuild",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe"
+        }
+      },
+      {
+        "description": "Different .NET utility (InstallUtil) run from Temp; neither Image nor OriginalFileName matches AddInUtil.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\installutil.exe",
+          "OriginalFileName": "InstallUtil.exe",
+          "CommandLine": "installutil.exe /? ",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

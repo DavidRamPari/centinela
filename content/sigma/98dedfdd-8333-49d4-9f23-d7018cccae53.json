@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "98dedfdd-8333-49d4-9f23-d7018cccae53",
+    "title": "Enable LM Hash Storage - ProcCreation",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_reg_nolmhash.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reg_nolmhash.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1112"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó una línea de comandos que pone en 0 el valor de registro NoLMHash, dentro de HKLM\\System\\CurrentControlSet\\Control\\Lsa. Con ese cambio, Windows vuelve a guardar hashes LM de las contraseñas en la SAM local o en Active Directory.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene a la vez la ruta '\\System\\CurrentControlSet\\Control\\Lsa', el texto 'NoLMHash' y ' 0'. Normalmente se trata de reg.exe add, de Set-ItemProperty en PowerShell o de una herramienta parecida.",
+      "why_it_matters": "El hash LM es débil y se puede descifrar rápido. Si un atacante lo reactiva, conseguirá hashes fáciles de crackear cuando los usuarios cambien su contraseña. Corresponde a ATT&CK T1112 (modificación del registro) y sirve para debilitar defensas y mantener persistencia.",
+      "triage_steps": [
+        "Revise CommandLine completo: confirme que el valor que se escribe en NoLMHash es 0 (por ejemplo '/d 0') y no un 1 u otro valor que solo coincida en parte.",
+        "Identifique Image, ParentImage y User. Una shell que viene de Office, de un servicio web o de una herramienta de acceso remoto es más sospechosa que un script de administración conocido.",
+        "Determine el rol del host. Si es un controlador de dominio, el impacto alcanza a todas las cuentas del dominio; súbale la prioridad.",
+        "Consulte el valor actual de HKLM\\System\\CurrentControlSet\\Control\\Lsa\\NoLMHash en el endpoint y vea si hay eventos de registro (Sysmon 13) que confirmen la escritura.",
+        "Busque en el mismo host, +/- 15 minutos, otros cambios en Lsa o WDigest (UseLogonCredential, LmCompatibilityLevel), acceso a LSASS o volcados de la SAM.",
+        "Revise cambios de contraseña posteriores al evento (4723/4724). Esas cuentas pueden tener ya un hash LM guardado.",
+        "Busque alertas anteriores del mismo usuario y del mismo host, y compruebe si existe un ticket de cambio que lo autorice."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Aplicaciones heredadas que necesitan compatibilidad LM y que un administrador configura a propósito, idealmente con un cambio aprobado.",
+        "Pruebas de hardening o auditorías de configuración en laboratorio que ponen el valor en 0 de forma temporal."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del sistema si el cambio estaba autorizado. Si no hay justificación, trátelo como un incidente.",
+        "Restablezca NoLMHash a 1 (REG_DWORD) y asegure el valor por GPO ('No almacenar el valor hash de LAN Manager').",
+        "Aísle el endpoint si encuentra indicios de robo de credenciales o de ejecución remota maliciosa.",
+        "Fuerce el cambio de contraseña de las cuentas que la cambiaron mientras NoLMHash estuvo en 0, empezando por las privilegiadas.",
+        "Investigue y elimine el mecanismo de acceso del atacante y revise los demás hosts para detectar el mismo comando."
+      ],
+      "severity_rationale": "Es un nivel alto porque desactivar a propósito esta protección de credenciales casi nunca se hace legítimamente y deja expuestos hashes fáciles de descifrar."
+    },
+    "en": {
+      "summary": "A process ran a command line that sets the NoLMHash registry value under HKLM\\System\\CurrentControlSet\\Control\\Lsa to 0. With that change, Windows stores LM hashes of passwords again in the local SAM or Active Directory.",
+      "what_it_detects": "Process creation events whose CommandLine contains all three of '\\System\\CurrentControlSet\\Control\\Lsa', 'NoLMHash' and ' 0'. This is usually reg.exe add, PowerShell Set-ItemProperty or a similar tool.",
+      "why_it_matters": "LM hashes are weak and crack quickly. If an attacker re-enables them, they get easily cracked hashes once users change their passwords. This maps to ATT&CK T1112 (Modify Registry) and is used to weaken defenses and keep persistence.",
+      "triage_steps": [
+        "Read the full CommandLine. Confirm the value written to NoLMHash is 0 (for example '/d 0') and not 1 or a value that only partly matches.",
+        "Identify Image, ParentImage and User. A shell started by Office, a web service or a remote-access tool is more suspicious than a known admin script.",
+        "Check the host role. On a domain controller the impact covers every domain account, so raise the priority.",
+        "Query the current value of HKLM\\System\\CurrentControlSet\\Control\\Lsa\\NoLMHash on the endpoint, and look for registry events (Sysmon 13) that confirm the write.",
+        "On the same host within +/- 15 minutes, look for other Lsa or WDigest changes (UseLogonCredential, LmCompatibilityLevel), LSASS access or SAM dumping.",
+        "Review password changes after the event (4723/4724). Those accounts may already have an LM hash stored.",
+        "Look for earlier alerts on the same user and host, and check whether a change ticket authorizes this."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Legacy applications that need LM compatibility, configured on purpose by an administrator, ideally under an approved change.",
+        "Hardening tests or configuration audits in a lab that set the value to 0 temporarily."
+      ],
+      "response_steps": [
+        "Confirm with the system owner whether the change was authorized. Without a justification, treat it as an incident.",
+        "Set NoLMHash back to 1 (REG_DWORD) and enforce it through GPO ('Do not store LAN Manager hash value').",
+        "Isolate the endpoint if you find signs of credential theft or malicious remote execution.",
+        "Force password resets for accounts that changed their password while NoLMHash was 0, starting with privileged accounts.",
+        "Investigate and remove the attacker's access path, and check other hosts for the same command."
+      ],
+      "severity_rationale": "High fits because turning off this credential protection on purpose is rarely legitimate and exposes easily cracked password hashes."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe started from cmd.exe sets NoLMHash to 0",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "reg add \"HKLM\\System\\CurrentControlSet\\Control\\Lsa\" /v NoLMHash /t REG_DWORD /d 0 /f",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell Set-ItemProperty sets NoLMHash to 0 on a domain controller",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\adm-svc",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\wsmprovhost.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa' -Name NoLMHash -Value 0",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Hardening script sets NoLMHash to 1, so no ' 0' appears",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "reg add \"HKLM\\System\\CurrentControlSet\\Control\\Lsa\" /v NoLMHash /t REG_DWORD /d 1 /f",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Read-only query of NoLMHash during an audit",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\auditor",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "reg query \"HKLM\\System\\CurrentControlSet\\Control\\Lsa\" /v NoLMHash",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

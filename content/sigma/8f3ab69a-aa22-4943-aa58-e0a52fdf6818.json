@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "8f3ab69a-aa22-4943-aa58-e0a52fdf6818",
+    "title": "User Shell Folders Registry Modification via CommandLine",
+    "level": "high",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_user_shell_folders_registry_modification.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_user_shell_folders_registry_modification.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1112",
+      "T1547.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "reg.exe o PowerShell modificó por línea de comandos el valor Startup o Common Startup de Shell Folders o User Shell Folders. Esto puede redirigir la carpeta de inicio a una ruta controlada por un atacante para lograr persistencia.",
+      "what_it_detects": "Procesos reg.exe, powershell.exe o pwsh.exe (por Image u OriginalFileName) cuyo CommandLine incluye una acción de escritura (' add ', New-ItemProperty, Set-ItemProperty o el alias 'si '), la ruta \\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders o User Shell Folders y la cadena Startup.",
+      "why_it_matters": "Explorer ejecuta al iniciar sesión todo lo que encuentra en la carpeta de inicio. Si se redirige esa carpeta, el payload corre en cada logon sin crear una clave Run visible (T1547.001, con T1112 Modify Registry). Cambiar Common Startup en HKLM requiere privilegios de administrador y afecta a todos los usuarios.",
+      "triage_steps": [
+        "Revise el CommandLine completo: hive (HKCU o HKLM), nombre del valor (Startup o Common Startup) y la nueva ruta de datos (/d o -Value).",
+        "Compare la nueva ruta con los valores predeterminados (%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup o %ProgramData%\\...\\StartUp). Sospeche de rutas en Temp, Public, ProgramData o recursos UNC.",
+        "Liste el contenido de la carpeta de destino y obtenga el hash de los ejecutables, scripts o archivos LNK; consulte su reputación.",
+        "Analice ParentImage y el árbol de procesos: ¿proviene de Office, wscript, mshta, un instalador conocido o una consola interactiva del usuario?",
+        "Verifique la cuenta (User) y si el proceso tenía privilegios elevados, sobre todo si se modificó HKLM.",
+        "Pivote en el mismo host +/- 15 minutos: descargas, creación de archivos en la nueva ruta, otros cambios de registro y conexiones de red.",
+        "Busque alertas anteriores del mismo host o usuario y la misma línea de comandos en otros endpoints."
+      ],
+      "false_positives": [
+        "Uso legítimo de reg.exe o PowerShell para modificar User Shell Folders, poco frecuente según la regla.",
+        "Scripts de administración o de redirección de perfiles que restablecen la carpeta Startup a su ruta predeterminada.",
+        "Pruebas autorizadas de red team o Atomic Red Team (T1547.001) en equipos de laboratorio."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del equipo o con TI si el cambio estaba autorizado antes de actuar.",
+        "Si es malicioso, aísle el endpoint y conserve la carpeta de destino y la exportación de la clave de registro como evidencia.",
+        "Restaure el valor Startup o Common Startup a la ruta predeterminada y elimine los payloads tras verificar su hash.",
+        "Restablezca las credenciales de la cuenta implicada, revise otros mecanismos de persistencia y busque los mismos indicadores en toda la flota."
+      ],
+      "severity_rationale": "Es nivel alto porque redirigir la carpeta de inicio por línea de comandos rara vez es legítimo y otorga ejecución persistente en cada inicio de sesión."
+    },
+    "en": {
+      "summary": "reg.exe or PowerShell changed the Startup or Common Startup value under Shell Folders or User Shell Folders from the command line. This can redirect the startup folder to an attacker-controlled path for persistence.",
+      "what_it_detects": "reg.exe, powershell.exe or pwsh.exe (by Image or OriginalFileName) whose CommandLine contains a write action (' add ', New-ItemProperty, Set-ItemProperty or the 'si ' alias), the \\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders or User Shell Folders path, and the string Startup.",
+      "why_it_matters": "Explorer runs whatever is in the startup folder at logon. Redirecting that folder runs a payload at every logon without a visible Run key (T1547.001, plus T1112 Modify Registry). Changing Common Startup in HKLM needs admin rights and affects all users.",
+      "triage_steps": [
+        "Read the full CommandLine: hive (HKCU or HKLM), value name (Startup or Common Startup) and the new data path (/d or -Value).",
+        "Compare the new path with the defaults (%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup or %ProgramData%\\...\\StartUp). Treat Temp, Public, ProgramData or UNC paths as suspicious.",
+        "List the target folder contents, hash any executables, scripts or LNK files and check their reputation.",
+        "Review ParentImage and the process tree: Office, wscript, mshta, a known installer, or an interactive user console?",
+        "Check the User account and whether the process was elevated, especially when HKLM was changed.",
+        "Pivot on the same host +/- 15 minutes: downloads, file creation in the new path, other registry changes and network connections.",
+        "Look for earlier alerts for this host or user and the same command line on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate reg.exe or PowerShell changes to User Shell Folders; the rule notes these are rare.",
+        "Admin or profile-redirection scripts resetting the Startup folder to its default location.",
+        "Authorized red team or Atomic Red Team (T1547.001) tests on lab machines."
+      ],
+      "response_steps": [
+        "Confirm with the asset owner or IT whether the change was authorized before acting.",
+        "If malicious, isolate the endpoint and preserve the target folder and an export of the registry key as evidence.",
+        "Restore the Startup or Common Startup value to its default path and remove payloads after verifying their hashes.",
+        "Reset the involved account's credentials, check for other persistence and hunt for the same indicators fleet-wide."
+      ],
+      "severity_rationale": "High fits because redirecting the startup folder via the command line is rarely legitimate and grants persistent execution at every logon."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe redirects HKLM Common Startup to a folder under C:\\Users\\Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe add \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders\" /v \"Common Startup\" /t REG_EXPAND_SZ /d \"C:\\Users\\Public\\Updates\" /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell Set-ItemProperty points the HKCU Startup value to ProgramData",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders' -Name 'Startup' -Value 'C:\\ProgramData\\svchelper'",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "reg.exe only queries the Startup value (no write action)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe query \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders\" /v Startup",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Folder redirection script changes the Personal (Documents) value, not Startup",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0305.andes.example.com",
+          "User": "ANDES\\svc_gpo",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders\" /v Personal /t REG_EXPAND_SZ /d \"\\\\fs01.andes.example.com\\home\\jperez\\Documents\" /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "9cfc00b6-bfb7-49ce-9781-ef78503154bb",
+    "title": "Wlrmdr.EXE Uncommon Argument Or Child Process",
+    "level": "medium",
+    "status": "experimental",
+    "author": "frack113, manasmbellani",
+    "path": "windows/process_creation/proc_creation_win_wlrmdr_uncommon_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wlrmdr_uncommon_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Wlrmdr.exe (Windows Logon Reminder) con los parámetros completos, incluido -u, fuera de winlogon.exe, o Wlrmdr.exe generó un proceso hijo. Ambos casos sugieren que se usa como proxy para lanzar binarios arbitrarios.",
+      "what_it_detects": "Detecta dos cosas. Primero, cualquier proceso cuyo ParentImage termine en \\wlrmdr.exe. Segundo, Wlrmdr.exe (por Image u OriginalFileName WLRMNDR.EXE) con los flags -s, -f, -t, -m, -a y -u en CommandLine, siempre que el padre no sea C:\\Windows\\System32\\winlogon.exe ni esté vacío.",
+      "why_it_matters": "El flag -u pasa su valor a la API ShellExecute, lo que permite ejecutar cualquier binario a través de un ejecutable firmado por Microsoft. Esto corresponde a T1218 (System Binary Proxy Execution) y sirve para evadir controles basados en listas de aplicaciones permitidas.",
+      "triage_steps": [
+        "Revise CommandLine de Wlrmdr.exe y extraiga el valor que sigue a -u: identifique qué binario, script o URL se pasó a ShellExecute.",
+        "Si la alerta vino de selection_parent, examine Image y CommandLine del proceso hijo; Wlrmdr.exe normalmente no genera procesos hijos.",
+        "Verifique ParentImage de Wlrmdr.exe: cmd.exe, powershell.exe, wscript.exe o mshta.exe son sospechosos.",
+        "Valide la ruta y el hash de Wlrmdr.exe y del binario lanzado; busque copias fuera de C:\\Windows\\System32.",
+        "Revise el usuario y la sesión de inicio; confirme si la actividad corresponde a un inicio de sesión interactivo normal.",
+        "Pivotee en el mismo host +/- 15 minutos: creación de archivos, conexiones de red, persistencia (Run keys, tareas programadas) y otras LOLBins.",
+        "Busque alertas previas del mismo host, usuario y hash del payload en el resto del entorno."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Ejecuciones manuales de pruebas de LOLBAS o ejercicios de red team autorizados.",
+        "Herramientas de administración o scripts internos que invocan Wlrmdr.exe para mostrar recordatorios de inicio de sesión desde un padre distinto de winlogon.exe."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el propietario del equipo si la ejecución fue legítima o parte de una prueba autorizada.",
+        "Si es maliciosa, aísle el endpoint y termine el proceso hijo lanzado mediante -u.",
+        "Obtenga una copia y el hash del payload; búsquelo en otros equipos y bloquéelo en el EDR.",
+        "Elimine los mecanismos de persistencia y artefactos encontrados; restablezca credenciales si hay indicios de robo.",
+        "Considere restringir Wlrmdr.exe con WDAC o AppLocker para ejecuciones que no provengan de winlogon.exe."
+      ],
+      "severity_rationale": "Medium es adecuado porque el uso de Wlrmdr.exe como proxy es raro y sospechoso, pero por sí solo no confirma impacto y requiere revisar el payload."
+    },
+    "en": {
+      "summary": "Wlrmdr.exe (Windows Logon Reminder) ran with its full argument set, including -u, from a parent other than winlogon.exe, or Wlrmdr.exe spawned a child process. Both suggest it is being used to proxy-execute arbitrary binaries.",
+      "what_it_detects": "Two things: any process whose ParentImage ends with \\wlrmdr.exe; or Wlrmdr.exe (by Image or OriginalFileName WLRMNDR.EXE) with -s, -f, -t, -m, -a and -u in CommandLine, when the parent is not C:\\Windows\\System32\\winlogon.exe and is not empty.",
+      "why_it_matters": "The -u value is handed to the ShellExecute API, so a Microsoft-signed binary launches whatever the attacker chooses. This is T1218 (System Binary Proxy Execution), used to slip past application allowlisting.",
+      "triage_steps": [
+        "Read the Wlrmdr.exe CommandLine and extract the value after -u: which binary, script or URL was passed to ShellExecute.",
+        "If selection_parent fired, review the child's Image and CommandLine; Wlrmdr.exe normally spawns no children.",
+        "Check the ParentImage of Wlrmdr.exe; cmd.exe, powershell.exe, wscript.exe or mshta.exe are suspicious.",
+        "Validate path and hash of Wlrmdr.exe and the launched binary; look for copies outside C:\\Windows\\System32.",
+        "Review the user and logon session; confirm whether it matches a normal interactive logon.",
+        "Pivot on the same host +/- 15 minutes: file writes, network connections, persistence (Run keys, scheduled tasks), other LOLBins.",
+        "Search earlier alerts for the same host, user and payload hash across the environment."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Authorized LOLBAS testing or red team exercises.",
+        "Internal admin scripts or tools invoking Wlrmdr.exe to display logon reminders from a parent other than winlogon.exe."
+      ],
+      "response_steps": [
+        "Confirm with the user or host owner whether the execution was legitimate or an authorized test.",
+        "If malicious, isolate the endpoint and terminate the child process launched via -u.",
+        "Collect the payload and its hash; hunt for it on other hosts and block it in EDR.",
+        "Remove persistence and artifacts found; reset credentials if theft is suspected.",
+        "Consider restricting Wlrmdr.exe with WDAC or AppLocker when not launched by winlogon.exe."
+      ],
+      "severity_rationale": "Medium fits because Wlrmdr.exe proxy use is rare and suspicious, but alone it does not prove impact and the payload must be reviewed."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Wlrmdr.exe launched from cmd.exe with full flag set and -u pointing to a payload",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wlrmdr.exe",
+          "OriginalFileName": "WLRMNDR.EXE",
+          "CommandLine": "wlrmdr.exe -s 3600 -f 0 -t _ -m _ -a 11 -u C:\\Users\\Public\\update.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c wlrmdr.exe -s 3600 -f 0 -t _ -m _ -a 11 -u C:\\Users\\Public\\update.exe"
+        }
+      },
+      {
+        "description": "Child process spawned by Wlrmdr.exe via ShellExecute",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\update.exe",
+          "OriginalFileName": "update.exe",
+          "CommandLine": "\"C:\\Users\\Public\\update.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\wlrmdr.exe",
+          "ParentCommandLine": "wlrmdr.exe -s 3600 -f 0 -t _ -m _ -a 11 -u C:\\Users\\Public\\update.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Wlrmdr.exe launched by winlogon.exe with its flags, excluded by filter_main_winlogon",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wlrmdr.exe",
+          "OriginalFileName": "WLRMNDR.EXE",
+          "CommandLine": "wlrmdr.exe -s 60000 -f 1 -t Reminder -m Password -a 10 -u ms-settings:",
+          "ParentImage": "C:\\Windows\\System32\\winlogon.exe"
+        }
+      },
+      {
+        "description": "Wlrmdr.exe from explorer.exe without the -u flag, so not all child flag selections match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wlrmdr.exe",
+          "OriginalFileName": "WLRMNDR.EXE",
+          "CommandLine": "wlrmdr.exe -s 3600 -f 0 -t Reminder -m Notice -a 10",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

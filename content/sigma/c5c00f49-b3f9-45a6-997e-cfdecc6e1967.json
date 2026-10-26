@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "c5c00f49-b3f9-45a6-997e-cfdecc6e1967",
+    "title": "Suspicious Schtasks Execution AppData Folder",
+    "level": "high",
+    "status": "test",
+    "author": "pH-T (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_schtasks_appdata_local_system.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_schtasks_appdata_local_system.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1053.005",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se usó schtasks.exe para crear una tarea programada que se ejecuta como SYSTEM y lanza un archivo desde C:\\Users\\<usuario>\\AppData\\Local. Es un patrón típico de persistencia y escalamiento de privilegios de malware como QBot.",
+      "what_it_detects": "Ejecuciones de schtasks.exe cuyo CommandLine contiene /Create, /RU, /TR, una ruta C:\\Users\\...\\AppData\\Local\\ y la cuenta 'NT AUTHORITY\\SYSTEM' o ' SYSTEM '. Se excluye la tarea TVInstallRestore del instalador de TeamViewer.",
+      "why_it_matters": "Si un binario ubicado en una carpeta que el usuario puede escribir se ejecuta como SYSTEM, el atacante obtiene persistencia y el máximo privilegio local (ATT&CK T1053.005, tarea programada). Cualquier usuario podría reemplazar ese archivo.",
+      "triage_steps": [
+        "Revise el CommandLine: nombre de la tarea (/TN), binario de /TR, disparador (/SC) y cuenta de /RU.",
+        "Identifique ParentImage y la cadena completa de procesos: ¿la tarea la creó cmd, PowerShell, un documento de Office o un proceso que corre desde AppData?",
+        "Obtenga el hash del archivo indicado en /TR, verifique la firma y consulte su reputación; revise cuándo se creó y quién lo escribió.",
+        "Compruebe la tarea en el host (schtasks /Query /TN <nombre> /V o Microsoft-Windows-TaskScheduler/Operational, eventos 106 y 200).",
+        "Busque en el mismo host, +/- 15 minutos, descargas, nuevos ejecutables en AppData, PowerShell codificado y conexiones de red salientes.",
+        "Pivotee por el usuario dueño del perfil y por el hash en otros endpoints; revise alertas anteriores para ese host o esa cuenta."
+      ],
+      "false_positives": [
+        "Instaladores o actualizadores legítimos que registran una tarea SYSTEM apuntando a AppData\\Local (por ejemplo, variantes de TeamViewer no cubiertas por el filtro).",
+        "Scripts de administración o herramientas de despliegue internas mal diseñadas; valide con el equipo de TI."
+      ],
+      "response_steps": [
+        "Confirme la legitimidad con el dueño del equipo y TI antes de actuar; conserve la definición de la tarea y el binario como evidencia.",
+        "Si es malicioso, aísle el endpoint desde el EDR y deshabilite la tarea programada.",
+        "Elimine la tarea y el binario tras la recolección forense; busque otros mecanismos de persistencia (Run keys, servicios).",
+        "Restablezca las credenciales del usuario afectado y revise si hubo movimiento lateral o actividad en el controlador de dominio.",
+        "Bloquee el hash y los indicadores de red asociados en toda la organización."
+      ],
+      "severity_rationale": "Es alta porque una tarea SYSTEM que ejecuta código desde una carpeta escribible por el usuario casi nunca se ve en software legítimo y otorga persistencia con privilegios máximos."
+    },
+    "en": {
+      "summary": "schtasks.exe created a scheduled task that runs as SYSTEM and launches a file from C:\\Users\\<user>\\AppData\\Local. Malware such as QBot uses this pattern for persistence and privilege escalation.",
+      "what_it_detects": "schtasks.exe executions whose CommandLine contains /Create, /RU, /TR, a C:\\Users\\...\\AppData\\Local\\ path and the account 'NT AUTHORITY\\SYSTEM' or ' SYSTEM '. The TeamViewer installer's TVInstallRestore task is excluded.",
+      "why_it_matters": "A binary in a user-writable folder that runs as SYSTEM gives the attacker persistence and the highest local privilege (ATT&CK T1053.005, Scheduled Task). Any user could also replace that file.",
+      "triage_steps": [
+        "Review the CommandLine: task name (/TN), the /TR binary, the trigger (/SC) and the /RU account.",
+        "Identify ParentImage and the full process tree: was the task created by cmd, PowerShell, an Office document or a process running from AppData?",
+        "Hash the /TR file, check its signature and reputation, and find out when it was created and which process wrote it.",
+        "Confirm the task on the host (schtasks /Query /TN <name> /V, or TaskScheduler/Operational events 106 and 200).",
+        "On the same host within +/- 15 minutes, look for downloads, new executables in AppData, encoded PowerShell and outbound connections.",
+        "Pivot on the profile owner and the file hash across other endpoints; check earlier alerts for this host or account."
+      ],
+      "false_positives": [
+        "Legitimate installers or updaters that register a SYSTEM task pointing to AppData\\Local, such as TeamViewer variants the filter does not cover.",
+        "Poorly designed internal admin scripts or deployment tools. Confirm with IT."
+      ],
+      "response_steps": [
+        "Confirm with the host owner and IT before acting. Keep the task definition and the binary as evidence.",
+        "If it is malicious, isolate the endpoint through EDR and disable the scheduled task.",
+        "After forensic collection, delete the task and the binary. Hunt for other persistence such as Run keys and services.",
+        "Reset the affected user's credentials and check for lateral movement or domain controller activity.",
+        "Block the hash and the related network indicators across the organization."
+      ],
+      "severity_rationale": "High fits because legitimate software almost never runs code from a user-writable folder through a SYSTEM task, and the technique gives persistence with full privileges."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe creates a task that runs as NT AUTHORITY\\SYSTEM and launches a binary from the user's AppData\\Local\\Temp",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "CommandLine": "schtasks.exe /Create /F /RU \"NT AUTHORITY\\SYSTEM\" /TN \"WinUpdateSvc\" /SC ONSTART /TR \"C:\\Users\\jperez\\AppData\\Local\\Temp\\updsvc.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\jperez\\AppData\\Local\\Temp\\run.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell creates a daily task with /RU SYSTEM that points to AppData\\Local",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "CommandLine": "schtasks /Create /SC DAILY /RU SYSTEM /TN SyncHelper /TR C:\\Users\\mrojas\\AppData\\Local\\Microsoft\\synchelper.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "The TeamViewer installer creates the TVInstallRestore task. The rule's filter excludes it.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "CommandLine": "schtasks.exe /Create /TN TVInstallRestore /TR \"C:\\Users\\jperez\\AppData\\Local\\Temp\\TeamViewer\\TeamViewer_.exe\" /RU SYSTEM /SC ONSTART /F",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\TeamViewer\\TeamViewer_.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "A task that runs from AppData\\Local but under the user's own account, not SYSTEM",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "CommandLine": "schtasks.exe /Create /RU ANDES\\mrojas /TN NotesSync /SC HOURLY /TR \"C:\\Users\\mrojas\\AppData\\Local\\NotesApp\\sync.exe\"",
+          "ParentImage": "C:\\Users\\mrojas\\AppData\\Local\\NotesApp\\setup.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

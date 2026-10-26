@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "d21374ff-f574-44a7-9998-4a8c8bf33d7d",
+    "title": "WmiPrvSE Spawned A Process",
+    "level": "medium",
+    "status": "stable",
+    "author": "Roberto Rodriguez @Cyb3rWard0g",
+    "path": "windows/process_creation/proc_creation_win_wmiprvse_spawning_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmiprvse_spawning_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1047"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "El proceso host de proveedores WMI (WmiPrvSE.exe) inició un proceso hijo bajo una cuenta de usuario, no bajo SYSTEM. Esto suele indicar ejecución mediante WMI, a menudo remota, con las credenciales de quien la invocó.",
+      "what_it_detects": "Eventos de creación de procesos cuyo ParentImage termina en \\WmiPrvSe.exe. Se excluyen los hijos con LogonId 0x3e7 o nulo, los que corren como NT AUTHORITY (o su equivalente en otros idiomas) y los hijos WmiPrvSE.exe y WerFault.exe.",
+      "why_it_matters": "Los atacantes usan WMI (ATT&CK T1047, Windows Management Instrumentation) para ejecutar comandos local o remotamente, por ejemplo con Win32_Process Create, wmic /node o herramientas tipo wmiexec. Así se mueven lateralmente sin instalar servicios ni dejar binarios evidentes.",
+      "triage_steps": [
+        "Revise Image y CommandLine del hijo. Son sospechosos cmd.exe /Q /c, powershell con -enc, redirección de salida a \\\\127.0.0.1\\ADMIN$, rundll32, mshta o binarios en carpetas temporales.",
+        "Identifique la cuenta en User y valide si es un administrador o una cuenta de servicio que suele usar WMI o WinRM en ese host.",
+        "Correlacione el LogonId con el evento 4624 del mismo host para obtener el tipo de inicio de sesión (3 = red), la IP y el equipo de origen.",
+        "Pivote hacia el host de origen: busque wmic, Invoke-WmiMethod, Invoke-CimMethod o herramientas de Impacket dentro de +/- 15 minutos.",
+        "Revise los procesos hijos y nietos del proceso generado, las conexiones de red, los archivos creados y los cambios de persistencia en el mismo host +/- 15 minutos.",
+        "Busque alertas previas para el mismo usuario, la misma IP de origen y este host, y otros hosts que recibieron ejecución WMI desde ese origen."
+      ],
+      "false_positives": [
+        "Uso legítimo de WinRM o de PowerShell remoting por administradores y scripts de gestión.",
+        "Herramientas de inventario, monitoreo o despliegue de software (SCCM y agentes RMM, entre otras) que ejecutan comandos vía WMI con cuentas de servicio de dominio.",
+        "Tareas de soporte técnico que lanzan comandos remotos con wmic o Invoke-CimMethod."
+      ],
+      "response_steps": [
+        "Confirme con el dueño de la cuenta o con el equipo de TI si la ejecución estaba autorizada y documente la evidencia.",
+        "Si no está autorizada, aísle el endpoint afectado y el host de origen, y deshabilite o restablezca las credenciales usadas.",
+        "Termine los procesos maliciosos solo después de capturar memoria y artefactos. Elimine la persistencia y los archivos dejados por el atacante.",
+        "Revise otros hosts alcanzados desde el mismo origen o con la misma cuenta. Restringa el acceso WMI/DCOM remoto a hosts de administración y aumente el monitoreo."
+      ],
+      "severity_rationale": "Media: la ejecución WMI bajo contexto de usuario es una técnica común de movimiento lateral, pero también es frecuente en la administración legítima, por lo que requiere contexto."
+    },
+    "en": {
+      "summary": "The WMI provider host (WmiPrvSE.exe) started a child process under a user account rather than SYSTEM. This usually means execution through WMI, often remote, using the caller's credentials.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\WmiPrvSe.exe. Children with LogonId 0x3e7 or null, children running as NT AUTHORITY (or its localized equivalent), and WmiPrvSE.exe or WerFault.exe children are excluded.",
+      "why_it_matters": "Attackers use WMI (ATT&CK T1047, Windows Management Instrumentation) to run commands locally or remotely, for example with Win32_Process Create, wmic /node or wmiexec-style tools. This lets them move laterally without installing services or dropping obvious binaries.",
+      "triage_steps": [
+        "Review the child's Image and CommandLine. Watch for cmd.exe /Q /c, powershell -enc, output redirected to \\\\127.0.0.1\\ADMIN$, rundll32, mshta, or binaries in temp folders.",
+        "Identify the User account and check whether it is an admin or service account that normally uses WMI or WinRM on this host.",
+        "Correlate the LogonId with event 4624 on the same host to get the logon type (3 = network), the source IP and the source workstation.",
+        "Pivot to the source host and look for wmic, Invoke-WmiMethod, Invoke-CimMethod or Impacket tooling within +/- 15 minutes.",
+        "Review the spawned process's children and grandchildren, network connections, created files and persistence changes on the same host within +/- 15 minutes.",
+        "Look for earlier alerts for the same user, the same source IP and this host, and for other hosts that received WMI execution from that source."
+      ],
+      "false_positives": [
+        "Legitimate WinRM or PowerShell remoting by administrators and management scripts.",
+        "Inventory, monitoring or software deployment tools (for example SCCM or RMM agents) running commands over WMI with domain service accounts.",
+        "Help desk tasks that launch remote commands with wmic or Invoke-CimMethod."
+      ],
+      "response_steps": [
+        "Confirm with the account owner or IT whether the execution was authorized, and record the evidence.",
+        "If it was not authorized, isolate the affected endpoint and the source host, then disable or reset the credentials used.",
+        "Terminate malicious processes only after capturing memory and artifacts. Remove persistence and files the attacker left behind.",
+        "Check other hosts reached from the same source or with the same account. Restrict remote WMI/DCOM to admin hosts and increase monitoring."
+      ],
+      "severity_rationale": "Medium: WMI execution in a user context is a common lateral movement technique, but it is also common in legitimate administration, so it needs context."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WMI remote execution: WmiPrvSE spawns cmd.exe under a domain user with a network logon session, output redirected to ADMIN$",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\wbem\\wmiprvse.exe -secured -Embedding",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /Q /c whoami 1> \\\\127.0.0.1\\ADMIN$\\__1698239012.55 2>&1",
+          "User": "ANDES\\jperez",
+          "LogonId": "0x5a3f21",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "WmiPrvSE spawns PowerShell under an administrator account",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoP -W Hidden -Command Get-Process",
+          "User": "ANDES\\adm.mrojas",
+          "LogonId": "0x8c12be",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "WmiPrvSE spawns a process as SYSTEM (LogonId 0x3e7, NT AUTHORITY user); excluded by the filters",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c ipconfig /all",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "LogonId": "0x3e7",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "WmiPrvSE spawns WerFault.exe under a user context after a provider crash; excluded by filter_werfault",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "Image": "C:\\Windows\\System32\\WerFault.exe",
+          "CommandLine": "C:\\Windows\\system32\\WerFault.exe -u -p 4412 -s 512",
+          "User": "ANDES\\lgomez",
+          "LogonId": "0x4b7e10",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

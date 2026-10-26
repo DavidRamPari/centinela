@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "1c67a717-32ba-409b-a45d-0fb704a73a81",
+    "title": "System Network Connections Discovery Via Net.EXE",
+    "level": "low",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_net_use_network_connections_discovery.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_net_use_network_connections_discovery.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1049"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó net.exe o net1.exe con los subcomandos 'use' o 'sessions', que listan o gestionan conexiones de red y sesiones SMB del equipo. Puede tratarse de administración rutinaria o de reconocimiento posterior a un compromiso.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image u OriginalFileName corresponde a net.exe o net1.exe y CommandLine termina en ' use' o ' sessions', o contiene ' use ' o ' sessions '.",
+      "why_it_matters": "Un atacante usa 'net use' y 'net sessions' para ver recursos compartidos mapeados, servidores conectados y usuarios con sesiones abiertas, y así planificar el movimiento lateral (ATT&CK T1049, System Network Connections Discovery).",
+      "triage_steps": [
+        "Revise CommandLine completo: un 'net use' sin argumentos solo lista conexiones; con rutas UNC, /user: o contraseñas indica mapeo o uso de credenciales.",
+        "Identifique el ParentImage y la cadena de procesos: explorer.exe o un script de inicio de sesión es habitual; cmd.exe lanzado por Office, w3wp.exe o rundll32.exe es sospechoso.",
+        "Confirme el usuario y su rol: verifique si es administrador o personal de TI y si el equipo es una estación de trabajo o un servidor.",
+        "Busque en el mismo host, +/- 15 minutos, otros comandos de descubrimiento: whoami, ipconfig, netstat, net group, nltest, systeminfo.",
+        "Revise la actividad de red posterior desde el host: conexiones SMB (445) nuevas, accesos a ADMIN$ o C$, o ejecución remota (PsExec, WMI).",
+        "Consulte alertas previas para el mismo host y usuario, y verifique si el comando se repite en otros equipos casi al mismo tiempo."
+      ],
+      "false_positives": [
+        "Scripts de inicio de sesión o GPO que mapean unidades de red con 'net use'.",
+        "Administradores o personal de soporte que revisan conexiones o sesiones SMB manualmente.",
+        "Herramientas de inventario, respaldo o despliegue de software que usan net.exe para acceder a recursos compartidos."
+      ],
+      "response_steps": [
+        "Valide con el usuario o con el equipo de TI si la ejecución fue legítima y esperada.",
+        "Si el padre o el contexto es sospechoso, aísle el endpoint y recolecte el árbol de procesos, artefactos de memoria y los hash de los binarios involucrados.",
+        "Si hubo credenciales en CommandLine o indicios de movimiento lateral, restablezca las contraseñas afectadas y revise los hosts de destino.",
+        "Elimine la persistencia o las herramientas maliciosas identificadas y monitoree el host y el usuario para detectar recurrencias."
+      ],
+      "severity_rationale": "El nivel bajo es adecuado porque 'net use' es muy común en entornos corporativos y solo cobra relevancia cuando se combina con otras señales de reconocimiento o un proceso padre anómalo."
+    },
+    "en": {
+      "summary": "net.exe or net1.exe ran with the 'use' or 'sessions' subcommand, which lists or manages the host's network connections and SMB sessions. This may be routine administration or post-compromise reconnaissance.",
+      "what_it_detects": "Windows process creation events where Image or OriginalFileName is net.exe or net1.exe and CommandLine ends with ' use' or ' sessions', or contains ' use ' or ' sessions '.",
+      "why_it_matters": "Attackers run 'net use' and 'net sessions' to see mapped shares, connected servers and users with open sessions, which helps them plan lateral movement (ATT&CK T1049, System Network Connections Discovery).",
+      "triage_steps": [
+        "Read the full CommandLine: bare 'net use' only lists connections; UNC paths, /user: or inline passwords mean mapping or credential use.",
+        "Check ParentImage and the process chain: explorer.exe or a logon script is normal; cmd.exe spawned by Office, w3wp.exe or rundll32.exe is suspicious.",
+        "Confirm the user and role: is it an admin or IT staff, and is the host a workstation or a server?",
+        "On the same host within +/- 15 minutes, look for other discovery commands: whoami, ipconfig, netstat, net group, nltest, systeminfo.",
+        "Review follow-on network activity: new SMB (445) connections, ADMIN$ or C$ access, or remote execution (PsExec, WMI).",
+        "Check earlier alerts for the same host and user, and whether the command appears on other hosts at about the same time."
+      ],
+      "false_positives": [
+        "Logon scripts or GPOs mapping network drives with 'net use'.",
+        "Administrators or helpdesk staff manually checking connections or SMB sessions.",
+        "Inventory, backup or software deployment tools that call net.exe to reach shares."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT team whether the execution was legitimate and expected.",
+        "If the parent or context is suspicious, isolate the endpoint and collect the process tree, memory artifacts and hashes of involved binaries.",
+        "If credentials appeared in CommandLine or lateral movement is suspected, reset affected passwords and review destination hosts.",
+        "Remove identified persistence or malicious tools, and monitor the host and user for recurrence."
+      ],
+      "severity_rationale": "Low fits because 'net use' is very common in corporate environments and matters mainly when paired with other reconnaissance or an unusual parent process."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Bare 'net use' listing connections, launched from cmd.exe spawned by a suspicious parent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net  use",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c net use",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "net1.exe enumerating SMB sessions on a remote server",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\adm_lrojas",
+          "Image": "C:\\Windows\\System32\\net1.exe",
+          "OriginalFileName": "net1.exe",
+          "CommandLine": "C:\\Windows\\system32\\net1 sessions \\\\SRV-DC01",
+          "ParentImage": "C:\\Windows\\System32\\net.exe",
+          "ParentCommandLine": "net sessions \\\\SRV-DC01"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "net.exe used to query a domain user; ' user' is not ' use' followed by a space or end of line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net user jperez /domain",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Different binary whose command line contains ' use ' but is not net.exe or net1.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0210.andes.example.com",
+          "User": "ANDES\\mgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -Command Write-Output 'please use the new share'",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

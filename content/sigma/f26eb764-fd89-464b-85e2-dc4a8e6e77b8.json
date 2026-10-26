@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "f26eb764-fd89-464b-85e2-dc4a8e6e77b8",
+    "title": "Suspicious Electron Application Child Processes",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_electron_app_children.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_electron_app_children.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Una aplicación basada en Electron o Chromium (Teams, Slack, Discord, Chrome, Edge, etc.) inició un intérprete de comandos, un LOLBin o un ejecutable ubicado en una ruta temporal o pública. Puede indicar manipulación del archivo .asar o uso de la aplicación como proxy de ejecución.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage termina en un ejecutable Electron/Chromium conocido y el Image hijo es cmd, PowerShell, pwsh, wscript, cscript, mshta, regsvr32 o whoami, o se ejecuta desde ProgramData, Temp, AppData\\Local\\Temp o Users\\Public. Se excluye Discord.exe lanzando cmd.exe para nvidia-smi.",
+      "why_it_matters": "Un atacante puede modificar el código JavaScript de app.asar o abusar de argumentos de línea de comandos para que una aplicación confiable y firmada ejecute su payload (Execution, ATT&CK T1059 y ejecución por proxy de binarios), y así lograr persistencia y evadir controles.",
+      "triage_steps": [
+        "Revise Image y CommandLine del proceso hijo: busque comandos codificados, descargas, whoami, scripts remotos o ejecutables en rutas temporales.",
+        "Confirme que ParentImage esté en la ruta de instalación esperada y firmado por el proveedor; revise la línea de comandos del padre en busca de --gpu-launcher, --utility-cmd-prefix o --browser-subprocess-path.",
+        "Busque cambios recientes en resources\\app.asar o archivos .js de la aplicación padre (fecha de modificación, hash frente a la versión oficial).",
+        "Si el hijo está en Temp, ProgramData o Users\\Public, obtenga su hash, firma y origen (descarga, Mark of the Web) y consulte reputación.",
+        "Reconstruya el árbol de procesos del mismo host en +/- 15 minutos: nietos, conexiones de red, archivos creados y claves Run o tareas programadas.",
+        "Pivotee por el usuario y por el hash del hijo en otros endpoints, y revise alertas previas del mismo host o usuario."
+      ],
+      "false_positives": [
+        "Chrome o Edge ejecutando hosts de native messaging de extensiones mediante cmd.exe.",
+        "Instaladores o actualizaciones abiertos por el usuario desde el navegador que se ejecutan desde AppData\\Local\\Temp.",
+        "GitHub Desktop abriendo una consola o ejecutando scripts de hooks de Git en equipos de desarrolladores.",
+        "Integraciones o bots internos de Slack, Teams o Discord que lanzan scripts aprobados."
+      ],
+      "response_steps": [
+        "Valide con el usuario y el equipo de TI si la actividad corresponde a una herramienta o flujo legítimo; documente y ajuste exclusiones específicas.",
+        "Si es malicioso, aísle el endpoint desde el EDR y termine el proceso hijo y sus descendientes tras preservar evidencia.",
+        "Reinstale la aplicación Electron desde una fuente oficial si app.asar fue alterado, y elimine binarios y persistencia identificados.",
+        "Restablezca credenciales del usuario si hubo ejecución de payload, y busque el mismo IOC en toda la flota."
+      ],
+      "severity_rationale": "Medio porque estos procesos hijos son poco comunes y pueden indicar ejecución maliciosa, pero navegadores y herramientas de desarrollo generan falsos positivos que requieren baseline."
+    },
+    "en": {
+      "summary": "An Electron or Chromium-based application (Teams, Slack, Discord, Chrome, Edge, etc.) launched a shell, a LOLBin or an executable from a temporary or public path. This can indicate .asar tampering or abuse of the app as an execution proxy.",
+      "what_it_detects": "Process creation events where ParentImage ends with a known Electron/Chromium executable and the child Image is cmd, PowerShell, pwsh, wscript, cscript, mshta, regsvr32 or whoami, or runs from ProgramData, Temp, AppData\\Local\\Temp or Users\\Public. Discord.exe launching cmd.exe for nvidia-smi is excluded.",
+      "why_it_matters": "Attackers can modify app.asar JavaScript or abuse command-line switches so a trusted, signed app runs their payload (Execution, ATT&CK T1059 and signed binary proxy execution), gaining persistence and evading controls.",
+      "triage_steps": [
+        "Review the child Image and CommandLine: look for encoded commands, downloads, whoami, remote scripts or executables in temporary paths.",
+        "Confirm ParentImage sits in the expected install path and is vendor-signed; check its command line for --gpu-launcher, --utility-cmd-prefix or --browser-subprocess-path.",
+        "Look for recent changes to the parent app's resources\\app.asar or .js files (modification time, hash versus the official release).",
+        "If the child runs from Temp, ProgramData or Users\\Public, collect its hash, signature and origin (download, Mark of the Web) and check reputation.",
+        "Rebuild the process tree on the same host within +/- 15 minutes: grandchildren, network connections, dropped files, Run keys or scheduled tasks.",
+        "Pivot on the user and the child hash across other endpoints, and review earlier alerts for the same host or user."
+      ],
+      "false_positives": [
+        "Chrome or Edge launching extension native messaging hosts through cmd.exe.",
+        "Installers or updates opened by the user from the browser, running from AppData\\Local\\Temp.",
+        "GitHub Desktop opening a console or running Git hook scripts on developer machines.",
+        "Approved internal Slack, Teams or Discord integrations that launch scripts."
+      ],
+      "response_steps": [
+        "Validate with the user and IT whether a legitimate tool or workflow explains it; document and add narrow exclusions.",
+        "If malicious, isolate the endpoint via EDR and kill the child process tree after preserving evidence.",
+        "Reinstall the Electron app from an official source if app.asar was altered, and remove identified binaries and persistence.",
+        "Reset the user's credentials if a payload ran, and hunt for the same IOCs fleet-wide."
+      ],
+      "severity_rationale": "Medium because these child processes are unusual and may signal malicious execution, but browsers and developer tools produce false positives that need a baseline."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Teams.exe spawns PowerShell with an encoded command, consistent with a tampered app.asar.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Microsoft\\Teams\\current\\Teams.exe",
+          "ParentCommandLine": "\"C:\\Users\\jperez\\AppData\\Local\\Microsoft\\Teams\\current\\Teams.exe\" --system-initiated",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -enc SQBFAFgAIAAoACcAaABlAGwAbABvACcAKQA=",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Slack.exe launches an unsigned executable from C:\\Users\\Public.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Users\\mrojas\\AppData\\Local\\slack\\app-4.36.140\\slack.exe",
+          "ParentCommandLine": "\"C:\\Users\\mrojas\\AppData\\Local\\slack\\app-4.36.140\\slack.exe\"",
+          "Image": "C:\\Users\\Public\\svcupdate.exe",
+          "CommandLine": "\"C:\\Users\\Public\\svcupdate.exe\" /silent",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Discord.exe runs cmd.exe to query nvidia-smi; excluded by the Discord filter.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "ParentImage": "C:\\Users\\lgomez\\AppData\\Local\\Discord\\app-1.0.9147\\Discord.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\system32\\cmd.exe /d /s /c \"\"C:\\Program Files\\NVIDIA Corporation\\NVSMI\\nvidia-smi.exe\" --query-gpu=name --format=csv\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Chrome spawns a normal renderer subprocess from Program Files; neither child image nor path matches.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+          "Image": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+          "CommandLine": "\"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" --type=renderer --lang=es-419",
+          "IntegrityLevel": "Low"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "ba42babc-0666-4393-a4f7-ceaf5a69191e",
+    "title": "Uncommon Child Processes Of SndVol.exe",
+    "level": "medium",
+    "status": "test",
+    "author": "X__Junior (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_sndvol_susp_child_processes.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sndvol_susp_child_processes.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "SndVol.exe (el mezclador de volumen de Windows) inició un proceso hijo distinto de la apertura habitual del panel de sonido mediante rundll32. Puede indicar que SndVol.exe fue secuestrado, inyectado o usado para cargar código no autorizado.",
+      "what_it_detects": "Eventos de creación de procesos cuyo ParentImage termina en \\SndVol.exe, excepto cuando el hijo es rundll32.exe con ' shell32.dll,Control_RunDLL ' en CommandLine, que es la forma legítima de abrir mmsys.cpl.",
+      "why_it_matters": "SndVol.exe es un binario confiable de Windows que casi nunca crea procesos. Si genera shells, scripts u otros binarios, puede ser señal de ejecución de código (táctica Execution de ATT&CK) mediante DLL sideloading, inyección o una copia renombrada usada para evadir controles.",
+      "triage_steps": [
+        "Revise Image y CommandLine del hijo: shells, PowerShell, LOLBins o binarios en rutas de usuario aumentan la sospecha.",
+        "Confirme que el padre se ejecuta desde C:\\Windows\\System32\\SndVol.exe y valide su firma y hash; una copia en otra ruta es muy sospechosa.",
+        "Revise el proceso abuelo de SndVol.exe y su línea de comandos; normalmente lo lanza explorer.exe desde el icono de volumen.",
+        "Busque DLL cargadas por SndVol.exe desde rutas no estándar (Sysmon EventID 7) para detectar sideloading.",
+        "Pivote en el mismo host +/- 15 minutos: conexiones de red, archivos creados, cambios de registro y procesos descendientes del hijo.",
+        "Verifique el usuario, si la sesión era interactiva y si hubo alertas previas para el mismo host o usuario."
+      ],
+      "false_positives": [
+        "Herramientas de audio de terceros o utilidades de accesibilidad que se integran con el mezclador de volumen y abren sus propios procesos.",
+        "Variantes legítimas del panel de sonido cuya línea de comandos no incluye exactamente ' shell32.dll,Control_RunDLL '.",
+        "Pruebas de seguridad o ejercicios de red team autorizados."
+      ],
+      "response_steps": [
+        "Valide con el usuario y el equipo de TI si la actividad era esperada antes de actuar.",
+        "Si se confirma actividad maliciosa, aísle el endpoint y finalice el árbol de procesos sospechoso.",
+        "Recolecte el binario hijo, DLL sospechosas y la memoria de SndVol.exe para análisis; obtenga sus hashes y búsquelos en la flota.",
+        "Elimine los artefactos y la persistencia identificados, restablezca credenciales si hay indicios de robo y monitoree el host tras restaurarlo."
+      ],
+      "severity_rationale": "Media: un hijo inusual de SndVol.exe es una anomalía fuerte, pero la regla no confirma por sí sola intención maliciosa y requiere contexto."
+    },
+    "en": {
+      "summary": "SndVol.exe (the Windows volume mixer) started a child process other than the usual rundll32 launch of the Sound control panel. This may mean SndVol.exe was hijacked, injected into or used to load unauthorized code.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\SndVol.exe, except when the child is rundll32.exe with ' shell32.dll,Control_RunDLL ' in CommandLine, the legitimate way to open mmsys.cpl.",
+      "why_it_matters": "SndVol.exe is a trusted Windows binary that rarely spawns processes. Shells, scripts or other binaries under it may signal code execution (ATT&CK Execution tactic) via DLL sideloading, injection or a renamed copy used to evade controls.",
+      "triage_steps": [
+        "Review the child Image and CommandLine: shells, PowerShell, LOLBins or binaries in user-writable paths raise suspicion.",
+        "Confirm the parent runs from C:\\Windows\\System32\\SndVol.exe and validate its signature and hash; a copy elsewhere is highly suspicious.",
+        "Check SndVol.exe's own parent and command line; normally explorer.exe launches it from the volume tray icon.",
+        "Look for DLLs loaded by SndVol.exe from non-standard paths (Sysmon Event ID 7) to spot sideloading.",
+        "Pivot on the same host +/- 15 minutes: network connections, file writes, registry changes and descendants of the child.",
+        "Check the user, whether the session was interactive, and earlier alerts for the same host or user."
+      ],
+      "false_positives": [
+        "Third-party audio or accessibility tools that hook into the volume mixer and launch their own processes.",
+        "Legitimate Sound panel variants whose command line lacks exactly ' shell32.dll,Control_RunDLL '.",
+        "Authorized security testing or red team exercises."
+      ],
+      "response_steps": [
+        "Confirm with the user and IT whether the activity was expected before acting.",
+        "If malicious, isolate the endpoint and terminate the suspicious process tree.",
+        "Collect the child binary, suspicious DLLs and SndVol.exe memory for analysis; hash them and hunt across the fleet.",
+        "Remove identified artifacts and persistence, reset credentials if theft is suspected, and monitor the host after recovery."
+      ],
+      "severity_rationale": "Medium: an unusual SndVol.exe child is a strong anomaly, but the rule alone does not prove malicious intent and needs context."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "SndVol.exe spawns cmd.exe running a command from a user-writable path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\SndVol.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\SndVol.exe\" -f 49825268",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c C:\\Users\\Public\\update.bat",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "SndVol.exe spawns rundll32 loading a non-standard DLL (filter not satisfied)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Windows\\System32\\SndVol.exe",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe C:\\Users\\mrojas\\AppData\\Local\\Temp\\audio.dll,Start",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate: SndVol.exe opens the Sound control panel via rundll32 shell32.dll,Control_RunDLL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\SndVol.exe",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\rundll32.exe\" shell32.dll,Control_RunDLL mmsys.cpl,,0",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "explorer.exe launches SndVol.exe itself; parent is not SndVol.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\SndVol.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\SndVol.exe\" -f 49825268",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

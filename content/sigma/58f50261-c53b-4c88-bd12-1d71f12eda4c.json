@@ -1,0 +1,138 @@
+{
+  "rule": {
+    "id": "58f50261-c53b-4c88-bd12-1d71f12eda4c",
+    "title": "Windows Credential Manager Access via VaultCmd",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_vaultcmd_list_creds.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_vaultcmd_list_creds.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1555.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó VaultCmd.exe con el parámetro /listcreds: para listar las credenciales guardadas en el Administrador de credenciales de Windows. Puede ser reconocimiento de credenciales por parte de un atacante o un uso administrativo poco común.",
+      "what_it_detects": "Creación de un proceso cuyo Image termina en \\VaultCmd.exe o cuyo OriginalFileName es VAULTCMD.EXE (lo que cubre binarios renombrados) y cuyo CommandLine contiene '/listcreds:', por ejemplo /listcreds:\"Windows Credentials\" /all.",
+      "why_it_matters": "El Administrador de credenciales guarda contraseñas de sitios web, recursos compartidos, RDP y aplicaciones. Listarlo con una utilidad nativa (T1555.004, Windows Credential Manager) permite a un atacante identificar cuentas y destinos para robo de credenciales y movimiento lateral sin usar herramientas externas.",
+      "triage_steps": [
+        "Revisar CommandLine: qué bóveda se consulta (Windows Credentials o Web Credentials) y si incluye /all, que expone más detalle.",
+        "Comparar Image con OriginalFileName: si el binario no está en C:\\Windows\\System32 o tiene otro nombre, tratarlo como sospechoso.",
+        "Identificar ParentImage y la cadena de procesos: cmd.exe o powershell.exe lanzados desde Office, un navegador, wmiprvse.exe o un servicio aumentan el riesgo.",
+        "Confirmar el usuario y el host: ¿es un administrador o personal de soporte con una razón documentada para revisar credenciales?",
+        "Pivotar en el mismo host ±15 minutos: buscar cmdkey /list, acceso a LSASS, dumps de DPAPI, comandos de reconocimiento como whoami, net o nltest, y conexiones salientes.",
+        "Buscar alertas previas del mismo usuario o host, así como inicios de sesión RDP o de red hacia los destinos que aparecen en las credenciales listadas.",
+        "Verificar si existe un ticket de cambio o una prueba autorizada, como un ejercicio de red team o Atomic Red Team."
+      ],
+      "false_positives": [
+        "Administradores o personal de soporte que revisan credenciales guardadas para diagnosticar fallas de autenticación.",
+        "Scripts de inventario, auditoría o migración de perfiles que enumeran bóvedas.",
+        "Pruebas de seguridad autorizadas, como Atomic Red Team T1555.004 o ejercicios de red team."
+      ],
+      "response_steps": [
+        "Validar con el usuario o con su responsable si la ejecución fue legítima y documentarlo.",
+        "Si no está justificada, aislar el endpoint y recolectar el árbol de procesos, el hash del binario y la memoria si procede.",
+        "Restablecer las contraseñas de las cuentas almacenadas en el Administrador de credenciales del usuario afectado y revocar sus sesiones.",
+        "Investigar el uso de esas credenciales en otros sistemas y eliminar la persistencia o las herramientas que encuentre.",
+        "Si el uso legítimo se repite, crear una exclusión acotada por usuario, host y ParentImage."
+      ],
+      "severity_rationale": "Medium es adecuado porque listar credenciales es un indicador claro de acceso a credenciales, aunque solo enumera las entradas y existen usos administrativos legítimos poco frecuentes."
+    },
+    "en": {
+      "summary": "VaultCmd.exe was run with /listcreds: to list credentials stored in Windows Credential Manager. This may be an attacker doing credential reconnaissance or an unusual admin task.",
+      "what_it_detects": "A process creation event where Image ends with \\VaultCmd.exe or OriginalFileName is VAULTCMD.EXE (this covers renamed copies) and CommandLine contains '/listcreds:', for example /listcreds:\"Windows Credentials\" /all.",
+      "why_it_matters": "Credential Manager stores passwords for websites, file shares, RDP and applications. Listing it with a built-in tool (T1555.004, Windows Credential Manager) shows an attacker which accounts and targets to steal or reuse for lateral movement, without bringing in outside tools.",
+      "triage_steps": [
+        "Review CommandLine: which vault was queried (Windows Credentials or Web Credentials) and whether /all was used, which shows more detail.",
+        "Compare Image with OriginalFileName. If the binary is outside C:\\Windows\\System32 or has been renamed, treat it as suspicious.",
+        "Identify ParentImage and the process chain. cmd.exe or powershell.exe started by Office, a browser, wmiprvse.exe or a service raises the risk.",
+        "Confirm the user and host. Is this an admin or helpdesk account with a documented reason to review credentials?",
+        "Pivot on the same host +/- 15 minutes. Look for cmdkey /list, LSASS access, DPAPI dumping, recon such as whoami, net or nltest, and outbound connections.",
+        "Check earlier alerts for the same user or host, and RDP or network logons to targets named in the listed credentials.",
+        "Check for a change ticket or authorized testing, such as a red team exercise or Atomic Red Team."
+      ],
+      "false_positives": [
+        "Admins or helpdesk staff reviewing saved credentials to troubleshoot authentication failures.",
+        "Inventory, audit or profile-migration scripts that enumerate vaults.",
+        "Authorized security testing, such as Atomic Red Team T1555.004 or red team exercises."
+      ],
+      "response_steps": [
+        "Confirm with the user or their manager whether the run was legitimate, and document the answer.",
+        "If it is unjustified, isolate the endpoint and collect the process tree, the binary hash and memory where appropriate.",
+        "Reset passwords for accounts stored in the affected user's Credential Manager and revoke their sessions.",
+        "Hunt for use of those credentials on other systems, and remove any persistence or tooling you find.",
+        "If legitimate use recurs, add a narrow exclusion scoped to user, host and ParentImage."
+      ],
+      "severity_rationale": "Medium fits because listing stored credentials is a clear credential-access signal, but it only enumerates entries and rare legitimate admin use exists."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Native VaultCmd listing Windows Credentials with /all, launched from PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\VaultCmd.exe",
+          "OriginalFileName": "VAULTCMD.EXE",
+          "CommandLine": "vaultcmd  /listcreds:\"Windows Credentials\" /all",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed VaultCmd copy in a public folder listing Web Credentials, matched through OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Users\\Public\\vc.exe",
+          "OriginalFileName": "VAULTCMD.EXE",
+          "CommandLine": "C:\\Users\\Public\\vc.exe /listcreds:\"Web Credentials\" /all",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\vc.exe /listcreds:\"Web Credentials\" /all",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "VaultCmd used only to list available vaults; no /listcreds: argument",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\soporte01",
+          "Image": "C:\\Windows\\System32\\VaultCmd.exe",
+          "OriginalFileName": "VAULTCMD.EXE",
+          "CommandLine": "vaultcmd /list",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "VaultCmd listing vault properties with /listproperties:, which does not contain /listcreds:",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\soporte01",
+          "Image": "C:\\Windows\\System32\\VaultCmd.exe",
+          "OriginalFileName": "VAULTCMD.EXE",
+          "CommandLine": "vaultcmd /listproperties:\"Windows Credentials\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

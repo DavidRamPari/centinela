@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "1dde5376-a648-492e-9e54-4241dd9b0c7f",
+    "title": "Diskshadow Script Mode - Uncommon Script Extension Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_diskshadow_script_mode_susp_ext.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_diskshadow_script_mode_susp_ext.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó diskshadow.exe en modo script (/s o -s) con un archivo cuya línea de comandos no contiene la extensión .txt habitual. Puede tratarse de un script legítimo con extensión interna o de abuso de este binario firmado de Windows.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\diskshadow.exe u OriginalFileName es diskshadow.exe, el CommandLine incluye el flag -s (o /s y variantes de guion) y no contiene '.txt'.",
+      "why_it_matters": "Diskshadow es un binario firmado de Microsoft que en modo script puede ejecutar comandos con 'exec', crear o exponer shadow copies para extraer NTDS.dit o borrar copias de sombra antes de un cifrado. Corresponde a T1218 (System Binary Proxy Execution), usada para evadir controles.",
+      "triage_steps": [
+        "Revise el CommandLine completo: ruta y extensión del script (.dsh, .log, .dat, sin extensión) y si está en carpetas escribibles por usuarios como Temp, Public o Downloads.",
+        "Identifique ParentImage y la cadena de procesos: cmd, powershell, wmiprvse o herramientas remotas como psexec son más sospechosas que un agente de backup.",
+        "Obtenga el script desde el endpoint y busque comandos exec, expose, set context persistent, delete shadows o rutas a ntds.dit y SYSTEM.",
+        "Verifique el usuario y el host: diskshadow suele usarse en servidores y controladores de dominio por cuentas de backup; en estaciones de trabajo es inusual.",
+        "Busque procesos hijos de diskshadow.exe y acceso a ntds.dit, robocopy o copias de archivos en el mismo host dentro de +/- 15 minutos.",
+        "Revise alertas previas del mismo usuario y host, en especial las reglas relacionadas de diskshadow, vssadmin o volcado de credenciales."
+      ],
+      "false_positives": [
+        "Scripts de backup o mantenimiento de VSS con extensiones internas como .dsh o .cfg, usados por administradores o software de respaldo.",
+        "Rutas con comillas o nombres que no incluyen '.txt' aunque el script sea legítimo; requiere un baseline inicial de extensiones permitidas."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host o del equipo de backup si la ejecución y el script son esperados; si lo son, documente la extensión para la exclusión.",
+        "Si no es legítima, aísle el endpoint y preserve el script, el historial de procesos y los artefactos de shadow copies expuestas.",
+        "Si se accedió a ntds.dit o SYSTEM, trate el incidente como compromiso de credenciales de dominio y planifique el reseteo de krbtgt y cuentas privilegiadas.",
+        "Elimine el script malicioso y la persistencia relacionada, y restaure shadow copies o backups si fueron borrados."
+      ],
+      "severity_rationale": "Medium es adecuado porque diskshadow en modo script tiene usos administrativos legítimos, pero una extensión inusual combinada con este binario es un patrón frecuente de evasión y robo de credenciales."
+    },
+    "en": {
+      "summary": "diskshadow.exe ran in script mode (/s or -s) with a command line that does not contain the usual .txt extension. This may be a legitimate script with an internal extension or abuse of this signed Windows binary.",
+      "what_it_detects": "Process creation where Image ends with \\diskshadow.exe or OriginalFileName is diskshadow.exe, CommandLine contains the -s flag (or /s and other dash variants), and CommandLine does not contain '.txt'.",
+      "why_it_matters": "Diskshadow is a signed Microsoft binary whose script mode can run commands via 'exec', create or expose shadow copies to extract NTDS.dit, or delete shadows before encryption. This maps to T1218 (System Binary Proxy Execution), used to evade defenses.",
+      "triage_steps": [
+        "Read the full CommandLine: script path and extension (.dsh, .log, .dat, none) and whether it sits in user-writable folders such as Temp, Public or Downloads.",
+        "Identify ParentImage and the process chain: cmd, powershell, wmiprvse or remote tools like psexec are more suspicious than a backup agent.",
+        "Collect the script from the endpoint and look for exec, expose, set context persistent, delete shadows, or paths to ntds.dit and SYSTEM.",
+        "Check user and host: diskshadow is normally run on servers and domain controllers by backup accounts; on workstations it is unusual.",
+        "Look for diskshadow.exe child processes and ntds.dit access, robocopy or file copies on the same host within +/- 15 minutes.",
+        "Review earlier alerts for the same user and host, especially related diskshadow, vssadmin or credential dumping rules."
+      ],
+      "false_positives": [
+        "Backup or VSS maintenance scripts with internal extensions such as .dsh or .cfg, run by administrators or backup software.",
+        "Quoted paths or names lacking '.txt' even though the script is legitimate; an initial baseline of allowed extensions is required."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or backup team whether the run and script are expected; if so, document the extension for an exclusion.",
+        "If not legitimate, isolate the endpoint and preserve the script, process history and any exposed shadow copy artifacts.",
+        "If ntds.dit or SYSTEM was accessed, treat it as domain credential compromise and plan krbtgt and privileged account resets.",
+        "Remove the malicious script and related persistence, and restore shadow copies or backups if they were deleted."
+      ],
+      "severity_rationale": "Medium fits because diskshadow script mode has legitimate admin uses, but an unusual extension with this binary is a common evasion and credential theft pattern."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Diskshadow run in script mode from a public folder with a .dsh script, launched by cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\diskshadow.exe",
+          "OriginalFileName": "diskshadow.exe",
+          "CommandLine": "diskshadow.exe /s C:\\Users\\Public\\shadow.dsh",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c diskshadow.exe /s C:\\Users\\Public\\shadow.dsh"
+        }
+      },
+      {
+        "description": "Renamed binary identified by OriginalFileName, script with no extension passed via -s",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\ds.exe",
+          "OriginalFileName": "diskshadow.exe",
+          "CommandLine": "ds.exe -s C:\\Users\\mrojas\\AppData\\Local\\Temp\\cfg",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate backup script with .txt extension, excluded by the filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "FS-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\diskshadow.exe",
+          "OriginalFileName": "diskshadow.exe",
+          "CommandLine": "diskshadow.exe /s C:\\Scripts\\vss_backup.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Diskshadow started interactively without the script flag",
+        "event": {
+          "EventID": 1,
+          "Computer": "FS-02.andes.example.com",
+          "User": "ANDES\\admin.lgomez",
+          "Image": "C:\\Windows\\System32\\diskshadow.exe",
+          "OriginalFileName": "diskshadow.exe",
+          "CommandLine": "diskshadow.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "434c08ba-8406-4d15-8b24-782cb071a691",
+    "title": "PowerShell Execution With Potential Decryption Capabilities",
+    "level": "high",
+    "status": "test",
+    "author": "X__Junior (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_decrypt_pattern.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_decrypt_pattern.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "PowerShell ejecutó una línea de comandos que busca archivos .LNK, lee sus bytes y extrae o escribe una porción de ellos. Este patrón coincide con malware que oculta la siguiente etapa dentro de un acceso directo.",
+      "what_it_detects": "Procesos powershell.exe o pwsh.exe cuyo CommandLine combina un listado de archivos (Get-ChildItem, dir, gci, ls), una lectura (Get-Content, gc, cat, type, ReadAllBytes) y un patrón específico sobre *.lnk: pipeline con ^|, -Recurse y -Skip, o bien -ExpandProperty, WriteAllBytes y .length.",
+      "why_it_matters": "Corresponde a la táctica de ejecución (ATT&CK Execution). Un .LNK malicioso puede llevar un payload incrustado que PowerShell extrae y escribe a disco para lanzar la siguiente etapa, como se documentó en la campaña SmugX.",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique la ruta buscada (*.lnk), el offset de -Skip o el rango de bytes y el archivo de destino de WriteAllBytes.",
+        "Revise ParentImage: explorer.exe o cmd.exe lanzado desde un .LNK abierto por el usuario sugiere que la víctima hizo doble clic en un adjunto o en un archivo descargado.",
+        "Localice el .LNK de origen: tamaño anómalo, ubicación (Downloads, Temp, carpetas extraídas de ZIP/ISO) y hash; consulte su reputación.",
+        "Busque en el mismo host, +/- 15 minutos, archivos creados por PowerShell (EXE, DLL, ZIP, documentos señuelo) y procesos hijos que ejecuten lo escrito.",
+        "Revise conexiones de red salientes del host y de los procesos hijos tras la ejecución, en busca de C2 o descargas adicionales.",
+        "Verifique alertas previas del mismo usuario y del mismo host, y si el mismo .LNK o hash aparece en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla indica que los falsos positivos son poco probables.",
+        "Scripts internos de administración o de análisis forense que inspeccionan accesos directos byte a byte; confírmelo con el responsable y el origen del script."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa revisando el .LNK y los archivos que se escribieron; preserve copias y hashes antes de cualquier cambio.",
+        "Aísle el endpoint de la red si se confirma la ejecución de la siguiente etapa o hay conexiones sospechosas.",
+        "Bloquee los hashes, dominios e IP identificados y busque los mismos indicadores en el resto de la flota.",
+        "Elimine el .LNK, los payloads escritos y la persistencia creada, solo tras documentarlos; restablezca las credenciales del usuario si hubo robo de credenciales.",
+        "Recupere el equipo desde una imagen limpia cuando corresponda y refuerce el filtrado de adjuntos LNK, ISO y ZIP."
+      ],
+      "severity_rationale": "El nivel high se justifica porque esta combinación de lectura y extracción de bytes desde .LNK casi no tiene usos legítimos y suele indicar una infección activa."
+    },
+    "en": {
+      "summary": "PowerShell ran a command line that searches for .LNK files, reads their bytes and extracts or writes out a portion of them. This pattern matches malware that hides its next stage inside a shortcut file.",
+      "what_it_detects": "powershell.exe or pwsh.exe processes whose CommandLine combines a file listing (Get-ChildItem, dir, gci, ls), a read (Get-Content, gc, cat, type, ReadAllBytes) and a *.lnk-specific pattern: ^| pipeline with -Recurse and -Skip, or -ExpandProperty, WriteAllBytes and .length.",
+      "why_it_matters": "This maps to the ATT&CK Execution tactic. A malicious .LNK can carry an embedded payload that PowerShell carves out and writes to disk to launch the next stage, as documented in the SmugX campaign.",
+      "triage_steps": [
+        "Read the full CommandLine: note the searched path (*.lnk), the -Skip offset or byte range, and the WriteAllBytes destination file.",
+        "Check ParentImage: explorer.exe, or cmd.exe started from a shortcut, suggests the user double-clicked an attachment or downloaded file.",
+        "Find the source .LNK: unusual size, location (Downloads, Temp, extracted ZIP/ISO folders) and hash; check its reputation.",
+        "On the same host within +/- 15 minutes, look for files written by PowerShell (EXE, DLL, ZIP, decoy documents) and child processes running them.",
+        "Review outbound network connections from the host and child processes after execution for C2 or further downloads.",
+        "Check earlier alerts for the same user and host, and whether the same .LNK or hash appears on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists false positives as unlikely.",
+        "Internal admin or forensic scripts that inspect shortcuts byte by byte; confirm with the owner and the script's origin."
+      ],
+      "response_steps": [
+        "Confirm malicious activity by reviewing the .LNK and written files; preserve copies and hashes before changing anything.",
+        "Isolate the endpoint if next-stage execution or suspicious connections are confirmed.",
+        "Block identified hashes, domains and IPs and hunt for the same indicators across the fleet.",
+        "After documenting them, remove the .LNK, dropped payloads and any persistence; reset the user's credentials if theft is suspected.",
+        "Reimage from a clean baseline where needed and tighten filtering of LNK, ISO and ZIP attachments."
+      ],
+      "severity_rationale": "High fits because carving bytes out of .LNK files with PowerShell has almost no legitimate use and usually signals an active infection."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell locates an oversized .LNK recursively and skips the shortcut header to read the embedded payload (^| pipeline, -Recurse, -Skip branch).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -windowstyle hidden -c $l = Get-ChildItem -Path C:\\Users\\jperez\\Downloads\\*.lnk -Recurse ^| Where-Object {$_.Length -gt 100000} ^| Select-Object -First 1; $d = Get-Content $l.FullName -Encoding Byte ^| Select-Object -Skip 4096; Set-Content -Path $env:TEMP\\stage.bin -Value $d -Encoding Byte"
+        }
+      },
+      {
+        "description": "PowerShell reads a .LNK with ReadAllBytes and writes the trailing bytes to disk (-ExpandProperty, WriteAllBytes, .length branch).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -nop -c $f = gci C:\\Users\\mlopez\\Desktop\\*.lnk | Select-Object -ExpandProperty FullName; $b = [IO.File]::ReadAllBytes($f); [IO.File]::WriteAllBytes(\"$env:TEMP\\update.zip\", $b[4096..($b .length - 1)])"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator lists desktop shortcuts recursively; there is no content read, no ^| pipeline and no -Skip.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.soporte",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -c Get-ChildItem -Path C:\\Users\\Public\\Desktop\\*.lnk -Recurse | Select-Object Name, LastWriteTime"
+        }
+      },
+      {
+        "description": "pwsh reads a log file with Get-Content -Skip; it lists files but targets no .lnk files.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_monitor",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "pwsh.exe -c Get-ChildItem C:\\Logs\\*.log -Recurse ^| ForEach-Object { Get-Content $_.FullName ^| Select-Object -Skip 100 }"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

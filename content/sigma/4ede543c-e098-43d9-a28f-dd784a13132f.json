@@ -1,0 +1,139 @@
+{
+  "rule": {
+    "id": "4ede543c-e098-43d9-a28f-dd784a13132f",
+    "title": "WinRAR Execution in Non-Standard Folder",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Tigzy",
+    "path": "windows/process_creation/proc_creation_win_winrar_uncommon_folder_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_winrar_uncommon_folder_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1560.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó WinRAR o RAR de línea de comandos (por nombre de archivo o por la descripción del PE) desde una carpeta distinta a su instalación estándar. Puede indicar que un atacante copió o renombró RAR para comprimir datos antes de exfiltrarlos.",
+      "what_it_detects": "Eventos process_creation donde Image termina en \\rar.exe o \\winrar.exe, o Description es 'Command line RAR' o 'WinRAR', fuera de Program Files\\WinRAR y Windows\\Temp, excluyendo UnRAR.exe.",
+      "why_it_matters": "Los atacantes suelen llevar su propio rar.exe a carpetas como ProgramData o Users\\Public, o lo renombran, para empaquetar y cifrar datos robados. Esto corresponde a ATT&CK T1560.001 (Archive Collected Data: Archive via Utility), un paso típico previo a la exfiltración.",
+      "triage_steps": [
+        "Revise Image y Description: un nombre de archivo que no coincide con la descripción 'WinRAR' o 'Command line RAR' indica un binario renombrado.",
+        "Analice CommandLine: busque 'a' (agregar), -hp o -p (contraseña), -v (volúmenes), -m5, -r y rutas de origen como recursos compartidos, perfiles de usuario o carpetas de documentos.",
+        "Identifique ParentImage y la cadena de procesos: cmd.exe, powershell.exe, wmiprvse.exe o una herramienta de acceso remoto son más sospechosos que explorer.exe o un instalador.",
+        "Obtenga el hash del binario y verifique firma digital, fecha de creación del archivo y quién lo escribió en esa carpeta.",
+        "Busque los archivos .rar generados y su tamaño; revise si luego fueron leídos por procesos de red, rclone, curl o navegadores.",
+        "Pivote en el mismo host +/- 15 minutos: conexiones salientes, accesos a recursos compartidos, ejecución de herramientas de descubrimiento o volcado de credenciales.",
+        "Revise el mismo usuario y el mismo hash en otros endpoints, así como alertas previas para esta entidad."
+      ],
+      "false_positives": [
+        "Software legítimo que incluye WinRAR o rar.exe en su propia carpeta de instalación para empaquetar registros o actualizaciones.",
+        "Instalaciones portátiles de WinRAR usadas por administradores o usuarios en carpetas personales o unidades USB.",
+        "Scripts de respaldo o de TI que copian rar.exe a una carpeta de herramientas propia."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable de la aplicación si la ejecución es esperada; documente y ajuste exclusiones por ruta y hash si es legítima.",
+        "Si es sospechosa, aísle el endpoint y preserve el binario, los archivos .rar y la telemetría relevante antes de eliminarlos.",
+        "Determine qué datos se comprimieron y si salieron de la red; involucre al equipo de protección de datos si corresponde.",
+        "Restablezca credenciales de las cuentas implicadas, elimine el binario y la persistencia asociada, y busque el mismo hash en toda la flota."
+      ],
+      "severity_rationale": "Medium es adecuado porque la compresión desde rutas no estándar es un indicador fuerte de preparación de datos, pero existen usos portátiles y empaquetados legítimos que requieren verificación."
+    },
+    "en": {
+      "summary": "WinRAR or command-line RAR (matched by file name or PE description) ran from a folder other than its standard install path. This may mean an attacker copied or renamed RAR to archive data before exfiltration.",
+      "what_it_detects": "process_creation events where Image ends with \\rar.exe or \\winrar.exe, or Description is 'Command line RAR' or 'WinRAR', outside Program Files\\WinRAR and Windows\\Temp, excluding UnRAR.exe.",
+      "why_it_matters": "Attackers often drop their own rar.exe into folders like ProgramData or Users\\Public, or rename it, to package and password-protect stolen data. This is ATT&CK T1560.001 (Archive Collected Data: Archive via Utility), a common pre-exfiltration step.",
+      "triage_steps": [
+        "Compare Image and Description: a file name that does not match the 'WinRAR' or 'Command line RAR' description suggests a renamed binary.",
+        "Read CommandLine: look for 'a' (add), -hp or -p (password), -v (split volumes), -m5, -r and sources like shares, user profiles or document folders.",
+        "Identify ParentImage and the process tree: cmd.exe, powershell.exe, wmiprvse.exe or remote access tools are more suspicious than explorer.exe or an installer.",
+        "Collect the binary hash; check its signature, file creation time and which process wrote it to that folder.",
+        "Locate the resulting .rar files and their size; check whether network tools, rclone, curl or browsers later read them.",
+        "Pivot on the same host +/- 15 minutes: outbound connections, share access, discovery tools or credential dumping activity.",
+        "Check the same user and same hash on other endpoints, and earlier alerts for this entity."
+      ],
+      "false_positives": [
+        "Legitimate software that bundles WinRAR or rar.exe in its own install folder to package logs or updates.",
+        "Portable WinRAR copies used by admins or users from profile folders or USB drives.",
+        "IT backup scripts that copy rar.exe into a custom tools folder."
+      ],
+      "response_steps": [
+        "Confirm with the user or application owner whether the run is expected; if legitimate, document it and tune exclusions by path and hash.",
+        "If suspicious, isolate the endpoint and preserve the binary, .rar files and related telemetry before removing anything.",
+        "Determine what data was archived and whether it left the network; involve data protection if needed.",
+        "Reset credentials of involved accounts, remove the binary and any persistence, and hunt for the same hash fleet-wide."
+      ],
+      "severity_rationale": "Medium fits because archiving from non-standard paths strongly suggests data staging, yet portable and bundled legitimate uses exist and need verification."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "rar.exe dropped in C:\\Users\\Public archiving a file share with a password, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\rar.exe",
+          "Description": "Command line RAR",
+          "Product": "WinRAR",
+          "OriginalFileName": "Rar.exe",
+          "CommandLine": "C:\\Users\\Public\\rar.exe a -r -hpS3cret -m5 C:\\Users\\Public\\d.rar \\\\FS-01\\Finance\\*",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      },
+      {
+        "description": "Renamed WinRAR binary in ProgramData, matched only through the Description field",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\Microsoft\\svchelper.exe",
+          "Description": "WinRAR",
+          "Product": "WinRAR",
+          "OriginalFileName": "WinRAR.exe",
+          "CommandLine": "C:\\ProgramData\\Microsoft\\svchelper.exe a -v100m -hpx C:\\ProgramData\\Microsoft\\out.rar C:\\Users\\mrojas\\Documents",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\ProgramData\\Microsoft\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Rar.exe run from the standard WinRAR install folder (filtered by filter_main_path)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\WinRAR\\Rar.exe",
+          "Description": "Command line RAR",
+          "Product": "WinRAR",
+          "CommandLine": "\"C:\\Program Files\\WinRAR\\Rar.exe\" a C:\\Users\\jperez\\Desktop\\informe.rar C:\\Users\\jperez\\Desktop\\informe.docx",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "UnRAR.exe bundled in a user folder extracting an archive (same description, excluded by filter_main_unrar)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Users\\lgomez\\AppData\\Local\\GameLauncher\\UnRAR.exe",
+          "Description": "Command line RAR",
+          "Product": "WinRAR",
+          "CommandLine": "UnRAR.exe x -y update.rar C:\\Users\\lgomez\\AppData\\Local\\GameLauncher\\data\\",
+          "ParentImage": "C:\\Users\\lgomez\\AppData\\Local\\GameLauncher\\launcher.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

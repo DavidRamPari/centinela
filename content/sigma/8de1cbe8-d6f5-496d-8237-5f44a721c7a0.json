@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "8de1cbe8-d6f5-496d-8237-5f44a721c7a0",
+    "title": "Whoami.EXE Execution Anomaly",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_whoami_parent_anomaly.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_whoami_parent_anomaly.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1033"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó whoami.exe desde un proceso padre que no es una shell habitual (cmd, PowerShell, PowerShell ISE, pwsh) ni el agente de monitoreo de Microsoft. Puede indicar que un malware, un webshell o un script automatizado está reconociendo la identidad del usuario comprometido.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\whoami.exe u OriginalFileName es whoami.exe, y ParentImage no es cmd.exe, powershell.exe, powershell_ise.exe, pwsh.exe ni MonitoringHost.exe, y no está vacío ni nulo.",
+      "why_it_matters": "Lo primero que suele hacer un atacante con acceso inicial es confirmar con qué cuenta y privilegios se ejecuta (ATT&CK T1033, System Owner/User Discovery). Si whoami lo lanza directamente un binario poco común, como un ejecutable en Temp, un proceso de Office o un servidor web, es probable que haya ejecución de código malicioso.",
+      "triage_steps": [
+        "Revise ParentImage y su línea de comandos: ¿es un binario firmado y esperado, o un ejecutable en AppData, Temp, Downloads o una imagen ISO montada?",
+        "Revise CommandLine de whoami (/all, /priv, /groups) y el usuario que lo ejecutó; SYSTEM o una cuenta de servicio aumentan la sospecha.",
+        "Reconstruya el árbol de procesos: el abuelo del padre, por ejemplo un adjunto de correo, w3wp.exe, sqlservr.exe o un servicio.",
+        "Obtenga el hash del proceso padre y consúltelo en su plataforma de threat intel o en el inventario de software aprobado.",
+        "Revise el mismo host +/- 15 minutos: otros comandos de reconocimiento (net, ipconfig, systeminfo, nltest), conexiones de red salientes y archivos nuevos.",
+        "Busque ejecuciones del mismo ParentImage o hash en otros endpoints y alertas anteriores para el mismo host o usuario."
+      ],
+      "false_positives": [
+        "Actividad administrativa con herramientas propias o de terceros que llaman a whoami directamente.",
+        "Scripts de inicio de sesión, instaladores o herramientas de gestión (RMM, inventario) que validan el contexto de usuario.",
+        "Agentes de monitoreo distintos de Microsoft Monitoring Agent que consultan la identidad periódicamente."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del host o con el equipo de TI si el proceso padre es legítimo; si lo es, documente una exclusión acotada por ruta y hash.",
+        "Si el padre es desconocido o malicioso, aísle el endpoint de la red mediante el EDR y preserve memoria y artefactos.",
+        "Suspenda o restablezca credenciales de la cuenta involucrada y revise sus inicios de sesión recientes.",
+        "Elimine el binario malicioso y los mecanismos de persistencia solo después de recolectar evidencia; luego restaure el equipo y siga monitoreándolo."
+      ],
+      "severity_rationale": "Medium es adecuado porque whoami por sí solo es inofensivo, pero un padre inusual suele indicar ejecución maliciosa, aunque también lo generan herramientas legítimas."
+    },
+    "en": {
+      "summary": "whoami.exe was launched by a parent process that is not a common shell (cmd, PowerShell, PowerShell ISE, pwsh) or the Microsoft Monitoring Agent. This may mean malware, a webshell or an automated script is checking which user it has compromised.",
+      "what_it_detects": "Windows process creation events where Image ends with \\whoami.exe or OriginalFileName is whoami.exe, and ParentImage is not cmd.exe, powershell.exe, powershell_ise.exe, pwsh.exe or MonitoringHost.exe, and is not empty or null.",
+      "why_it_matters": "After initial access, attackers usually check which account and privileges they are running under first (ATT&CK T1033, System Owner/User Discovery). When an unusual binary launches whoami directly, such as a Temp executable, an Office process or a web server, malicious code execution is likely.",
+      "triage_steps": [
+        "Review ParentImage and its command line: is it an expected signed binary, or something running from AppData, Temp, Downloads or a mounted ISO?",
+        "Check the whoami CommandLine (/all, /priv, /groups) and the executing user; SYSTEM or service accounts raise suspicion.",
+        "Rebuild the process tree, including the grandparent, for example an email attachment, w3wp.exe, sqlservr.exe or a service.",
+        "Get the parent process hash and check it against threat intel and your approved software inventory.",
+        "Pivot on the same host within +/- 15 minutes: other discovery commands (net, ipconfig, systeminfo, nltest), outbound connections and new files.",
+        "Hunt for the same ParentImage or hash on other endpoints, and look at earlier alerts for this host or user."
+      ],
+      "false_positives": [
+        "Admin activity using in-house or third-party tools that call whoami directly.",
+        "Logon scripts, installers or management tools (RMM, inventory) that check the user context.",
+        "Monitoring agents other than Microsoft Monitoring Agent that query identity on a schedule."
+      ],
+      "response_steps": [
+        "Ask the host owner or IT whether the parent process is legitimate; if it is, document a narrow exclusion by path and hash.",
+        "If the parent is unknown or malicious, isolate the endpoint through EDR and preserve memory and artifacts.",
+        "Disable or reset credentials for the involved account and review its recent logons.",
+        "Collect evidence first, then remove the malicious binary and any persistence, restore the host and keep monitoring it."
+      ],
+      "severity_rationale": "Medium fits: whoami alone is harmless, and legitimate tools can trigger this, but an unusual parent often points to malicious execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "whoami launched directly by an unsigned executable running from the user's Temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "OriginalFileName": "whoami.exe",
+          "CommandLine": "whoami /all",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\invoice_scan.exe",
+          "ParentCommandLine": "\"C:\\Users\\jperez\\AppData\\Local\\Temp\\invoice_scan.exe\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "whoami spawned by the IIS worker process, consistent with webshell activity",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-01.andes.example.com",
+          "User": "IIS APPPOOL\\DefaultAppPool",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "OriginalFileName": "whoami.exe",
+          "CommandLine": "whoami",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+          "ParentCommandLine": "c:\\windows\\system32\\inetsrv\\w3wp.exe -ap \"DefaultAppPool\"",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator runs whoami from an interactive cmd.exe shell (known parent filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.rgomez",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "OriginalFileName": "whoami.exe",
+          "CommandLine": "whoami /groups",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\cmd.exe\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Microsoft Monitoring Agent runs whoami as part of its health checks (optional filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-DB-02.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "OriginalFileName": "whoami.exe",
+          "CommandLine": "whoami",
+          "ParentImage": "C:\\Program Files\\Microsoft Monitoring Agent\\Agent\\MonitoringHost.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Monitoring Agent\\Agent\\MonitoringHost.exe\" -Embedding",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

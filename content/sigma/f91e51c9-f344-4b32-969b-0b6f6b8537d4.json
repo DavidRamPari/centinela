@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "f91e51c9-f344-4b32-969b-0b6f6b8537d4",
+    "title": "Renamed Schtasks Execution",
+    "level": "high",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_renamed_schtasks_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_renamed_schtasks_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036.003",
+      "T1053.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un binario que es schtasks.exe renombrado, o un proceso con nombre distinto que usa la sintaxis de schtasks. Probablemente alguien intenta crear o manipular tareas programadas sin que lo detecten.",
+      "what_it_detects": "Hay dos casos. En el primero, un proceso con OriginalFileName schtasks.exe se ejecuta desde un Image que no termina en \\schtasks.exe. En el segundo, una CommandLine combina una operación (/create, /delete, /query, /change, /run, /end) con un flag (/tn, /tr, /sc, /st, /ru, /fo) pero no contiene 'schtasks', y no se trata de openfiles.",
+      "why_it_matters": "Las tareas programadas (T1053.005) dan persistencia y ejecución como SYSTEM. Cambiar el nombre del binario (T1036.003) es una forma de evadir controles que vigilan schtasks.exe por nombre, y casi no tiene usos legítimos.",
+      "triage_steps": [
+        "Revise Image, OriginalFileName y el hash. Confirme si es una copia de schtasks.exe y desde qué ruta se ejecuta (Users, ProgramData, Temp).",
+        "Analice la CommandLine. Extraiga el nombre de la tarea (/tn), el binario o script que ejecuta (/tr), el disparador (/sc, /st) y la cuenta (/ru).",
+        "Revise ParentImage y la cadena de procesos padres. Determine si viene de un script, de un documento de Office, de PowerShell o de una herramienta remota.",
+        "Identifique al usuario y el tipo de sesión. Verifique si la cuenta suele administrar el equipo.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, la creación del archivo renombrado, descargas, conexiones de red y otros procesos hijos.",
+        "Revise la tarea registrada en C:\\Windows\\System32\\Tasks y en el evento 4698. Valide el payload referenciado en /tr.",
+        "Busque el mismo hash o la misma ruta en otros endpoints, junto con alertas anteriores del usuario y del host."
+      ],
+      "false_positives": [
+        "La regla indica que los falsos positivos son improbables.",
+        "Herramientas internas o instaladores que copian schtasks.exe con otro nombre. Confírmelo con su responsable y documente la excepción.",
+        "Utilidades de terceros que usan la misma sintaxis de flags (/query, /fo), revisadas caso por caso."
+      ],
+      "response_steps": [
+        "Valide con el dueño del equipo o del usuario si la actividad estaba autorizada antes de actuar.",
+        "Si es maliciosa, aísle el endpoint y conserve evidencia: el binario renombrado, el XML de la tarea y el payload de /tr.",
+        "Deshabilite y elimine la tarea maliciosa. Elimine el binario renombrado y el payload después de respaldarlos.",
+        "Restablezca las credenciales de la cuenta usada en /ru o comprometida, y busque el mismo IOC en toda la flota.",
+        "Recupere el equipo y vigile que la persistencia no reaparezca."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque renombrar schtasks.exe casi siempre indica evasión deliberada con fines de persistencia o escalamiento de privilegios."
+    },
+    "en": {
+      "summary": "A renamed copy of schtasks.exe ran, or a process with a different name used schtasks syntax. Someone is likely trying to create or tamper with scheduled tasks without being noticed.",
+      "what_it_detects": "There are two cases. In the first, a process with OriginalFileName schtasks.exe runs from an Image that does not end in \\schtasks.exe. In the second, a CommandLine combines an operation (/create, /delete, /query, /change, /run, /end) with a flag (/tn, /tr, /sc, /st, /ru, /fo) but lacks 'schtasks' and is not openfiles.",
+      "why_it_matters": "Scheduled tasks (T1053.005) give persistence and execution as SYSTEM. Renaming the binary (T1036.003) is a way to evade controls that watch for schtasks.exe by name, and it has almost no legitimate use.",
+      "triage_steps": [
+        "Check Image, OriginalFileName and the hash. Confirm whether it is a copy of schtasks.exe and note the path it runs from (Users, ProgramData, Temp).",
+        "Parse the CommandLine. Extract the task name (/tn), the binary or script it runs (/tr), the trigger (/sc, /st) and the account (/ru).",
+        "Review ParentImage and the parent process chain. Determine whether it came from a script, an Office document, PowerShell or a remote tool.",
+        "Identify the user and the logon type. Check whether the account normally administers this host.",
+        "On the same host within +/- 15 minutes, look for creation of the renamed file, downloads, network connections and other child processes.",
+        "Inspect the registered task in C:\\Windows\\System32\\Tasks and in event 4698. Validate the payload referenced in /tr.",
+        "Search for the same hash or path on other endpoints, and for earlier alerts on the user and host."
+      ],
+      "false_positives": [
+        "The rule says false positives are unlikely.",
+        "Internal tools or installers that copy schtasks.exe under another name. Confirm with the owner and document an exception.",
+        "Third-party utilities that use the same flag syntax (/query, /fo), reviewed case by case."
+      ],
+      "response_steps": [
+        "Before acting, check with the host or user owner whether the activity was authorized.",
+        "If it is malicious, isolate the endpoint and preserve evidence: the renamed binary, the task XML and the /tr payload.",
+        "Disable and delete the malicious task. Remove the renamed binary and the payload after backing them up.",
+        "Reset credentials for the /ru account or any compromised account, and hunt for the IOCs across the fleet.",
+        "Restore the host and monitor for the persistence returning."
+      ],
+      "severity_rationale": "High fits because renaming schtasks.exe almost always signals deliberate evasion for persistence or privilege escalation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Renamed schtasks.exe copy in Public folder creating a SYSTEM logon task",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "svchelper.exe /create /tn WinUpdater /tr C:\\Users\\Public\\upd.exe /sc onlogon /ru SYSTEM /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat"
+        }
+      },
+      {
+        "description": "Renamed binary in ProgramData querying a task, matched by command-line syntax without 'schtasks'",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\ProgramData\\taskhost32.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "taskhost32.exe /query /fo LIST /tn \\Microsoft\\Windows\\SyncAgent",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate schtasks.exe from System32 creating a daily maintenance task",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks.exe /create /tn NightlyBackup /tr C:\\Scripts\\backup.cmd /sc daily /st 02:00 /ru ANDES\\svc_backup",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "openfiles query with /fo flag, excluded by the optional openfiles filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\admin.lgomez",
+          "Image": "C:\\Windows\\System32\\openfiles.exe",
+          "OriginalFileName": "openfiles.exe",
+          "CommandLine": "openfiles.exe /query /fo csv /v",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

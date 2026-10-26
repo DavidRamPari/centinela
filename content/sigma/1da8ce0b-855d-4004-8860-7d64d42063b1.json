@@ -1,0 +1,120 @@
+{
+  "rule": {
+    "id": "1da8ce0b-855d-4004-8860-7d64d42063b1",
+    "title": "Apache Segmentation Fault",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "web/product/apache/web_apache_segfault.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/web/product/apache/web_apache_segfault.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1499.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso worker de Apache terminó con una señal de segmentation fault (SIGSEGV) según el error.log. Puede ser un error de software o un intento de explotación o de denegación de servicio contra el servidor web.",
+      "what_it_detects": "Líneas del error.log de Apache que contienen el texto 'exit signal Segmentation Fault', que el proceso padre registra cuando un proceso hijo (worker) se cae por un acceso inválido a memoria.",
+      "why_it_matters": "Un request malformado que provoca fallos de memoria puede servir para tumbar el servicio (ATT&CK T1499.004, denegación de servicio en el endpoint mediante explotación de una aplicación) o ser una señal temprana de explotación de memoria con posible ejecución de código.",
+      "triage_steps": [
+        "Revise en el error.log la línea de la alerta, el PID del hijo y la cantidad de segfaults en la última hora. Un fallo aislado no es lo mismo que una ráfaga.",
+        "En el access.log del mismo host, busque solicitudes en el rango de +/- 15 minutos: URIs muy largas, encabezados malformados, métodos poco comunes o payloads binarios.",
+        "Identifique las IP de origen y los user agents de esas solicitudes y averigüe si se repiten antes de cada segfault.",
+        "Confirme si hubo cambios recientes: actualizaciones de Apache, PHP, módulos (mod_ssl, mod_security, mod_php) o bibliotecas compartidas.",
+        "Busque core dumps o mensajes del kernel (dmesg, journal) con la dirección de memoria y la biblioteca que falló.",
+        "Verifique si el usuario del servicio (www-data, apache) inició procesos, conexiones salientes o escribió archivos nuevos en el mismo intervalo.",
+        "Revise alertas anteriores del mismo host y de las mismas IP de origen, como escaneos, WAF o IDS."
+      ],
+      "false_positives": [
+        "Bugs en módulos de terceros o en extensiones de PHP que se caen con ciertas solicitudes legítimas.",
+        "Versiones incompatibles de bibliotecas después de una actualización parcial del sistema.",
+        "Agotamiento de memoria o recursos del host que hace caer a los workers.",
+        "Escaneos de vulnerabilidades o pruebas de penetración autorizadas contra el servidor."
+      ],
+      "response_steps": [
+        "Verifique si los segfaults se correlacionan con solicitudes de una fuente concreta. Si es así, bloquee o limite esa IP en el WAF o el firewall tras confirmarlo.",
+        "Si se sospecha explotación (procesos hijos extraños, archivos nuevos o conexiones salientes), aísle el host y preserve la memoria, los logs y los core dumps.",
+        "Aplique los parches de Apache, de los módulos y de las bibliotecas afectadas, o desactive temporalmente el módulo que falla.",
+        "Restablezca el servicio, monitoree el error.log para detectar nuevos segfaults y documente la causa raíz."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque un worker que se cae puede indicar un intento de explotación de memoria o de denegación de servicio, y conviene revisarlo pronto, aunque muchas veces el origen sea un bug."
+    },
+    "en": {
+      "summary": "Apache's error.log shows that a worker process exited on a segmentation fault (SIGSEGV). The cause may be a software bug, an exploitation attempt or a denial-of-service attempt against the web server.",
+      "what_it_detects": "Apache error.log lines that contain 'exit signal Segmentation Fault'. The parent process logs this message when a child worker crashes on an invalid memory access.",
+      "why_it_matters": "Crafted requests that trigger memory faults can be used to knock the service offline (ATT&CK T1499.004, Endpoint Denial of Service through Application or System Exploitation). They can also be an early sign of memory-corruption exploitation that leads to code execution.",
+      "triage_steps": [
+        "Read the alerting error.log line, note the child PID and count the segfaults in the past hour. One isolated crash is different from a burst.",
+        "Search the same host's access.log for requests within +/- 15 minutes: very long URIs, malformed headers, unusual methods or binary payloads.",
+        "Find the source IPs and user agents of those requests and check whether they show up before each crash.",
+        "Check for recent changes to Apache, PHP, modules (mod_ssl, mod_security, mod_php) or shared libraries.",
+        "Look for core dumps or kernel messages (dmesg, journal) that show the faulting address and library.",
+        "Check whether the service account (www-data, apache) started processes, opened outbound connections or wrote new files in the same window.",
+        "Review earlier alerts for this host and these source IPs, such as scans, WAF or IDS hits."
+      ],
+      "false_positives": [
+        "Bugs in third-party modules or PHP extensions that crash on certain legitimate requests.",
+        "Mismatched library versions after a partial system update.",
+        "Memory or resource exhaustion on the host that makes workers crash.",
+        "Authorized vulnerability scans or penetration tests against the server."
+      ],
+      "response_steps": [
+        "Check whether the crashes line up with requests from one source. If they do, confirm it, then block or rate-limit that IP at the WAF or firewall.",
+        "If you suspect exploitation (odd child processes, new files or outbound connections), isolate the host and preserve memory, logs and core dumps.",
+        "Patch Apache and the affected modules and libraries, or temporarily disable the module that crashes.",
+        "Restore the service, watch error.log for new segfaults and document the root cause."
+      ],
+      "severity_rationale": "High is appropriate because a crashing worker can point to memory-corruption exploitation or denial of service and needs prompt review, even though a bug is often the cause."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Apache 2.4 error.log notice for a child worker that crashed on SIGSEGV",
+        "event": {
+          "message": "[Tue Oct 25 14:03:12.482913 2022] [core:notice] [pid 1021:tid 140231987451712] AH00052: child pid 23456 exit signal Segmentation fault (11)",
+          "host": "web-01.example.com",
+          "service": "apache",
+          "log_file": "/var/log/apache2/error.log"
+        }
+      },
+      {
+        "description": "Apache 2.2-style error.log line for a segmentation fault in a child process",
+        "event": {
+          "message": "[Tue Feb 28 10:15:32 2017] [notice] child pid 4312 exit signal Segmentation fault (11)",
+          "host": "web-02.example.org",
+          "service": "apache",
+          "log_file": "/var/log/httpd/error_log"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Child worker exited on SIGABRT, not a segmentation fault",
+        "event": {
+          "message": "[Tue Oct 25 14:05:40.118204 2022] [core:notice] [pid 1021:tid 140231987451712] AH00051: child pid 23502 exit signal Aborted (6), possible coredump in /etc/apache2",
+          "host": "web-01.example.com",
+          "service": "apache",
+          "log_file": "/var/log/apache2/error.log"
+        }
+      },
+      {
+        "description": "Routine graceful restart notice in error.log",
+        "event": {
+          "message": "[Tue Oct 25 06:25:01.003417 2022] [mpm_event:notice] [pid 1021:tid 140231987451712] AH00489: Apache/2.4.54 (Debian) configured -- resuming normal operations",
+          "host": "web-01.example.com",
+          "service": "apache",
+          "log_file": "/var/log/apache2/error.log"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

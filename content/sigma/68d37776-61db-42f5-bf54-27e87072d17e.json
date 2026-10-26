@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "68d37776-61db-42f5-bf54-27e87072d17e",
+    "title": "PUA - NPS Tunneling Tool Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_pua_nps.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_pua_nps.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1090"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó el cliente de NPS (npc.exe), una herramienta de proxy y reenvío de puertos que puede abrir un túnel desde la red interna hacia un servidor externo. Coincide por nombre de imagen, parámetros típicos o hash conocido de la versión 0.26.10.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\npc.exe, CommandLine contiene ' -server=', ' -vkey=' y ' -password=' juntos o ' -config=npc', o el campo Hashes coincide con MD5, SHA1 o SHA256 conocidos de npc v0.26.10.",
+      "why_it_matters": "NPS permite a un atacante exponer servicios internos (RDP, SMB, web) a un servidor que él controla y evadir el firewall perimetral. Corresponde a ATT&CK T1090 (Proxy), táctica de comando y control.",
+      "triage_steps": [
+        "Revise CommandLine: extraiga el valor de -server= (IP o dominio y puerto) y el vkey; un servidor externo desconocido es muy sospechoso.",
+        "Verifique Image y la ruta: npc.exe en carpetas temporales, ProgramData, Public o renombrado indica uso no autorizado.",
+        "Analice ParentImage y la cadena de procesos padre; shells, servicios web o herramientas de acceso remoto como padre elevan la sospecha.",
+        "Correlacione conexiones de red del host hacia la IP o dominio de -server= y busque esa dirección en otros endpoints y en el proxy.",
+        "Identifique al usuario que ejecutó el proceso y confirme con su responsable si existe un uso aprobado de NPS.",
+        "Revise el mismo host +/- 15 minutos: descargas del binario, creación de servicios o tareas programadas para persistencia, y logons RDP entrantes.",
+        "Busque alertas previas del mismo host, usuario o hash en la organización."
+      ],
+      "false_positives": [
+        "Uso legítimo de NPS por administradores o desarrolladores para acceso remoto o pruebas, documentado y aprobado.",
+        "Ejercicios de red team o pruebas de penetración autorizados.",
+        "Otro binario legítimo llamado npc.exe sin relación con NPS; confirme con el hash y la firma."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del activo y el área de TI si el uso está autorizado antes de actuar.",
+        "Si no está autorizado, aísle el endpoint y bloquee en el firewall y proxy la IP o dominio indicado en -server=.",
+        "Detenga el proceso, preserve el binario y su configuración como evidencia y elimine servicios o tareas de persistencia asociados.",
+        "Investigue qué servicios internos se expusieron por el túnel y revise accesos durante ese periodo; restablezca credenciales comprometidas."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque un túnel no autorizado proporciona acceso externo directo a la red interna y rara vez se usa legítimamente en entornos corporativos."
+    },
+    "en": {
+      "summary": "The NPS client (npc.exe) ran on this host. NPS is a proxy and port-forwarding tool that can tunnel the internal network to an external server. The rule matched on image name, typical arguments, or a known v0.26.10 hash.",
+      "what_it_detects": "Windows process creation where Image ends with \\npc.exe, CommandLine contains ' -server=', ' -vkey=' and ' -password=' together or ' -config=npc', or Hashes matches the known MD5, SHA1 or SHA256 of npc v0.26.10.",
+      "why_it_matters": "NPS lets an attacker expose internal services (RDP, SMB, web) to a server they control, bypassing perimeter firewalls. This maps to ATT&CK T1090 (Proxy) under command and control.",
+      "triage_steps": [
+        "Read CommandLine: extract the -server= value (IP or domain and port) and the vkey; an unknown external server is highly suspicious.",
+        "Check Image and path: npc.exe in temp folders, ProgramData, Public, or a renamed binary suggests unauthorized use.",
+        "Review ParentImage and the process tree; shells, web server processes or remote access tools as parents raise suspicion.",
+        "Correlate host network connections to the -server= address and search for that address across other endpoints and proxy logs.",
+        "Identify the executing user and confirm with their manager whether NPS use is approved.",
+        "Review the same host +/- 15 minutes: binary downloads, service or scheduled task creation for persistence, inbound RDP logons.",
+        "Look for earlier alerts on the same host, user or hash across the organization."
+      ],
+      "false_positives": [
+        "Documented, approved NPS use by administrators or developers for remote access or testing.",
+        "Authorized red team or penetration testing exercises.",
+        "An unrelated legitimate binary named npc.exe; verify by hash and signature."
+      ],
+      "response_steps": [
+        "Confirm with the asset owner and IT whether the use is authorized before acting.",
+        "If unauthorized, isolate the endpoint and block the -server= IP or domain at firewall and proxy.",
+        "Stop the process, preserve the binary and config as evidence, and remove associated services or scheduled tasks.",
+        "Determine which internal services were exposed through the tunnel, review access during that window and reset compromised credentials."
+      ],
+      "severity_rationale": "High fits because an unauthorized tunnel gives external parties direct access into the internal network and is rarely legitimate in corporate environments."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "npc.exe run from a Public folder connecting to an external NPS server with vkey and password",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\npc.exe",
+          "CommandLine": "C:\\Users\\Public\\npc.exe -server=203.0.113.25:8024 -vkey=k3y9x2 -password=Secr3tPass",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Hashes": "MD5=0123456789ABCDEF0123456789ABCDEF,SHA256=1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      },
+      {
+        "description": "Renamed NPS client launched with an npc config file",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_web",
+          "Image": "C:\\ProgramData\\Update\\svchost32.exe",
+          "CommandLine": "C:\\ProgramData\\Update\\svchost32.exe -config=npc.conf",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "Hashes": "MD5=FEDCBA9876543210FEDCBA9876543210,SHA256=2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Npcap installer with a -server style argument but missing vkey/password and not named npc.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\Downloads\\npcap-1.79.exe",
+          "CommandLine": "\"C:\\Users\\mrojas\\Downloads\\npcap-1.79.exe\" /S -server=updates.example.com",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Hashes": "MD5=AAAABBBBCCCCDDDDEEEEFFFF00001111,SHA256=3333333333333333333333333333333333333333333333333333333333333333"
+        }
+      },
+      {
+        "description": "Generic client using -server= and -password= but no -vkey=, and a config file not named npc",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\SyncTool\\synctool.exe",
+          "CommandLine": "\"C:\\Program Files\\SyncTool\\synctool.exe\" -server=sync.example.org -password=xxxx -config=sync.conf",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Hashes": "MD5=44445555666677778888999900001111,SHA256=4444444444444444444444444444444444444444444444444444444444444444"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

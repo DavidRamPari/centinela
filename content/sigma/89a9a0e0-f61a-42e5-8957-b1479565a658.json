@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "89a9a0e0-f61a-42e5-8957-b1479565a658",
+    "title": "UAC Bypass WSReset",
+    "level": "high",
+    "status": "test",
+    "author": "Christian Burkard (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_uac_bypass_wsreset_integrity_level.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_uac_bypass_wsreset_integrity_level.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1548.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso wsreset.exe con nivel de integridad High o System. Esto coincide con la técnica conocida de evasión de UAC mediante WSReset, que se usa para ejecutar código elevado sin mostrar el aviso de UAC.",
+      "what_it_detects": "Detecta eventos de creación de procesos en Windows en los que Image termina en \\wsreset.exe e IntegrityLevel es High, System, S-1-16-12288 o S-1-16-16384. WSReset.exe, la herramienta que restablece la caché de Microsoft Store, se eleva automáticamente. Por eso un atacante puede secuestrar su manejador de comandos en HKCU y lanzar un payload con privilegios altos.",
+      "why_it_matters": "Corresponde a ATT&CK T1548.002, Abuse Elevation Control Mechanism: Bypass User Account Control. Un usuario administrador que corre con integridad media obtiene integridad alta sin pasar por el aviso de UAC. El atacante puede entonces desactivar defensas, instalar persistencia o volcar credenciales.",
+      "triage_steps": [
+        "Revise ParentImage, CommandLine y User del evento. Desconfíe si el padre es cmd.exe, powershell.exe, un script o un binario ubicado en una ruta escribible por el usuario.",
+        "Busque procesos hijos de wsreset.exe en el mismo host. Cualquier hijo distinto de la UI de Store (por ejemplo, cmd.exe, powershell.exe o un ejecutable desconocido) indica explotación.",
+        "Revise los eventos de registro (Sysmon 12/13) en HKCU\\Software\\Classes\\AppX82a6gwre4fdg3bt635tn5ctqjf8msdd2\\Shell\\open\\command y en los valores DelegateExecute dentro de ±15 minutos.",
+        "Confirme que Image sea C:\\Windows\\System32\\WSReset.exe y valide su hash y su firma. Una copia en otra ruta es sospechosa.",
+        "Busque en el mismo host y con el mismo usuario, dentro de ±15 minutos, conexiones de red, creación de servicios, tareas programadas o cambios en Defender.",
+        "Revise alertas anteriores del mismo usuario y del mismo host, sobre todo otras evasiones de UAC o ejecuciones de herramientas como UACME."
+      ],
+      "false_positives": [
+        "Un administrador o un técnico de soporte ejecuta wsreset.exe desde una consola ya elevada para corregir problemas de Microsoft Store.",
+        "Scripts de mantenimiento o de imagen del equipo que restablecen la caché de Store con privilegios elevados (SCCM o Intune)."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o con el equipo de TI si el restablecimiento de Store fue legítimo antes de escalar.",
+        "Si hubo hijos sospechosos o cambios en la clave AppX82a6..., aísle el endpoint y preserve la memoria y los artefactos del registro.",
+        "Elimine la clave de registro secuestrada y el payload después de documentarlos. Busque la persistencia que el proceso elevado haya creado.",
+        "Restablezca las credenciales del usuario afectado, considere subir UAC a 'Notificar siempre' y quite derechos de administrador local innecesarios."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque wsreset.exe con integridad elevada rara vez es legítimo y suele indicar una escalada de privilegios exitosa en el host."
+    },
+    "en": {
+      "summary": "A wsreset.exe process was created at High or System integrity. This matches the known WSReset UAC bypass, which runs code elevated without showing a UAC prompt.",
+      "what_it_detects": "Detects Windows process creation events where Image ends with \\wsreset.exe and IntegrityLevel is High, System, S-1-16-12288 or S-1-16-16384. WSReset.exe, the Microsoft Store cache reset tool, auto-elevates. That lets an attacker hijack its HKCU command handler and launch a payload with high privileges.",
+      "why_it_matters": "This is ATT&CK T1548.002, Abuse Elevation Control Mechanism: Bypass User Account Control. An admin user running at medium integrity gets high integrity without a UAC prompt. The attacker can then disable defenses, install persistence or dump credentials.",
+      "triage_steps": [
+        "Review ParentImage, CommandLine and User on the event. Be suspicious if the parent is cmd.exe, powershell.exe, a script host or a binary in a user-writable path.",
+        "Look for child processes of wsreset.exe on the host. Any child other than the Store UI (for example cmd.exe, powershell.exe or an unknown executable) indicates exploitation.",
+        "Check registry events (Sysmon 12/13) on HKCU\\Software\\Classes\\AppX82a6gwre4fdg3bt635tn5ctqjf8msdd2\\Shell\\open\\command and DelegateExecute values within +/- 15 minutes.",
+        "Confirm that Image is C:\\Windows\\System32\\WSReset.exe and validate its hash and signature. A copy in any other path is suspicious.",
+        "Pivot on the same host and user within +/- 15 minutes for network connections, service creation, scheduled tasks or Defender changes.",
+        "Review earlier alerts for the same user and host, especially other UAC bypasses or UACME-style tooling."
+      ],
+      "false_positives": [
+        "An administrator or helpdesk technician runs wsreset.exe from an already elevated console to fix Microsoft Store issues.",
+        "Maintenance or imaging scripts (SCCM, Intune) that reset the Store cache with elevated privileges."
+      ],
+      "response_steps": [
+        "Verify with the user or IT whether a Store reset was legitimate before escalating.",
+        "If there were suspicious children or AppX82a6... key changes, isolate the endpoint and preserve memory and registry artifacts.",
+        "After documenting them, remove the hijacked registry key and the payload. Hunt for persistence created by the elevated process.",
+        "Reset the affected user's credentials, consider setting UAC to 'Always notify' and remove unnecessary local admin rights."
+      ],
+      "severity_rationale": "High fits because wsreset.exe at elevated integrity is rarely legitimate and usually means a privilege escalation on the host succeeded."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WSReset auto-elevated to High integrity after being launched from PowerShell during a UAC bypass",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\WSReset.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\WSReset.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "WSReset running with the High integrity SID form of the field",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "Image": "C:\\Windows\\System32\\wsreset.exe",
+          "CommandLine": "wsreset.exe",
+          "ParentImage": "C:\\Users\\mlopez\\AppData\\Local\\Temp\\run.exe",
+          "User": "ANDES\\mlopez",
+          "IntegrityLevel": "S-1-16-12288"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "WSReset launched at Medium integrity, so the IntegrityLevel values do not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\WSReset.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\WSReset.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "A different binary at High integrity whose Image does not end with \\wsreset.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\wsreset_helper.exe.bak\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami",
+          "ParentImage": "C:\\Windows\\System32\\mmc.exe",
+          "User": "ANDES\\admin.rgomez",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,139 @@
+{
+  "rule": {
+    "id": "d9367cbb-c2e0-47ce-bdc0-128cb6da898d",
+    "title": "HackTool - SharpLdapWhoami Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_sharpldapwhoami.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_sharpldapwhoami.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1033"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó SharpLdapWhoami, o un proceso con sus flags de autenticación, en un endpoint Windows. Suele indicar reconocimiento de identidad por parte de un operador que ya tiene acceso al host.",
+      "what_it_detects": "Eventos de creación de procesos cuyo Image termina en \\SharpLdapWhoami.exe, cuyo OriginalFileName o Product corresponde a SharpLdapWhoami (aunque el binario se haya renombrado), o cuyo CommandLine termina en /method: o /m: con ntlm, kerb o nego.",
+      "why_it_matters": "SharpLdapWhoami es una herramienta .NET que pregunta por LDAP al controlador de dominio qué identidad corresponde a las credenciales actuales. Es una alternativa sigilosa a whoami.exe, usada para descubrir el propietario o usuario del sistema (T1033) antes de moverse lateralmente o escalar privilegios.",
+      "triage_steps": [
+        "Revise Image, OriginalFileName, Product y CommandLine; un nombre de archivo distinto de OriginalFileName indica un binario renombrado a propósito.",
+        "Identifique el usuario que lo ejecutó y si esa cuenta tiene motivos para usar herramientas de seguridad ofensiva.",
+        "Examine ParentImage y la cadena de procesos: cmd.exe, powershell.exe, rundll32 o un proceso inyectado sugieren C2 o actividad manual de un operador.",
+        "Obtenga el hash del binario y su ruta; revise cuándo y cómo se escribió en disco (descarga, recurso compartido, correo).",
+        "Busque conexiones del proceso a controladores de dominio por los puertos 389/636 y eventos de autenticación 4624/4768/4776 cercanos.",
+        "Pivotee en el mismo host +/- 15 minutos: whoami, net, nltest, AdFind, SharpHound, Rubeus u otras herramientas de descubrimiento.",
+        "Consulte alertas previas del mismo host y usuario, y si el mismo hash aparece en otros endpoints."
+      ],
+      "false_positives": [
+        "Programas legítimos o scripts internos que usan los mismos flags /method: o /m: con ntlm, kerb o nego al final de la línea de comandos.",
+        "Pruebas de penetración o ejercicios de red team autorizados y documentados.",
+        "Administradores o ingenieros de seguridad que validan la autenticación LDAP en un laboratorio."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host o del equipo de red team si la ejecución estaba autorizada.",
+        "Si no lo estaba, aísle el endpoint desde el EDR y conserve memoria, el binario y los logs relevantes.",
+        "Restablezca las credenciales de la cuenta involucrada y revise sus sesiones y tickets Kerberos activos.",
+        "Busque el hash y la cadena de procesos en toda la flota y elimine las herramientas o la persistencia encontradas.",
+        "Restaure el host desde una imagen confiable si hay indicios de compromiso más amplio y documente los hallazgos."
+      ],
+      "severity_rationale": "Es alta porque esta herramienta ofensiva casi nunca tiene uso legítimo en producción y suele aparecer después de que un atacante consiguió ejecución de código en el dominio."
+    },
+    "en": {
+      "summary": "SharpLdapWhoami, or a process using its authentication flags, ran on a Windows endpoint. This usually means someone who already has access to the host is checking which identity they hold.",
+      "what_it_detects": "Process creation events where Image ends with \\SharpLdapWhoami.exe, where OriginalFileName or Product matches SharpLdapWhoami (even after a rename), or where CommandLine ends with /method: or /m: followed by ntlm, kerb or nego.",
+      "why_it_matters": "SharpLdapWhoami is a .NET tool that asks a domain controller over LDAP which identity the current credentials map to. It is a quieter alternative to whoami.exe, used for owner/user discovery (T1033) before lateral movement or privilege escalation.",
+      "triage_steps": [
+        "Review Image, OriginalFileName, Product and CommandLine. If the file name differs from OriginalFileName, the binary was probably renamed on purpose.",
+        "Identify the executing user and whether that account has any reason to run offensive security tools.",
+        "Inspect ParentImage and the process tree. cmd.exe, powershell.exe, rundll32 or an injected process suggest C2 or hands-on-keyboard activity.",
+        "Collect the binary hash and path, and work out when and how it reached disk: a download, a file share or email.",
+        "Check whether the process connected to domain controllers on 389/636, and look for 4624/4768/4776 authentication events around that time.",
+        "Pivot on the same host within +/- 15 minutes for whoami, net, nltest, AdFind, SharpHound, Rubeus or other discovery tools.",
+        "Review earlier alerts for the same host and user, and check whether the same hash appears on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate programs or internal scripts whose command lines end with the same /method: or /m: flags followed by ntlm, kerb or nego.",
+        "Authorized, documented penetration tests or red team exercises.",
+        "Administrators or security engineers testing LDAP authentication in a lab."
+      ],
+      "response_steps": [
+        "Ask the host owner or the red team whether the execution was authorized.",
+        "If it was not, isolate the endpoint through EDR. Preserve memory, the binary and the relevant logs.",
+        "Reset the involved account's credentials and review its active sessions and Kerberos tickets.",
+        "Hunt for the hash and the process chain across the fleet, then remove any tools or persistence you find.",
+        "If there are signs of wider compromise, reimage the host from a trusted baseline. Document your findings."
+      ],
+      "severity_rationale": "High fits because this offensive tool rarely has a legitimate use in production, and it usually shows up after an attacker has gained code execution in the domain."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "SharpLdapWhoami.exe run from a user's Downloads folder with Kerberos authentication",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\Downloads\\SharpLdapWhoami.exe",
+          "OriginalFileName": "SharpLdapWhoami.exe",
+          "Product": "SharpLdapWhoami",
+          "CommandLine": "SharpLdapWhoami.exe /method:kerb",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\Downloads\\"
+        }
+      },
+      {
+        "description": "Renamed binary still caught by OriginalFileName and the trailing /m:nego flag",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "SharpLdapWhoami.exe",
+          "Product": "SharpLdapWhoami",
+          "CommandLine": "C:\\Users\\Public\\svchelper.exe /m:nego",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Built-in whoami.exe run by an administrator; it matches none of the name, PE or flag selections",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.lgomez",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "OriginalFileName": "whoami.exe",
+          "Product": "Microsoft® Windows® Operating System",
+          "CommandLine": "whoami /all",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Internal tool whose command line ends with /method:kerberos, so it does not end with ' /method:kerb'",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_authtest",
+          "Image": "C:\\Program Files\\Contoso\\AuthCheck\\authcheck.exe",
+          "OriginalFileName": "authcheck.exe",
+          "Product": "Contoso AuthCheck",
+          "CommandLine": "\"C:\\Program Files\\Contoso\\AuthCheck\\authcheck.exe\" /server:dc01.andes.example.com /method:kerberos",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

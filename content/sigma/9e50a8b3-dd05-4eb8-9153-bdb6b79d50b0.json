@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "9e50a8b3-dd05-4eb8-9153-bdb6b79d50b0",
+    "title": "Msxsl.EXE Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "Timur Zinniatullin, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_msxsl_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_msxsl_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1220"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó msxsl.exe, la utilidad de Microsoft para aplicar transformaciones XSL desde la línea de comandos. No viene instalada por defecto y está obsoleta, por lo que cualquier ejecución es inusual y debe revisarse.",
+      "what_it_detects": "Eventos de creación de procesos cuyo Image termina en \\msxsl.exe, sin importar la línea de comandos ni el proceso padre.",
+      "why_it_matters": "Las hojas XSL pueden incluir script embebido (JScript/VBScript). Los atacantes usan un binario firmado por Microsoft para ejecutar ese código y evadir el allowlisting de aplicaciones (ATT&CK T1220, XSL Script Processing).",
+      "triage_steps": [
+        "Revise CommandLine: identifique los argumentos XML y XSL. Considere sospechosas las URL remotas, las rutas escribibles por el usuario (%TEMP%, Downloads, AppData) y las extensiones que no coinciden.",
+        "Revise ParentImage y el árbol de procesos. Office, script hosts, cmd/powershell lanzados desde correo o navegador, o wmiprvse.exe indican abuso.",
+        "Verifique la ruta y el hash de msxsl.exe. Una copia en una carpeta temporal o de usuario, y no en un directorio aprobado, sugiere que fue descargada ahí.",
+        "Obtenga el archivo XSL y busque bloques msxsl:script, ActiveXObject, WScript.Shell o llamadas Run/Exec.",
+        "Busque procesos hijos y conexiones de red de msxsl.exe en el mismo host en +/- 15 minutos.",
+        "Pivote por usuario y host: alertas previas, descargas recientes y ejecución de otros LOLBins.",
+        "Confirme con el responsable del activo si alguna aplicación o flujo de desarrollo conocido usa msxsl."
+      ],
+      "false_positives": [
+        "Herramientas heredadas de compilación, reportes o documentación que todavía usan msxsl.exe para transformar XML.",
+        "Desarrolladores o administradores que prueban XSLT en equipos donde instalaron msxsl a propósito.",
+        "Pruebas autorizadas de red team o de Atomic Red Team T1220."
+      ],
+      "response_steps": [
+        "Si la actividad es maliciosa o no tiene explicación, aísle el endpoint y preserve los archivos XML/XSL, msxsl.exe y la memoria del proceso.",
+        "Termine los procesos hijos que haya creado y bloquee los dominios o IP de las hojas de estilo remotas.",
+        "Elimine la persistencia y los payloads descargados solo después de delimitar el alcance, y restablezca las credenciales del usuario si hace falta.",
+        "Bloquee msxsl.exe con AppLocker o WDAC donde no tenga uso de negocio. Agregue exclusiones ajustadas para los flujos aprobados."
+      ],
+      "severity_rationale": "La severidad media es adecuada porque msxsl es poco común y fácil de abusar, pero la regla detecta cualquier ejecución, así que el contexto define si es maliciosa."
+    },
+    "en": {
+      "summary": "msxsl.exe, Microsoft's command-line XSL transformation utility, ran on this host. It is not installed by default and is deprecated, so any execution is unusual and should be checked.",
+      "what_it_detects": "Process creation events where Image ends with \\msxsl.exe, whatever the command line or parent process.",
+      "why_it_matters": "XSL stylesheets can contain embedded script (JScript/VBScript). Attackers use a signed Microsoft binary to run that code and get past application allowlisting (ATT&CK T1220, XSL Script Processing).",
+      "triage_steps": [
+        "Review CommandLine: identify the XML and XSL arguments. Treat remote URLs, user-writable paths (%TEMP%, Downloads, AppData) and mismatched extensions as suspicious.",
+        "Check ParentImage and the process tree. Office apps, script hosts, cmd/powershell launched from email or a browser, or wmiprvse.exe point to malicious use.",
+        "Verify the msxsl.exe path and hash. A copy sitting in a temp or user folder, rather than an approved tools directory, suggests it was dropped there.",
+        "Collect the XSL file and look for msxsl:script blocks, ActiveXObject, WScript.Shell or Run/Exec calls.",
+        "Look at child processes and at network connections from msxsl.exe on the same host within +/- 15 minutes.",
+        "Pivot on the user and host for earlier alerts, recent file downloads and other LOLBin executions.",
+        "Confirm with the asset owner whether a known application or developer workflow uses msxsl."
+      ],
+      "false_positives": [
+        "Legacy build, reporting or documentation tooling that still runs msxsl.exe for XML transformations.",
+        "Developers or administrators testing XSLT on workstations where they installed msxsl on purpose.",
+        "Authorized red team or Atomic Red Team T1220 tests."
+      ],
+      "response_steps": [
+        "If the activity is malicious or unexplained, isolate the endpoint and preserve the XML/XSL files, msxsl.exe and the process memory.",
+        "Terminate any child processes it spawned and block the remote stylesheet domains or IPs.",
+        "Remove persistence and dropped payloads only after you have scoped them, and reset credentials for the user if needed.",
+        "Block msxsl.exe with AppLocker or WDAC where it has no business use. Add tuned exclusions for approved workflows."
+      ],
+      "severity_rationale": "Medium fits because msxsl is rare and easy to abuse, but the rule matches every execution, so context decides whether it is malicious."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "msxsl.exe dropped in the user's temp folder and run from cmd.exe with a remote XSL stylesheet",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\msxsl.exe",
+          "CommandLine": "msxsl.exe http://files.example.com/data.xml http://files.example.com/transform.xsl",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c msxsl.exe http://files.example.com/data.xml http://files.example.com/transform.xsl",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "msxsl.exe launched by PowerShell against local XML and XSL files in the Downloads folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Tools\\MSXSL\\MSXSL.EXE",
+          "CommandLine": "\"C:\\Tools\\MSXSL\\MSXSL.EXE\" C:\\Users\\mrojas\\Downloads\\customers.xml C:\\Users\\mrojas\\Downloads\\script.xsl",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate XSLT run through PowerShell and .NET; msxsl.exe is not involved",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -File C:\\Build\\Scripts\\Transform-Report.ps1 -Xml report.xml -Xsl report.xsl",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Notepad opening a file whose name contains msxsl.exe; Image does not end with \\msxsl.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "CommandLine": "notepad.exe C:\\Tools\\MSXSL\\msxsl.exe.readme.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

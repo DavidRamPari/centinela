@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "32410e29-5f94-4568-b6a3-d91a8adad863",
+    "title": "PUA - Fast Reverse Proxy (FRP) Execution",
+    "level": "high",
+    "status": "test",
+    "author": "frack113, Florian Roth",
+    "path": "windows/process_creation/proc_creation_win_pua_frp.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_pua_frp.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1090"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Fast Reverse Proxy (frp) en un endpoint Windows, identificado por el nombre del binario (frpc.exe/frps.exe), una línea de comandos que referencia frpc.ini o el hash conocido de la versión 0.44.0. Puede indicar un túnel que expone servicios internos hacia Internet.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\frpc.exe o \\frps.exe, CommandLine contiene \\frpc.ini, o Hashes coincide con MD5/SHA1/SHA256 de frp v0.44.0. Una sola de estas condiciones basta para alertar.",
+      "why_it_matters": "frp crea túneles inversos que atraviesan NAT y firewalls. Un atacante puede usarlo como proxy (ATT&CK T1090) para acceder por RDP u otros servicios internos desde fuera, manteniendo persistencia y evadiendo controles perimetrales.",
+      "triage_steps": [
+        "Revise Image, CommandLine y Hashes: ruta del binario (carpetas temporales, ProgramData, Public son sospechosas) y si el nombre fue renombrado pero conserva frpc.ini.",
+        "Obtenga y lea el archivo frpc.ini o equivalente: identifique server_addr, server_port y los puertos locales expuestos (por ejemplo 3389, 445, 22).",
+        "Analice ParentImage y la cadena de procesos: cmd, PowerShell, servicios web o tareas programadas como padre son indicadores de abuso.",
+        "Verifique el usuario que ejecutó el proceso y si pertenece a un equipo autorizado para usar túneles o herramientas de desarrollo.",
+        "Busque conexiones de red salientes del proceso hacia server_addr y valide la reputación del destino en el mismo host +/- 15 minutos.",
+        "Pivotee en el host +/- 15 minutos: creación de cuentas, servicios nuevos, tareas programadas, descarga del binario o inicios de sesión RDP entrantes.",
+        "Busque el mismo hash o nombre de archivo en otros endpoints y alertas previas para la misma entidad."
+      ],
+      "false_positives": [
+        "Uso legítimo por desarrolladores o administradores para exponer servicios de prueba o acceso remoto aprobado.",
+        "Laboratorios de seguridad, pruebas de penetración o ejercicios red team autorizados.",
+        "Herramientas internas que empaquetan frp con aprobación documentada."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y su responsable si existe autorización documentada; sin ella, trate el evento como incidente.",
+        "Aísle el endpoint o bloquee el server_addr en el firewall perimetral tras validar que no es un servicio aprobado.",
+        "Finalice el proceso, preserve el binario y la configuración como evidencia y elimine mecanismos de persistencia asociados.",
+        "Revise accesos realizados a través del túnel, restablezca credenciales expuestas y busque la herramienta en el resto del parque."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque frp habilita acceso remoto encubierto que evade el perímetro y su uso legítimo en endpoints corporativos es poco común."
+    },
+    "en": {
+      "summary": "Fast Reverse Proxy (frp) ran on a Windows endpoint, identified by binary name (frpc.exe/frps.exe), a command line referencing frpc.ini, or the known v0.44.0 hash. This may be a tunnel exposing internal services to the Internet.",
+      "what_it_detects": "Process creation where Image ends with \\frpc.exe or \\frps.exe, CommandLine contains \\frpc.ini, or Hashes matches the MD5/SHA1/SHA256 of frp v0.44.0. Any one condition triggers the alert.",
+      "why_it_matters": "frp builds reverse tunnels through NAT and firewalls. Attackers use it as a proxy (ATT&CK T1090) to reach RDP or other internal services from outside, keeping access and bypassing perimeter controls.",
+      "triage_steps": [
+        "Review Image, CommandLine and Hashes: binary path (temp, ProgramData, Public folders are suspicious) and whether a renamed binary still loads frpc.ini.",
+        "Collect and read frpc.ini or equivalent config: note server_addr, server_port and exposed local ports (e.g. 3389, 445, 22).",
+        "Inspect ParentImage and the process tree: cmd, PowerShell, web server processes or scheduled tasks as parent suggest abuse.",
+        "Check the executing user and whether they belong to a team authorized to use tunneling or developer tools.",
+        "Look for outbound connections from the process to server_addr and check destination reputation on the same host +/- 15 minutes.",
+        "Pivot on the host +/- 15 minutes: account creation, new services, scheduled tasks, binary download, inbound RDP logons.",
+        "Hunt for the same hash or filename on other endpoints and prior alerts for the same entity."
+      ],
+      "false_positives": [
+        "Legitimate use by developers or admins exposing test services or approved remote access.",
+        "Security labs, penetration tests or authorized red team exercises.",
+        "Internal tooling that bundles frp with documented approval."
+      ],
+      "response_steps": [
+        "Confirm with the user and their manager whether documented authorization exists; without it, treat as an incident.",
+        "Isolate the endpoint or block server_addr at the perimeter after confirming it is not an approved service.",
+        "Kill the process, preserve binary and config as evidence, and remove associated persistence.",
+        "Review access made through the tunnel, reset exposed credentials and hunt for the tool fleet-wide."
+      ],
+      "severity_rationale": "High fits because frp enables covert remote access that bypasses the perimeter, and legitimate use on corporate endpoints is uncommon."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "frpc.exe launched from ProgramData with an ini config by cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\ProgramData\\frp\\frpc.exe",
+          "CommandLine": "C:\\ProgramData\\frp\\frpc.exe -c C:\\ProgramData\\frp\\frpc.ini",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Hashes": "MD5=11111111111111111111111111111111,SHA256=2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      },
+      {
+        "description": "Renamed frp client still referencing frpc.ini in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\svchost.exe",
+          "CommandLine": "C:\\Users\\Public\\svchost.exe -c C:\\Users\\Public\\frpc.ini",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "Hashes": "MD5=33333333333333333333333333333333"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Renamed binary using a TOML config; name, ini reference and hash do not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\updater.exe",
+          "CommandLine": "C:\\Users\\Public\\updater.exe -c C:\\Users\\Public\\client.toml",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Hashes": "MD5=44444444444444444444444444444444,SHA256=5555555555555555555555555555555555555555555555555555555555555555"
+        }
+      },
+      {
+        "description": "Notepad opening a file named frpc.txt, no frpc.ini or frp binary",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0200.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "CommandLine": "notepad.exe C:\\Users\\mrojas\\Documents\\frpc.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Hashes": "MD5=66666666666666666666666666666666"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

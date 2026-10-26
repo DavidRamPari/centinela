@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "e32d4572-9826-4738-b651-95fa63747e8a",
+    "title": "Base64 Encoded PowerShell Command Detected",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_frombase64string.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_frombase64string.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1059.001",
+      "T1140"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso cuya línea de comandos invoca el método .NET ::FromBase64String(), que decodifica una cadena base64 en tiempo de ejecución. Es una técnica habitual para ocultar payloads de PowerShell.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde CommandLine contiene '::FromBase64String(', típicamente [System.Convert]::FromBase64String usado desde powershell.exe, pwsh.exe u otros intérpretes.",
+      "why_it_matters": "Decodificar contenido en la propia línea de comandos permite ocultar scripts o binarios a la inspección casual (T1027, T1140) y ejecutarlos con PowerShell (T1059.001), a menudo junto con IEX o la carga de ensamblados en memoria.",
+      "triage_steps": [
+        "Extraer la cadena base64 de CommandLine y decodificarla en un entorno aislado; identificar si es script, binario PE, shellcode o texto inocuo.",
+        "Revisar qué se hace con el resultado: IEX/Invoke-Expression, Assembly::Load, WriteAllBytes a disco o GetString seguido de ejecución.",
+        "Analizar Image y ParentImage: un padre como winword.exe, excel.exe, wscript.exe, mshta.exe o w3wp.exe es muy sospechoso.",
+        "Validar User e IntegrityLevel; confirmar si la cuenta suele ejecutar scripts administrativos en ese host.",
+        "Buscar en el mismo host +/- 15 minutos procesos hijos, conexiones de red salientes, archivos creados y modificaciones de persistencia (Run keys, tareas programadas, servicios).",
+        "Correlacionar el hash del script o la cadena con otros endpoints y alertas previas del mismo usuario o host.",
+        "Revisar los logs de PowerShell Script Block (4104) para ver el contenido completo ya decodificado."
+      ],
+      "false_positives": [
+        "Bibliotecas de scripts administrativos que decodifican configuraciones, certificados o credenciales empaquetadas en base64.",
+        "Herramientas de despliegue o gestión (RMM, SCCM, Intune) que transmiten scripts codificados.",
+        "Instaladores o scripts de desarrolladores que incrustan pequeños archivos binarios en base64."
+      ],
+      "response_steps": [
+        "Verificar con el dueño del sistema o el equipo de TI si la ejecución corresponde a una tarea conocida antes de actuar.",
+        "Si el contenido decodificado es malicioso, aislar el endpoint desde el EDR y preservar memoria y artefactos relevantes.",
+        "Bloquear los dominios, IP y hashes identificados en el payload y buscarlos en toda la flota.",
+        "Eliminar la persistencia encontrada, restablecer las credenciales de la cuenta afectada y documentar las exclusiones legítimas confirmadas."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque decodificar base64 en la línea de comandos es un indicador fuerte de ofuscación maliciosa, aunque existen usos administrativos legítimos que requieren verificación."
+    },
+    "en": {
+      "summary": "A process was created whose command line calls the .NET ::FromBase64String() method, decoding a base64 string at runtime. This is a common way to hide PowerShell payloads.",
+      "what_it_detects": "Windows process creation events where CommandLine contains '::FromBase64String(', typically [System.Convert]::FromBase64String invoked from powershell.exe, pwsh.exe or another interpreter.",
+      "why_it_matters": "Decoding content inline hides scripts or binaries from casual inspection (T1027, T1140) and runs them through PowerShell (T1059.001), often combined with IEX or in-memory assembly loading.",
+      "triage_steps": [
+        "Extract the base64 string from CommandLine and decode it in a sandbox; determine whether it is a script, PE binary, shellcode or harmless text.",
+        "Check what happens to the output: IEX/Invoke-Expression, Assembly::Load, WriteAllBytes to disk, or GetString followed by execution.",
+        "Review Image and ParentImage; parents such as winword.exe, excel.exe, wscript.exe, mshta.exe or w3wp.exe are highly suspicious.",
+        "Validate User and IntegrityLevel; confirm whether this account normally runs admin scripts on this host.",
+        "On the same host +/- 15 minutes, look for child processes, outbound connections, dropped files and persistence changes (Run keys, scheduled tasks, services).",
+        "Correlate the decoded content or string across other endpoints and earlier alerts for the same user or host.",
+        "Review PowerShell Script Block logs (4104) for the fully decoded content."
+      ],
+      "false_positives": [
+        "Administrative script libraries decoding base64-packed configuration, certificates or credentials.",
+        "Deployment and management tools (RMM, SCCM, Intune) that ship encoded scripts.",
+        "Installers or developer scripts embedding small binary files as base64."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or IT team whether the execution matches a known task before acting.",
+        "If the decoded content is malicious, isolate the endpoint via EDR and preserve memory and relevant artifacts.",
+        "Block domains, IPs and hashes found in the payload and hunt for them fleet-wide.",
+        "Remove discovered persistence, reset credentials of the affected account, and document confirmed legitimate exclusions."
+      ],
+      "severity_rationale": "High fits because inline base64 decoding is a strong obfuscation indicator, though legitimate administrative uses exist and require verification."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell launched by Word decodes a base64 string and runs it with IEX.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -NoProfile -WindowStyle Hidden -Command \"IEX ([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('V3JpdGUtSG9zdCAnaGVsbG8n')))\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "pwsh writes decoded base64 bytes to a file in a public folder.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "pwsh.exe -c \"[IO.File]::WriteAllBytes('C:\\Users\\Public\\data.bin',[Convert]::FromBase64String('SGVsbG8='))\"",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin script encodes (not decodes) a file to base64 with ToBase64String.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command \"[Convert]::ToBase64String([IO.File]::ReadAllBytes('C:\\Temp\\report.pdf')) | Out-File C:\\Temp\\report.b64\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Help lookup mentions FromBase64String without the '::' method call syntax.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command \"[System.Convert].GetMethod('FromBase64String') | Format-List\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

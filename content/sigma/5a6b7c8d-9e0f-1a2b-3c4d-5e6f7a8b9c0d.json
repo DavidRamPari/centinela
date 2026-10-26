@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "5a6b7c8d-9e0f-1a2b-3c4d-5e6f7a8b9c0d",
+    "title": "Cmd Launched with Hidden Start Flags to Suspicious Targets",
+    "level": "medium",
+    "status": "experimental",
+    "author": "Vladan Sekulic, Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_cmd_launched_with_hidden_start_flag.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmd_launched_with_hidden_start_flag.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1564.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "cmd.exe ejecutó \"start\" con /b (sin ventana) o /min (minimizado) para lanzar un script, un archivo en una carpeta de usuario o temporal, o un one-liner de PowerShell sospechoso. Puede indicar ejecución oculta de malware.",
+      "what_it_detects": "Procesos cmd.exe (por Image u OriginalFileName) cuyo CommandLine incluye \"start\" junto con /b o /min, cuando el destino tiene una extensión de script (.bat, .vbs, .ps1, .hta, .js, etc.), está en rutas como Temp, Users\\Public, AppData\\Roaming o Downloads, o contiene patrones como -nop, -w hidden o .DownloadString(.",
+      "why_it_matters": "Lanzar procesos sin ventana visible oculta la actividad al usuario (ATT&CK T1564.003, Hidden Window). Las referencias de la regla describen esta técnica en campañas de Chaos, DarkSide y Emotet, donde precede a la ejecución de payloads o al cifrado.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el archivo o comando que se lanza con start /b o /min y la ruta desde donde se ejecuta.",
+        "Examine el ParentImage: Office, navegadores, wscript, mshta o procesos en Temp como padre aumentan mucho la sospecha.",
+        "Obtenga el hash del script o binario de destino y consulte su reputación; revise firma, fecha de creación y origen (Zone.Identifier).",
+        "Revise los procesos hijos del cmd.exe y del destino: powershell, rundll32, regsvr32, vssadmin o bcdedit son señales de alto riesgo.",
+        "Correlacione en el mismo host +/- 15 minutos: conexiones de red, descargas, archivos nuevos en Temp o Public y cambios de persistencia.",
+        "Verifique el usuario: si es una cuenta de servicio o administrativa conocida, confirme con el responsable si el script es esperado.",
+        "Busque alertas previas del mismo host, usuario o hash, y el mismo CommandLine en otros endpoints."
+      ],
+      "false_positives": [
+        "Scripts administrativos legítimos ejecutados desde carpetas temporales con start /b.",
+        "Actualizadores de software de nicho que usan archivos batch ocultos en ProgramData o Temp.",
+        "Scripts de inicio de sesión o herramientas de despliegue que lanzan .bat o .ps1 minimizados."
+      ],
+      "response_steps": [
+        "Confirme la legitimidad con el dueño del sistema o del script antes de actuar; documente CommandLine, hash y padre.",
+        "Si es malicioso, aísle el endpoint desde el EDR y termine el árbol de procesos involucrado.",
+        "Preserve el script y artefactos relacionados para análisis; luego elimínelos junto con cualquier persistencia identificada.",
+        "Restablezca las credenciales del usuario afectado y busque el mismo hash o patrón en el resto del entorno.",
+        "Si es legítimo, agregue una exclusión acotada por ruta, hash y padre, nunca por cmd.exe en general."
+      ],
+      "severity_rationale": "Medium es adecuado porque la combinación de ventana oculta y destino sospechoso es inusual, pero existen scripts administrativos legítimos que requieren validación y ajuste de línea base."
+    },
+    "en": {
+      "summary": "cmd.exe ran \"start\" with /b (no window) or /min (minimized) to launch a script, a file in a user or temp folder, or a suspicious PowerShell one-liner. This may indicate hidden malware execution.",
+      "what_it_detects": "cmd.exe processes (by Image or OriginalFileName) whose CommandLine contains \"start\" plus /b or /min, where the target has a script extension (.bat, .vbs, .ps1, .hta, .js, etc.), sits in paths like Temp, Users\\Public, AppData\\Roaming or Downloads, or contains patterns such as -nop, -w hidden or .DownloadString(.",
+      "why_it_matters": "Launching processes without a visible window hides activity from the user (ATT&CK T1564.003, Hidden Window). The rule's references describe this in Chaos, DarkSide and Emotet campaigns, before payload execution or encryption.",
+      "triage_steps": [
+        "Read the full CommandLine: identify what start /b or /min launches and the path it runs from.",
+        "Check ParentImage: Office, browsers, wscript, mshta or processes in Temp as parent raise suspicion significantly.",
+        "Hash the target script or binary and check reputation; review signature, creation time and origin (Zone.Identifier).",
+        "Review child processes of cmd.exe and the target: powershell, rundll32, regsvr32, vssadmin or bcdedit are high-risk signals.",
+        "Correlate on the same host +/- 15 minutes: network connections, downloads, new files in Temp or Public, persistence changes.",
+        "Check the user: if it is a known service or admin account, confirm with the owner that the script is expected.",
+        "Search earlier alerts for the same host, user or hash, and the same CommandLine on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate administrative scripts run from temporary folders with start /b.",
+        "Niche software updaters using hidden batch files in ProgramData or Temp.",
+        "Logon scripts or deployment tools launching .bat or .ps1 files minimized."
+      ],
+      "response_steps": [
+        "Confirm legitimacy with the system or script owner before acting; record CommandLine, hash and parent.",
+        "If malicious, isolate the endpoint via EDR and terminate the involved process tree.",
+        "Preserve the script and related artifacts for analysis, then remove them and any identified persistence.",
+        "Reset the affected user's credentials and hunt for the same hash or pattern across the environment.",
+        "If benign, add a narrow exclusion by path, hash and parent, never for cmd.exe broadly."
+      ],
+      "severity_rationale": "Medium fits because a hidden window combined with a suspicious target is unusual, but legitimate admin scripts exist and require validation and baseline tuning."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Word spawns cmd.exe that silently launches a batch file from C:\\Users\\Public with start /b",
+        "event": {
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "C:\\Windows\\system32\\cmd.exe /c start /b C:\\Users\\Public\\svchelper.bat",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.andes.example.com",
+          "EventID": 1
+        }
+      },
+      {
+        "description": "cmd.exe launches minimized hidden PowerShell running a script from AppData\\Roaming",
+        "event": {
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c start /min powershell.exe -nop -w hidden -File C:\\Users\\jperez\\AppData\\Roaming\\upd.ps1",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.andes.example.com",
+          "EventID": 1
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "cmd.exe starts a vendor agent in the background from Program Files; no suspicious location, extension or pattern",
+        "event": {
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "C:\\Windows\\system32\\cmd.exe /c start /b \"C:\\Program Files\\Vendor\\agent.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Computer": "SRV-APP-01.andes.example.com",
+          "EventID": 1
+        }
+      },
+      {
+        "description": "cmd.exe opens a batch file from Users\\Public with start but without /b or /min hidden flags",
+        "event": {
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c start C:\\Users\\Public\\report.bat",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "User": "ANDES\\mrojas",
+          "Computer": "WS-0207.andes.example.com",
+          "EventID": 1
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

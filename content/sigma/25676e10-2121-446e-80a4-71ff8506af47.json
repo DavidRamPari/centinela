@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "25676e10-2121-446e-80a4-71ff8506af47",
+    "title": "Exchange PowerShell Snap-Ins Usage",
+    "level": "high",
+    "status": "test",
+    "author": "FPT.EagleEye, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_snapins_hafnium.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_snapins_hafnium.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001",
+      "T1114"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso de PowerShell cargó con Add-PSSnapin un snap-in de administración de Exchange. Fuera de una tarea administrativa conocida, esto puede indicar acceso no autorizado a buzones o su exportación.",
+      "what_it_detects": "Creación de un proceso powershell.exe o pwsh.exe cuyo CommandLine contiene Add-PSSnapin junto con Microsoft.Exchange.Powershell.Snapin o Microsoft.Exchange.Management.PowerShell.SnapIn. Se excluye el caso del instalador msiexec.exe que ejecuta la verificación $exserver=Get-ExchangeServer.",
+      "why_it_matters": "Cargar el snap-in da acceso a cmdlets como New-MailboxExportRequest o Get-Mailbox sin pasar por la consola habitual. La descripción de la regla menciona su uso por HAFNIUM y APT27 para robar correo (T1059.001 PowerShell, T1114 Email Collection).",
+      "triage_steps": [
+        "Lea el CommandLine completo y busque cmdlets posteriores: New-MailboxExportRequest, Get-Mailbox, Search-Mailbox, Set-Mailbox o rutas de exportación .pst.",
+        "Revise ParentImage: w3wp.exe, UMWorkerProcess.exe o cmd.exe lanzado por IIS sugiere una webshell; una consola de un administrador es más probable que sea legítima.",
+        "Identifique el usuario que ejecutó el proceso y confirme con el equipo de Exchange si tenía una tarea autorizada en ese momento.",
+        "En el mismo host, revise los procesos y archivos creados en +/- 15 minutos: archivos .pst, .zip, .7z o .rar en inetpub, aspnet_client o carpetas temporales.",
+        "Ejecute Get-MailboxExportRequest y revise el registro MSExchange Management para identificar buzones exportados y su destino.",
+        "Busque en los logs de IIS solicitudes POST anómalas a archivos .aspx poco comunes y revise alertas previas para el host y el usuario."
+      ],
+      "false_positives": [
+        "Scripts de administración o mantenimiento de Exchange que cargan el snap-in de forma explícita.",
+        "Herramientas de respaldo, migración o monitoreo de terceros que usan los cmdlets de Exchange.",
+        "Instaladores o actualizaciones de Exchange que no coinciden exactamente con el filtro de msiexec."
+      ],
+      "response_steps": [
+        "Valide con el responsable de Exchange si la ejecución estaba autorizada; si lo estaba, documente y considere una excepción acotada.",
+        "Si no lo estaba, preserve evidencia (memoria, logs de IIS y de Exchange, archivos exportados) antes de modificar el servidor.",
+        "Contenga: aísle el servidor o restrinja su acceso externo, suspenda las solicitudes de exportación y deshabilite las cuentas comprometidas.",
+        "Erradique: busque y elimine webshells, revise tareas programadas y cuentas nuevas, y aplique los parches de Exchange pendientes.",
+        "Recupere: restablezca credenciales, notifique a los dueños de los buzones afectados y al área legal, y vigile la salida de datos."
+      ],
+      "severity_rationale": "El nivel high es adecuado: la regla rara vez se dispara fuera de la administración planificada y su uso malicioso implica robo directo de correo desde el servidor."
+    },
+    "en": {
+      "summary": "A PowerShell process used Add-PSSnapin to load an Exchange management snap-in. Outside a known admin task, this may mean unauthorized mailbox access or export.",
+      "what_it_detects": "Process creation of powershell.exe or pwsh.exe whose CommandLine contains Add-PSSnapin plus Microsoft.Exchange.Powershell.Snapin or Microsoft.Exchange.Management.PowerShell.SnapIn. The msiexec.exe installer running the $exserver=Get-ExchangeServer check is excluded.",
+      "why_it_matters": "Loading the snap-in exposes cmdlets such as New-MailboxExportRequest and Get-Mailbox outside the usual console. The rule description cites HAFNIUM and APT27 using this to steal mail (T1059.001 PowerShell, T1114 Email Collection).",
+      "triage_steps": [
+        "Read the full CommandLine for follow-on cmdlets: New-MailboxExportRequest, Get-Mailbox, Search-Mailbox, Set-Mailbox, or .pst export paths.",
+        "Check ParentImage: w3wp.exe, UMWorkerProcess.exe or cmd.exe spawned by IIS suggests a webshell; an admin's interactive console is more likely legitimate.",
+        "Identify the executing user and confirm with the Exchange team whether an authorized task was running at that time.",
+        "On the same host, review processes and files created within +/- 15 minutes: .pst, .zip, .7z or .rar in inetpub, aspnet_client or temp folders.",
+        "Run Get-MailboxExportRequest and review the MSExchange Management log to identify exported mailboxes and destinations.",
+        "Search IIS logs for unusual POSTs to uncommon .aspx files and check earlier alerts for the same host and user."
+      ],
+      "false_positives": [
+        "Exchange administration or maintenance scripts that explicitly load the snap-in.",
+        "Third-party backup, migration or monitoring tools that call Exchange cmdlets.",
+        "Exchange installers or updates that do not exactly match the msiexec filter."
+      ],
+      "response_steps": [
+        "Confirm with the Exchange owner whether the run was authorized; if so, document it and consider a narrow exclusion.",
+        "If not, preserve evidence (memory, IIS and Exchange logs, exported files) before changing the server.",
+        "Contain: isolate or restrict external access to the server, suspend export requests and disable compromised accounts.",
+        "Eradicate: find and remove webshells, review scheduled tasks and new accounts, and apply pending Exchange patches.",
+        "Recover: reset credentials, notify affected mailbox owners and legal, and monitor for data exfiltration."
+      ],
+      "severity_rationale": "High fits because this rarely fires outside planned administration, and malicious use means direct theft of mail from the server."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell spawned by w3wp.exe loads the Exchange management snap-in and creates a mailbox export request",
+        "event": {
+          "EventID": 1,
+          "Computer": "EXCH-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Add-PSSnapin Microsoft.Exchange.Management.PowerShell.SnapIn; New-MailboxExportRequest -Mailbox jperez -FilePath \\\\EXCH-01\\c$\\inetpub\\wwwroot\\aspnet_client\\jp.pst\"",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+          "ParentCommandLine": "c:\\windows\\system32\\inetsrv\\w3wp.exe -ap \"MSExchangeOWAAppPool\""
+        }
+      },
+      {
+        "description": "pwsh.exe loads the Exchange PowerShell snap-in and enumerates mailboxes",
+        "event": {
+          "EventID": 1,
+          "Computer": "EXCH-02.andes.example.com",
+          "User": "ANDES\\svc-temp",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "pwsh.exe -c \"Add-PSSnapin Microsoft.Exchange.Powershell.Snapin; Get-Mailbox -ResultSize Unlimited | Select PrimarySmtpAddress\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c pwsh.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Exchange update via msiexec running the Get-ExchangeServer check, excluded by filter_msiexec",
+        "event": {
+          "EventID": 1,
+          "Computer": "EXCH-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -command \"Add-PSSnapin Microsoft.Exchange.Management.PowerShell.SnapIn; $exserver=Get-ExchangeServer ([Environment]::MachineName) -ErrorVariable exerr 2> $null\"",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\MsiExec.exe -Embedding C9138ECE2536CB4821EB5F55D300D88E E Global\\MSI0000"
+        }
+      },
+      {
+        "description": "Admin loads a SharePoint snap-in, not an Exchange one",
+        "event": {
+          "EventID": 1,
+          "Computer": "SP-01.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -Command \"Add-PSSnapin Microsoft.SharePoint.PowerShell; Get-SPSite\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

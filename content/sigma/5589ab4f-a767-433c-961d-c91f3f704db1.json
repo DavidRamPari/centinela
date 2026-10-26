@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "5589ab4f-a767-433c-961d-c91f3f704db1",
+    "title": "Potential SMB Relay Attack Tool Execution",
+    "level": "critical",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_relay_attacks_tools.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_relay_attacks_tools.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1557.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó en un endpoint Windows un proceso cuyo nombre de imagen o línea de comandos coincide con herramientas conocidas de relay NTLM/SMB o de escalamiento tipo \"Potato\". Es un indicio fuerte de actividad ofensiva o de una prueba de penetración.",
+      "what_it_detects": "Eventos de creación de procesos donde Image contiene nombres como JuicyPotato, RottenPotato, LocalPotato, PetitPotam, SpoolSample, Responder, ntlmrelayx o smbrelayx, o donde CommandLine incluye patrones como Invoke-Tater, Invoke-PetitPotam, 'cme smb ', ' ntlmrelay' o la sintaxis de JuicyPotatoNG. Excluye el software educativo Hot Potatoes.",
+      "why_it_matters": "Estas herramientas capturan o retransmiten autenticación NTLM (ATT&CK T1557.001, envenenamiento LLMNR/NBT-NS y relay SMB) o abusan de privilegios de cuentas de servicio para obtener SYSTEM. El resultado típico es escalamiento local, robo de credenciales o compromiso del dominio.",
+      "triage_steps": [
+        "Revise Image, CommandLine, el hash y la ruta del binario; confirme si el nombre corresponde realmente a la herramienta ofensiva o es un archivo legítimo homónimo.",
+        "Identifique el usuario y la cuenta: una cuenta de servicio (IIS, SQL) ejecutando un Potato sugiere explotación de SeImpersonatePrivilege.",
+        "Analice ParentImage y el árbol de procesos: w3wp.exe, sqlservr.exe o una shell web como padre indican compromiso previo.",
+        "Busque procesos hijos con integridad SYSTEM (cmd.exe, powershell.exe, nuevos usuarios) en el mismo host dentro de +/- 15 minutos.",
+        "Para ntlmrelayx, Responder o PetitPotam, extraiga IP de destino de CommandLine y revise autenticaciones NTLM anómalas hacia controladores de dominio o servicios AD CS.",
+        "Consulte alertas previas del mismo host, usuario e IP, y confirme con el equipo si existe una prueba de penetración autorizada."
+      ],
+      "false_positives": [
+        "Archivos legítimos con nombres poco comunes que coinciden con los de estas herramientas.",
+        "Pruebas de penetración o ejercicios de red team autorizados y documentados.",
+        "Investigadores de seguridad que analizan estas herramientas en equipos de laboratorio."
+      ],
+      "response_steps": [
+        "Verifique con el responsable del activo y con el equipo de pentesting si la ejecución estaba autorizada antes de actuar.",
+        "Si no está autorizada, aísle el endpoint desde el EDR y preserve memoria, binario y logs relevantes.",
+        "Restablezca credenciales de las cuentas expuestas o retransmitidas y revise cambios en AD (usuarios, grupos, certificados emitidos).",
+        "Elimine el binario y el mecanismo de acceso inicial; aplique firma SMB, EPA/LDAP channel binding y deshabilite LLMNR/NBT-NS donde sea posible."
+      ],
+      "severity_rationale": "El nivel critical se justifica porque estos nombres casi nunca aparecen en uso legítimo y su ejecución suele preceder a la obtención de SYSTEM o al compromiso del dominio."
+    },
+    "en": {
+      "summary": "A Windows endpoint ran a process whose image name or command line matches known NTLM/SMB relay or \"Potato\" privilege-escalation tools. This strongly suggests offensive activity or a penetration test.",
+      "what_it_detects": "Process creation events where Image contains names such as JuicyPotato, RottenPotato, LocalPotato, PetitPotam, SpoolSample, Responder, ntlmrelayx or smbrelayx, or CommandLine contains Invoke-Tater, Invoke-PetitPotam, 'cme smb ', ' ntlmrelay' or JuicyPotatoNG syntax. The Hot Potatoes educational software is excluded.",
+      "why_it_matters": "These tools capture or relay NTLM authentication (ATT&CK T1557.001, LLMNR/NBT-NS poisoning and SMB relay) or abuse service-account impersonation rights to reach SYSTEM. Typical outcomes are local escalation, credential theft or domain compromise.",
+      "triage_steps": [
+        "Review Image, CommandLine, hash and file path; confirm the binary is really the offensive tool and not a legitimate file with a similar name.",
+        "Identify the user: a service account (IIS, SQL) running a Potato tool suggests SeImpersonatePrivilege abuse.",
+        "Inspect ParentImage and the process tree: w3wp.exe, sqlservr.exe or a web shell as parent points to prior compromise.",
+        "Look for SYSTEM-level child processes (cmd.exe, powershell.exe, new local users) on the same host within +/- 15 minutes.",
+        "For ntlmrelayx, Responder or PetitPotam, extract target IPs from CommandLine and check unusual NTLM logons to domain controllers or AD CS servers.",
+        "Check earlier alerts for the same host, user and source IP, and confirm whether an authorized penetration test is running."
+      ],
+      "false_positives": [
+        "Legitimate files with rare names that match these hacktool names.",
+        "Authorized, documented penetration tests or red team exercises.",
+        "Security researchers analyzing these tools on lab machines."
+      ],
+      "response_steps": [
+        "Confirm with the asset owner and pentest team whether the execution was authorized before acting.",
+        "If unauthorized, isolate the endpoint via EDR and preserve memory, the binary and relevant logs.",
+        "Reset credentials of exposed or relayed accounts and review AD changes (users, groups, issued certificates).",
+        "Remove the binary and initial access vector; enforce SMB signing, EPA/LDAP channel binding and disable LLMNR/NBT-NS where possible."
+      ],
+      "severity_rationale": "Critical fits because these names almost never appear in legitimate use and their execution usually precedes SYSTEM access or domain compromise."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "JuicyPotato launched by the IIS worker process to spawn cmd.exe as SYSTEM",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-0217.andes.example.com",
+          "User": "IIS APPPOOL\\DefaultAppPool",
+          "Image": "C:\\Users\\Public\\JuicyPotato.exe",
+          "CommandLine": "C:\\Users\\Public\\JuicyPotato.exe -l 1337 -p C:\\Windows\\System32\\cmd.exe -t * -c {4991d34b-80a1-4291-83b6-3328366b9097}",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+          "ParentCommandLine": "c:\\windows\\system32\\inetsrv\\w3wp.exe -ap \"DefaultAppPool\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Impacket ntlmrelayx run through Python to relay to LDAP on a domain controller",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Python39\\python.exe",
+          "CommandLine": "python.exe ntlmrelayx.py -t ldap://192.0.2.10 -smb2support --escalate-user jperez",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Hot Potatoes 6 educational authoring software, excluded by the filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Program Files (x86)\\HotPotatoes6\\HotPotatoes6.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\HotPotatoes6\\HotPotatoes6.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Legitimate SMB connectivity check with net.exe, no relay tool names or patterns",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "CommandLine": "net use \\\\fs-01.andes.example.com\\shared",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

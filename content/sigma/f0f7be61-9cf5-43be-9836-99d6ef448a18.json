@@ -1,0 +1,125 @@
+{
+  "rule": {
+    "id": "f0f7be61-9cf5-43be-9836-99d6ef448a18",
+    "title": "Uninstall Crowdstrike Falcon Sensor",
+    "level": "high",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_uninstall_crowdstrike_falcon.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_uninstall_crowdstrike_falcon.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó el instalador del sensor CrowdStrike Falcon (WindowsSensor.exe) con los parámetros /uninstall y /quiet, es decir, una desinstalación silenciosa del EDR. Puede ser mantenimiento autorizado o un atacante que intenta quedar sin monitoreo.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene a la vez '\\WindowsSensor.exe', ' /uninstall' y ' /quiet'. Así se ve la desinstalación desatendida del sensor Falcon, sin interacción del usuario.",
+      "why_it_matters": "Si se quita el EDR, el atacante puede ejecutar herramientas, moverse lateralmente o desplegar ransomware sin telemetría ni bloqueo. La regla está etiquetada como ATT&CK T1685 (debilitamiento de defensas). Su referencia es la prueba de Atomic Red Team para T1562.001, Disable or Modify Tools.",
+      "triage_steps": [
+        "Revise el CommandLine completo: ruta de WindowsSensor.exe, presencia de MAINTENANCE_TOKEN u otros parámetros, y si el binario está en una ruta esperada como Package Cache.",
+        "Identifique el usuario y el ParentImage. Un padre como cmd.exe, powershell.exe, psexesvc.exe o wmiprvse.exe ejecutado por una cuenta no administrativa resulta sospechoso.",
+        "Confirme con el equipo de endpoint o con la consola de Falcon si había un ticket de cambio, una actualización o una desinstalación planificada para ese host.",
+        "Verifique en la consola de Falcon si el sensor dejó de reportar y a qué hora, y si hubo intentos previos de alterar la protección contra manipulación (tamper protection).",
+        "Pivotee sobre el mismo host entre 15 minutos antes y después: busque procesos hijos, descargas, volcado de credenciales, borrado de logs o creación de servicios.",
+        "Busque la misma línea de comandos en otros hosts y revise alertas previas del mismo usuario. Una ejecución masiva sugiere despliegue por GPO, RMM o un atacante con privilegios de dominio."
+      ],
+      "false_positives": [
+        "Administradores o el equipo de EDR que desinstalan el sensor para depurar, reinstalar o migrar de versión. Aun así, siempre debe validarse.",
+        "Herramientas de gestión de software (SCCM, Intune, RMM) que retiran el sensor de equipos dados de baja o reasignados.",
+        "Pruebas de Atomic Red Team o ejercicios de red team autorizados."
+      ],
+      "response_steps": [
+        "Valide con el responsable del cambio. Si no está autorizado, aísle el host desde la red o con controles alternos, porque el aislamiento de Falcon puede ya no estar disponible.",
+        "Reinstale el sensor Falcon y confirme que la protección contra manipulación y los tokens de mantenimiento estén activos en la política.",
+        "Si la cuenta usada es sospechosa, deshabilítela o restablezca sus credenciales y revise su uso en otros equipos.",
+        "Recopile evidencia forense del intervalo sin sensor (logs de eventos, Prefetch, Amcache) y busque persistencia antes de devolver el equipo a producción."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque una desinstalación silenciosa del EDR elimina la visibilidad del host y es un paso habitual previo a acciones de mayor impacto."
+    },
+    "en": {
+      "summary": "The CrowdStrike Falcon sensor installer (WindowsSensor.exe) ran with /uninstall and /quiet, which removes the EDR silently. This could be authorized maintenance or an attacker trying to get off the radar.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains all three of '\\WindowsSensor.exe', ' /uninstall' and ' /quiet'. That is what an unattended, no-prompt removal of the Falcon sensor looks like.",
+      "why_it_matters": "With the EDR gone, an attacker can run tools, move laterally or deploy ransomware with no telemetry or blocking. The rule is tagged ATT&CK T1685 (defense impairment). Its reference is the Atomic Red Team test for T1562.001, Disable or Modify Tools.",
+      "triage_steps": [
+        "Read the full CommandLine. Note the WindowsSensor.exe path, any MAINTENANCE_TOKEN or extra arguments, and whether the binary sits in an expected location such as Package Cache.",
+        "Identify the user and ParentImage. A parent like cmd.exe, powershell.exe, psexesvc.exe or wmiprvse.exe, or a non-admin account, is suspicious.",
+        "Check with the endpoint team or the Falcon console for a change ticket, upgrade or planned removal on this host.",
+        "In the Falcon console, confirm whether and when the sensor stopped reporting, and look for earlier tamper-protection events.",
+        "Pivot on the same host from 15 minutes before to 15 minutes after. Look for child processes, downloads, credential dumping, log clearing or new services.",
+        "Search for the same command line on other hosts and review earlier alerts for the same user. Fleet-wide runs point to GPO or RMM, or to an attacker with domain privileges."
+      ],
+      "false_positives": [
+        "Administrators or the EDR team uninstalling the sensor to debug, reinstall or change versions. Still verify every time.",
+        "Software management tools (SCCM, Intune, RMM) removing the sensor from decommissioned or reassigned machines.",
+        "Atomic Red Team tests or authorized red team exercises."
+      ],
+      "response_steps": [
+        "Confirm with the change owner. If the removal was unauthorized, isolate the host through network controls, because Falcon containment may no longer work.",
+        "Reinstall the Falcon sensor and make sure the policy enforces tamper protection and maintenance tokens.",
+        "If the account is suspicious, disable it or reset its credentials and review its activity on other systems.",
+        "Collect forensic evidence from the unmonitored window (event logs, Prefetch, Amcache) and hunt for persistence before returning the host to service."
+      ],
+      "severity_rationale": "High fits because a silent EDR removal takes away visibility of the host and often comes right before more damaging actions."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Silent uninstall of the Falcon sensor from Package Cache, launched via cmd.exe by a domain user",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\ProgramData\\Package Cache\\{4e2a1b7c-0d3f-4a5e-9b21-7c8d6e5f4a31}\\WindowsSensor.exe",
+          "CommandLine": "\"C:\\ProgramData\\Package Cache\\{4e2a1b7c-0d3f-4a5e-9b21-7c8d6e5f4a31}\\WindowsSensor.exe\" /uninstall /quiet",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start \"\" \"C:\\ProgramData\\Package Cache\\{4e2a1b7c-0d3f-4a5e-9b21-7c8d6e5f4a31}\\WindowsSensor.exe\" /uninstall /quiet"
+        }
+      },
+      {
+        "description": "Uninstall run from a temp folder with a maintenance token and extra options, started from PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-03.andes.example.com",
+          "User": "ANDES\\adm.rgomez",
+          "Image": "C:\\Users\\Public\\Temp\\WindowsSensor.exe",
+          "CommandLine": "C:\\Users\\Public\\Temp\\WindowsSensor.exe /uninstall /quiet /norestart MAINTENANCE_TOKEN=0000placeholder0000",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate silent installation of the Falcon sensor; it has /quiet but no /uninstall",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\ccmcache\\1a\\WindowsSensor.exe",
+          "CommandLine": "\"C:\\Windows\\ccmcache\\1a\\WindowsSensor.exe\" /install /quiet /norestart CID=00000000000000000000000000000000-00",
+          "ParentImage": "C:\\Windows\\CCM\\CcmExec.exe"
+        }
+      },
+      {
+        "description": "Interactive uninstall without /quiet, so not all required strings are present",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\adm.lmartinez",
+          "Image": "C:\\ProgramData\\Package Cache\\{4e2a1b7c-0d3f-4a5e-9b21-7c8d6e5f4a31}\\WindowsSensor.exe",
+          "CommandLine": "\"C:\\ProgramData\\Package Cache\\{4e2a1b7c-0d3f-4a5e-9b21-7c8d6e5f4a31}\\WindowsSensor.exe\" /uninstall",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

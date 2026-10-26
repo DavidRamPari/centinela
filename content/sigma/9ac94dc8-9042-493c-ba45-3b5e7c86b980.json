@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "9ac94dc8-9042-493c-ba45-3b5e7c86b980",
+    "title": "Disable Important Scheduled Task",
+    "level": "high",
+    "status": "test",
+    "author": "frack113, Nasreddine Bencherchali (Nextron Systems), X__Junior",
+    "path": "windows/process_creation/proc_creation_win_schtasks_disable.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_schtasks_disable.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1489"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó schtasks.exe con la opción /disable sobre una tarea programada crítica de Windows (Defender, BitLocker, Restauración del sistema, Windows Update, Backup o ExploitGuard). Es una preparación frecuente previa a ransomware o actividad destructiva.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\schtasks.exe u OriginalFileName es schtasks.exe, y CommandLine contiene /disable (o variantes con guion) junto con la ruta de una tarea protegida bajo \\Windows\\.",
+      "why_it_matters": "Deshabilitar estas tareas detiene escaneos de Defender, actualizaciones, puntos de restauración o copias de seguridad (T1489 Service Stop; relacionado con T1490 Inhibit System Recovery), lo que facilita el cifrado o la destrucción de datos e impide la recuperación.",
+      "triage_steps": [
+        "Revise CommandLine e identifique la tarea exacta deshabilitada y si se usó /Change /TN.",
+        "Identifique el usuario y el nivel de integridad; confirme si es una cuenta administrativa esperada en ese host.",
+        "Examine ParentImage y la cadena de procesos: cmd.exe, powershell.exe, wmiprvse.exe o un binario desconocido en rutas temporales son sospechosos.",
+        "Busque en el mismo host, +/- 15 minutos, vssadmin, wbadmin, bcdedit, net stop, sc config o Set-MpPreference.",
+        "Verifique en el log TaskScheduler y en eventos 4699/4701 si se deshabilitaron otras tareas.",
+        "Correlacione con alertas previas del mismo usuario o host: accesos remotos, PsExec, movimiento lateral o volcado de credenciales.",
+        "Consulte con el equipo de TI si existe un cambio aprobado o un script de hardening que justifique la acción."
+      ],
+      "false_positives": [
+        "Scripts de administración o imágenes corporativas que deshabilitan Windows Update o Backup de forma intencional.",
+        "Herramientas de gestión de terceros (antivirus, gestión de parches) que reemplazan funciones nativas de Windows.",
+        "Pruebas autorizadas de equipos rojos o simulaciones Atomic Red Team."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del sistema si la acción estaba autorizada; si no, trate el evento como incidente.",
+        "Aísle el endpoint de la red si hay otros indicadores de ransomware o movimiento lateral.",
+        "Deshabilite o restablezca las credenciales de la cuenta utilizada y revise su uso en otros hosts.",
+        "Rehabilite las tareas afectadas con schtasks /Change /TN <tarea> /ENABLE tras verificar el estado del host.",
+        "Valide la integridad de copias de seguridad y puntos de restauración antes de cualquier recuperación."
+      ],
+      "severity_rationale": "Nivel alto porque deshabilitar tareas de seguridad o recuperación rara vez es legítimo y suele preceder directamente a actividad destructiva."
+    },
+    "en": {
+      "summary": "schtasks.exe was run with /disable against a critical Windows scheduled task (Defender, BitLocker, System Restore, Windows Update, Backup or ExploitGuard). This is common staging before ransomware or destructive activity.",
+      "what_it_detects": "Process creation events where Image ends with \\schtasks.exe or OriginalFileName is schtasks.exe, and CommandLine contains /disable (or dash variants) plus the path of a protected task under \\Windows\\.",
+      "why_it_matters": "Disabling these tasks stops Defender scans, updates, restore points or backups (T1489 Service Stop; related to T1490 Inhibit System Recovery), easing encryption or data destruction and blocking recovery.",
+      "triage_steps": [
+        "Read CommandLine and identify the exact task disabled and whether /Change /TN was used.",
+        "Identify the user and integrity level; confirm whether it is an expected admin account on this host.",
+        "Review ParentImage and the process chain: cmd.exe, powershell.exe, wmiprvse.exe or an unknown binary in temp paths is suspicious.",
+        "Search the same host within +/- 15 minutes for vssadmin, wbadmin, bcdedit, net stop, sc config or Set-MpPreference.",
+        "Check the TaskScheduler log and events 4699/4701 for other disabled tasks.",
+        "Correlate with earlier alerts for the same user or host: remote logons, PsExec, lateral movement or credential dumping.",
+        "Ask IT whether an approved change or hardening script explains the action."
+      ],
+      "false_positives": [
+        "Admin scripts or corporate images that intentionally disable Windows Update or Backup.",
+        "Third-party management tools (antivirus, patch management) replacing native Windows functions.",
+        "Authorized red team tests or Atomic Red Team simulations."
+      ],
+      "response_steps": [
+        "Confirm with the system owner whether the action was authorized; if not, handle it as an incident.",
+        "Isolate the endpoint if other ransomware or lateral movement indicators exist.",
+        "Disable or reset the account used and review its activity on other hosts.",
+        "Re-enable affected tasks with schtasks /Change /TN <task> /ENABLE after verifying host state.",
+        "Validate backups and restore points before any recovery."
+      ],
+      "severity_rationale": "High because disabling security or recovery tasks is rarely legitimate and often directly precedes destructive activity."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "System Restore SR task disabled via schtasks from cmd.exe (Atomic Red Team T1490 style)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks.exe /Change /TN \"\\Microsoft\\Windows\\SystemRestore\\SR\" /disable",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Windows Defender scheduled scan disabled using dash variant, matched by OriginalFileName after binary rename",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\st.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "st.exe /Change /TN \"\\Microsoft\\Windows\\Windows Defender\\Windows Defender Scheduled Scan\" -Disable",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Windows Update task re-enabled, no /disable option",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks.exe /Change /TN \"\\Microsoft\\Windows\\WindowsUpdate\\Scheduled Start\" /ENABLE",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Non-critical Office telemetry task disabled, not in the protected task list",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0188.andes.example.com",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks.exe /Change /TN \"\\Microsoft\\Office\\OfficeTelemetryAgentLogOn2016\" /disable",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

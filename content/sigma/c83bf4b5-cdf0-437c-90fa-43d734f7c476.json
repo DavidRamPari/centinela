@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "c83bf4b5-cdf0-437c-90fa-43d734f7c476",
+    "title": "Run PowerShell Script from Redirected Input Stream",
+    "level": "high",
+    "status": "test",
+    "author": "Moriarty Meng (idea), Anton Kutepov (rule), oscd.community",
+    "path": "windows/process_creation/proc_creation_win_powershell_run_script_from_input_stream.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_run_script_from_input_stream.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició PowerShell (powershell.exe o pwsh.exe) con una línea de comandos que lee el script desde la entrada estándar redirigida (patrón \"- <\"). Así, el contenido del script no aparece en los argumentos del proceso.",
+      "what_it_detects": "Creación de procesos cuyo Image termina en \\powershell.exe o \\pwsh.exe y cuyo CommandLine coincide con la expresión regular \\s-\\s*<, es decir, un guion aislado seguido de una redirección de entrada, como en \"powershell - < archivo.txt\".",
+      "why_it_matters": "Es una técnica LOLBAS para ejecutar código PowerShell (ATT&CK T1059, intérprete de comandos y scripts) desde un archivo cualquiera, a menudo con extensión engañosa. Así se evaden controles que vigilan -File, -Command o -EncodedCommand.",
+      "triage_steps": [
+        "Revise el CommandLine completo e identifique el archivo redirigido tras \"<\": ruta, extensión y si está en carpetas escribibles por el usuario (Temp, Public, Downloads, AppData).",
+        "Analice ParentImage y la línea de comandos del padre; con frecuencia es cmd.exe /c, wscript, mshta o un documento de Office que inició la cadena.",
+        "Obtenga el archivo de entrada, calcule su hash y revise su contenido en busca de descargas, ofuscación, Invoke-Expression o conexiones de red.",
+        "Consulte los logs de PowerShell Script Block (Event ID 4104) del mismo host para ver el código realmente ejecutado.",
+        "Pivote en el mismo host +/- 15 minutos: procesos hijos, conexiones de red, archivos creados, claves Run o tareas programadas nuevas.",
+        "Verifique el usuario: si es interactivo, cuenta de servicio o administrador, y si ese comportamiento es habitual para él.",
+        "Busque alertas previas del mismo host, usuario o hash del archivo de entrada en el resto del entorno."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; el uso legítimo es poco común.",
+        "Scripts de administración o instaladores antiguos que alimentan PowerShell por stdin desde archivos .bat o herramientas de despliegue; confirme con el equipo responsable.",
+        "Pruebas de red team o validaciones de detección autorizadas y documentadas."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del host si la ejecución era esperada antes de actuar.",
+        "Si no está justificada, aísle el endpoint desde el EDR y preserve el archivo redirigido y la memoria del proceso.",
+        "Termine los procesos PowerShell y los hijos relacionados; bloquee el hash y los dominios o IP observados.",
+        "Elimine la persistencia identificada y los archivos maliciosos tras documentarlos como evidencia.",
+        "Restablezca las credenciales del usuario afectado si hubo exposición, y reincorpore el host tras un análisis limpio."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque ejecutar PowerShell desde la entrada redirigida es raro en operación normal y sirve claramente para ocultar código."
+    },
+    "en": {
+      "summary": "PowerShell (powershell.exe or pwsh.exe) was started with a command line that reads its script from redirected standard input (the \"- <\" pattern), so the script content does not show up in the process arguments.",
+      "what_it_detects": "Process creation where Image ends with \\powershell.exe or \\pwsh.exe and CommandLine matches the regex \\s-\\s*<, a standalone dash followed by input redirection, such as \"powershell - < file.txt\".",
+      "why_it_matters": "This LOLBAS technique runs PowerShell code (ATT&CK T1059, Command and Scripting Interpreter) from any file, often one with a misleading extension. It evades controls that watch for -File, -Command or -EncodedCommand.",
+      "triage_steps": [
+        "Read the full CommandLine and find the file after \"<\": its path, its extension, and whether it sits in a user-writable folder (Temp, Public, Downloads, AppData).",
+        "Check ParentImage and the parent's command line. The chain often starts from cmd.exe /c, wscript, mshta or an Office document.",
+        "Collect the input file, hash it and look at its content for downloads, obfuscation, Invoke-Expression or network calls.",
+        "Check PowerShell Script Block logs (Event ID 4104) on the same host to see the code that actually ran.",
+        "Look at the same host within +/- 15 minutes: child processes, network connections, dropped files, and new Run keys or scheduled tasks.",
+        "Check the user: interactive, service or admin account, and whether this behavior is normal for them.",
+        "Search for earlier alerts on the same host, the same user or the input file's hash across the environment."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives, and legitimate use is uncommon.",
+        "Legacy admin scripts or installers that feed PowerShell through stdin from .bat files or deployment tools. Confirm with the owning team.",
+        "Authorized, documented red team exercises or detection tests."
+      ],
+      "response_steps": [
+        "Before acting, confirm with the user or host owner whether the execution was expected.",
+        "If it was not, isolate the endpoint through EDR and preserve the redirected file and the process memory.",
+        "Kill the PowerShell processes and related children. Block the hash and any domains or IPs you found.",
+        "Document the persistence and malicious files as evidence, then remove them.",
+        "Reset the user's credentials if they were exposed. Return the host to service after a clean scan."
+      ],
+      "severity_rationale": "High fits because running PowerShell from redirected input is rare in normal operations and is plainly a way to hide code."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "powershell.exe reads a disguised script from Public via stdin redirection, launched by cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe - < C:\\Users\\Public\\update.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c powershell.exe - < C:\\Users\\Public\\update.txt",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "pwsh.exe with extra flags and no space between dash and redirection",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "CommandLine": "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NoProfile -<C:\\Users\\mrojas\\AppData\\Local\\Temp\\cfg.log",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate scheduled script run with -File; no '- <' redirection pattern",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\Scripts\\backup.ps1",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      },
+      {
+        "description": "The redirection appears in a cmd.exe process, so the Image condition does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c powershell.exe - < C:\\Users\\Public\\update.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

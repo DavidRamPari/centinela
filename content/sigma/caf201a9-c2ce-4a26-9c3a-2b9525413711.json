@@ -1,0 +1,124 @@
+{
+  "rule": {
+    "id": "caf201a9-c2ce-4a26-9c3a-2b9525413711",
+    "title": "Potentially Suspicious Call To Win32_NTEventlogFile Class",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_nteventlogfile_usage.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_nteventlogfile_usage.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó una línea de comandos que usa la clase WMI Win32_NTEventlogFile con un método que borra, respalda, elimina, renombra o cambia permisos o propietario de un log de eventos de Windows.",
+      "what_it_detects": "Eventos de creación de procesos donde CommandLine contiene 'Win32_NTEventlogFile' y además un método como .ClearEventLog(, .BackupEventlog(, .Delete(, .DeleteEx(, .Rename(, .TakeOwnerShip( o .ChangeSecurityPermissions(, normalmente desde PowerShell.",
+      "why_it_matters": "Borrar o manipular logs de eventos elimina evidencia y debilita la detección (eliminación de indicadores, T1070.001, y deterioro de defensas). Respaldar el log Security también puede servir para extraer información.",
+      "triage_steps": [
+        "Revise CommandLine completo: qué log se afecta (Security, System, Sysmon) y qué método se llama; ClearEventLog o Delete sobre Security es lo más grave.",
+        "Identifique Image, ParentImage y User: ¿PowerShell lanzado por un script de administración conocido o por Office, wscript, cmd o un proceso inusual?",
+        "Verifique en el host si se generó el evento 1102 (Security) o 104 (System) de borrado de log cerca de la hora de la alerta.",
+        "Si es BackupEventlog, ubique el archivo .evtx de destino y verifique si fue copiado o enviado fuera del host.",
+        "Pivote en el mismo host +/- 15 minutos: logons, creación de servicios, herramientas de credenciales y conexiones de red salientes.",
+        "Busque alertas previas para el mismo usuario y host, y la misma línea de comandos en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Scripts de mantenimiento o archivado de logs que respaldan y limpian logs con WMI de forma programada.",
+        "Pruebas de equipos de seguridad o red team autorizadas."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del host o el equipo de TI si la acción fue un cambio autorizado.",
+        "Si no está autorizada, aísle el endpoint y preserve los logs restantes, los respaldos .evtx y la memoria.",
+        "Recupere eventos desde el SIEM o el reenvío central para reconstruir la actividad borrada.",
+        "Restablezca credenciales de la cuenta implicada y elimine scripts o mecanismos de persistencia encontrados.",
+        "Restaure los permisos y la configuración de los logs afectados y verifique que el reenvío funcione."
+      ],
+      "severity_rationale": "Es alta porque la manipulación de logs mediante WMI rara vez es legítima y suele indicar que un atacante intenta ocultar actividad previa."
+    },
+    "en": {
+      "summary": "A process ran a command line that uses the WMI class Win32_NTEventlogFile with a method that clears, backs up, deletes, renames or changes permissions or ownership of a Windows event log.",
+      "what_it_detects": "Process creation events where CommandLine contains 'Win32_NTEventlogFile' plus a method such as .ClearEventLog(, .BackupEventlog(, .Delete(, .DeleteEx(, .Rename(, .TakeOwnerShip( or .ChangeSecurityPermissions(, usually from PowerShell.",
+      "why_it_matters": "Clearing or tampering with event logs destroys evidence and weakens detection (indicator removal, T1070.001, and defense impairment). Backing up the Security log can also be used to exfiltrate data.",
+      "triage_steps": [
+        "Read the full CommandLine: which log is targeted (Security, System, Sysmon) and which method is called; ClearEventLog or Delete on Security is most serious.",
+        "Check Image, ParentImage and User: PowerShell from a known admin script, or spawned by Office, wscript, cmd or another unusual parent?",
+        "Look on the host for event 1102 (Security) or 104 (System) log-cleared events near the alert time.",
+        "For BackupEventlog, locate the target .evtx file and check whether it was copied or sent off the host.",
+        "Pivot on the same host +/- 15 minutes: logons, service creation, credential tools and outbound network connections.",
+        "Search earlier alerts for the same user and host, and the same command line on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Scheduled log maintenance or archiving scripts that back up and clear logs through WMI.",
+        "Authorized security testing or red team exercises."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the action was an authorized change.",
+        "If unauthorized, isolate the endpoint and preserve remaining logs, .evtx backups and memory.",
+        "Recover events from the SIEM or central forwarding to rebuild the erased activity.",
+        "Reset credentials of the involved account and remove any scripts or persistence found.",
+        "Restore permissions and settings of affected logs and verify log forwarding works."
+      ],
+      "severity_rationale": "High because tampering with logs through WMI is rarely legitimate and usually means an attacker is hiding earlier activity."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell clears the Security log through Win32_NTEventlogFile.ClearEventLog()",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Get-WmiObject -Class Win32_NTEventlogFile | Where-Object {$_.LogfileName -eq 'Security'} | ForEach-Object {$_.ClearEventLog()}\""
+        }
+      },
+      {
+        "description": "PowerShell backs up the Security log to a temp folder with BackupEventlog",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -c \"$l = Get-CimInstance Win32_NTEventlogFile -Filter \\\"LogfileName='Security'\\\"; $l | Invoke-CimMethod -Name BackupEventlog -Arguments @{ArchiveFileName='C:\\Users\\Public\\sec.evtx'}; (Get-WmiObject Win32_NTEventlogFile -Filter \\\"LogfileName='Security'\\\").BackupEventlog('C:\\Users\\Public\\sec2.evtx')\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Read-only inventory query of event log sizes with Win32_NTEventlogFile, no method call",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Get-WmiObject Win32_NTEventlogFile | Select-Object LogfileName, FileSize, MaxFileSize\""
+        }
+      },
+      {
+        "description": "Script calls .Delete( on a temp file but does not reference Win32_NTEventlogFile",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -Command \"(Get-Item 'C:\\Temp\\report.tmp').Delete()\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

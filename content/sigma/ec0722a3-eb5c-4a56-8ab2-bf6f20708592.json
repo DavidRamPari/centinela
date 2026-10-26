@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "ec0722a3-eb5c-4a56-8ab2-bf6f20708592",
+    "title": "Renamed Gpg.EXE Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), frack113",
+    "path": "windows/process_creation/proc_creation_win_renamed_gpg4win.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_renamed_gpg4win.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1486"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso cuyos metadatos PE indican OriginalFileName gpg.exe desde una imagen que no se llama gpg.exe ni gpg2.exe. Alguien renombró GnuPG, algo que hacen ransomware y loaders para ocultar actividad de cifrado o descifrado.",
+      "what_it_detects": "Eventos de creación de procesos en Windows con OriginalFileName igual a gpg.exe, pero cuyo campo Image no termina en \\gpg.exe ni en \\gpg2.exe. Es decir, el binario de GnuPG se ejecuta con otro nombre de archivo.",
+      "why_it_matters": "GnuPG permite cifrar archivos con la clave pública del atacante o descifrar payloads preparados. Renombrarlo es una forma común de evadir controles basados en nombre. Corresponde a ATT&CK T1486, cifrado de datos para causar impacto.",
+      "triage_steps": [
+        "Revise Image, CommandLine y CurrentDirectory. Busque opciones como --encrypt, -r, --recipient, --batch, --yes, --import o --decrypt, y anote qué archivos o carpetas afectan.",
+        "Verifique la ubicación de la imagen. Una ruta escribible por el usuario (AppData, Temp, ProgramData, Public) es más sospechosa que una carpeta de instalación de Gpg4win.",
+        "Analice ParentImage y ParentCommandLine. Si el proceso padre es un script, una aplicación de Office, rundll32 o un ejecutable desconocido, el uso probablemente es malicioso.",
+        "Compare el hash con las versiones conocidas de Gpg4win y revise la firma y la prevalencia del binario en la flota.",
+        "En el mismo host, en una ventana de +/- 15 minutos, busque renombrados masivos, extensiones nuevas, notas de rescate, borrado de shadow copies e importación de claves.",
+        "Revise otras alertas recientes del mismo User y busque el mismo hash o nombre renombrado en otros endpoints."
+      ],
+      "false_positives": [
+        "Software de terceros o interno que incluye GnuPG con un nombre propio del proveedor para firmar o cifrar respaldos.",
+        "Administradores o desarrolladores que renombran gpg.exe en kits portables o pipelines de compilación."
+      ],
+      "response_steps": [
+        "Confirme si el binario, su ruta y su proceso padre corresponden a software aprobado. Si es así, documente una exclusión acotada por ruta y hash.",
+        "Si sospecha cifrado de datos de usuario, aísle el host de inmediato para limitar el impacto y proteger los recursos compartidos.",
+        "Preserve el binario, la línea de comandos, las claves importadas y la memoria. Luego identifique cómo llegó el binario y elimínelo junto con cualquier persistencia.",
+        "Busque el mismo hash o proceso padre en todo el entorno, restablezca las credenciales expuestas del usuario y restaure los archivos afectados desde respaldos confiables."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque renombrar una utilidad de cifrado indica con fuerza evasión y posible ransomware, y los renombrados legítimos son poco comunes."
+    },
+    "en": {
+      "summary": "A process whose PE metadata says OriginalFileName gpg.exe ran from an image not named gpg.exe or gpg2.exe. Someone renamed GnuPG, which ransomware and loaders do to hide encryption or decryption activity.",
+      "what_it_detects": "Windows process creation events where OriginalFileName is gpg.exe but the Image path does not end in \\gpg.exe or \\gpg2.exe. In other words, the GnuPG binary is running under a different file name.",
+      "why_it_matters": "GnuPG can encrypt files with an attacker's public key or decrypt staged payloads. Renaming it is a common way to dodge name-based controls. Maps to ATT&CK T1486, Data Encrypted for Impact.",
+      "triage_steps": [
+        "Review Image, CommandLine and CurrentDirectory. Look for options such as --encrypt, -r, --recipient, --batch, --yes, --import or --decrypt, and note which files or directories they target.",
+        "Check where the image sits on disk. A user-writable path such as AppData, Temp, ProgramData or Public is more suspicious than a Gpg4win install folder.",
+        "Inspect ParentImage and ParentCommandLine. Scripts, Office apps, rundll32, or an unknown dropped executable as parent suggest malicious use.",
+        "Compare the binary's hash with known Gpg4win releases and look up its signature and prevalence across the fleet.",
+        "On the same host within +/- 15 minutes, look for mass file renames, new extensions, ransom notes, vssadmin or wbadmin deletions, and imported key files.",
+        "Check the User for other recent alerts, and look for the same renamed hash or file name on other endpoints."
+      ],
+      "false_positives": [
+        "Third-party or in-house software that bundles GnuPG under a vendor-specific file name for signing or backup encryption.",
+        "Administrators or developers who rename gpg.exe in portable toolkits or build pipelines."
+      ],
+      "response_steps": [
+        "Confirm whether the binary, its path and its parent belong to approved software. If they do, document a narrow exclusion by path and hash.",
+        "If encryption of user data is suspected, isolate the host immediately to limit impact and protect network shares.",
+        "Preserve the binary, the command line, any imported keys and memory. Then identify how the binary was dropped and remove it and any persistence.",
+        "Hunt for the same hash or parent across the environment, reset credentials the user exposed, and restore affected files from known-good backups."
+      ],
+      "severity_rationale": "High fits because a renamed encryption utility strongly suggests evasion and possible ransomware activity, and legitimate renames are uncommon."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "GnuPG renamed to svchelper.exe in AppData encrypting user documents, launched by cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\svchelper.exe",
+          "OriginalFileName": "gpg.exe",
+          "CommandLine": "svchelper.exe --batch --yes -r ops@example.org --encrypt C:\\Users\\jperez\\Documents\\report.xlsx",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "Renamed gpg binary in ProgramData decrypting a staged payload",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\Intel\\upd.exe",
+          "OriginalFileName": "gpg.exe",
+          "CommandLine": "upd.exe --batch --passphrase-fd 0 --decrypt C:\\ProgramData\\Intel\\data.bin",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Gpg4win gpg.exe verifying a signature from its install directory",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files (x86)\\GnuPG\\bin\\gpg.exe",
+          "OriginalFileName": "gpg.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\GnuPG\\bin\\gpg.exe\" --verify installer.exe.sig installer.exe",
+          "ParentImage": "C:\\Program Files (x86)\\Gpg4win\\bin\\kleopatra.exe"
+        }
+      },
+      {
+        "description": "Legacy gpg2.exe binary running under its expected name",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-07",
+          "User": "ANDES\\ci_runner",
+          "Image": "C:\\Tools\\GnuPG\\gpg2.exe",
+          "OriginalFileName": "gpg.exe",
+          "CommandLine": "gpg2.exe --detach-sign --armor release.zip",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

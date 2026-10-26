@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "db1c21e4-cd66-4b4e-85ca-590f0780529c",
+    "title": "Windows Recovery Environment Disabled Via Reagentc",
+    "level": "medium",
+    "status": "experimental",
+    "author": "Daniel Koifman (KoifSec), Michael Vilshin",
+    "path": "windows/process_creation/proc_creation_win_reagentc_disable_windows_recovery_environment.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reagentc_disable_windows_recovery_environment.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1490"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó ReAgentc.exe con la opción /disable, que desactiva el Entorno de Recuperación de Windows (WinRE) en el endpoint. Puede ser administración legítima o un intento de impedir la recuperación del sistema.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\reagentc.exe u OriginalFileName es reagentc.exe, y CommandLine contiene /disable con cualquier variante de guion (-disable, /disable, –disable).",
+      "why_it_matters": "Desactivar WinRE elimina las herramientas de reparación de arranque y restauración. Es la técnica ATT&CK T1490 (Inhibit System Recovery), que suele preceder a ransomware o acompañar a infostealers para dificultar la remediación.",
+      "triage_steps": [
+        "Revise CommandLine, User y la ruta de Image; un ReAgentc fuera de C:\\Windows\\System32 o renombrado (OriginalFileName distinto de Image) es más sospechoso.",
+        "Analice ParentImage y su línea de comandos: cmd.exe o powershell.exe lanzados por Office, navegador o binarios en %TEMP% o %APPDATA% indican actividad maliciosa.",
+        "Busque en el mismo host, +/- 15 minutos, vssadmin delete shadows, wmic shadowcopy delete, bcdedit recoveryenabled no o wbadmin delete catalog.",
+        "Verifique si existe un ticket de cambio, imagen de despliegue o script de SCCM/Intune que justifique la ejecución por ese usuario.",
+        "Revise alertas previas del mismo host y usuario: ejecución de payloads, robo de credenciales, conexiones a dominios nuevos o cifrado masivo de archivos.",
+        "Compruebe si el mismo comando se ejecutó en otros endpoints; una ejecución simultánea en varios equipos sugiere despliegue masivo, sea legítimo o malicioso.",
+        "Confirme el estado actual con reagentc /info desde una sesión administrativa de confianza."
+      ],
+      "false_positives": [
+        "Actividad administrativa legítima, como reconfigurar o actualizar la partición de recuperación.",
+        "Scripts de imagen, despliegue o hardening (MDT, SCCM, Intune) que desactivan y vuelven a habilitar WinRE.",
+        "Procedimientos de soporte técnico o de fabricantes durante mantenimiento del disco."
+      ],
+      "response_steps": [
+        "Valide con el responsable del equipo o del cambio; si es legítimo, documente y considere excluir el script o la cuenta específicos.",
+        "Si no está justificado, aísle el endpoint desde el EDR y preserve evidencia: árbol de procesos, binario padre y su hash.",
+        "Elimine el proceso padre malicioso y sus mecanismos de persistencia tras confirmar el análisis.",
+        "Restaure WinRE con reagentc /enable y verifique también las shadow copies y la configuración de bcdedit.",
+        "Si hay indicios de infostealer, restablezca credenciales y sesiones de los usuarios del equipo y busque el mismo IOC en toda la flota."
+      ],
+      "severity_rationale": "Nivel medio porque la acción es reversible y tiene usos administrativos, pero es un precursor conocido de ransomware que exige revisión oportuna."
+    },
+    "en": {
+      "summary": "ReAgentc.exe ran with the /disable option, turning off the Windows Recovery Environment (WinRE) on the endpoint. This may be admin work or an attempt to block system recovery.",
+      "what_it_detects": "Process creation where Image ends with \\reagentc.exe or OriginalFileName is reagentc.exe, and CommandLine contains /disable with any dash variant (-disable, /disable, –disable).",
+      "why_it_matters": "Disabling WinRE removes boot repair and restore tooling. This is ATT&CK T1490 (Inhibit System Recovery), often seen before ransomware or alongside infostealers to hinder remediation.",
+      "triage_steps": [
+        "Review CommandLine, User and the Image path; ReAgentc outside C:\\Windows\\System32 or renamed (OriginalFileName differs from Image) is more suspicious.",
+        "Inspect ParentImage and its command line: cmd.exe or powershell.exe spawned by Office, a browser or binaries in %TEMP% or %APPDATA% indicates malicious activity.",
+        "On the same host within +/- 15 minutes, look for vssadmin delete shadows, wmic shadowcopy delete, bcdedit recoveryenabled no or wbadmin delete catalog.",
+        "Check for a change ticket, imaging task or SCCM/Intune script that explains execution by this user.",
+        "Review earlier alerts for the same host and user: payload execution, credential theft, connections to new domains or mass file encryption.",
+        "Check whether the same command ran on other endpoints; simultaneous execution suggests mass deployment, legitimate or malicious.",
+        "Confirm current state with reagentc /info from a trusted admin session."
+      ],
+      "false_positives": [
+        "Legitimate administrative activity, such as reconfiguring or updating the recovery partition.",
+        "Imaging, deployment or hardening scripts (MDT, SCCM, Intune) that disable and re-enable WinRE.",
+        "Help desk or OEM procedures during disk maintenance."
+      ],
+      "response_steps": [
+        "Validate with the system or change owner; if legitimate, document it and consider excluding the specific script or account.",
+        "If unjustified, isolate the endpoint via EDR and preserve evidence: process tree, parent binary and its hash.",
+        "Remove the malicious parent process and its persistence after analysis is confirmed.",
+        "Restore WinRE with reagentc /enable and also check shadow copies and bcdedit settings.",
+        "If infostealer activity is suspected, reset credentials and sessions for the host's users and hunt for the same IOCs fleet-wide."
+      ],
+      "severity_rationale": "Medium because the action is reversible and has admin uses, yet it is a known ransomware precursor that warrants timely review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "ReAgentc launched from cmd.exe spawned by a binary in AppData to disable WinRE",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\ReAgentc.exe",
+          "OriginalFileName": "ReAgentc.exe",
+          "CommandLine": "reagentc.exe /disable",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c reagentc.exe /disable & vssadmin delete shadows /all /quiet",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed copy of ReAgentc identified by OriginalFileName, using a hyphen instead of a slash",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0219.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\svc_helper.exe",
+          "OriginalFileName": "reagentc.exe",
+          "CommandLine": "svc_helper.exe -disable",
+          "ParentImage": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\loader.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator querying WinRE status with reagentc /info",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.soporte",
+          "Image": "C:\\Windows\\System32\\ReAgentc.exe",
+          "OriginalFileName": "ReAgentc.exe",
+          "CommandLine": "reagentc.exe /info",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Deployment script re-enabling WinRE with /enable",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0305.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\ReAgentc.exe",
+          "OriginalFileName": "ReAgentc.exe",
+          "CommandLine": "reagentc.exe /enable",
+          "ParentImage": "C:\\Windows\\CCM\\CcmExec.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

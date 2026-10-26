@@ -1,0 +1,139 @@
+{
+  "rule": {
+    "id": "639c9081-f482-47d3-a0bd-ddee3d4ecd76",
+    "title": "All Backups Deleted Via Wbadmin.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "frack113, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wbadmin_delete_all_backups.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wbadmin_delete_all_backups.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1490"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó wbadmin.exe con los argumentos delete, backup y keepVersions:0, es decir, una orden para borrar todas las copias de seguridad o del estado del sistema. Es una técnica habitual de ransomware previa al cifrado.",
+      "what_it_detects": "Creación de un proceso cuyo Image termina en \\wbadmin.exe o cuyo OriginalFileName es WBADMIN.EXE, y cuyo CommandLine contiene 'delete', 'backup' (incluye SYSTEMSTATEBACKUP) y 'keepVersions:0'.",
+      "why_it_matters": "Borrar todas las versiones de respaldo impide recuperar el sistema sin pagar o reconstruir (ATT&CK T1490, Inhibit System Recovery). Suele ocurrir minutos antes del cifrado masivo, sobre todo en servidores con Windows Server Backup.",
+      "triage_steps": [
+        "Revise CommandLine: identifique si borra 'backup' o 'systemstatebackup' y si usa -quiet, que indica ejecución sin interacción.",
+        "Compare Image con OriginalFileName: un wbadmin renombrado o fuera de C:\\Windows\\System32 es muy sospechoso.",
+        "Analice ParentImage y la línea de comandos del padre: cmd.exe o powershell.exe lanzados por un binario desconocido, script o herramienta remota (PsExec, WMI) agravan el caso.",
+        "Identifique el usuario y la sesión de logon; confirme si es un administrador de respaldos autorizado y si hay un cambio aprobado.",
+        "Busque en el mismo host, +/- 15 minutos: vssadmin delete shadows, bcdedit recoveryenabled no, wmic shadowcopy delete, detención de servicios o limpieza de logs.",
+        "Busque la misma línea de comandos o el mismo hash del proceso padre en otros hosts para detectar una ejecución masiva.",
+        "Revise alertas previas del host y del usuario: accesos RDP anómalos, movimiento lateral o volcado de credenciales.",
+        "Verifique en el host o en la consola de respaldos si las versiones realmente se eliminaron."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Un administrador que depura manualmente todas las copias antes de reconfigurar o retirar un servidor, con ticket de cambio.",
+        "Scripts de mantenimiento o migración de respaldos ejecutados por una cuenta de servicio identificada y documentada."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del servidor si la acción fue autorizada; si no, trátela como incidente de ransomware.",
+        "Aísle el host de la red mediante EDR y desactive o restablezca la cuenta usada, preservando memoria y artefactos.",
+        "Proteja de inmediato los respaldos restantes: copias fuera de línea, inmutables o en otra ubicación, y restrinja el acceso a ellas.",
+        "Identifique el proceso padre y el payload, obtenga su hash y búsquelo en todo el entorno para contener otros equipos.",
+        "Elimine la persistencia y restaure desde respaldos limpios y verificados; vuelva a habilitar la protección de recuperación."
+      ],
+      "severity_rationale": "El nivel high es apropiado porque eliminar todas las versiones de respaldo casi nunca es rutinario y es un precursor directo del cifrado por ransomware."
+    },
+    "en": {
+      "summary": "wbadmin.exe ran with delete, backup and keepVersions:0, an instruction to remove every backup or system state backup. Ransomware commonly does this right before encryption.",
+      "what_it_detects": "Process creation where Image ends with \\wbadmin.exe or OriginalFileName is WBADMIN.EXE, and CommandLine contains 'delete', 'backup' (covers SYSTEMSTATEBACKUP) and 'keepVersions:0'.",
+      "why_it_matters": "Deleting all backup versions prevents recovery without rebuilding or paying a ransom (ATT&CK T1490, Inhibit System Recovery). It typically precedes mass encryption, especially on servers running Windows Server Backup.",
+      "triage_steps": [
+        "Read CommandLine: note whether it targets 'backup' or 'systemstatebackup' and whether -quiet suppresses prompts.",
+        "Compare Image with OriginalFileName; a renamed wbadmin or one outside C:\\Windows\\System32 is highly suspicious.",
+        "Inspect ParentImage and its command line; cmd.exe or powershell.exe spawned by an unknown binary, script, PsExec or WMI raises severity.",
+        "Identify the user and logon session; confirm whether they are an authorized backup admin with an approved change.",
+        "On the same host within +/- 15 minutes, look for vssadmin delete shadows, bcdedit recoveryenabled no, wmic shadowcopy delete, service stops or log clearing.",
+        "Hunt for the same command line or parent hash on other hosts to spot a fleet-wide deployment.",
+        "Review earlier alerts for the host and user: unusual RDP logons, lateral movement or credential dumping.",
+        "Check locally or in the backup console whether versions were actually deleted."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "An administrator manually purging all backups before reconfiguring or decommissioning a server, backed by a change ticket.",
+        "Documented backup maintenance or migration scripts run by a known service account."
+      ],
+      "response_steps": [
+        "Confirm with the server owner whether the action was authorized; if not, handle it as a ransomware incident.",
+        "Isolate the host via EDR and disable or reset the account used, preserving memory and artifacts.",
+        "Protect remaining backups immediately: offline, immutable or offsite copies, and restrict access to them.",
+        "Identify the parent process and payload, hash it and sweep the environment to contain other hosts.",
+        "Remove persistence, restore from clean verified backups and re-enable recovery protections."
+      ],
+      "severity_rationale": "High fits because wiping every backup version is rarely routine and directly precedes ransomware encryption."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe launched by an unknown binary runs wbadmin to delete all system state backups quietly.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbadmin.exe",
+          "OriginalFileName": "WBADMIN.EXE",
+          "CommandLine": "wbadmin delete systemstatebackup -keepVersions:0 -quiet",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c wbadmin delete systemstatebackup -keepVersions:0 -quiet",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed copy of wbadmin (matched via OriginalFileName) deletes all backups.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP02.andes.example.com",
+          "User": "ANDES\\svc-tmp",
+          "Image": "C:\\Users\\Public\\wb.exe",
+          "OriginalFileName": "WBADMIN.EXE",
+          "CommandLine": "C:\\Users\\Public\\wb.exe DELETE BACKUP -keepVersions:0 -quiet",
+          "ParentImage": "C:\\Users\\Public\\upd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator prunes old system state backups but keeps the last two versions.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\backupadmin",
+          "Image": "C:\\Windows\\System32\\wbadmin.exe",
+          "OriginalFileName": "WBADMIN.EXE",
+          "CommandLine": "wbadmin delete systemstatebackup -keepVersions:2 -quiet",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Routine listing of available backup versions with wbadmin.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\backupadmin",
+          "Image": "C:\\Windows\\System32\\wbadmin.exe",
+          "OriginalFileName": "WBADMIN.EXE",
+          "CommandLine": "wbadmin get versions",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

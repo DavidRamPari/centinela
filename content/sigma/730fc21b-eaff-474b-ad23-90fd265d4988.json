@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "730fc21b-eaff-474b-ad23-90fd265d4988",
+    "title": "Psexec Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "omkar72",
+    "path": "windows/process_creation/proc_creation_win_sysinternals_psexec_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sysinternals_psexec_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021",
+      "T1569"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Sysinternals PsExec en el host, identificado por la ruta de la imagen o por el OriginalFileName 'psexec.c', incluso si el binario fue renombrado. Puede ser administración legítima o movimiento lateral.",
+      "what_it_detects": "Cualquier creación de proceso cuyo Image termina en '\\psexec.exe' o cuyo OriginalFileName es 'psexec.c'. La regla no revisa la línea de comandos, así que la opción -accepteula no es necesaria para que se dispare.",
+      "why_it_matters": "PsExec ejecuta comandos en equipos remotos creando un servicio temporal (PSEXESVC) por SMB. Los atacantes lo usan para ejecución mediante servicios del sistema (T1569) y movimiento lateral por servicios remotos (T1021), a menudo antes de desplegar ransomware.",
+      "triage_steps": [
+        "Revise CommandLine: equipo destino (\\\\host o listas @archivo), -s (SYSTEM), -u/-p (credenciales en texto claro), -accepteula, -d, -c y el comando remoto (cmd, powershell, rundll32).",
+        "Compare Image con OriginalFileName: un PsExec renombrado o ubicado en Temp, Public, ProgramData o Downloads es más sospechoso que uno en una carpeta de herramientas administrativas.",
+        "Identifique al User y valide si pertenece al equipo de TI y si el uso corresponde a un cambio o ticket aprobado.",
+        "Revise ParentImage y la cadena de procesos padre: scripts, consolas de gestión o procesos inusuales como winword.exe o un shell lanzado desde un servicio web.",
+        "En los hosts destino, busque la instalación del servicio PSEXESVC (Event ID 7045), inicios de sesión tipo 3 (4624) y los procesos hijos de PSEXESVC.exe en +/- 15 minutos.",
+        "Calcule el hash del binario y verifique la firma de Microsoft/Sysinternals.",
+        "Busque alertas previas del mismo usuario y del mismo host y revise si PsExec apuntó a muchos equipos en poco tiempo."
+      ],
+      "false_positives": [
+        "Scripts administrativos o tareas programadas de TI que usan PsExec para desplegar software o ejecutar comandos remotos.",
+        "Administradores de sistemas que resuelven incidencias manualmente en servidores o estaciones.",
+        "Herramientas de despliegue, inventario o monitoreo que incluyen PsExec dentro de su flujo de trabajo."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con el responsable del host si la ejecución fue autorizada y documente el resultado.",
+        "Si no fue autorizada, aísle el host de origen y los destinos afectados, y deshabilite o restablezca las credenciales usadas.",
+        "Elimine los binarios de PsExec no autorizados y los servicios PSEXESVC residuales, y revise si hay persistencia o payloads adicionales en los destinos.",
+        "Analice el alcance del movimiento lateral y, una vez contenido, restaure los sistemas y limite el uso de PsExec mediante allowlisting o reglas de firewall para SMB."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque PsExec es una herramienta administrativa común, pero también se usa con frecuencia en movimiento lateral, así que cada ejecución merece validarse según el contexto."
+    },
+    "en": {
+      "summary": "Sysinternals PsExec ran on the host, identified by the image path or by OriginalFileName 'psexec.c', even when the binary is renamed. It may be legitimate administration or lateral movement.",
+      "what_it_detects": "Any process creation whose Image ends with '\\psexec.exe' or whose OriginalFileName is 'psexec.c'. The rule does not check the command line, so -accepteula is not required for a match.",
+      "why_it_matters": "PsExec runs commands on remote machines by installing a temporary PSEXESVC service over SMB. Attackers use it for system service execution (T1569) and lateral movement through remote services (T1021), often right before ransomware deployment.",
+      "triage_steps": [
+        "Review CommandLine: the target (\\\\host or @file lists), -s (SYSTEM), -u/-p (cleartext credentials), -accepteula, -d, -c and the remote command (cmd, powershell, rundll32).",
+        "Compare Image with OriginalFileName. A renamed PsExec, or one in Temp, Public, ProgramData or Downloads, is more suspicious than one in an admin tools folder.",
+        "Identify the User and confirm they are IT staff and that the activity matches an approved change or ticket.",
+        "Check ParentImage and the parent chain: scripts and management consoles are expected; Office apps, web server shells or other odd parents are not.",
+        "On target hosts, look for PSEXESVC service installation (Event ID 7045), logon type 3 (4624) and PSEXESVC.exe child processes within +/- 15 minutes.",
+        "Hash the binary and verify the Microsoft/Sysinternals signature.",
+        "Look for earlier alerts on the same user and host, and check whether PsExec hit many hosts in a short time."
+      ],
+      "false_positives": [
+        "Administrative scripts or IT scheduled tasks that use PsExec to deploy software or run remote commands.",
+        "System administrators troubleshooting servers or workstations by hand.",
+        "Deployment, inventory or monitoring tools that use PsExec as part of their workflow."
+      ],
+      "response_steps": [
+        "Confirm with the user or host owner whether the run was authorized, and record the outcome.",
+        "If it was not authorized, isolate the source and affected target hosts, then disable or reset the credentials used.",
+        "Remove unauthorized PsExec binaries and leftover PSEXESVC services, and check targets for persistence or more payloads.",
+        "Scope the lateral movement. After containment, restore systems and restrict PsExec through allowlisting or SMB firewall rules."
+      ],
+      "severity_rationale": "Medium fits because PsExec is a common admin tool that attackers also use often for lateral movement, so each run needs a check against its context."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PsExec run from a user-writable folder against a remote workstation as SYSTEM, accepting the EULA",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0098.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\PsExec.exe",
+          "OriginalFileName": "psexec.c",
+          "CommandLine": "PsExec.exe \\\\WS-0142 -accepteula -s cmd.exe /c whoami",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      },
+      {
+        "description": "Renamed PsExec binary caught by OriginalFileName even though Image does not end in psexec.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\updater.exe",
+          "OriginalFileName": "psexec.c",
+          "CommandLine": "updater.exe @C:\\ProgramData\\hosts.txt -accepteula -d -s C:\\ProgramData\\run.bat",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "PSEXESVC service process on the target host: neither the Image nor the OriginalFileName matches",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\PSEXESVC.exe",
+          "OriginalFileName": "psexesvc.exe",
+          "CommandLine": "C:\\Windows\\PSEXESVC.exe",
+          "ParentImage": "C:\\Windows\\System32\\services.exe"
+        }
+      },
+      {
+        "description": "A different Sysinternals tool (PsList) run from the same tools folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0098.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Tools\\Sysinternals\\pslist.exe",
+          "OriginalFileName": "pslist.exe",
+          "CommandLine": "pslist.exe -accepteula \\\\WS-0142",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "5cc90652-4cbd-4241-aa3b-4b462fa5a248",
+    "title": "Potential Recon Activity Via Nltest.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Craig Young, oscd.community, Georg Lauenstein",
+    "path": "windows/process_creation/proc_creation_win_nltest_recon.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_nltest_recon.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1016",
+      "T1482"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó nltest.exe con argumentos de reconocimiento de dominio, por ejemplo para listar controladores de dominio, relaciones de confianza o consultar el estado de un servidor. Puede ser administración legítima o la fase de descubrimiento de un intrusor.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\nltest.exe u OriginalFileName es nltestrk.exe, y CommandLine contiene 'server' y 'query' juntos, o alguno de: /user, all_trusts, dclist:, dnsgetdc:, domain_trusts, dsgetdc:, parentdomain, trusted_domains.",
+      "why_it_matters": "Nltest permite mapear controladores de dominio y confianzas entre dominios (T1482) y la configuración de red del dominio (T1016). Es un paso habitual previo al movimiento lateral y al despliegue de ransomware.",
+      "triage_steps": [
+        "Revisar CommandLine completo para identificar la consulta exacta (dclist, domain_trusts, dsgetdc, /user) y el dominio objetivo.",
+        "Identificar el usuario y el host; confirmar si pertenecen a administradores de dominio o equipos de TI que usan nltest habitualmente.",
+        "Analizar ParentImage y la cadena de procesos: cmd.exe o powershell.exe lanzados por Office, navegador, rundll32 o un proceso inusual son muy sospechosos.",
+        "Buscar en el mismo host +/- 15 minutos otros comandos de descubrimiento: net group, whoami /all, ipconfig, AdFind, dsquery o Get-ADTrust.",
+        "Revisar alertas previas del mismo usuario y host, especialmente accesos iniciales, ejecución de scripts o herramientas de acceso remoto.",
+        "Verificar autenticaciones del usuario hacia controladores de dominio y otros hosts después de la ejecución, en busca de movimiento lateral."
+      ],
+      "false_positives": [
+        "Administradores de dominio que diagnostican confianzas o la ubicación de controladores de dominio con nltest.",
+        "Scripts de inventario, monitoreo o diagnóstico de TI que ejecutan nltest periódicamente desde cuentas de servicio conocidas.",
+        "Ejercicios autorizados de pentesting o red team, por ejemplo pruebas de Atomic Red Team."
+      ],
+      "response_steps": [
+        "Confirmar con el usuario o el equipo de TI si la ejecución fue legítima y documentar la justificación.",
+        "Si no hay justificación, aislar el endpoint y preservar evidencia (árbol de procesos, memoria, historial de PowerShell).",
+        "Restablecer credenciales de la cuenta implicada y revisar su actividad en Active Directory.",
+        "Erradicar el mecanismo de acceso inicial y la persistencia encontrados, y buscar la misma actividad en otros hosts.",
+        "Si es legítimo y recurrente, crear una exclusión acotada por usuario, host y ParentImage."
+      ],
+      "severity_rationale": "Nivel medio porque nltest es una herramienta administrativa común, pero su uso para enumerar confianzas y controladores es una señal frecuente de reconocimiento previo a ataques graves."
+    },
+    "en": {
+      "summary": "nltest.exe ran with domain reconnaissance arguments, such as listing domain controllers, enumerating trusts or querying a server. This may be legitimate administration or an intruder's discovery phase.",
+      "what_it_detects": "Process creation where Image ends with \\nltest.exe or OriginalFileName is nltestrk.exe, and CommandLine contains both 'server' and 'query', or any of: /user, all_trusts, dclist:, dnsgetdc:, domain_trusts, dsgetdc:, parentdomain, trusted_domains.",
+      "why_it_matters": "Nltest maps domain controllers and domain trust relationships (T1482) and domain network configuration (T1016). Attackers commonly run it before lateral movement and ransomware deployment.",
+      "triage_steps": [
+        "Read the full CommandLine to identify the exact query (dclist, domain_trusts, dsgetdc, /user) and the targeted domain.",
+        "Identify the user and host; confirm whether they belong to domain admins or IT staff who routinely use nltest.",
+        "Review ParentImage and the process chain: cmd.exe or powershell.exe spawned by Office, a browser, rundll32 or an unusual binary is highly suspicious.",
+        "Search the same host +/- 15 minutes for other discovery: net group, whoami /all, ipconfig, AdFind, dsquery or Get-ADTrust.",
+        "Check earlier alerts for the same user and host, especially initial access, script execution or remote access tools.",
+        "Review the user's authentications to domain controllers and other hosts after execution for signs of lateral movement."
+      ],
+      "false_positives": [
+        "Domain administrators troubleshooting trusts or domain controller location with nltest.",
+        "IT inventory, monitoring or diagnostic scripts running nltest on a schedule from known service accounts.",
+        "Authorized penetration tests or red team exercises, such as Atomic Red Team tests."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT team whether the execution was legitimate and record the justification.",
+        "If unjustified, isolate the endpoint and preserve evidence (process tree, memory, PowerShell history).",
+        "Reset credentials for the involved account and review its Active Directory activity.",
+        "Remove the initial access vector and any persistence found, and hunt for the same activity on other hosts.",
+        "If legitimate and recurring, add a narrow exclusion scoped by user, host and ParentImage."
+      ],
+      "severity_rationale": "Medium because nltest is a common admin tool, yet using it to enumerate trusts and domain controllers is a frequent precursor to serious attacks."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "nltest enumerating all domain trusts, launched from cmd.exe spawned by rundll32",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\nltest.exe",
+          "OriginalFileName": "nltestrk.exe",
+          "CommandLine": "nltest  /domain_trusts /all_trusts",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c nltest /domain_trusts /all_trusts > C:\\Users\\Public\\t.txt",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "nltest listing domain controllers for the domain",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\nltest.exe",
+          "OriginalFileName": "nltestrk.exe",
+          "CommandLine": "nltest.exe /dclist:andes.example.com",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "nltest querying the site name only; no recon keyword from the list is present",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\nltest.exe",
+          "OriginalFileName": "nltestrk.exe",
+          "CommandLine": "nltest.exe /dsgetsite",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "findstr searching a log for 'dclist:'; the image is not nltest",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-ADM-01.andes.example.com",
+          "User": "ANDES\\admin.lgomez",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "OriginalFileName": "FINDSTR.EXE",
+          "CommandLine": "findstr /i \"dclist:\" C:\\Logs\\audit.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

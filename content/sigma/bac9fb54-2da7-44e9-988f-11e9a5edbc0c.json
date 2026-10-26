@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "bac9fb54-2da7-44e9-988f-11e9a5edbc0c",
+    "title": "Potential Password Spraying Attempt Using Dsacls.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_dsacls_password_spray.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_dsacls_password_spray.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó dsacls.exe con credenciales explícitas (/user: y /passwd:) en la línea de comandos. Puede ser un bind LDAP administrativo legítimo o un intento de password spraying contra Active Directory.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\dsacls.exe u OriginalFileName es DSACLS.EXE, y CommandLine contiene a la vez '/user:' y '/passwd:'. Dsacls consulta o modifica ACL de objetos de AD; con estas opciones se autentica como otro usuario, lo que permite probar contraseñas.",
+      "why_it_matters": "Un atacante puede iterar dsacls sobre muchas cuentas con una contraseña común para validar credenciales mediante un binario firmado de Microsoft. La regla lo mapea a T1218 (ejecución mediante binarios firmados). Además, la contraseña queda en texto claro en los logs.",
+      "triage_steps": [
+        "Revise CommandLine: identifique la cuenta en /user:, el objeto DN consultado y si la contraseña es genérica o estacional (por ejemplo Verano2024!).",
+        "Busque otras ejecuciones de dsacls en el mismo host +/- 15 minutos; varios /user: distintos con la misma /passwd: indican spraying.",
+        "Analice ParentImage y su CommandLine: bucles 'for /f' en cmd.exe, scripts de PowerShell o archivos de lista de usuarios son sospechosos.",
+        "Verifique el usuario que ejecutó el proceso y si el host es una estación de administración con RSAT habitual.",
+        "En los controladores de dominio, correlacione eventos 4625, 4771 y 4740 (bloqueos) y logons 4624 exitosos desde la IP del host.",
+        "Revise alertas previas del mismo host y usuario: reconocimiento de AD, herramientas de enumeración o accesos remotos inusuales."
+      ],
+      "false_positives": [
+        "Administradores que usan dsacls con credenciales alternativas para conectarse a una sesión LDAP y revisar o delegar permisos.",
+        "Scripts de aprovisionamiento o auditoría de ACL que se autentican con una cuenta de servicio.",
+        "Pruebas de penetración o ejercicios de red team autorizados."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del host o el usuario si la ejecución estaba autorizada; aun así, rote la contraseña expuesta en CommandLine.",
+        "Si no está autorizada, aísle el endpoint y preserve el script padre, el historial de comandos y las listas de usuarios encontradas.",
+        "Restablezca las contraseñas de las cuentas con autenticación exitosa y revise su actividad posterior.",
+        "Busque el mismo patrón en otros hosts y desbloquee las cuentas afectadas tras la validación.",
+        "Restrinja dsacls y RSAT a estaciones de administración y limite el acceso a los logs que contienen credenciales."
+      ],
+      "severity_rationale": "Medium es adecuado porque el uso administrativo legítimo existe, pero las credenciales en texto claro y el posible spraying justifican una revisión rápida."
+    },
+    "en": {
+      "summary": "dsacls.exe was run with explicit credentials (/user: and /passwd:) on the command line. This may be a legitimate administrative LDAP bind or a password spraying attempt against Active Directory.",
+      "what_it_detects": "Process creation where Image ends with \\dsacls.exe or OriginalFileName is DSACLS.EXE, and CommandLine contains both '/user:' and '/passwd:'. Dsacls reads or edits AD object ACLs; these options make it authenticate as another user, which can be used to test passwords.",
+      "why_it_matters": "An attacker can loop dsacls over many accounts with one common password to validate credentials through a signed Microsoft binary. The rule maps to T1218 (signed binary proxy execution). The password also ends up in cleartext in logs.",
+      "triage_steps": [
+        "Read CommandLine: note the /user: account, the target DN and whether the password looks generic or seasonal (for example Summer2024!).",
+        "Search for other dsacls runs on the same host within +/- 15 minutes; many different /user: values with the same /passwd: indicates spraying.",
+        "Inspect ParentImage and its command line: cmd.exe 'for /f' loops, PowerShell scripts or user list files are suspicious.",
+        "Check the executing user and whether the host is an admin workstation where RSAT use is normal.",
+        "On domain controllers, correlate 4625, 4771 and 4740 (lockouts) plus successful 4624 logons from the host's IP.",
+        "Review earlier alerts for the same host and user: AD reconnaissance, enumeration tools or unusual remote access."
+      ],
+      "false_positives": [
+        "Administrators using dsacls with alternate credentials to bind to an LDAP session and review or delegate permissions.",
+        "Provisioning or ACL audit scripts that authenticate with a service account.",
+        "Authorized penetration tests or red team exercises."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or user whether the run was authorized; either way, rotate the password exposed in CommandLine.",
+        "If unauthorized, isolate the endpoint and preserve the parent script, command history and any user lists found.",
+        "Reset passwords for accounts that authenticated successfully and review their subsequent activity.",
+        "Hunt for the same pattern on other hosts and unlock affected accounts after validation.",
+        "Restrict dsacls and RSAT to admin workstations and limit access to logs containing credentials."
+      ],
+      "severity_rationale": "Medium fits because legitimate admin use exists, but cleartext credentials and possible spraying warrant prompt review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "dsacls launched from a cmd.exe loop binding as a user with a seasonal password",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\dsacls.exe",
+          "OriginalFileName": "DSACLS.EXE",
+          "CommandLine": "dsacls.exe \"CN=Users,DC=andes,DC=example,DC=com\" /user:mgomez@andes.example.com /passwd:Verano2024!",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c for /f %u in (users.txt) do dsacls.exe \"CN=Users,DC=andes,DC=example,DC=com\" /user:%u@andes.example.com /passwd:Verano2024!",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "Renamed dsacls binary identified by OriginalFileName with explicit credentials",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\lrojas",
+          "Image": "C:\\Users\\Public\\acl.exe",
+          "OriginalFileName": "DSACLS.EXE",
+          "CommandLine": "acl.exe \"DC=andes,DC=example,DC=com\" /user:svc_backup /passwd:Password1",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator reading an OU ACL with dsacls using current credentials, no /user: or /passwd:",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-01.andes.example.com",
+          "User": "ANDES\\adm_jperez",
+          "Image": "C:\\Windows\\System32\\dsacls.exe",
+          "OriginalFileName": "DSACLS.EXE",
+          "CommandLine": "dsacls.exe \"OU=Finanzas,DC=andes,DC=example,DC=com\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "dsacls with /user: but without /passwd: (prompted password), so the CLI selection is not fully met",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-01.andes.example.com",
+          "User": "ANDES\\adm_jperez",
+          "Image": "C:\\Windows\\System32\\dsacls.exe",
+          "OriginalFileName": "DSACLS.EXE",
+          "CommandLine": "dsacls.exe \"OU=Ventas,DC=andes,DC=example,DC=com\" /user:adm_jperez /domain:andes",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "0ed99dda-6a35-11ef-8c99-0242ac120002",
+    "title": "Attempts of Kerberos Coercion Via DNS SPN Spoofing",
+    "level": "high",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_kerberos_coercion_via_dns_spn_spoofing.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_kerberos_coercion_via_dns_spn_spoofing.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1187",
+      "T1557.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "La línea de comandos de un proceso contiene la firma base64 de una estructura CREDENTIAL_TARGET_INFORMATION serializada ('UWhRCA' y 'BAAAA'). Esto suele indicar que alguien está creando o comprobando un registro DNS falso para coaccionar la autenticación Kerberos o NTLM.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene a la vez 'UWhRCA' y 'BAAAA', patrón propio de nombres como 'srv1UWhRCAAAA...BAAAA'. Suelen generarlo consultas con nslookup o PowerShell y herramientas DNS que agregan estos registros.",
+      "why_it_matters": "Un nombre DNS con el sufijo serializado puede hacer que los clientes Windows se autentiquen ante un host del atacante usando el SPN de un servidor legítimo. Esto habilita ataques de relay o reflection (ATT&CK T1557.001, T1187), como los descritos para CVE-2025-33073, que pueden terminar en escalamiento de privilegios.",
+      "triage_steps": [
+        "Revise CommandLine y extraiga el hostname completo con el sufijo serializado, el prefijo del host real (antes de '1UWhRC') y la zona DNS objetivo.",
+        "Identifique Image, ParentImage y User. Determine si la ejecución fue interactiva, provino de un script o de un shell remoto o implante.",
+        "Consulte el DNS integrado en AD (ADIDNS) para buscar registros que contengan 'UWhRC' y anote la IP a la que resuelve cada uno.",
+        "Busque eventos de cambios en el directorio (5136/5137) sobre objetos dnsNode para saber quién creó el registro y en qué momento.",
+        "Verifique si esa IP es interna y conocida. Busque conexiones SMB, HTTP o Kerberos desde servidores hacia ella en +/- 15 minutos.",
+        "Busque actividad de coerción en el mismo host o usuario, como llamadas RPC que fuerzan la autenticación, y logons originados por credenciales retransmitidas.",
+        "Revise alertas previas del mismo host, usuario e IP, y confirme si los servidores afectados tienen el parche de CVE-2025-33073."
+      ],
+      "false_positives": [
+        "Pruebas de penetración o ejercicios de red team autorizados que reproducen esta técnica de coerción.",
+        "Ingeniería de detección o validaciones en laboratorio que ejecutan comandos de pruebas de concepto públicas.",
+        "Bloques base64 largos, como -EncodedCommand de PowerShell, que contienen ambas cadenas por casualidad. Decodifíquelos para confirmarlo."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del activo o del red team si la actividad estaba autorizada y preserve la línea de comandos y los datos del registro DNS.",
+        "Si no estaba autorizada, aísle el host de origen y deshabilite o restablezca la cuenta que ejecutó el comando o creó el registro.",
+        "Una vez capturada la evidencia, elimine los registros DNS falsos y restrinja quién puede crear registros en la zona.",
+        "Aplique los parches del fabricante para CVE-2025-33073, exija la firma SMB y busque logons retransmitidos exitosos hacia los servidores afectados."
+      ],
+      "severity_rationale": "El nivel alto corresponde porque este patrón casi no tiene usos legítimos y apunta directamente a un intento de coaccionar y retransmitir una autenticación privilegiada."
+    },
+    "en": {
+      "summary": "A process command line contains the base64 marker of a marshaled CREDENTIAL_TARGET_INFORMATION structure ('UWhRCA' plus 'BAAAA'). This usually means someone is creating or checking a spoofed DNS record for Kerberos/NTLM authentication coercion.",
+      "what_it_detects": "Process creation events where CommandLine contains both 'UWhRCA' and 'BAAAA', the pattern seen in hostnames such as 'srv1UWhRCAAAA...BAAAA'. Typical sources are nslookup checks and PowerShell or DNS tooling that adds these records.",
+      "why_it_matters": "A DNS name with a marshaled target suffix can trick Windows clients into authenticating to an attacker host while using the SPN of a legitimate server. This enables relay or reflection attacks (ATT&CK T1557.001, T1187), as described for CVE-2025-33073, which can lead to privilege escalation.",
+      "triage_steps": [
+        "Read CommandLine and extract the full hostname with the marshaled suffix, the real host prefix before '1UWhRC', and the target DNS zone.",
+        "Identify Image, ParentImage and User. Decide whether the activity is interactive, scripted, or comes from a remote shell or implant.",
+        "Query AD-integrated DNS (ADIDNS) for records containing 'UWhRC' and note which IP address each record resolves to.",
+        "Look for directory change events (5136/5137) on dnsNode objects to find who created the record, and when.",
+        "Check whether that IP is internal and known. Look for SMB, HTTP or Kerberos connections from servers to it within +/- 15 minutes.",
+        "Look for coercion activity on the same host or user, such as RPC calls that force authentication, and for logons that came in through relayed credentials.",
+        "Review earlier alerts for the same host, user and IP, and check whether the targeted servers are patched for CVE-2025-33073."
+      ],
+      "false_positives": [
+        "Authorized penetration tests or red team exercises that reproduce this coercion technique.",
+        "Detection engineering or lab validation that runs public proof-of-concept commands.",
+        "Long base64 blobs, such as PowerShell -EncodedCommand, that contain both substrings by chance. Decode them and confirm."
+      ],
+      "response_steps": [
+        "Confirm with the asset owner or red team lead whether the activity was authorized, and keep the command line and DNS record details.",
+        "If it was not authorized, isolate the source host and disable or reset the account that ran the command or created the record.",
+        "After capturing evidence, delete the spoofed DNS records and restrict who can create records in the zone.",
+        "Apply the vendor patches for CVE-2025-33073, enforce SMB signing, and hunt for successful relayed logons to the targeted servers."
+      ],
+      "severity_rationale": "High fits because this marker has almost no legitimate use and points directly to an attempt to coerce and relay privileged authentication."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "nslookup comprueba que el registro DNS falso con el sufijo CREDENTIAL_TARGET_INFORMATION serializado resuelve.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\nslookup.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "nslookup srv011UWhRCAAAAAAAAAAAAAAAAAAAAAAAAAAAAwbEAYBAAAA.andes.example.com"
+        }
+      },
+      {
+        "description": "PowerShell agrega un registro A falso que apunta a una IP de documentación.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command Add-DnsServerResourceRecordA -ZoneName andes.example.com -Name \"fs011UWhRCAAAAAAAAAAAAAAAAAAAAAAAAAAAAwbEAYBAAAA\" -IPv4Address 192.0.2.50 -ComputerName dc01"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "nslookup legítimo de un servidor de archivos, sin sufijo serializado.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\nslookup.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "nslookup fileserver01.andes.example.com"
+        }
+      },
+      {
+        "description": "Registro DNS creado por un administrador. El nombre contiene 'BAAAA' pero no 'UWhRCA'.",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC01.andes.example.com",
+          "User": "ANDES\\adm_rgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command Add-DnsServerResourceRecordA -ZoneName andes.example.com -Name \"labBAAAA-web01\" -IPv4Address 198.51.100.20"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

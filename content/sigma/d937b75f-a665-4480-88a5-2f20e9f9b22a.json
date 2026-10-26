@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "d937b75f-a665-4480-88a5-2f20e9f9b22a",
+    "title": "Possible Privilege Escalation via Weak Service Permissions",
+    "level": "high",
+    "status": "test",
+    "author": "Teymur Kheirkhabarov",
+    "path": "windows/process_creation/proc_creation_win_sc_change_sevice_image_path_by_non_admin.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sc_change_sevice_image_path_by_non_admin.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1574.011"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un usuario sin privilegios elevados (integridad Medium) ejecutó sc.exe para cambiar el binPath o el comando de falla de un servicio. Si el cambio funcionó, los permisos del servicio son débiles y el programa configurado puede ejecutarse con la cuenta del servicio, a menudo SYSTEM.",
+      "what_it_detects": "Creación de un proceso cuyo Image termina en \\sc.exe, con IntegrityLevel Medium (S-1-16-8192) y un CommandLine que contiene 'config' y 'binPath', o 'failure' y 'command'.",
+      "why_it_matters": "Un usuario estándar no debería poder reconfigurar servicios. Si los permisos de un servicio le permiten cambiar su binario o su acción de falla, puede ejecutar cualquier programa con la cuenta del servicio. Es escalamiento de privilegios y persistencia por permisos débiles de servicios (ATT&CK T1574.011).",
+      "triage_steps": [
+        "Revise el CommandLine: identifique el servicio objetivo y el nuevo binPath o comando de falla. Anote cualquier ejecutable en rutas escribibles por usuarios, como Users, Public, Temp o AppData.",
+        "Identifique el User y el ParentImage. Un padre cmd.exe o powershell.exe de una sesión interactiva o remota es más sospechoso que un agente de gestión conocido.",
+        "Verifique si el cambio se aplicó: busque cambios en el registro HKLM\\SYSTEM\\CurrentControlSet\\Services\\<nombre>\\ImagePath o FailureCommand, o los eventos 7040/7045 de ese servicio.",
+        "Busque en el mismo host, en +/- 15 minutos, sc start/stop, reinicios del servicio o procesos nuevos iniciados por services.exe con integridad SYSTEM.",
+        "Calcule el hash del binario referenciado y revise su reputación, firmante y fecha de creación. Averigüe también quién lo escribió en el disco.",
+        "Revise la DACL del servicio (sc sdshow <nombre>) para confirmar si los usuarios no administradores pueden modificar su configuración.",
+        "Revise alertas previas del mismo usuario y host, sobre todo herramientas de enumeración como accesschk, PowerUp o winPEAS."
+      ],
+      "false_positives": [
+        "La regla no indica falsos positivos conocidos. Una posible causa es un instalador o script de actualización mal configurado que se ejecuta en el contexto de un usuario estándar.",
+        "Un administrador que prueba o audita los permisos de servicios desde una consola sin elevar."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del servicio si el cambio estaba autorizado.",
+        "Si no estaba autorizado, aísle el host y detenga el servicio afectado. Conserve el binario modificado para analizarlo.",
+        "Restaure el ImagePath o el FailureCommand original a partir de la línea base o de un host sano.",
+        "Quite a los usuarios no administradores el permiso de escritura sobre el servicio (SERVICE_CHANGE_CONFIG) y busque la misma debilidad en otros hosts.",
+        "Restablezca las credenciales del usuario involucrado y de las cuentas con las que se ejecutó el payload, si llegó a ejecutarse."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque la actividad indica directamente un intento de obtener ejecución de código como SYSTEM, y las causas legítimas son poco comunes."
+    },
+    "en": {
+      "summary": "A non-elevated (Medium integrity) user ran sc.exe to change a service's binPath or failure command. If the change worked, the service's permissions are weak, and the configured program can run as the service account, often SYSTEM.",
+      "what_it_detects": "Process creation of an Image ending in \\sc.exe with IntegrityLevel Medium (S-1-16-8192) where the CommandLine contains 'config' and 'binPath', or 'failure' and 'command'.",
+      "why_it_matters": "Standard users should not be able to reconfigure services. If a service's permissions let them change its binary path or failure action, they can run any program as the service account. This is privilege escalation and persistence through weak service permissions (ATT&CK T1574.011).",
+      "triage_steps": [
+        "Read the CommandLine: find the target service name and the new binPath or failure command. Note any executable in user-writable paths such as Users, Public, Temp or AppData.",
+        "Identify the User and ParentImage. A cmd.exe or powershell.exe parent from an interactive or remote session is more suspicious than a known management agent.",
+        "Check whether the change succeeded: look for registry changes to HKLM\\SYSTEM\\CurrentControlSet\\Services\\<name>\\ImagePath or FailureCommand, or event 7040/7045 for that service.",
+        "Look on the same host within +/- 15 minutes for sc start/stop, service restarts, or new processes started by services.exe with SYSTEM integrity.",
+        "Hash the referenced binary and check its reputation, signer and creation time. Also find out who wrote it to disk.",
+        "Check the service's DACL (sc sdshow <name>) to confirm whether non-admins have write access to its configuration.",
+        "Check earlier alerts for the same user and host, especially enumeration tools such as accesschk, PowerUp or winPEAS."
+      ],
+      "false_positives": [
+        "The rule lists none as known. Possible causes include a misconfigured installer or update script running in a standard user's context.",
+        "An administrator testing or auditing service permissions from a non-elevated console."
+      ],
+      "response_steps": [
+        "Confirm with the user or the service owner whether the change was authorized.",
+        "If it was not authorized, isolate the host and stop the affected service. Keep the modified binary for analysis.",
+        "Restore the original ImagePath or FailureCommand from a baseline or a known-good host.",
+        "Remove write permissions for non-admins on the service (SERVICE_CHANGE_CONFIG) and look for the same weakness on other hosts.",
+        "Reset the credentials of the involved user, and of any accounts the payload ran under if it executed."
+      ],
+      "severity_rationale": "High fits because the activity directly indicates an attempt to gain SYSTEM-level code execution, and benign causes are rare."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Medium-integrity user changes service binPath to a binary in a user-writable folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe config UpdaterSvc binPath= \"C:\\Users\\Public\\upd.exe\"",
+          "IntegrityLevel": "Medium",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\cmd.exe\""
+        }
+      },
+      {
+        "description": "Medium-integrity user (SID form) sets a service failure command",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "CommandLine": "sc failure BackupAgent reset= 0 actions= run/1000 command= \"C:\\Users\\mrodriguez\\AppData\\Local\\Temp\\b.exe\"",
+          "IntegrityLevel": "S-1-16-8192",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Elevated administrator changes binPath (High integrity), so the scbynonadmin selection does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "CommandLine": "sc.exe config UpdaterSvc binPath= \"C:\\Program Files\\Updater\\updater.exe\"",
+          "IntegrityLevel": "High",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Medium-integrity user only queries the service configuration; neither binPath nor failure/command appears",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "CommandLine": "sc.exe qc UpdaterSvc",
+          "IntegrityLevel": "Medium",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

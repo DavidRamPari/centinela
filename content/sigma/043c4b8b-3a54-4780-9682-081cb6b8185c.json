@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "043c4b8b-3a54-4780-9682-081cb6b8185c",
+    "title": "Suspicious IIS Module Registration",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Microsoft (idea)",
+    "path": "windows/process_creation/proc_creation_win_iis_susp_module_registration.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_iis_susp_module_registration.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1505.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "El proceso de trabajo de IIS (w3wp.exe) inició un comando que registra un módulo de IIS o instala un ensamblado en la GAC. Esto suele indicar que una web shell existente está instalando un backdoor persistente como módulo de IIS.",
+      "what_it_detects": "Procesos hijos de w3wp.exe cuyo CommandLine contiene 'appcmd.exe add module', usa System.EnterpriseServices.Internal.Publish desde powershell.exe o ejecuta 'gacutil' con ' /I' para instalar un ensamblado en la Global Assembly Cache.",
+      "why_it_matters": "Un módulo de IIS malicioso se carga en cada solicitud y puede interceptar tráfico, robar credenciales o ejecutar comandos sin dejar archivos visibles en el webroot. Corresponde a ATT&CK T1505.004 (componentes de IIS) para persistencia en el servidor.",
+      "triage_steps": [
+        "Revise CommandLine e Image: identifique el nombre del módulo, la ruta del DLL o el ensamblado instalado en la GAC.",
+        "Revise el CommandLine de ParentImage (w3wp.exe): el argumento -ap indica el application pool y el sitio comprometido.",
+        "Obtenga el hash del DLL referenciado, verifique su firma, fecha de creación y búsquelo en su plataforma de threat intelligence.",
+        "Compare applicationHost.config y web.config con una copia conocida; busque entradas nuevas en <modules> o <globalModules>.",
+        "Revise los logs de IIS del sitio entre 15 minutos antes y 15 minutos después: solicitudes POST raras, IPs de origen y user agent inusuales hacia archivos .aspx/.ashx recientes.",
+        "Liste otros procesos hijos de w3wp.exe en el mismo host (cmd.exe, powershell.exe, whoami) y alertas previas de ese servidor.",
+        "Confirme con el equipo de administración si hubo un cambio planificado; un despliegue legítimo rara vez se ejecuta desde w3wp.exe."
+      ],
+      "false_positives": [
+        "Actividad administrativa o aplicaciones de gestión web que registran módulos mediante appcmd ejecutado desde el propio pool de IIS.",
+        "Instaladores o herramientas de despliegue alojadas en IIS que publican ensamblados en la GAC con gacutil /I o Publish.GacInstall."
+      ],
+      "response_steps": [
+        "Valide el hallazgo con el dueño del servidor y preserve evidencia: DLL, applicationHost.config, logs de IIS y memoria del w3wp.exe.",
+        "Si se confirma actividad maliciosa, aísle el servidor de la red o retírelo del balanceador.",
+        "Elimine el módulo con appcmd delete module, desinstale el ensamblado de la GAC y retire las web shells encontradas, tras documentar todo.",
+        "Rote credenciales usadas en el servidor y de las cuentas del application pool; revise movimiento lateral desde el host.",
+        "Restaure la configuración desde una línea base confiable, aplique parches y busque el mismo DLL o hash en otros servidores IIS."
+      ],
+      "severity_rationale": "Nivel alto porque w3wp.exe rara vez registra módulos o instala ensamblados, y la técnica otorga persistencia sigilosa sobre un servidor expuesto a internet."
+    },
+    "en": {
+      "summary": "The IIS worker process (w3wp.exe) launched a command that registers an IIS module or installs an assembly into the GAC. This often means an existing web shell is installing a persistent IIS module backdoor.",
+      "what_it_detects": "Child processes of w3wp.exe whose CommandLine contains 'appcmd.exe add module', uses System.EnterpriseServices.Internal.Publish from powershell.exe, or runs 'gacutil' with ' /I' to install an assembly into the Global Assembly Cache.",
+      "why_it_matters": "A malicious IIS module loads on every request and can intercept traffic, steal credentials or run commands without leaving visible files in the webroot. This maps to ATT&CK T1505.004 (IIS Components) for server persistence.",
+      "triage_steps": [
+        "Read CommandLine and Image: identify the module name, the DLL path or the assembly installed into the GAC.",
+        "Check the w3wp.exe (ParentImage) command line: the -ap argument names the application pool and the affected site.",
+        "Hash the referenced DLL, check its signature and creation time, and look it up in threat intelligence.",
+        "Diff applicationHost.config and web.config against a known-good copy; look for new <modules> or <globalModules> entries.",
+        "Review IIS logs for the site within +/- 15 minutes: unusual POSTs, source IPs and user agents hitting recently created .aspx/.ashx files.",
+        "List other w3wp.exe child processes on the host (cmd.exe, powershell.exe, whoami) and earlier alerts for this server.",
+        "Confirm with the server administrators whether a change was planned; legitimate deployments rarely run from w3wp.exe."
+      ],
+      "false_positives": [
+        "Administrative activity or web management apps that register modules with appcmd running inside an IIS application pool.",
+        "Installers or deployment tools hosted in IIS that publish assemblies to the GAC with gacutil /I or Publish.GacInstall."
+      ],
+      "response_steps": [
+        "Validate with the server owner and preserve evidence: the DLL, applicationHost.config, IIS logs and w3wp.exe memory.",
+        "If malicious, isolate the server from the network or pull it from the load balancer.",
+        "After documenting, remove the module with appcmd delete module, uninstall the GAC assembly and delete any web shells found.",
+        "Rotate credentials used on the server and application pool identities; check for lateral movement from the host.",
+        "Restore configuration from a trusted baseline, patch, and hunt for the same DLL or hash on other IIS servers."
+      ],
+      "severity_rationale": "High fits because w3wp.exe rarely registers modules or installs assemblies, and the technique gives stealthy persistence on an internet-facing server."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "w3wp.exe spawns cmd.exe that registers a new native IIS module with appcmd",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-01.andes.example.com",
+          "User": "IIS APPPOOL\\DefaultAppPool",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+          "ParentCommandLine": "c:\\windows\\system32\\inetsrv\\w3wp.exe -ap \"DefaultAppPool\" -v \"v4.0\"",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c C:\\Windows\\System32\\inetsrv\\appcmd.exe add module /name:HttpCacheHelper /image:C:\\Windows\\Temp\\cachehelper.dll"
+        }
+      },
+      {
+        "description": "w3wp.exe spawns PowerShell that installs an assembly into the GAC via System.EnterpriseServices.Internal.Publish",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-02.andes.example.com",
+          "User": "IIS APPPOOL\\PortalPool",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -c \"[Reflection.Assembly]::LoadWithPartialName('System.EnterpriseServices'); $p = New-Object System.EnterpriseServices.Internal.Publish; $p.GacInstall('C:\\inetpub\\temp\\Portal.Helper.dll')\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator registers an IIS module interactively from an elevated cmd.exe; the parent is not w3wp.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c C:\\Windows\\System32\\inetsrv\\appcmd.exe add module /name:UrlRewriteHelper /image:C:\\Program Files\\Vendor\\rewrite.dll"
+        }
+      },
+      {
+        "description": "w3wp.exe runs appcmd to list modules, which does not contain 'add module'",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-02.andes.example.com",
+          "User": "IIS APPPOOL\\MonitorPool",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+          "Image": "C:\\Windows\\System32\\inetsrv\\appcmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\inetsrv\\appcmd.exe list modules"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

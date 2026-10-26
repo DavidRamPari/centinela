@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "0058b9e5-bcd7-40d4-9205-95ca5a16d7b2",
+    "title": "UAC Bypass Using Windows Media Player - Process",
+    "level": "high",
+    "status": "test",
+    "author": "Christian Burkard (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_uac_bypass_wmp.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_uac_bypass_wmp.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1548.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso con integridad alta o de sistema que coincide con el patrón de bypass de UAC de UACMe método 32, que abusa de osksupport.dll en la carpeta de Windows Media Player. Es probable que un proceso de usuario estándar haya obtenido privilegios de administrador sin el aviso de UAC.",
+      "what_it_detects": "Eventos process_creation donde Image es 'C:\\Program Files\\Windows Media Player\\osk.exe', o donde cmd.exe tiene como padre exacto '\"C:\\Windows\\system32\\mmc.exe\" \"C:\\Windows\\system32\\eventvwr.msc\" /s'. En ambos casos IntegrityLevel debe ser High o System (S-1-16-12288 / S-1-16-16384).",
+      "why_it_matters": "El binario legítimo osk.exe reside en System32, no en la carpeta de Windows Media Player. Este patrón corresponde a T1548.002 (Bypass User Account Control): el atacante eleva privilegios en silencio y puede deshabilitar defensas, instalar persistencia o volcar credenciales.",
+      "triage_steps": [
+        "Confirme Image, IntegrityLevel, User y host. Verifique si existe osk.exe u osksupport.dll en 'C:\\Program Files\\Windows Media Player\\' y obtenga sus hash y firma digital.",
+        "Revise ParentImage y ParentCommandLine: identifique el proceso de integridad media que inició la cadena (mmc.exe/eventvwr o el proceso que lanzó osk.exe).",
+        "Revise los procesos hijos de osk.exe o cmd.exe y sus CommandLine: busque PowerShell, rundll32, creación de usuarios, servicios o tareas programadas.",
+        "Busque en el mismo host, +/- 15 minutos, escritura de archivos en la carpeta de Windows Media Player y cargas de DLL no firmadas.",
+        "Valide con el usuario si es administrador local y si ejecutaba alguna herramienta; un usuario sin necesidad de elevación aumenta la sospecha.",
+        "Consulte alertas previas del mismo usuario y host, y busque el hash de osksupport.dll en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Ejercicios autorizados de red team o pruebas con UACMe en equipos de laboratorio; confírmelos con el responsable del ejercicio."
+      ],
+      "response_steps": [
+        "Verifique la cadena de procesos y los artefactos en disco antes de actuar; preserve memoria y archivos sospechosos.",
+        "Si se confirma, aísle el endpoint desde el EDR y termine los procesos elevados maliciosos.",
+        "Elimine osk.exe/osksupport.dll de la carpeta de Windows Media Player y cualquier persistencia creada, tras registrar sus hash.",
+        "Restablezca credenciales del usuario afectado y de cuentas usadas en el host; revise movimiento lateral.",
+        "Configure UAC en 'Notificar siempre' y limite la membresía del grupo de administradores locales."
+      ],
+      "severity_rationale": "Nivel alto porque el patrón es muy específico de una técnica de bypass de UAC con integridad elevada confirmada y casi no tiene causas legítimas."
+    },
+    "en": {
+      "summary": "A high or system integrity process matched the UACMe method 32 UAC bypass pattern, which abuses osksupport.dll in the Windows Media Player folder. A standard-user process likely gained administrator rights without a UAC prompt.",
+      "what_it_detects": "process_creation events where Image is 'C:\\Program Files\\Windows Media Player\\osk.exe', or cmd.exe whose ParentCommandLine is exactly '\"C:\\Windows\\system32\\mmc.exe\" \"C:\\Windows\\system32\\eventvwr.msc\" /s'. Either case requires IntegrityLevel High or System (S-1-16-12288 / S-1-16-16384).",
+      "why_it_matters": "Legitimate osk.exe lives in System32, not the Windows Media Player folder. This maps to T1548.002 (Bypass User Account Control): the attacker silently elevates and can disable defenses, persist or dump credentials.",
+      "triage_steps": [
+        "Confirm Image, IntegrityLevel, User and host. Check for osk.exe or osksupport.dll in 'C:\\Program Files\\Windows Media Player\\'; collect hashes and signatures.",
+        "Review ParentImage and ParentCommandLine to find the medium-integrity process that started the chain (mmc.exe/eventvwr or whatever launched osk.exe).",
+        "Inspect child processes of osk.exe or cmd.exe and their CommandLine: PowerShell, rundll32, user creation, services or scheduled tasks.",
+        "On the same host, +/- 15 minutes, look for file writes to the Windows Media Player folder and unsigned DLL loads.",
+        "Ask whether the user is a local admin and what they were running; a user with no need to elevate raises suspicion.",
+        "Check earlier alerts for the same user and host, and hunt for the osksupport.dll hash on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Authorized red team exercises or UACMe testing on lab machines; confirm with the exercise owner."
+      ],
+      "response_steps": [
+        "Verify the process chain and on-disk artifacts before acting; preserve memory and suspicious files.",
+        "If confirmed, isolate the endpoint via EDR and terminate the malicious elevated processes.",
+        "After recording hashes, remove osk.exe/osksupport.dll from the Windows Media Player folder and any persistence created.",
+        "Reset credentials of the affected user and accounts used on the host; check for lateral movement.",
+        "Set UAC to 'Always notify' and reduce local Administrators group membership."
+      ],
+      "severity_rationale": "High fits because the pattern is specific to a UAC bypass technique, elevated integrity is confirmed, and legitimate causes are nearly nonexistent."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "osk.exe launched from the Windows Media Player folder with High integrity (UACMe 32).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Windows Media Player\\osk.exe",
+          "CommandLine": "\"C:\\Program Files\\Windows Media Player\\osk.exe\"",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\akagi64.exe",
+          "ParentCommandLine": "akagi64.exe 32",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "cmd.exe spawned by mmc.exe running eventvwr.msc /s with High integrity SID.",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\mmc.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\mmc.exe\" \"C:\\Windows\\system32\\eventvwr.msc\" /s",
+          "IntegrityLevel": "S-1-16-12288"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate On-Screen Keyboard from System32 at High integrity; Image path does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.lopez",
+          "Image": "C:\\Windows\\System32\\osk.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\osk.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "cmd.exe opened from Event Viewer at Medium integrity; integrity selection fails.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\mmc.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\mmc.exe\" \"C:\\Windows\\system32\\eventvwr.msc\" /s",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

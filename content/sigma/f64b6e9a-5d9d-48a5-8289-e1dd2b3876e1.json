@@ -1,0 +1,120 @@
+{
+  "rule": {
+    "id": "f64b6e9a-5d9d-48a5-8289-e1dd2b3876e1",
+    "title": "Suspicious Log Entries",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "linux/builtin/lnx_shell_susp_log_entries.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/linux/builtin/lnx_shell_susp_log_entries.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un log de Linux contiene una de cuatro frases que suelen indicar sniffing, saturación de un servicio, tráfico malformado o pérdida de logs. Hay que confirmar si la causa es un cambio legítimo o actividad maliciosa.",
+      "what_it_detects": "Busca palabras clave en logs de Linux: 'entered promiscuous mode' (una interfaz captura todo el tráfico), 'Deactivating service' (xinetd desactiva un servicio por exceso de conexiones), 'Oversized packet received from' (llegó un paquete de tamaño anómalo) e 'imuxsock begins to drop messages' (rsyslog descarta mensajes por rate limiting).",
+      "why_it_matters": "El modo promiscuo permite capturar credenciales y tráfico de otros equipos. La desactivación de servicios y los paquetes sobredimensionados pueden indicar denegación de servicio o intentos de explotación. Si se pierden mensajes de log, un atacante puede ocultar su actividad. La regla está etiquetada en la táctica de impacto de ATT&CK.",
+      "triage_steps": [
+        "Lea el campo message completo e identifique qué palabra clave coincidió, el host, el proceso emisor (kernel, xinetd, rsyslogd) y la interfaz, el servicio, la IP o el PID mencionados.",
+        "Promiscuo: busque en el mismo host, +/- 15 minutos, procesos como tcpdump, wireshark, tshark o dumpcap, o herramientas desconocidas, y el usuario que los ejecutó (sudo, historial de shell).",
+        "Promiscuo: verifique si la interfaz pertenece a un bridge, a una VM o a contenedores (docker0, veth*, virbr*); esas interfaces lo activan de forma normal.",
+        "Deactivating service: identifique el servicio y las IP de origen de las conexiones en esa ventana; revise logs de firewall y conexiones simultáneas desde una misma IP.",
+        "Oversized packet: anote la IP de origen, revise si también aparece en otros hosts y si coincide con escaneos o fallos de autenticación.",
+        "imuxsock: identifique el proceso del PID que genera la inundación y revise qué eventos pudieron perderse durante la ventana de descarte.",
+        "Revise alertas anteriores para el mismo host, usuario e IP de origen, y confirme si había un cambio o mantenimiento autorizado."
+      ],
+      "false_positives": [
+        "Diagnóstico de red autorizado con tcpdump o Wireshark por parte de administradores.",
+        "Hipervisores, bridges, contenedores, IDS o sensores de monitoreo que ponen interfaces en modo promiscuo.",
+        "Picos legítimos de conexiones o pruebas de carga que hacen que xinetd desactive un servicio.",
+        "Aplicaciones con logging muy verboso o en modo debug que activan el rate limiting de imuxsock."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del sistema o el registro de cambios si la actividad estaba autorizada antes de actuar.",
+        "Si hay sniffing no autorizado, aísle el host de la red, conserve evidencia (procesos, archivos de captura, hashes) y rote las credenciales que pudieron haber sido expuestas.",
+        "Si se trata de inundación o paquetes maliciosos, bloquee las IP de origen en el firewall y aplique límites de conexiones al servicio afectado.",
+        "Para la pérdida de logs, ajuste el rate limiting o corrija el proceso que genera la inundación, y reenvíe los logs a un colector remoto.",
+        "Elimine las herramientas o la persistencia no autorizadas, reactive los servicios y monitoree el host durante los siguientes días."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque estas frases suelen aparecer en operaciones normales, pero también pueden ser señal temprana de sniffing, denegación de servicio o evasión de logs que requiere revisión."
+    },
+    "en": {
+      "summary": "A Linux log line contains one of four phrases that often point to sniffing, service flooding, malformed traffic or lost logs. Confirm whether a legitimate change or malicious activity caused it.",
+      "what_it_detects": "Keyword matches in Linux logs: 'entered promiscuous mode' (an interface captures all traffic), 'Deactivating service' (xinetd disables a service after too many connections), 'Oversized packet received from' (an abnormally large packet arrived) and 'imuxsock begins to drop messages' (rsyslog drops messages due to rate limiting).",
+      "why_it_matters": "Promiscuous mode lets an attacker capture credentials and other hosts' traffic. Disabled services and oversized packets may indicate denial of service or exploitation attempts. Dropped log messages can hide attacker activity. The rule is tagged under the ATT&CK Impact tactic.",
+      "triage_steps": [
+        "Read the full message field: which keyword matched, the host, the emitting process (kernel, xinetd, rsyslogd) and any interface, service, IP or PID mentioned.",
+        "Promiscuous: on the same host within +/- 15 minutes, look for tcpdump, wireshark, tshark, dumpcap or unknown tools, and the user who ran them (sudo, shell history).",
+        "Promiscuous: check whether the interface is a bridge, VM or container interface (docker0, veth*, virbr*), which normally enables it.",
+        "Deactivating service: identify the service and the source IPs connecting in that window; check firewall logs for many parallel connections from one IP.",
+        "Oversized packet: note the source IP and check whether it also hits other hosts or matches scans or authentication failures.",
+        "imuxsock: identify the process behind the PID causing the flood and consider which events may have been lost during the drop window.",
+        "Review earlier alerts for the same host, user and source IP, and confirm whether authorized maintenance or a change was in progress."
+      ],
+      "false_positives": [
+        "Authorized network troubleshooting with tcpdump or Wireshark by administrators.",
+        "Hypervisors, bridges, containers, IDS or monitoring sensors putting interfaces into promiscuous mode.",
+        "Legitimate connection spikes or load tests causing xinetd to deactivate a service.",
+        "Verbose or debug-level applications triggering imuxsock rate limiting."
+      ],
+      "response_steps": [
+        "Verify with the system owner or the change record whether the activity was authorized before acting.",
+        "For unauthorized sniffing, isolate the host, preserve evidence (processes, capture files, hashes) and rotate credentials that may have been exposed.",
+        "For floods or malicious packets, block the source IPs at the firewall and apply connection limits to the affected service.",
+        "For lost logs, tune rate limiting or fix the flooding process, and forward logs to a remote collector.",
+        "Remove unauthorized tools or persistence, restore services and monitor the host over the following days."
+      ],
+      "severity_rationale": "Medium fits because these phrases often appear during normal operations, yet can be early signs of sniffing, denial of service or log evasion that need review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Kernel reports an interface entering promiscuous mode, for example when a packet sniffer starts",
+        "event": {
+          "message": "Oct 25 14:03:12 bastion-01 kernel: [123456.789012] device eth0 entered promiscuous mode",
+          "host": "bastion-01",
+          "program": "kernel",
+          "facility": "kern"
+        }
+      },
+      {
+        "description": "rsyslog imuxsock starts dropping messages because of rate limiting",
+        "event": {
+          "message": "Oct 25 14:05:40 web-02 rsyslogd: imuxsock begins to drop messages from pid 4321 due to rate-limiting",
+          "host": "web-02",
+          "program": "rsyslogd",
+          "facility": "syslog"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Interface leaves promiscuous mode; the 'entered promiscuous mode' phrase does not appear",
+        "event": {
+          "message": "Oct 25 14:20:01 bastion-01 kernel: [124685.001122] device eth0 left promiscuous mode",
+          "host": "bastion-01",
+          "program": "kernel",
+          "facility": "kern"
+        }
+      },
+      {
+        "description": "rsyslog summary of lost messages; it does not contain 'imuxsock begins to drop messages'",
+        "event": {
+          "message": "Oct 25 14:06:10 web-02 rsyslogd: imuxsock lost 120 messages from pid 4321 due to rate-limiting",
+          "host": "web-02",
+          "program": "rsyslogd",
+          "facility": "syslog"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

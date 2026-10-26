@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "9465ddf4-f9e4-4ebd-8d98-702df3a93239",
+    "title": "IIS Native-Code Module Command Line Installation",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_iis_appcmd_susp_module_install.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_iis_appcmd_susp_module_install.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1505.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó appcmd.exe con los argumentos 'install module' y '/name:', lo que registra un módulo de código nativo (DLL) en IIS. Un módulo malicioso se carga en cada worker process w3wp.exe y puede actuar como backdoor persistente.",
+      "what_it_detects": "Creación de procesos de appcmd.exe (por Image u OriginalFileName) cuyo CommandLine contiene 'install', 'module' y '-name:' o '/name:', excepto cuando el proceso padre es C:\\Windows\\System32\\inetsrv\\iissetup.exe.",
+      "why_it_matters": "Los módulos nativos de IIS inspeccionan y modifican todas las solicitudes HTTP. Un atacante puede instalar uno para recibir comandos ocultos, robar credenciales o mantener persistencia en el servidor web (ATT&CK T1505.003, componente de software del servidor).",
+      "triage_steps": [
+        "Revise el CommandLine: anote el nombre del módulo y la ruta del parámetro /image:. Las DLL en Temp, ProgramData, perfiles de usuario o con nombres genéricos son sospechosas.",
+        "Verifique ParentImage y el usuario: un cmd.exe o powershell.exe lanzado por w3wp.exe, un web shell o una sesión RDP inesperada indican compromiso.",
+        "Obtenga el hash de la DLL, revise firma digital, fecha de creación y reputación; compárela con módulos conocidos del proveedor.",
+        "Liste los módulos registrados con 'appcmd list modules' y revise applicationHost.config (sección globalModules) para confirmar el registro.",
+        "Busque en el mismo host, en un rango de +/- 15 minutos, escritura de archivos DLL, reinicios de IIS (iisreset), nuevos servicios y conexiones salientes.",
+        "Revise los logs de IIS posteriores a la instalación en busca de solicitudes inusuales: URI, cookies o encabezados poco comunes y respuestas anómalas.",
+        "Consulte alertas previas para el mismo host y usuario, y si otros servidores IIS recibieron el mismo módulo."
+      ],
+      "false_positives": [
+        "Administradores que instalan módulos legítimos (reescritura de URL, autenticación, monitoreo APM) mediante scripts o línea de comandos.",
+        "Instaladores de software de terceros o herramientas de despliegue (DSC, Ansible, SCCM) que registran módulos con appcmd.exe."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del servidor si la instalación fue un cambio autorizado y documentado.",
+        "Si no lo fue, aísle el servidor de la red o retírelo del balanceador, preservando memoria, la DLL y applicationHost.config.",
+        "Tras recolectar la evidencia, desinstale el módulo con 'appcmd uninstall module' y elimine la DLL; busque web shells y otra persistencia.",
+        "Restablezca las credenciales usadas en el servidor o capturadas por él, y revise otros servidores IIS con el mismo hash.",
+        "Restaure IIS desde una configuración conocida y válida, y monitoree applicationHost.config para detectar cambios."
+      ],
+      "severity_rationale": "Nivel medio: la acción es una vía de persistencia potente, pero los administradores también instalan módulos legítimos por línea de comandos, por lo que hace falta validarla."
+    },
+    "en": {
+      "summary": "appcmd.exe ran with 'install module' and '/name:', which registers a native-code (DLL) module in IIS. A malicious module loads into every w3wp.exe worker process and can act as a persistent backdoor.",
+      "what_it_detects": "Process creation of appcmd.exe (by Image or OriginalFileName) whose CommandLine contains 'install', 'module' and '-name:' or '/name:', unless the parent is C:\\Windows\\System32\\inetsrv\\iissetup.exe.",
+      "why_it_matters": "Native IIS modules see and can alter every HTTP request. Attackers install them to receive hidden commands, steal credentials or keep persistence on the web server (ATT&CK T1505.003, server software component).",
+      "triage_steps": [
+        "Read the CommandLine: note the module name and the /image: path. DLLs in Temp, ProgramData, user profiles or with generic names are suspicious.",
+        "Check ParentImage and the user: cmd.exe or powershell.exe spawned by w3wp.exe, a web shell or an unexpected RDP session points to compromise.",
+        "Collect the DLL hash, signature, creation time and reputation; compare it with known vendor modules.",
+        "Run 'appcmd list modules' and review applicationHost.config (globalModules section) to confirm registration.",
+        "Pivot on the same host within +/- 15 minutes: DLL file writes, iisreset, new services and outbound connections.",
+        "Review IIS logs after the install for unusual requests: odd URIs, cookies or headers and anomalous responses.",
+        "Check earlier alerts for the same host and user, and whether other IIS servers got the same module."
+      ],
+      "false_positives": [
+        "Administrators installing legitimate modules (URL rewrite, authentication, APM monitoring) via scripts or command line.",
+        "Third-party installers or deployment tools (DSC, Ansible, SCCM) registering modules with appcmd.exe."
+      ],
+      "response_steps": [
+        "Confirm with the server owner whether the install was an authorized, documented change.",
+        "If not, isolate the server or pull it from the load balancer, preserving memory, the DLL and applicationHost.config.",
+        "After evidence collection, remove the module with 'appcmd uninstall module', delete the DLL and hunt for web shells and other persistence.",
+        "Reset credentials used on or exposed to the server, and check other IIS servers for the same hash.",
+        "Restore IIS from a known-good configuration and monitor applicationHost.config for changes."
+      ],
+      "severity_rationale": "Medium: this is a powerful persistence path, but admins also install legitimate modules from the command line, so validation is required."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "appcmd.exe launched from cmd.exe installs a native module from C:\\Windows\\Temp using the slash form of -name:",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-03",
+          "User": "ANDES\\svc_web",
+          "Image": "C:\\Windows\\System32\\inetsrv\\appcmd.exe",
+          "OriginalFileName": "appcmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\inetsrv\\appcmd.exe install module /name:IISCacheSvc /image:C:\\Windows\\Temp\\cachesvc.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c appcmd.exe install module /name:IISCacheSvc /image:C:\\Windows\\Temp\\cachesvc.dll"
+        }
+      },
+      {
+        "description": "Renamed appcmd identified by OriginalFileName, run from PowerShell with the dash form -name:",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-01",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\ProgramData\\cfg.exe",
+          "OriginalFileName": "appcmd.exe",
+          "CommandLine": "cfg.exe install module -name:HttpAuthHelper -image:C:\\ProgramData\\authhelper.dll",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Module installation performed by the IIS setup program, excluded by the iissetup.exe parent filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-03",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\inetsrv\\appcmd.exe",
+          "OriginalFileName": "appcmd.exe",
+          "CommandLine": "appcmd.exe install module /name:UriCacheModule /image:%windir%\\System32\\inetsrv\\cachuri.dll",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\iissetup.exe"
+        }
+      },
+      {
+        "description": "Admin lists installed modules with appcmd; no install or name argument",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-01",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\inetsrv\\appcmd.exe",
+          "OriginalFileName": "appcmd.exe",
+          "CommandLine": "appcmd.exe list modules",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

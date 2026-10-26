@@ -1,0 +1,118 @@
+{
+  "rule": {
+    "id": "c67e0c98-4d39-46ee-8f6b-437ebf6b950e",
+    "title": "Shellshock Expression",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "linux/builtin/lnx_shellshock.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/linux/builtin/lnx_shellshock.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1505.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un log de Linux contiene una expresión Shellshock: una definición de función de Bash como '() { :; };' que podría ejecutar los comandos que vienen después.",
+      "what_it_detects": "Busca en cualquier log de Linux cuatro variantes literales del prefijo Shellshock ('(){:;};', '() {:;};', '() { :;};', '() { :; };'). Suelen llegar en encabezados HTTP como el user agent o el referer, o en variables de entorno.",
+      "why_it_matters": "Si un Bash vulnerable importa esa variable, ejecuta el comando que sigue a la definición. Por ejemplo, un script CGI podría lanzar comandos como el usuario del servidor web, dejar un web shell (T1505.003) y mantener persistencia.",
+      "triage_steps": [
+        "Lea el campo message completo e identifique el origen del log (apache2, nginx, sudo, sshd), el host y el comando que sigue a la expresión.",
+        "Si es un log web, anote la IP de origen, la URL (sobre todo /cgi-bin/), el código de respuesta y el campo donde aparece: user agent, referer o cookie.",
+        "Revise en el mismo host, +/- 15 minutos, si hubo procesos hijos de httpd, apache2 o nginx como bash, sh, curl, wget o nc.",
+        "Confirme la versión de Bash y si existen scripts CGI o servicios que pasen datos externos al entorno de Bash.",
+        "Busque conexiones salientes, archivos nuevos en directorios web o en /tmp, y cambios en crontab hechos por el usuario del servicio.",
+        "Pivote por la IP de origen en otros hosts y en alertas anteriores para saber si es un escaneo masivo o un ataque dirigido."
+      ],
+      "false_positives": [
+        "Escáneres de vulnerabilidades autorizados o pruebas de penetración que envían cargas Shellshock de prueba.",
+        "Administradores que verifican el parche con el clásico env x='() { :;}; echo vulnerable' bash -c.",
+        "Escaneos automáticos de Internet contra servidores ya parcheados: hay intento, pero no compromiso."
+      ],
+      "response_steps": [
+        "Valide con el equipo de seguridad si el origen corresponde a un escaneo autorizado y documente la evidencia.",
+        "Si el comando se ejecutó (proceso hijo, archivo o conexión), aísle el host y conserve logs, memoria y disco antes de limpiar.",
+        "Bloquee la IP de origen en el WAF o firewall y desactive temporalmente los CGI expuestos.",
+        "Actualice Bash, elimine los web shells o la persistencia que haya confirmado y rote las credenciales accesibles para el usuario del servicio.",
+        "Restaure el servicio desde una fuente confiable y vigile el host varios días."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque la expresión casi nunca aparece de forma legítima y, sobre un Bash vulnerable, permite ejecutar código remoto sin autenticación."
+    },
+    "en": {
+      "summary": "A Linux log line contains a Shellshock expression: a Bash function definition such as '() { :; };' that may execute the commands that follow it.",
+      "what_it_detects": "Searches any Linux log for four literal variants of the Shellshock prefix ('(){:;};', '() {:;};', '() { :;};', '() { :; };'). They usually arrive in HTTP headers like the user agent or referer, or in environment variables.",
+      "why_it_matters": "If a vulnerable Bash imports that variable, it runs the command after the definition. For example, a CGI script could run commands as the web server user, drop a web shell (T1505.003) and keep persistence.",
+      "triage_steps": [
+        "Read the full message field. Note the log source (apache2, nginx, sudo, sshd), the host and the command that follows the expression.",
+        "For web logs, record the source IP, the URL (especially /cgi-bin/), the response code and where the string appears: user agent, referer or cookie.",
+        "On the same host, within +/- 15 minutes, check for child processes of httpd, apache2 or nginx such as bash, sh, curl, wget or nc.",
+        "Confirm the Bash version and whether any CGI scripts or services pass external input into the Bash environment.",
+        "Look for outbound connections, new files in web directories or /tmp, and crontab changes made by the service account.",
+        "Pivot on the source IP across other hosts and earlier alerts to tell mass scanning apart from a targeted attack."
+      ],
+      "false_positives": [
+        "Authorized vulnerability scanners or penetration tests that send Shellshock test payloads.",
+        "Administrators checking the patch with the classic env x='() { :;}; echo vulnerable' bash -c test.",
+        "Automated Internet scanning against already patched servers: an attempt, but no compromise."
+      ],
+      "response_steps": [
+        "Check with the security team whether the source is an authorized scan, and document the evidence.",
+        "If the command ran (child process, file or connection), isolate the host. Preserve logs, memory and disk before cleanup.",
+        "Block the source IP at the WAF or firewall and temporarily disable exposed CGI scripts.",
+        "Patch Bash, remove any web shells or persistence you have confirmed, and rotate credentials the service account could reach.",
+        "Restore the service from a trusted source and monitor the host for several days."
+      ],
+      "severity_rationale": "High fits because the expression almost never appears legitimately, and against a vulnerable Bash it allows unauthenticated remote code execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Apache access log sent through syslog. The user agent carries the '() { :; };' Shellshock prefix aimed at a CGI script.",
+        "event": {
+          "message": "Mar 14 10:22:31 web-01 apache2: 203.0.113.45 - - [14/Mar/2024:10:22:31 +0000] \"GET /cgi-bin/status.cgi HTTP/1.1\" 200 512 \"-\" \"() { :; }; /bin/echo shellshock-test\"",
+          "host": "web-01",
+          "program": "apache2",
+          "src_ip": "203.0.113.45"
+        }
+      },
+      {
+        "description": "sudo COMMAND= line from the classic Bash Shellshock test. It contains '() { :;};' in one piece.",
+        "event": {
+          "message": "Oct 25 14:03:12 bastion-01 sudo:   jperez : TTY=pts/0 ; PWD=/home/jperez ; USER=root ; COMMAND=/usr/bin/env x=() { :;}; echo vulnerable /bin/bash -c echo test",
+          "host": "bastion-01",
+          "program": "sudo",
+          "user": "jperez"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate sudo command that defines a Bash function with no semicolon after the closing brace, so none of the keywords match.",
+        "event": {
+          "message": "Oct 25 14:05:40 bastion-01 sudo:   jperez : TTY=pts/0 ; PWD=/home/jperez ; USER=root ; COMMAND=/bin/bash -c f() { :; } && f",
+          "host": "bastion-01",
+          "program": "sudo",
+          "user": "jperez"
+        }
+      },
+      {
+        "description": "Normal request to the same CGI script with a standard browser user agent.",
+        "event": {
+          "message": "Mar 14 10:25:02 web-01 apache2: 198.51.100.20 - - [14/Mar/2024:10:25:02 +0000] \"GET /cgi-bin/status.cgi HTTP/1.1\" 200 512 \"https://www.example.com/\" \"Mozilla/5.0 (X11; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0\"",
+          "host": "web-01",
+          "program": "apache2",
+          "src_ip": "198.51.100.20"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

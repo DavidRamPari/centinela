@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "36475a7d-0f6d-4dce-9b01-6aeb473bbaf1",
+    "title": "SyncAppvPublishingServer VBS Execute Arbitrary PowerShell Code",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_lolbin_syncappvpublishingserver_vbs_execute_psh.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_syncappvpublishingserver_vbs_execute_psh.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1216",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un proceso cuya línea de comandos invoca SyncAppvPublishingServer.vbs junto con un punto y coma, patrón usado para inyectar PowerShell arbitrario mediante este script firmado de Microsoft.",
+      "what_it_detects": "Eventos de creación de procesos donde CommandLine contiene '\\SyncAppvPublishingServer.vbs' y ';'. El script de App-V inserta su argumento en un comando de PowerShell, y el punto y coma permite anexar instrucciones arbitrarias.",
+      "why_it_matters": "Es ejecución por proxy mediante scripts o binarios firmados (ATT&CK T1216 y T1218): el atacante ejecuta PowerShell a través de un script confiable de Microsoft para evadir listas de aplicaciones permitidas y detecciones centradas en powershell.exe.",
+      "triage_steps": [
+        "Lea el CommandLine completo y extraiga el texto posterior al punto y coma; identifique qué PowerShell se ejecuta (descargas, comandos codificados, Start-Process, escritura en registro o archivos).",
+        "Revise Image (normalmente wscript.exe o cscript.exe) y confirme que el .vbs está en C:\\Windows\\System32 y no copiado en una carpeta escribible por el usuario.",
+        "Analice ParentImage y su línea de comandos: Office, navegadores, mshta, cmd o scripts inesperados como padre sugieren fuertemente uso malicioso.",
+        "Liste procesos hijos, en especial powershell.exe, con sus líneas de comandos, conexiones de red y archivos escritos en el mismo host +/- 15 minutos.",
+        "Confirme si el equipo usa Microsoft App-V; en equipos sin App-V esta invocación no tiene propósito legítimo.",
+        "Pivote por el usuario: tipo de inicio de sesión, sesiones recientes y otras alertas del mismo usuario o host en los últimos días.",
+        "Busque el mismo fragmento de CommandLine en todo el entorno para encontrar otros endpoints afectados."
+      ],
+      "false_positives": [
+        "La regla no indica falsos positivos conocidos; la sincronización legítima de App-V normalmente no requiere punto y coma en el argumento.",
+        "Administradores o ejercicios de red team (por ejemplo pruebas Atomic Red Team T1216) que reproducen la técnica; valide contra un calendario de pruebas aprobado."
+      ],
+      "response_steps": [
+        "Verifique el contenido de PowerShell ejecutado y la cadena de procesos padre antes de actuar; documente los hallazgos.",
+        "Si es malicioso, aísle el endpoint de la red y preserve evidencia de procesos, memoria y scripts.",
+        "Termine los procesos maliciosos, elimine archivos y persistencia creados por el payload y bloquee dominios o IP relacionados.",
+        "Restablezca las credenciales del usuario afectado si se sospecha acceso a credenciales o movimiento lateral.",
+        "Evalúe restringir wscript/cscript o los scripts de App-V con WDAC/AppLocker en equipos que no usan App-V."
+      ],
+      "severity_rationale": "Media es adecuada porque el patrón rara vez es legítimo e indica ejecución de PowerShell por proxy, pero el impacto depende del payload inyectado, que requiere revisión del analista."
+    },
+    "en": {
+      "summary": "A process was started with a command line that invokes SyncAppvPublishingServer.vbs together with a semicolon, the pattern used to inject arbitrary PowerShell through this signed Microsoft script.",
+      "what_it_detects": "Process creation events where CommandLine contains both '\\SyncAppvPublishingServer.vbs' and ';'. The App-V script passes its argument into a PowerShell command, so a semicolon lets the caller append arbitrary PowerShell statements.",
+      "why_it_matters": "This is signed binary/script proxy execution (ATT&CK T1216 and T1218): attackers run PowerShell through a trusted Microsoft script to evade application allow-listing and detections focused on direct powershell.exe launches.",
+      "triage_steps": [
+        "Read the full CommandLine and extract the text after the semicolon; identify what PowerShell is executed (downloads, encoded commands, Start-Process, registry or file writes).",
+        "Check Image (usually wscript.exe or cscript.exe) and confirm the .vbs path is the genuine C:\\Windows\\System32 location, not a copy in a user-writable folder.",
+        "Review ParentImage and its command line: Office, browsers, mshta, cmd or unexpected scripts as parent strongly suggest malicious use.",
+        "List child processes, especially powershell.exe, and their command lines, network connections and files written within +/- 15 minutes on the same host.",
+        "Confirm whether the host actually uses Microsoft App-V; on machines without App-V this invocation has no legitimate purpose.",
+        "Pivot on the user: logon type, recent logons, and other alerts for the same user or host in the last days.",
+        "Search the environment for the same CommandLine fragment to find other affected endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; legitimate App-V synchronization does not normally require a semicolon in the argument.",
+        "Administrators or red team exercises (for example Atomic Red Team T1216 tests) reproducing the technique; confirm against an approved test schedule."
+      ],
+      "response_steps": [
+        "Verify the executed PowerShell content and the parent chain before acting; document findings.",
+        "If malicious, isolate the endpoint from the network and preserve process, memory and script evidence.",
+        "Terminate malicious processes, remove dropped files and persistence created by the payload, and block related domains or IPs.",
+        "Reset credentials of the affected user if credential access or lateral movement is suspected.",
+        "Consider restricting wscript/cscript or App-V scripts via WDAC/AppLocker on hosts that do not use App-V."
+      ],
+      "severity_rationale": "Medium fits because the pattern is rarely legitimate and indicates proxy execution of PowerShell, but impact depends on the injected payload, which needs analyst review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "wscript.exe runs the System32 App-V script with a semicolon appending a PowerShell command, spawned from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wscript.exe",
+          "OriginalFileName": "wscript.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\wscript.exe\" C:\\Windows\\System32\\SyncAppvPublishingServer.vbs \"n;Start-Process calc\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Windows\\System32\\SyncAppvPublishingServer.vbs \"n;Start-Process calc\""
+        }
+      },
+      {
+        "description": "cscript.exe invoked from an Office process with semicolon-separated PowerShell writing a file",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cscript.exe",
+          "OriginalFileName": "cscript.exe",
+          "CommandLine": "cscript.exe //nologo C:\\WINDOWS\\system32\\SYNCAPPVPUBLISHINGSERVER.VBS \"x; Set-Content -Path $env:TEMP\\t.txt -Value test\"",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n C:\\Users\\mrojas\\Downloads\\invoice.docm"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "App-V script invoked without any semicolon in the argument, so the |all condition is not met",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0300.andes.example.com",
+          "User": "ANDES\\svc_appv",
+          "Image": "C:\\Windows\\System32\\wscript.exe",
+          "OriginalFileName": "wscript.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\wscript.exe\" C:\\Windows\\System32\\SyncAppvPublishingServer.vbs \"Sync-AppvPublishingServer -Global\"",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule"
+        }
+      },
+      {
+        "description": "The .exe variant of SyncAppvPublishingServer with a semicolon; it lacks the '\\SyncAppvPublishingServer.vbs' string",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\SyncAppvPublishingServer.exe",
+          "OriginalFileName": "SyncAppvPublishingServer.exe",
+          "CommandLine": "C:\\Windows\\System32\\SyncAppvPublishingServer.exe \"n;Write-Host test\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

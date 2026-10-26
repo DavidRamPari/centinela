@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "b7e2a8d4-74bb-4b78-adc9-3f92af2d4829",
+    "title": "Reg Add Suspicious Paths",
+    "level": "high",
+    "status": "test",
+    "author": "frack113, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_reg_susp_paths.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reg_susp_paths.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1112",
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "reg.exe se ejecutó con una línea de comandos que apunta a una ubicación sensible del registro: WDigest, Winlogon, Windows Defender, políticas OOBE o AppDataLow\\Software\\Microsoft. Los atacantes usan estas claves para robar credenciales, persistir o debilitar las defensas.",
+      "what_it_detects": "La creación del proceso reg.exe (Image termina en \\reg.exe u OriginalFileName es reg.exe) cuando su CommandLine contiene una de seis rutas de registro sospechosas. La regla no revisa el verbo, así que coinciden query, add, delete e import.",
+      "why_it_matters": "Modificación del registro (T1112) con debilitamiento de defensas. Poner UseLogonCredential=1 en WDigest guarda contraseñas en texto claro en LSASS. Los cambios en Winlogon (Userinit, Shell) dan persistencia al iniciar sesión. Las claves de Defender pueden apagar la protección o agregar exclusiones.",
+      "triage_steps": [
+        "Lea la CommandLine completa: verbo (add/delete/query), clave, nombre del valor (/v), dato (/d) y /f. Fíjese en UseLogonCredential=1, DisableAntiSpyware, Exclusions o un Userinit/Shell modificado.",
+        "Revise el usuario y el nivel de integridad. Escribir en HKLM exige permisos de administrador. Confirme si ese usuario suele cambiar el registro.",
+        "Analice ParentImage y el árbol de procesos. Un padre cmd, PowerShell, wscript, mshta u Office es más sospechoso que un agente de SCCM/Intune o msiexec.",
+        "Pivotee en el mismo host +/- 15 minutos: otras ejecuciones de reg.exe, accesos a LSASS, eventos 5001/5007 de Defender, servicios o tareas programadas nuevas.",
+        "Verifique en el endpoint el valor actual de la clave y la fecha de su última escritura.",
+        "Busque la misma CommandLine en otros hosts y alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "Cambios legítimos poco frecuentes por CLI en estas rutas, como scripts que configuran AutoAdminLogon de Winlogon en quioscos.",
+        "Herramientas de despliegue (SCCM, Intune, scripts de inicio por GPO) que configuran Defender u OOBE.",
+        "Consultas de solo lectura con reg query desde scripts de inventario, hardening o auditoría de cumplimiento."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del activo o en los registros de cambios si la modificación estaba autorizada.",
+        "Si no estaba autorizada, aísle el host, revierta el valor (por ejemplo UseLogonCredential=0) y vuelva a activar la protección de Defender.",
+        "Si se activó WDigest, dé por expuestas las credenciales: restablezca las contraseñas de los usuarios que iniciaron sesión desde el cambio y busque volcados de LSASS.",
+        "Elimine la persistencia (entradas Userinit/Shell de Winlogon), identifique el payload del proceso padre y recolecte muestras para análisis.",
+        "Agregue exclusiones afinadas solo para herramientas de gestión verificadas, por padre y línea de comandos exacta."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque estas claves llevan directo a exponer credenciales en texto claro, persistir al iniciar sesión o desactivar el antivirus, y los administradores rara vez las tocan por línea de comandos."
+    },
+    "en": {
+      "summary": "reg.exe ran with a command line that references a sensitive registry location: WDigest, Winlogon, Windows Defender, OOBE policies or AppDataLow\\Software\\Microsoft. Attackers use these keys to harvest credentials, persist or weaken defenses.",
+      "what_it_detects": "Process creation of reg.exe (Image ends with \\reg.exe or OriginalFileName is reg.exe) whose CommandLine contains one of six suspicious registry paths. The rule does not check the verb, so query, add, delete and import all match.",
+      "why_it_matters": "Modify Registry (T1112) with defense impairment. Setting WDigest UseLogonCredential=1 stores cleartext passwords in LSASS. Winlogon changes (Userinit, Shell) give persistence at logon. Defender keys can turn off protection or add exclusions.",
+      "triage_steps": [
+        "Read the full CommandLine: verb (add/delete/query), key, value name (/v), data (/d) and /f. Note things like UseLogonCredential=1, DisableAntiSpyware, Exclusions or a changed Userinit/Shell.",
+        "Check the user and integrity level. A writable HKLM path means admin rights. Ask whether this user normally changes registry settings.",
+        "Review ParentImage and the process tree. cmd, PowerShell, wscript, mshta or Office parents are more suspicious than an SCCM/Intune agent or msiexec.",
+        "Pivot on the same host for +/- 15 minutes: other reg.exe runs, LSASS access, Defender events 5001/5007, new services or scheduled tasks.",
+        "Confirm the current value of the key on the endpoint and when it was last written.",
+        "Search for the same CommandLine on other hosts and for earlier alerts on this user or host."
+      ],
+      "false_positives": [
+        "Rare legitimate CLI changes to these locations, e.g. admin scripts that set Winlogon AutoAdminLogon on kiosks.",
+        "Deployment tools (SCCM, Intune, GPO startup scripts) that configure Defender or OOBE settings.",
+        "Read-only reg query of these keys by inventory, hardening or compliance-audit scripts."
+      ],
+      "response_steps": [
+        "Check with the asset owner or change records whether the change was authorized.",
+        "If it was not authorized, isolate the host, revert the value (for example UseLogonCredential=0) and turn Defender protection back on.",
+        "If WDigest was enabled, assume credentials are exposed: reset passwords for users who logged on since the change and look for LSASS dumping.",
+        "Remove the persistence (Winlogon Userinit/Shell entries), find the parent payload and collect it for analysis.",
+        "Add tuned exclusions only for verified management tools, matched by parent and exact command line."
+      ],
+      "severity_rationale": "High fits because these keys lead straight to cleartext credential exposure, logon persistence or disabled antivirus, and admins rarely touch them from the command line."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe enables WDigest cleartext credential caching, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\WDigest\" /v UseLogonCredential /t REG_DWORD /d 1 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "reg.exe disables Defender real-time monitoring through the policy key",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe add \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection\" /v DisableRealtimeMonitoring /t REG_DWORD /d 1 /f",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "reg.exe adds a Run key value, which is not one of the paths this rule watches",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\" /v Updater /t REG_SZ /d \"C:\\Program Files\\ExampleApp\\update.exe\" /f",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "PowerShell changes the WDigest key directly, so the reg.exe selection does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\admin.lgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\WDigest' -Name UseLogonCredential -Value 0",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

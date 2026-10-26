@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "34275eb8-fa19-436b-b959-3d9ecd53fa1f",
+    "title": "Loaded Module Enumeration Via Tasklist.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Swachchhanda Shrawan Poudel",
+    "path": "windows/process_creation/proc_creation_win_tasklist_module_enumeration.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_tasklist_module_enumeration.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó tasklist.exe con la opción /m filtrando por rdpcorets.dll para identificar qué proceso tiene cargado el módulo de Servicios de Escritorio remoto. Suele ser el paso previo a volcar la memoria de ese svchost.exe y extraer credenciales RDP en texto plano.",
+      "what_it_detects": "Creación de un proceso tasklist.exe (por Image o OriginalFileName) cuyo CommandLine contiene el modificador -m o /m y la cadena rdpcorets.dll, es decir, una búsqueda del PID que tiene cargada esa DLL.",
+      "why_it_matters": "La instancia de svchost.exe que aloja TermService carga rdpcorets.dll y puede tener en memoria credenciales de sesiones RDP. Un atacante localiza ese PID para volcarlo (T1003, OS Credential Dumping) y obtener contraseñas válidas para moverse lateralmente.",
+      "triage_steps": [
+        "Revise CommandLine, User y host: confirme el filtro rdpcorets.dll y si la cuenta es administrativa, de servicio o un usuario estándar.",
+        "Examine ParentImage y la cadena de procesos: cmd.exe, powershell.exe, wmiprvse.exe o un agente de acceso remoto lanzado de forma interactiva o remota aumentan la sospecha.",
+        "En el mismo host, +/- 15 minutos, busque volcados de memoria: procdump.exe, rundll32.exe con comsvcs.dll MiniDump, Task Manager o herramientas que apunten al PID de svchost.exe.",
+        "Busque la creación de archivos .dmp o comprimidos en carpetas temporales, públicas o del perfil del usuario y su posible copia o exfiltración posterior.",
+        "Correlacione el inicio de sesión de ese usuario: tipo de logon, IP de origen e inicios de sesión RDP recientes en el host.",
+        "Revise alertas previas del mismo usuario y host, como reconocimiento, escalamiento de privilegios o herramientas de acceso a credenciales.",
+        "Pregunte al responsable del equipo o al usuario si había una tarea de soporte o diagnóstico de RDP planificada."
+      ],
+      "false_positives": [
+        "Administradores o soporte diagnosticando problemas de Servicios de Escritorio remoto que revisan qué proceso carga rdpcorets.dll.",
+        "Ejercicios autorizados de red team o pruebas de penetración; valide contra el calendario y el alcance acordado."
+      ],
+      "response_steps": [
+        "Verifique con el usuario y el responsable del host si la ejecución estaba autorizada antes de actuar.",
+        "Si no está justificada o hay indicios de volcado de memoria, aísle el endpoint mediante el EDR y conserve los archivos .dmp y la evidencia volátil.",
+        "Restablezca las contraseñas de las cuentas que iniciaron sesión por RDP en el host y de la cuenta que ejecutó el comando.",
+        "Busque reutilización de esas credenciales en otros hosts y elimine las herramientas o artefactos de volcado encontrados.",
+        "Restablezca el servicio con normalidad y añada monitoreo de accesos a la memoria de svchost.exe y lsass.exe."
+      ],
+      "severity_rationale": "Es nivel medio porque por sí solo es reconocimiento que no causa daño, pero es muy específico de la preparación para volcar credenciales RDP y rara vez forma parte del trabajo administrativo habitual."
+    },
+    "en": {
+      "summary": "tasklist.exe ran with /m filtered on rdpcorets.dll to find which process has the Remote Desktop Services module loaded. This often comes right before dumping that svchost.exe to get plaintext RDP credentials.",
+      "what_it_detects": "A tasklist.exe process (matched by Image or OriginalFileName) whose CommandLine contains the -m or /m switch and the string rdpcorets.dll. This is a lookup of the PID that has that DLL loaded.",
+      "why_it_matters": "The svchost.exe instance hosting TermService loads rdpcorets.dll and can hold RDP session credentials in memory. Attackers look up that PID so they can dump it (T1003, OS Credential Dumping) and reuse the passwords for lateral movement.",
+      "triage_steps": [
+        "Review CommandLine, User and host. Confirm the rdpcorets.dll filter and check whether the account is an admin, a service account or a standard user.",
+        "Inspect ParentImage and the process tree. cmd.exe, powershell.exe, wmiprvse.exe or a remote-access agent launched interactively or remotely make this more suspicious.",
+        "On the same host within +/- 15 minutes, look for memory dumping aimed at the svchost.exe PID: procdump.exe, rundll32.exe comsvcs.dll MiniDump, Task Manager or similar tools.",
+        "Look for .dmp or archive files created in temp, public or user profile folders, and check whether they were later copied or exfiltrated.",
+        "Correlate the user's logon: logon type, source IP and any recent RDP sessions on the host.",
+        "Check earlier alerts for the same user and host, such as reconnaissance, privilege escalation or credential-access tooling.",
+        "Ask the host owner or the user whether planned RDP support or troubleshooting explains the command."
+      ],
+      "false_positives": [
+        "Administrators or support staff troubleshooting Remote Desktop Services and checking which process loads rdpcorets.dll.",
+        "Authorized red team or penetration testing. Check it against the engagement schedule and scope."
+      ],
+      "response_steps": [
+        "Before acting, confirm with the user and the host owner whether the execution was authorized.",
+        "If it is unexplained or there are signs of memory dumping, isolate the endpoint through EDR and preserve any .dmp files and volatile evidence.",
+        "Reset passwords for the accounts that logged on over RDP to the host and for the account that ran the command.",
+        "Hunt for reuse of those credentials on other hosts and remove any dumping tools or artifacts you find.",
+        "Return the host to normal service and add monitoring for memory access to svchost.exe and lsass.exe."
+      ],
+      "severity_rationale": "Medium fits because the command is harmless reconnaissance on its own, but it is highly specific to preparing an RDP credential dump and is rarely part of routine admin work."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Attacker uses tasklist /m to locate the svchost.exe that has rdpcorets.dll loaded",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\tasklist.exe",
+          "OriginalFileName": "tasklist.exe",
+          "CommandLine": "tasklist /m rdpcorets.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\cmd.exe\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed tasklist binary matched by OriginalFileName, using a dash switch from PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-RDS-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\tl.exe",
+          "OriginalFileName": "tasklist.exe",
+          "CommandLine": "tl.exe -m rdpcorets.dll /fo csv",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator lists all loaded modules with tasklist /m but does not filter for rdpcorets.dll",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.mrojas",
+          "Image": "C:\\Windows\\System32\\tasklist.exe",
+          "OriginalFileName": "tasklist.exe",
+          "CommandLine": "tasklist /m ntdll.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Support script lists services hosted by svchost.exe without the module switch or rdpcorets.dll",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-RDS-02.andes.example.com",
+          "User": "ANDES\\admin.mrojas",
+          "Image": "C:\\Windows\\System32\\tasklist.exe",
+          "OriginalFileName": "tasklist.exe",
+          "CommandLine": "tasklist /svc /fi \"imagename eq svchost.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

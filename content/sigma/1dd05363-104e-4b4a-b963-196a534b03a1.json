@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "1dd05363-104e-4b4a-b963-196a534b03a1",
+    "title": "Potentially Suspicious Mofcomp Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_mofcomp_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_mofcomp_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "mofcomp.exe se ejecutó desde un shell o intérprete de scripts (cmd, PowerShell, pwsh, WSL, wscript, cscript) o compiló un archivo MOF desde una ruta temporal o de usuario. Esto puede indicar la carga de clases o instancias maliciosas en el repositorio WMI.",
+      "what_it_detects": "Creación del proceso mofcomp.exe (por Image u OriginalFileName) cuyo ParentImage es un shell o intérprete de scripts, o cuyo CommandLine apunta a Temp, Public, AppData o carpetas multimedia del usuario. Excluye actividad conocida de WmiPrvSE, InstallUtil de ConfigMgr y eventos sin ParentCommandLine.",
+      "why_it_matters": "mofcomp es un binario firmado de Windows que escribe definiciones MOF en WMI. Los atacantes lo usan para ejecución por proxy (ATT&CK T1218, System Binary Proxy Execution) y para registrar objetos WMI, como suscripciones a eventos, que ejecutan payloads de forma sigilosa y persistente.",
+      "triage_steps": [
+        "Revise CommandLine: identifique la ruta del .mof y cualquier opción -N (namespace) o -autorecover; anote si está en Temp, Public o AppData.",
+        "Analice ParentImage y ParentCommandLine y suba por el árbol de procesos hasta el origen del shell (Office, navegador, sqlservr.exe, servicio, sesión remota).",
+        "Recolecte el archivo MOF si aún existe, calcule su hash y busque __EventFilter, CommandLineEventConsumer, ActiveScriptEventConsumer o comandos codificados.",
+        "Consulte WMI en el equipo para detectar filtros, consumidores y bindings nuevos en root\\subscription y otros namespaces.",
+        "Verifique el usuario y el tipo de inicio de sesión; es más plausible un administrador interactivo que SYSTEM o una cuenta de servicio lanzando cmd.",
+        "Pivote en el mismo host +/- 15 minutos: creación del .mof, conexiones de red, servicios o tareas nuevas, procesos hijos de WmiPrvSE.exe o scrcons.exe.",
+        "Busque alertas previas del mismo host o usuario y el mismo hash o nombre de MOF en otros equipos."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Administradores o instaladores que compilan archivos MOF de proveedores desde cmd o PowerShell, por ejemplo al reparar el repositorio WMI.",
+        "Agentes de despliegue o monitoreo que dejan archivos MOF en Temp antes de compilarlos."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del activo o con el registro de cambios si la compilación MOF estaba autorizada.",
+        "Si es malicioso, aísle el endpoint y preserve el archivo MOF, el repositorio WMI y la telemetría de procesos.",
+        "Elimine filtros, consumidores y bindings WMI maliciosos solo tras exportarlos y documentarlos; finalice los procesos asociados.",
+        "Restablezca credenciales de las cuentas involucradas, busque los mismos artefactos en otros equipos y bloquee el hash o la ruta del MOF."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque mofcomp lanzado por un shell o compilando un MOF desde rutas temporales rara vez es legítimo y suele indicar persistencia WMI sigilosa o ejecución por proxy."
+    },
+    "en": {
+      "summary": "mofcomp.exe ran from a shell or script host (cmd, PowerShell, pwsh, WSL, wscript, cscript) or compiled a MOF file from a user-writable or temporary path. Someone may be loading attacker-controlled classes or instances into the WMI repository.",
+      "what_it_detects": "Process creation of mofcomp.exe (matched by Image or OriginalFileName) where ParentImage is a shell or script interpreter, or CommandLine points to Temp, Public, AppData or user media folders. Known WmiPrvSE and ConfigMgr InstallUtil activity is excluded, as are events with no ParentCommandLine.",
+      "why_it_matters": "mofcomp is a signed Windows binary that writes MOF definitions into WMI. Attackers use it to proxy execution (ATT&CK T1218, System Binary Proxy Execution) and to register WMI objects, such as event subscriptions, that run payloads stealthily and persist.",
+      "triage_steps": [
+        "Read CommandLine and find the .mof path and any -N namespace or -autorecover switch. Note whether the file sits in Temp, Public or AppData.",
+        "Review ParentImage and ParentCommandLine, then walk up the process tree to find what started the shell (Office, browser, sqlservr.exe, a service, a remote session).",
+        "Collect the MOF file if it still exists. Hash it and look for __EventFilter, CommandLineEventConsumer, ActiveScriptEventConsumer or encoded commands.",
+        "Query WMI on the host for new event filters, consumers and bindings in root\\subscription and other namespaces.",
+        "Check the user context and logon type. Interactive admin work is more plausible than SYSTEM or a service account spawning cmd.",
+        "Pivot on the same host within +/- 15 minutes: file creation of the .mof, network connections, new services, scheduled tasks, child processes of WmiPrvSE.exe or scrcons.exe.",
+        "Search for earlier alerts on the same host or user, and for the same MOF hash or filename elsewhere in the environment."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Administrators or installers compiling vendor MOF files from cmd or PowerShell, for example after a WMI repository repair.",
+        "Software deployment or monitoring agents that stage MOF files in Temp before compiling them."
+      ],
+      "response_steps": [
+        "Confirm with the asset owner or change records whether the MOF compilation was planned.",
+        "If it is malicious, isolate the endpoint and preserve the MOF file, the WMI repository and process telemetry.",
+        "Remove malicious WMI filters, consumers and bindings only after you have exported and documented them, then kill any related processes.",
+        "Reset credentials of the involved accounts, hunt for the same artifacts on other hosts, and block the MOF hash or path."
+      ],
+      "severity_rationale": "High fits because mofcomp launched by a shell or compiling a MOF from a temporary path is rarely legitimate and often signals stealthy WMI persistence or proxy execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe launches mofcomp to compile a MOF dropped in the user's AppData\\Local\\Temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\mofcomp.exe",
+          "OriginalFileName": "mofcomp.exe",
+          "CommandLine": "mofcomp.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.mof",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c mofcomp.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.mof"
+        }
+      },
+      {
+        "description": "PowerShell runs mofcomp against a MOF file in C:\\Users\\Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-SQL-03.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\SysWOW64\\wbem\\mofcomp.exe",
+          "OriginalFileName": "mofcomp.exe",
+          "CommandLine": "\"C:\\Windows\\SysWOW64\\wbem\\mofcomp.exe\" C:\\Users\\Public\\svc.mof",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden -c mofcomp C:\\Users\\Public\\svc.mof"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "WmiPrvSE.exe compiles a MOF from C:\\Windows\\TEMP, which the filter_main_wmiprvse filter excludes",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\wbem\\mofcomp.exe",
+          "OriginalFileName": "mofcomp.exe",
+          "CommandLine": "C:\\Windows\\System32\\wbem\\mofcomp.exe C:\\Windows\\TEMP\\provider.mof",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\wbem\\wmiprvse.exe -Embedding"
+        }
+      },
+      {
+        "description": "An MSI installer compiles a vendor MOF from Program Files, so neither the parent nor the path is suspicious",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\wbem\\mofcomp.exe",
+          "OriginalFileName": "mofcomp.exe",
+          "CommandLine": "mofcomp.exe \"C:\\Program Files\\ExampleVendor\\Agent\\agentprov.mof\"",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\msiexec.exe /V"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

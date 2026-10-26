@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "80fc36aa-945e-4181-89f2-2f907ab6775d",
+    "title": "UAC Bypass Using IEInstal - Process",
+    "level": "high",
+    "status": "test",
+    "author": "Christian Burkard (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_uac_bypass_ieinstal.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_uac_bypass_ieinstal.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1548.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "IEInstal.exe inició un binario llamado consent.exe desde una carpeta AppData\\Local\\Temp con integridad High o System. Este patrón corresponde al método 64 de UACMe para evadir el Control de Cuentas de Usuario (UAC).",
+      "what_it_detects": "Eventos de creación de procesos en los que ParentImage termina en \\ieinstal.exe, Image contiene \\AppData\\Local\\Temp\\ y termina en consent.exe, e IntegrityLevel es High, System, S-1-16-12288 o S-1-16-16384. El consent.exe legítimo está en System32 y lo inicia el servicio AppInfo, no IEInstal.",
+      "why_it_matters": "Un atacante con sesión de integridad media obtiene privilegios elevados sin que aparezca el aviso de UAC. Esto corresponde a ATT&CK T1548.002 (abuso del mecanismo de elevación: omisión de UAC) y suele preceder a persistencia, desactivación de defensas o robo de credenciales.",
+      "triage_steps": [
+        "Confirme la ruta completa de Image y obtenga su hash y su firma digital. Un consent.exe en Temp sin firma de Microsoft es una señal muy fuerte.",
+        "Verifique que ParentImage sea C:\\Program Files\\Internet Explorer\\IEInstal.exe y revise qué proceso inició a IEInstal.exe (abuelo) y su CommandLine.",
+        "Identifique al usuario y la sesión. Determine si es administrador local con UAC activo y si estaba trabajando de forma interactiva.",
+        "Revise los procesos hijos del consent.exe falso: shells, PowerShell, rundll32 o herramientas de administración con integridad alta.",
+        "En el mismo host, busque en +/- 15 minutos la creación de archivos en AppData\\Local\\Temp, DLLs descargadas y conexiones de red salientes.",
+        "Busque alertas anteriores del mismo host o usuario: ejecución inicial, descargas o intentos de UAC bypass con otros métodos de UACMe.",
+        "Busque el hash del binario en otros endpoints para detectar propagación."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos. IEInstal.exe no debería iniciar consent.exe desde Temp en el uso normal.",
+        "Pruebas autorizadas de red team o validación de controles con UACMe. Confírmelas con el responsable del ejercicio antes de cerrar."
+      ],
+      "response_steps": [
+        "Valide el hallazgo con el hash, la firma y el árbol de procesos. Si no hay una prueba autorizada, trátelo como compromiso.",
+        "Aísle el endpoint desde el EDR y preserve memoria, binarios de Temp y registros antes de eliminar nada.",
+        "Termine los procesos elevados maliciosos, elimine los artefactos verificados y revise persistencia: servicios, tareas programadas y claves Run.",
+        "Restablezca las credenciales del usuario afectado y revise la pertenencia al grupo Administradores local.",
+        "Para reducir la exposición, configure UAC en 'Solicitar siempre' y use cuentas estándar sin privilegios administrativos para el trabajo diario."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque el patrón es muy específico, casi no tiene causas legítimas e indica una elevación de privilegios exitosa en el endpoint."
+    },
+    "en": {
+      "summary": "IEInstal.exe started a binary named consent.exe from an AppData\\Local\\Temp folder at High or System integrity. This pattern matches UACMe method 64, a User Account Control (UAC) bypass.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\ieinstal.exe, Image contains \\AppData\\Local\\Temp\\ and ends with consent.exe, and IntegrityLevel is High, System, S-1-16-12288 or S-1-16-16384. The real consent.exe lives in System32 and is started by the AppInfo service, not IEInstal.",
+      "why_it_matters": "An attacker with a medium-integrity session gets elevated rights without a UAC prompt. This is ATT&CK T1548.002 (Abuse Elevation Control Mechanism: Bypass UAC), and it often comes before persistence, defense evasion or credential theft.",
+      "triage_steps": [
+        "Confirm the full Image path, then get its hash and digital signature. An unsigned consent.exe in Temp is a strong indicator.",
+        "Check that ParentImage is C:\\Program Files\\Internet Explorer\\IEInstal.exe. Review the process that started IEInstal.exe (the grandparent) and its CommandLine.",
+        "Identify the user and session. Check whether the user is a local admin with UAC enabled and was working interactively.",
+        "Review child processes of the fake consent.exe, such as shells, PowerShell, rundll32 or admin tools running at high integrity.",
+        "On the same host, within +/- 15 minutes, look for files written to AppData\\Local\\Temp, dropped DLLs and outbound network connections.",
+        "Look for earlier alerts on the same host or user, such as initial execution, downloads or other UACMe methods.",
+        "Search for the binary's hash on other endpoints to check for spread."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. In normal use, IEInstal.exe should not start consent.exe from Temp.",
+        "Authorized red team exercises or control validation using UACMe. Confirm with the exercise owner before closing."
+      ],
+      "response_steps": [
+        "Check the hash, signature and process tree. If no authorized test explains the alert, treat it as a compromise.",
+        "Isolate the endpoint through EDR. Preserve memory, the Temp binaries and logs before deleting anything.",
+        "Kill the malicious elevated processes, remove the confirmed artifacts and check for persistence: services, scheduled tasks and Run keys.",
+        "Reset the affected user's credentials and review who belongs to the local Administrators group.",
+        "To reduce exposure, set UAC to 'Always notify' and use standard accounts without admin rights for daily work."
+      ],
+      "severity_rationale": "High fits because the pattern is very specific, has almost no legitimate causes and points to a successful privilege escalation on the endpoint."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "IEInstal.exe launches a fake consent.exe from the user's Temp folder at High integrity (UACMe method 64)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\{3F2A9C1E-7B4D-4E8A-9C21-5D6E7F8A9B0C}\\consent.exe",
+          "CommandLine": "\"C:\\Users\\jperez\\AppData\\Local\\Temp\\{3F2A9C1E-7B4D-4E8A-9C21-5D6E7F8A9B0C}\\consent.exe\"",
+          "ParentImage": "C:\\Program Files\\Internet Explorer\\IEInstal.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Internet Explorer\\IEInstal.exe\" -Embedding",
+          "IntegrityLevel": "High",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000001"
+        }
+      },
+      {
+        "description": "Same pattern with the integrity level recorded as the System SID S-1-16-16384",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\consent.exe",
+          "CommandLine": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\consent.exe",
+          "ParentImage": "C:\\Program Files (x86)\\Internet Explorer\\ieinstal.exe",
+          "IntegrityLevel": "S-1-16-16384"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "IEInstal.exe starts consent.exe from Temp, but at Medium integrity, so the IntegrityLevel condition is not met",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\consent.exe",
+          "ParentImage": "C:\\Program Files\\Internet Explorer\\IEInstal.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Legitimate UAC prompt: the real consent.exe in System32 is started by the AppInfo service host at System integrity",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\consent.exe",
+          "CommandLine": "consent.exe 1032 412 000001C2F3A4B5C0",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Appinfo",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

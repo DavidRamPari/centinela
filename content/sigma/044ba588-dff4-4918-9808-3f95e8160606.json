@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "044ba588-dff4-4918-9808-3f95e8160606",
+    "title": "Copy .DMP/.DUMP Files From Remote Share Via Cmd.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_cmd_copy_dmp_from_share.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmd_copy_dmp_from_share.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó cmd.exe con el comando interno copy para traer un archivo .dmp, .dump o .hdmp desde un recurso compartido remoto (ruta UNC). Puede ser la exfiltración de un volcado de memoria, por ejemplo de LSASS, hecho en otro equipo.",
+      "what_it_detects": "Procesos cmd.exe (por Image o por OriginalFileName) cuyo CommandLine contiene 'copy ', una ruta UNC precedida de espacio (' \\\\') y una extensión .dmp, .dump o .hdmp.",
+      "why_it_matters": "Los atacantes vuelcan la memoria de LSASS en un host remoto y luego copian el archivo a su equipo para extraer credenciales sin conexión (Credential Access, OS Credential Dumping: LSASS Memory). Esta copia suele ser el paso que sigue al volcado.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el host y el recurso de origen (por ejemplo C$ o ADMIN$), el nombre del archivo y la carpeta de destino local.",
+        "Si el nombre del archivo sugiere un volcado de lsass, procdump u otro proceso sensible, trate la alerta como posible robo de credenciales.",
+        "Identifique el ParentImage y el usuario: una shell lanzada desde wmiprvse.exe, un proceso de Office, rundll32 o un beacon es más sospechosa que una consola interactiva de un administrador.",
+        "En el host remoto de origen, busque en un rango de +/- 15 minutos la creación del .dmp: procdump, comsvcs.dll MiniDump, rundll32 o accesos a lsass.exe.",
+        "Pivotee por el mismo usuario y la misma cuenta: inicios de sesión de red (4624 tipo 3) hacia el host de origen y uso de PsExec, WMI o tareas programadas.",
+        "Verifique si el archivo de destino todavía existe, su tamaño y su hash; luego busque si se comprimió, renombró o subió a un sitio externo.",
+        "Revise alertas anteriores del mismo host y del mismo usuario (reconocimiento, movimiento lateral, Cobalt Strike, Bumblebee)."
+      ],
+      "false_positives": [
+        "Personal de soporte o desarrolladores que copian volcados de fallos de aplicaciones desde un servidor de archivos para depurarlos.",
+        "Scripts de recolección de crash dumps (WER, minidumps de BSOD) que los centralizan con copy desde rutas UNC.",
+        "Herramientas de diagnóstico de proveedores que los equipos de TI ejecutan durante incidentes de soporte."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con el dueño del sistema si la copia estaba autorizada y para qué; documente la justificación.",
+        "Si no está autorizada, aísle el endpoint de destino y el host de origen, y conserve el archivo .dmp y la memoria para análisis forense.",
+        "Si el volcado es de LSASS, considere comprometidas las credenciales en caché: restablezca contraseñas de las cuentas afectadas y revise si hay que rotar krbtgt.",
+        "Elimine las herramientas de volcado y los mecanismos de persistencia que encuentre, y bloquee la cuenta usada para el movimiento lateral.",
+        "Restaure los servicios después de validar que no queda actividad y busque los mismos indicadores en el resto del entorno."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque copiar volcados de memoria desde recursos remotos es poco común en la operación normal y suele indicar robo de credenciales en curso."
+    },
+    "en": {
+      "summary": "cmd.exe used the built-in copy command to pull a .dmp, .dump or .hdmp file from a remote share (UNC path). This may be the retrieval of a memory dump, such as an LSASS dump, created on another host.",
+      "what_it_detects": "cmd.exe processes (matched by Image or OriginalFileName) whose CommandLine contains 'copy ', a space-prefixed UNC path (' \\\\') and a .dmp, .dump or .hdmp extension.",
+      "why_it_matters": "Attackers dump LSASS memory on a remote host, then copy the file back to extract credentials offline (Credential Access, OS Credential Dumping: LSASS Memory). The copy usually comes right after the dump.",
+      "triage_steps": [
+        "Read the full CommandLine: note the source host and share (for example C$ or ADMIN$), the file name and the local destination folder.",
+        "If the file name points to lsass, procdump or another sensitive process, treat the alert as likely credential theft.",
+        "Check ParentImage and the user: a shell spawned by wmiprvse.exe, Office, rundll32 or an implant is more suspicious than an admin's interactive console.",
+        "On the source host, look within +/- 15 minutes for how the dump was made: procdump, comsvcs.dll MiniDump, rundll32 or handles opened to lsass.exe.",
+        "Pivot on the same user: network logons (4624 type 3) to the source host, plus PsExec, WMI or scheduled task use.",
+        "Check whether the destination file still exists, its size and hash, then look for compression, renaming or upload to external sites.",
+        "Review earlier alerts for the same host and user (reconnaissance, lateral movement, Cobalt Strike, Bumblebee)."
+      ],
+      "false_positives": [
+        "Support staff or developers copying application crash dumps from a file server so they can debug them.",
+        "Crash-dump collection scripts (WER, BSOD minidumps) that gather dumps with copy from UNC paths.",
+        "Vendor diagnostic tools that IT runs during support cases."
+      ],
+      "response_steps": [
+        "Ask the user or system owner whether the copy was authorized and why, and record the justification.",
+        "If unauthorized, isolate the destination endpoint and the source host, and keep the .dmp file and memory for forensics.",
+        "If the dump is from LSASS, treat cached credentials as compromised: reset affected account passwords and decide whether krbtgt needs rotating.",
+        "Remove any dumping tools and persistence you find, and disable the account used for lateral movement.",
+        "Restore services once you confirm no activity remains, and hunt for the same indicators across the environment."
+      ],
+      "severity_rationale": "High fits because copying memory dumps from remote shares is rare in normal operations and usually means credential theft is underway."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe copies an LSASS dump from the admin share of a remote server to a local public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c copy \\\\SRV-FS01\\C$\\Windows\\Temp\\lsass.dmp C:\\Users\\Public\\lsass.dmp",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\wbem\\wmiprvse.exe -secured -Embedding",
+          "CurrentDirectory": "C:\\Windows\\system32\\"
+        }
+      },
+      {
+        "description": "Renamed cmd binary identified via OriginalFileName copying a .dump file from a UNC share",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svc\\shell.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "shell.exe /c copy \\\\DC-02\\ADMIN$\\Temp\\proc.dump C:\\ProgramData\\svc\\p.dump",
+          "ParentImage": "C:\\Windows\\System32\\rundll32.exe",
+          "CurrentDirectory": "C:\\ProgramData\\svc\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "cmd.exe copies a local BSOD minidump to another drive; no UNC source path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\soporte",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c copy C:\\Windows\\Minidump\\092723-01.dmp D:\\Diag\\092723-01.dmp",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CurrentDirectory": "C:\\Users\\soporte\\"
+        }
+      },
+      {
+        "description": "cmd.exe copies a log file (not a dump) from a remote share",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c copy \\\\SRV-FS01\\logs\\app\\service.log C:\\Temp\\service.log",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

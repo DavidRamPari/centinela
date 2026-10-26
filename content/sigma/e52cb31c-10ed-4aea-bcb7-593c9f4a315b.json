@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "e52cb31c-10ed-4aea-bcb7-593c9f4a315b",
+    "title": "UAC Bypass via Windows Firewall Snap-In Hijack",
+    "level": "medium",
+    "status": "test",
+    "author": "Tim Rauch, Elastic (idea)",
+    "path": "windows/process_creation/proc_creation_win_uac_bypass_hijacking_firwall_snap_in.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_uac_bypass_hijacking_firwall_snap_in.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1548"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "mmc.exe, al cargar la consola de Firewall de Windows (WF.msc), creó un proceso hijo distinto de WerFault.exe. Esto puede indicar que alguien secuestró el snap-in para ejecutar código con privilegios elevados sin que aparezca el aviso de UAC.",
+      "what_it_detects": "Creación de procesos cuyo ParentImage termina en \\mmc.exe y cuyo ParentCommandLine contiene WF.msc. Excluye los hijos cuyo Image termina en \\WerFault.exe, que corresponden al reporte de errores de Windows.",
+      "why_it_matters": "MMC se eleva automáticamente para consolas administrativas. Si un atacante redirige el snap-in, por ejemplo con registros COM en HKCU, su payload hereda integridad alta sin aviso de UAC. Es un abuso del mecanismo de control de elevación (ATT&CK T1548, Abuse Elevation Control Mechanism) para escalar privilegios.",
+      "triage_steps": [
+        "Revise Image, CommandLine, hash y firma del proceso hijo. Un binario sin firma o ubicado en carpetas de usuario, Temp o Public es una señal fuerte.",
+        "Confirme ParentCommandLine: verifique que WF.msc proviene de C:\\Windows\\System32 y no de una ruta controlada por el usuario.",
+        "Compruebe el nivel de integridad y el usuario del hijo. Integridad alta en una sesión de usuario estándar sugiere bypass de UAC.",
+        "Busque cambios recientes en HKCU\\Software\\Classes\\CLSID (claves InprocServer32 o LocalServer32) en el mismo host dentro de +/- 15 minutos.",
+        "Identifique qué proceso lanzó mmc.exe con WF.msc. Un script, Office o un proceso inusual, en lugar de explorer.exe, es sospechoso.",
+        "Revise los procesos hijos y nietos, las conexiones de red y los archivos creados por el proceso elevado.",
+        "Busque alertas previas para el mismo usuario y host, sobre todo de acceso inicial o ejecución."
+      ],
+      "false_positives": [
+        "El administrador abre ayuda o enlaces desde la consola de Firewall, lo que puede lanzar hh.exe o un navegador.",
+        "Herramientas de administración, depuración o EDR que se adjuntan a mmc.exe o generan procesos auxiliares durante su ejecución."
+      ],
+      "response_steps": [
+        "Verifique con el usuario si abrió la consola de Firewall de forma legítima y si reconoce el proceso hijo.",
+        "Si se confirma actividad maliciosa, aísle el endpoint y termine el proceso hijo y sus descendientes.",
+        "Elimine las claves COM de HKCU que se hayan agregado y el payload asociado, después de preservar evidencia (archivos, registro, memoria).",
+        "Restablezca las credenciales del usuario afectado y busque el mismo patrón en otros hosts.",
+        "Considere configurar UAC en 'Notificar siempre' y quitar los privilegios de administrador local que no sean necesarios."
+      ],
+      "severity_rationale": "Medium es adecuado porque WF.msc rara vez crea procesos hijos legítimos, aunque hay que confirmar la elevación y el contexto antes de escalar."
+    },
+    "en": {
+      "summary": "mmc.exe started a child process other than WerFault.exe while loading the Windows Firewall console (WF.msc). This may mean the snap-in was hijacked to run code with elevated rights and no UAC prompt.",
+      "what_it_detects": "Process creation where ParentImage ends with \\mmc.exe and ParentCommandLine contains WF.msc. Children whose Image ends with \\WerFault.exe, which is Windows Error Reporting, are excluded.",
+      "why_it_matters": "MMC auto-elevates for administrative consoles. If an attacker redirects the snap-in, for example with COM registrations under HKCU, their payload inherits high integrity with no UAC prompt. This abuses the elevation control mechanism (ATT&CK T1548) to escalate privileges.",
+      "triage_steps": [
+        "Check the child's Image, CommandLine, hash and signature. An unsigned binary or one in user, Temp or Public folders is a strong indicator.",
+        "Confirm ParentCommandLine: WF.msc should come from C:\\Windows\\System32, not a user-writable path.",
+        "Check the child's integrity level and user. High integrity in a standard user session suggests a UAC bypass.",
+        "Look for recent changes under HKCU\\Software\\Classes\\CLSID (InprocServer32 or LocalServer32) on the same host within +/- 15 minutes.",
+        "Find what launched mmc.exe with WF.msc. A script, Office or another unusual parent, rather than explorer.exe, is suspicious.",
+        "Review the elevated process's children, grandchildren, network connections and file writes.",
+        "Search for earlier alerts on the same user and host, especially for initial access or execution."
+      ],
+      "false_positives": [
+        "An administrator opens help or links from the Firewall console, which can launch hh.exe or a browser.",
+        "Admin, debugging or EDR tools that attach to mmc.exe or start helper processes."
+      ],
+      "response_steps": [
+        "Ask the user whether they opened the Firewall console on purpose and whether they recognize the child process.",
+        "If the activity is malicious, isolate the endpoint and kill the child process tree.",
+        "Preserve evidence (files, registry, memory), then remove any rogue HKCU COM keys and the payload.",
+        "Reset the affected user's credentials and hunt for the same pattern on other hosts.",
+        "Consider setting UAC to 'Always notify' and removing local admin rights that are not needed."
+      ],
+      "severity_rationale": "Medium fits because WF.msc rarely spawns legitimate children, but elevation and context must be confirmed before escalating."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "mmc.exe running WF.msc spawns an unsigned binary from the Public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "CommandLine": "C:\\Users\\Public\\svchelper.exe",
+          "ParentImage": "C:\\Windows\\System32\\mmc.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\mmc.exe\" \"C:\\Windows\\system32\\WF.msc\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "mmc.exe running WF.msc spawns cmd.exe at high integrity",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami /groups",
+          "ParentImage": "C:\\Windows\\System32\\mmc.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\mmc.exe\" \"C:\\Windows\\system32\\wf.msc\"",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "WerFault.exe launched after the Firewall console crashes (excluded by filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WerFault.exe",
+          "CommandLine": "C:\\Windows\\system32\\WerFault.exe -u -p 6120 -s 512",
+          "ParentImage": "C:\\Windows\\System32\\mmc.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\mmc.exe\" \"C:\\Windows\\system32\\WF.msc\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "mmc.exe running Computer Management (compmgmt.msc), not WF.msc, spawns a child",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\admin.lgomez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\mmc.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\mmc.exe\" \"C:\\Windows\\system32\\compmgmt.msc\" /s",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

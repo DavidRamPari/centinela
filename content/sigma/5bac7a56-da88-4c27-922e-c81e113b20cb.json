@@ -1,0 +1,140 @@
+{
+  "rule": {
+    "id": "5bac7a56-da88-4c27-922e-c81e113b20cb",
+    "title": "Github Self-Hosted Runner Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "Daniel Koifman (KoifSec)",
+    "path": "windows/process_creation/proc_creation_win_github_self_hosted_runner.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_github_self_hosted_runner.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1071",
+      "T1102.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso de GitHub Actions self-hosted runner (Runner.Listener.exe con configure/run o Runner.Worker.exe con spawnclient) se ejecutó en este endpoint Windows. Puede ser un build agent autorizado o un runner instalado por un atacante para tener persistencia y ejecutar código.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\Runner.Listener.exe u OriginalFileName es Runner.Listener.dll y CommandLine contiene 'run' o 'configure', o donde Image/OriginalFileName corresponde a Runner.Worker y CommandLine contiene 'spawnclient'. Ojo: 'run' coincide con la propia ruta 'Runner', así que casi cualquier ejecución del Listener genera alerta.",
+      "why_it_matters": "Un runner no autorizado convierte el host en un nodo de command and control que usa GitHub como servicio web legítimo (T1102.002, T1071). Workflows maliciosos ejecutan comandos con acceso a secretos y a la red interna; gusanos de supply chain de npm como Shai-Hulud usan esta técnica.",
+      "triage_steps": [
+        "Revise Image: una ruta como C:\\Users\\<usuario>\\actions-runner\\bin en una estación de trabajo es más sospechosa que un directorio estándar en un build agent designado.",
+        "Revise CommandLine: con 'configure', anote --url (organización/repositorio), --name y --token; confirme si la organización y el nombre del runner pertenecen a su empresa.",
+        "Analice ParentImage y la cadena de procesos: config.cmd o la herramienta de gestión de configuración es lo esperado; node.exe, npm, bun, powershell o scripts de instalación de paquetes son sospechosos.",
+        "Confirme con DevOps/Plataforma si el host figura como runner registrado en la configuración de GitHub de la organización y si existe un cambio aprobado.",
+        "En el mismo host +/- 15 minutos, busque procesos hijos de Runner.Worker.exe (cmd, powershell, curl), creación del servicio actions.runner.* y archivos .runner o _diag en el directorio del runner.",
+        "Revise conexiones de red hacia github.com y *.actions.githubusercontent.com y si el host normalmente no las realiza.",
+        "Pivote por el usuario y por la URL de --url en otros hosts y revise alertas previas del mismo endpoint, como instalaciones npm o robo de credenciales."
+      ],
+      "false_positives": [
+        "Instalaciones legítimas de self-hosted runners en infraestructura CI/CD designada.",
+        "Despliegues autorizados por equipos DevOps/Plataforma con gestión de cambios.",
+        "Actualizaciones o reconfiguraciones programadas de build agents existentes, incluido el servicio iniciando 'run'.",
+        "Runners con patrones de nombre conocidos o instalados por herramientas de gestión de configuración esperadas (visibles en ParentImage)."
+      ],
+      "response_steps": [
+        "Valide con el dueño del sistema y DevOps antes de actuar; documente URL, nombre del runner, usuario y proceso padre.",
+        "Si no está autorizado, aísle el endpoint y elimine el runner desde la configuración de la organización o repositorio en GitHub.",
+        "Detenga y deshabilite el servicio actions.runner.* tras preservar los logs _diag, el archivo .runner y los artefactos de los workflows.",
+        "Rote los tokens de GitHub y npm, las credenciales cloud y los secretos accesibles desde el host o los repositorios afectados.",
+        "Revise los repositorios en busca de workflows maliciosos, investigue paquetes npm comprometidos y reconstruya el host si hubo ejecución de código."
+      ],
+      "severity_rationale": "Media porque los runners son comunes en CI/CD legítimo, pero uno fuera de la infraestructura designada indica persistencia con ejecución remota de código."
+    },
+    "en": {
+      "summary": "A GitHub Actions self-hosted runner process (Runner.Listener.exe with configure/run, or Runner.Worker.exe with spawnclient) ran on this Windows endpoint. It may be an authorized build agent or a runner planted by an attacker for persistence and code execution.",
+      "what_it_detects": "Windows process creation where Image ends with \\Runner.Listener.exe or OriginalFileName is Runner.Listener.dll and CommandLine contains 'run' or 'configure', or Image/OriginalFileName is Runner.Worker and CommandLine contains 'spawnclient'. Note: 'run' matches the 'Runner' path itself, so nearly every Listener launch alerts.",
+      "why_it_matters": "A rogue runner turns the host into a command-and-control node that uses GitHub as a legitimate web service (T1102.002, T1071). Malicious workflows run commands with access to secrets and internal networks; npm supply chain worms like Shai-Hulud use this technique.",
+      "triage_steps": [
+        "Check Image: a path like C:\\Users\\<user>\\actions-runner\\bin on a workstation is more suspicious than a standard directory on a designated build agent.",
+        "Check CommandLine: for 'configure', note --url (org/repo), --name and --token; confirm the organization and runner name belong to your company.",
+        "Review ParentImage and the process chain: config.cmd or your config management tool is expected; node.exe, npm, bun, powershell or package install scripts are suspicious.",
+        "Confirm with DevOps/Platform whether the host is a registered runner in the GitHub organization settings and has an approved change.",
+        "On the same host within +/- 15 minutes, look for Runner.Worker.exe children (cmd, powershell, curl), actions.runner.* service creation, and .runner or _diag files.",
+        "Review network connections to github.com and *.actions.githubusercontent.com and whether this host normally makes them.",
+        "Pivot on the user and the --url value across other hosts, and check earlier alerts for this endpoint such as npm installs or credential theft."
+      ],
+      "false_positives": [
+        "Legitimate self-hosted runner installations on designated CI/CD infrastructure.",
+        "Authorized runner deployments by DevOps/Platform teams under change management.",
+        "Scheduled updates or reconfigurations of existing build agents, including the service starting 'run'.",
+        "Runners with known naming patterns or installed by expected config management tools (visible in ParentImage)."
+      ],
+      "response_steps": [
+        "Validate with the system owner and DevOps before acting; record URL, runner name, user and parent process.",
+        "If unauthorized, isolate the endpoint and remove the runner from the GitHub organization or repository settings.",
+        "Stop and disable the actions.runner.* service after preserving _diag logs, the .runner file and workflow artifacts.",
+        "Rotate GitHub and npm tokens, cloud credentials and secrets reachable from the host or affected repositories.",
+        "Review repositories for malicious workflows, investigate compromised npm packages, and rebuild the host if code ran."
+      ],
+      "severity_rationale": "Medium because runners are common in legitimate CI/CD, but one outside designated infrastructure indicates persistence with remote code execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Runner.Listener.exe configured from a user profile by node.exe, registering to an external GitHub repository",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\actions-runner\\bin\\Runner.Listener.exe",
+          "OriginalFileName": "Runner.Listener.dll",
+          "CommandLine": "C:\\Users\\jperez\\actions-runner\\bin\\Runner.Listener.exe configure --url https://github.com/example-org/example-repo --token AAAAEXAMPLETOKEN --unattended --name ws-0142",
+          "ParentImage": "C:\\Program Files\\nodejs\\node.exe",
+          "ParentCommandLine": "node setup_bun.js",
+          "ProcessId": 6120
+        }
+      },
+      {
+        "description": "Runner.Worker.exe spawned by the listener to execute a workflow job",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\actions-runner\\bin\\Runner.Worker.exe",
+          "OriginalFileName": "Runner.Worker.dll",
+          "CommandLine": "C:\\Users\\jperez\\actions-runner\\bin\\Runner.Worker.exe spawnclient 1288 1252",
+          "ParentImage": "C:\\Users\\jperez\\actions-runner\\bin\\Runner.Listener.exe",
+          "ProcessId": 7344
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Runner.Worker.exe invoked without spawnclient (version check), and not the Listener binary",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-07.andes.example.com",
+          "User": "ANDES\\svc-build",
+          "Image": "C:\\actions-runner\\bin\\Runner.Worker.exe",
+          "OriginalFileName": "Runner.Worker.dll",
+          "CommandLine": "C:\\actions-runner\\bin\\Runner.Worker.exe --version",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ProcessId": 4410
+        }
+      },
+      {
+        "description": "Azure Pipelines agent listener running; similar name but not the GitHub runner binary",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-07.andes.example.com",
+          "User": "ANDES\\svc-build",
+          "Image": "C:\\agent\\bin\\Agent.Listener.exe",
+          "OriginalFileName": "Agent.Listener.dll",
+          "CommandLine": "C:\\agent\\bin\\Agent.Listener.exe run --startuptype service",
+          "ParentImage": "C:\\agent\\bin\\AgentService.exe",
+          "ProcessId": 3020
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

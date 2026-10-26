@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "2d3cdeec-c0db-45b4-aa86-082f7eb75701",
+    "title": "Microsoft IIS Service Account Password Dumped",
+    "level": "high",
+    "status": "test",
+    "author": "Tim Rauch, Janantha Marasinghe, Elastic (original idea)",
+    "path": "windows/process_creation/proc_creation_win_iis_appcmd_service_account_password_dumped.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_iis_appcmd_service_account_password_dumped.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó IIS AppCmd (appcmd.exe) con un comando 'list' y opciones de salida que pueden mostrar contraseñas almacenadas, como /text:password, /text:* o /config. Es posible que alguien esté extrayendo credenciales de cuentas de servicio o application pools de IIS.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\appcmd.exe u OriginalFileName es appcmd.exe, CommandLine contiene 'list ' y además usa /config o /xml (o sus variantes con guion), o bien combina /text, /@t o /show con ':*' o 'password'.",
+      "why_it_matters": "Un administrador puede usar AppCmd para descifrar credenciales guardadas en applicationHost.config, como las identidades de application pools y las cuentas de directorios virtuales. Los atacantes lo usan para obtener credenciales (ATT&CK T1003, OS Credential Dumping) y moverse lateralmente fuera de la capa web o la DMZ.",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique el objeto listado (apppool, vdir, site), las opciones usadas y si pide password o todos los atributos (*).",
+        "Identifique el User y la sesión de inicio. Verifique si esa cuenta administra IIS habitualmente en este host.",
+        "Revise ParentImage y el árbol de procesos. Si el padre es w3wp.exe, un web shell, o cmd/powershell lanzado por el servidor web, el compromiso es muy probable.",
+        "Revise otros eventos de procesos del mismo host en +/- 15 minutos: reconocimiento, compresión de archivos, actividad de web shell o conexiones salientes.",
+        "Determine qué cuentas quedaron expuestas: application pools y directorios virtuales con credenciales explícitas. Verifique si son cuentas de dominio.",
+        "Busque inicios de sesión de las cuentas expuestas desde hosts o IP de origen inusuales después del evento.",
+        "Consulte alertas previas del host y del usuario, en especial explotación del servidor web o archivos nuevos en el web root."
+      ],
+      "false_positives": [
+        "Un administrador de IIS que ejecuta AppCmd a mano para revisar o migrar la configuración de identidad de los application pools.",
+        "Scripts de despliegue o de gestión de configuración que exportan la configuración de IIS con /config o /xml para respaldo o comparación."
+      ],
+      "response_steps": [
+        "Pida al administrador o al responsable del cambio que confirme la actividad. Si nadie la confirma, trátela como robo de credenciales.",
+        "Si es maliciosa, aísle el host y preserve la evidencia: memoria, logs de IIS y archivos de web shell.",
+        "Rote todas las credenciales almacenadas en la configuración de IIS, empezando por las cuentas de dominio y privilegiadas. Revise dónde se usan.",
+        "Elimine la persistencia o el web shell utilizado, corrija el vector de entrada y siga vigilando el uso de las cuentas expuestas."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque el comando descifra en texto claro las contraseñas de cuentas de servicio, y su uso legítimo es poco frecuente y fácil de confirmar."
+    },
+    "en": {
+      "summary": "IIS AppCmd (appcmd.exe) ran a 'list' command with output options that can reveal stored passwords, such as /text:password, /text:* or /config. Someone may be extracting the IIS service account or application pool credentials.",
+      "what_it_detects": "Process creation where Image ends with \\appcmd.exe or OriginalFileName is appcmd.exe, the CommandLine contains 'list ', and it either uses /config or /xml (or the dash forms), or combines /text, /@t or /show with ':*' or 'password'.",
+      "why_it_matters": "An administrator can use AppCmd to decrypt credentials stored in applicationHost.config, such as application pool identities and virtual directory accounts. Attackers use this for credential access (ATT&CK T1003, OS Credential Dumping) and then move laterally out of the web tier or DMZ.",
+      "triage_steps": [
+        "Read the full CommandLine: note the object listed (apppool, vdir, site), the flags, and whether it asks for password or all attributes (*).",
+        "Identify the User and logon session. Check whether this account normally administers IIS on this host.",
+        "Review ParentImage and the process tree. A parent of w3wp.exe, a web shell, or cmd/powershell spawned by the web server strongly suggests compromise.",
+        "Review other process events on the same host within +/- 15 minutes for reconnaissance, archiving, web shell activity or outbound connections.",
+        "Identify which accounts were exposed: list the app pools and virtual directories with explicit credentials, and check whether those accounts are domain accounts.",
+        "Search for logons by the exposed accounts from unusual hosts or source IPs after the event time.",
+        "Check earlier alerts for this host and user, especially web server exploitation or new files in the web root."
+      ],
+      "false_positives": [
+        "An IIS administrator running AppCmd by hand to check or migrate application pool identity settings.",
+        "Deployment or configuration management scripts that export IIS configuration with /config or /xml for backup or comparison."
+      ],
+      "response_steps": [
+        "Ask the administrator or change owner to confirm the activity. If nobody can confirm it, treat it as credential theft.",
+        "If it is malicious, isolate the host and preserve evidence: memory, the IIS logs and any web shell files.",
+        "Rotate every credential stored in the IIS configuration, starting with domain and privileged accounts. Review where those accounts are used.",
+        "Remove the persistence or web shell that was used, patch the entry point, and keep watching the exposed accounts for misuse."
+      ],
+      "severity_rationale": "High fits because the command decrypts stored service account passwords in plaintext, and legitimate use is rare and easy to confirm."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "AppCmd lists the DefaultAppPool and prints the identity password with /text:processModel.password; the parent is cmd.exe spawned by w3wp.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-DMZ-01.andes.example.com",
+          "Image": "C:\\Windows\\System32\\inetsrv\\appcmd.exe",
+          "OriginalFileName": "appcmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\inetsrv\\appcmd.exe list apppool \"DefaultAppPool\" /text:processModel.password",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c appcmd.exe list apppool",
+          "User": "IIS APPPOOL\\DefaultAppPool",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "AppCmd dumps the full configuration of all virtual directories with /config, which includes the stored credentials.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-02.andes.example.com",
+          "Image": "C:\\Windows\\System32\\inetsrv\\appcmd.exe",
+          "OriginalFileName": "appcmd.exe",
+          "CommandLine": "appcmd.exe list vdir /config",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "An administrator lists sites with no output flags. 'list ' matches, but no standalone or flag/grep selection does.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-02.andes.example.com",
+          "Image": "C:\\Windows\\System32\\inetsrv\\appcmd.exe",
+          "OriginalFileName": "appcmd.exe",
+          "CommandLine": "appcmd.exe list site",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\admin.iis",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "An admin lists app pool names with /text:name. The /text flag is present, but neither ':*' nor 'password' appears.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-02.andes.example.com",
+          "Image": "C:\\Windows\\System32\\inetsrv\\appcmd.exe",
+          "OriginalFileName": "appcmd.exe",
+          "CommandLine": "appcmd.exe list apppool /text:name",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\admin.iis",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

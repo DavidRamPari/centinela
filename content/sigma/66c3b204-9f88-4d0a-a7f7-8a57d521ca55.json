@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "66c3b204-9f88-4d0a-a7f7-8a57d521ca55",
+    "title": "Potential Crypto Mining Activity",
+    "level": "high",
+    "status": "stable",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_crypto_mining_monero.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_crypto_mining_monero.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1496"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso en Windows cuya línea de comandos contiene parámetros típicos de mineros de criptomonedas, como XMRig: URL stratum, --donate-level=0, --cpu-priority o sus equivalentes en base64. Lo más probable es que el endpoint esté minando sin autorización.",
+      "what_it_detects": "Eventos de process_creation en los que CommandLine contiene ' --cpu-priority=', '--donate-level=0', ' -o pool.', ' --nicehash', ' --algo=rx/0 ', 'stratum+tcp://' o 'stratum+udp://', o esas mismas cadenas codificadas en base64. Se excluyen las compilaciones con gcc y los archivos pool.c y pool.o.",
+      "why_it_matters": "Corresponde a MITRE ATT&CK T1496 (Resource Hijacking): el atacante usa la CPU o la GPU de la víctima para minar criptomonedas, como Monero. Esto degrada el rendimiento y aumenta los costos, y casi siempre indica que hubo un acceso inicial previo que hay que investigar.",
+      "triage_steps": [
+        "Revise CommandLine completo: anote el pool, el puerto, la wallet (-u), el algoritmo y si aparece base64. Decodifique los fragmentos codificados.",
+        "Verifique Image: ruta, nombre, hash y firma. Desconfíe si un binario que imita a uno del sistema se ejecuta desde AppData, Temp o C:\\Users\\Public.",
+        "Analice ParentImage y la cadena de procesos: PowerShell, wscript, servicios, tareas programadas o procesos de servidor web como w3wp.exe son indicios fuertes de compromiso.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, descargas, procesos hijos, creación de servicios o tareas y desactivación del antivirus.",
+        "Busque en la telemetría de red conexiones al dominio o la IP del pool y consultas DNS a dominios de minería.",
+        "Confirme con el responsable del usuario o del activo si la minería está autorizada. Revise alertas previas para el mismo host, usuario y hash."
+      ],
+      "false_positives": [
+        "Uso autorizado de software de minería en equipos de laboratorio o de investigación aprobados.",
+        "Frameworks de compilación o pruebas cuyos parámetros coinciden parcialmente con estas cadenas y no quedan cubiertos por el filtro de gcc.",
+        "Herramientas de seguridad o ejercicios de red team que simulan actividad de minería."
+      ],
+      "response_steps": [
+        "Confirme que la actividad no está autorizada y conserve la evidencia: línea de comandos, hash, binario y conexiones.",
+        "Aísle el endpoint desde el EDR y bloquee en el proxy o el firewall el dominio y la IP del pool.",
+        "Finalice el proceso y elimine el binario y los mecanismos de persistencia (servicios, tareas, claves Run) que haya identificado.",
+        "Investigue el vector de acceso inicial, rote las credenciales que pudieran estar expuestas y busque el mismo hash o la misma wallet en otros hosts.",
+        "Restaure el equipo desde una imagen confiable si no puede asegurar una limpieza completa, y vigile que la actividad no se repita."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque estas cadenas son muy específicas de los mineros y es poco frecuente que la minería esté autorizada en un entorno corporativo."
+    },
+    "en": {
+      "summary": "A Windows process started with a command line containing typical crypto-miner parameters, such as those used by XMRig: stratum URLs, --donate-level=0, --cpu-priority or their base64 equivalents. This most likely means unauthorized mining on the endpoint.",
+      "what_it_detects": "process_creation events where CommandLine contains ' --cpu-priority=', '--donate-level=0', ' -o pool.', ' --nicehash', ' --algo=rx/0 ', 'stratum+tcp://' or 'stratum+udp://', or those strings base64-encoded. gcc builds and pool.c/pool.o files are excluded.",
+      "why_it_matters": "This maps to MITRE ATT&CK T1496 (Resource Hijacking): attackers use the victim's CPU or GPU to mine cryptocurrency, such as Monero. It degrades performance and raises costs, and it usually means an earlier initial access that needs investigating.",
+      "triage_steps": [
+        "Read the full CommandLine. Note the pool, port, wallet (-u), algorithm and any base64, and decode the encoded fragments.",
+        "Check Image: path, name, hash and signature. Be suspicious of binaries that imitate system names and run from AppData, Temp or C:\\Users\\Public.",
+        "Review ParentImage and the process tree. PowerShell, wscript, services, scheduled tasks or web server processes such as w3wp.exe strongly suggest compromise.",
+        "Pivot on the same host within +/- 15 minutes for downloads, child processes, new services or tasks, and antivirus tampering.",
+        "Search network telemetry for connections to the pool domain or IP and for DNS queries to mining domains.",
+        "Ask the user's or asset's owner whether the mining is authorized. Check earlier alerts for the same host, user and hash."
+      ],
+      "false_positives": [
+        "Authorized mining software on approved lab or research machines.",
+        "Build or test frameworks whose arguments partially match these strings and are not covered by the gcc filter.",
+        "Security tools or red team exercises that simulate mining activity."
+      ],
+      "response_steps": [
+        "Confirm the activity is unauthorized and preserve the evidence: command line, hash, binary and connections.",
+        "Isolate the endpoint through EDR and block the pool domain and IP at the proxy or firewall.",
+        "Kill the process, then remove the binary and any persistence you found (services, tasks, Run keys).",
+        "Find the initial access vector, rotate any credentials that may be exposed, and hunt for the same hash or wallet on other hosts.",
+        "Reimage the endpoint if you cannot confirm it is clean, and monitor for recurrence."
+      ],
+      "severity_rationale": "High fits because these strings are very specific to miners, and corporate environments rarely authorize mining."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "XMRig-style miner disguised as svchost in a public folder, connecting to a stratum pool with donations disabled",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\svchost32.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "C:\\Users\\Public\\svchost32.exe -o stratum+tcp://mine.example.com:3333 -u 4FakeWalletAddressExample -p x --donate-level=0 --cpu-priority=5",
+          "ProcessId": 6120
+        }
+      },
+      {
+        "description": "Miner launched by a scheduled task using -o pool. and --algo=rx/0",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\ProgramData\\WinUpdate\\wuhost.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "\"C:\\ProgramData\\WinUpdate\\wuhost.exe\" --algo=rx/0 -o pool.example.org:443 -u 4FakeWalletAddressExample --tls",
+          "ProcessId": 4388
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Developer compiling a pool.c source file with gcc; the filter excludes it",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-WS-07.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\msys64\\mingw64\\bin\\gcc.exe",
+          "ParentImage": "C:\\msys64\\usr\\bin\\make.exe",
+          "CommandLine": "gcc -c pool.c -o pool.o -O2 -Wall",
+          "ProcessId": 9012
+        }
+      },
+      {
+        "description": "Python script writing output to a file whose name starts with 'pool' but does not match ' -o pool.'",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0158.andes.example.com",
+          "User": "ANDES\\rgomez",
+          "Image": "C:\\Python311\\python.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "python.exe pool_manager.py -o pooled_results.csv",
+          "ProcessId": 3304
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

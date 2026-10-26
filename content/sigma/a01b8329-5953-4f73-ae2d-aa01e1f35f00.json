@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "a01b8329-5953-4f73-ae2d-aa01e1f35f00",
+    "title": "AspNetCompiler Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_aspnet_compiler_exectuion.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_aspnet_compiler_exectuion.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1127"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó aspnet_compiler.exe desde un directorio de .NET Framework. Es un binario legítimo de Microsoft, pero se puede abusar de él para compilar y ejecutar código C# arbitrario.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\aspnet_compiler.exe y se ubica en Windows\\Microsoft.NET\\Framework, Framework64, FrameworkArm o FrameworkArm64. La regla no evalúa argumentos ni proceso padre: se activa con cualquier ejecución.",
+      "why_it_matters": "Un atacante puede apuntar aspnet_compiler.exe (-p / -v) a una carpeta con un web.config y un build provider propio en App_Code. El código C# se ejecuta durante la compilación bajo un binario firmado por Microsoft (T1127, Trusted Developer Utilities Proxy Execution), lo que evade controles de lista blanca.",
+      "triage_steps": [
+        "Revise CommandLine: identifique la ruta de -p o -v, el directorio de salida (-u, -f, -d) y si apunta a carpetas de usuario, Temp, ProgramData o recursos compartidos.",
+        "Revise ParentImage y su línea de comandos: msbuild.exe, devenv.exe o un agente de CI es esperable; cmd.exe, powershell.exe, wscript.exe, mshta.exe o Office no lo son.",
+        "Confirme el rol del host y del usuario: ¿es un servidor IIS, una estación de desarrollo o un servidor de build? En un equipo de oficina es sospechoso.",
+        "Inspeccione la carpeta de origen: busque web.config con buildProviders personalizados y archivos .cs o .vb en App_Code creados recientemente.",
+        "Pivote por procesos hijos de aspnet_compiler.exe y de csc.exe/cvtres.exe en el mismo host +/- 15 minutos: shells, conexiones de red o binarios nuevos.",
+        "Revise DLL temporales en Temporary ASP.NET Files y calcule su hash para buscarlo en inteligencia de amenazas.",
+        "Busque alertas previas del mismo host o usuario, incluidas las reglas relacionadas (procesos hijos sospechosos, archivos TMP, rutas sospechosas)."
+      ],
+      "false_positives": [
+        "Precompilación legítima de sitios ASP.NET por desarrolladores o desde Visual Studio al publicar.",
+        "Servidores de build o pipelines de CI que usan la tarea AspNetCompiler de MSBuild.",
+        "Scripts de despliegue en servidores IIS que precompilan aplicaciones web."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del sistema o el equipo de desarrollo si la compilación era esperada y documentada.",
+        "Si no es legítima, aísle el endpoint y preserve la carpeta de origen, el web.config, App_Code y los artefactos compilados.",
+        "Termine los procesos hijos maliciosos tras capturar memoria y evidencia; bloquee los hashes identificados.",
+        "Elimine los archivos maliciosos y busque persistencia; restablezca credenciales del usuario si hay indicios de compromiso.",
+        "Considere restringir aspnet_compiler.exe con WDAC o AppLocker en equipos que no lo necesitan."
+      ],
+      "severity_rationale": "Medium es adecuado porque el binario tiene usos legítimos de desarrollo, pero fuera de ese contexto es un método conocido de ejecución por proxy."
+    },
+    "en": {
+      "summary": "aspnet_compiler.exe ran from a .NET Framework directory. The binary is legitimate and signed by Microsoft, but it can be abused to compile and run arbitrary C# code.",
+      "what_it_detects": "Process creation where Image ends with \\aspnet_compiler.exe and sits under Windows\\Microsoft.NET\\Framework, Framework64, FrameworkArm or FrameworkArm64. The rule does not check arguments or the parent process, so it fires on every execution.",
+      "why_it_matters": "An attacker can point aspnet_compiler.exe (-p / -v) at a folder that holds a web.config and a custom build provider in App_Code. The C# code then runs during compilation under a Microsoft-signed binary (T1127, Trusted Developer Utilities Proxy Execution), which gets past allowlisting controls.",
+      "triage_steps": [
+        "Review CommandLine: find the -p or -v source path and the output options (-u, -f, -d). Check whether they point to user folders, Temp, ProgramData or network shares.",
+        "Review ParentImage and its command line. msbuild.exe, devenv.exe or a CI agent is expected. cmd.exe, powershell.exe, wscript.exe, mshta.exe or Office apps are not.",
+        "Confirm the host and user role. Is it an IIS server, a developer workstation or a build server? On an office endpoint, this is suspicious.",
+        "Inspect the source folder for a web.config with custom buildProviders and for recently created .cs or .vb files in App_Code.",
+        "Pivot on child processes of aspnet_compiler.exe and csc.exe/cvtres.exe on the same host within +/- 15 minutes. Look for shells, network connections or new binaries.",
+        "Check for temporary DLLs in Temporary ASP.NET Files. Hash them and look the hashes up in threat intelligence.",
+        "Search for earlier alerts on the same host or user, including the related rules (suspicious child, TMP file, suspicious paths)."
+      ],
+      "false_positives": [
+        "Developers precompiling ASP.NET sites, or Visual Studio running the compiler during publish.",
+        "Build servers or CI pipelines using the MSBuild AspNetCompiler task.",
+        "Deployment scripts on IIS servers that precompile web applications."
+      ],
+      "response_steps": [
+        "Ask the system owner or the development team whether the compilation was expected and documented.",
+        "If it was not legitimate, isolate the endpoint. Preserve the source folder, web.config, App_Code and the compiled artifacts.",
+        "Capture memory and evidence first, then kill malicious child processes and block the identified hashes.",
+        "Remove the malicious files and hunt for persistence. Reset the user's credentials if you find signs of compromise.",
+        "Consider restricting aspnet_compiler.exe with WDAC or AppLocker on hosts that do not need it."
+      ],
+      "severity_rationale": "Medium fits because the binary has legitimate development uses, but outside that context it is a known proxy-execution method."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "aspnet_compiler.exe from Framework64 started by PowerShell, compiling a folder in the user's Temp directory",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\aspnet_compiler.exe",
+          "CommandLine": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\aspnet_compiler.exe -v none -p C:\\Users\\jperez\\AppData\\Local\\Temp\\site -f C:\\Users\\jperez\\AppData\\Local\\Temp\\out -u",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "32-bit Framework aspnet_compiler.exe run by MSBuild on a build server (legitimate, but the rule still matches)",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-01.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\aspnet_compiler.exe",
+          "CommandLine": "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\aspnet_compiler.exe -v /Portal -p D:\\agent\\_work\\1\\s\\Portal -u -f D:\\agent\\_work\\1\\a\\Portal",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\BuildTools\\MSBuild\\Current\\Bin\\MSBuild.exe",
+          "CurrentDirectory": "D:\\agent\\_work\\1\\s\\",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "aspnet_regiis.exe from the same Framework64 directory; the image name does not end with aspnet_compiler.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "IIS-02.andes.example.com",
+          "User": "ANDES\\adm_web",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\aspnet_regiis.exe",
+          "CommandLine": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\aspnet_regiis.exe -pef connectionStrings D:\\inetpub\\portal",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Windows\\system32\\",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Copy of aspnet_compiler.exe run from outside the .NET Framework directories; the Image path does not satisfy the contains condition",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\aspnet_compiler.exe",
+          "CommandLine": "C:\\Users\\Public\\aspnet_compiler.exe -v none -p C:\\Users\\Public\\site -f C:\\Users\\Public\\out -u",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CurrentDirectory": "C:\\Users\\Public\\",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

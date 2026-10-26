@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "ca621ba5-54ab-4035-9942-d378e6fcde3c",
+    "title": "HackTool - HandleKatz LSASS Dumper Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_handlekatz.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_handlekatz.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se detectó la ejecución de HandleKatz, una herramienta que clona handles hacia LSASS para generar un volcado de memoria ofuscado. Indica un probable intento de robo de credenciales en el endpoint.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\loader.exe y CommandLine contiene '--pid:'; procesos con Hashes que incluyen los IMPHASH conocidos de HandleKatz; o CommandLine con '--pid:' y '--outfile:' junto con '.dmp', 'lsass', '.obf' o 'dump'.",
+      "why_it_matters": "Corresponde a MITRE ATT&CK T1003.001 (volcado de memoria de LSASS). El volcado puede contener hashes NTLM, tickets Kerberos y credenciales en texto claro, lo que permite movimiento lateral y escalamiento de privilegios. La ofuscación del archivo busca evadir el antivirus.",
+      "triage_steps": [
+        "Revisar Image, CommandLine y Hashes del evento: identificar el PID objetivo de '--pid:' y la ruta de '--outfile:'.",
+        "Confirmar si el PID corresponde a lsass.exe en ese host, usando eventos de procesos o el inventario del EDR.",
+        "Analizar ParentImage y la línea de comandos del padre para saber quién lanzó la herramienta (cmd, PowerShell, servicio remoto, WMI).",
+        "Verificar el usuario y su nivel de privilegios; HandleKatz requiere privilegios elevados o SeDebugPrivilege.",
+        "Buscar en el mismo host, +/- 15 minutos, la creación del archivo de salida (.obf, .dmp) y su posterior copia o exfiltración.",
+        "Revisar inicios de sesión del mismo usuario en otros equipos y alertas previas de esa cuenta o host.",
+        "Calcular el hash del binario y compararlo con los IMPHASH de la regla y con fuentes de inteligencia internas."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Ejercicios autorizados de red team o pruebas de penetración que usen HandleKatz.",
+        "Software legítimo llamado loader.exe que acepte un parámetro '--pid:'; validar firma digital y ruta."
+      ],
+      "response_steps": [
+        "Confirmar con el equipo responsable si existe un ejercicio autorizado antes de escalar.",
+        "Aislar el endpoint de la red mediante el EDR, preservando la memoria y el archivo de volcado como evidencia.",
+        "Restablecer las contraseñas de las cuentas que iniciaron sesión en el host y revocar tickets Kerberos; evaluar la cuenta krbtgt si hubo sesiones de administradores de dominio.",
+        "Eliminar el binario y los archivos de volcado tras recolectar evidencia, y buscar el mismo hash en toda la flota.",
+        "Habilitar protección de LSASS (RunAsPPL, Credential Guard) y reglas ASR que bloqueen el robo de credenciales."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque los indicadores son específicos de una herramienta ofensiva de volcado de LSASS, con muy pocos usos legítimos."
+    },
+    "en": {
+      "summary": "HandleKatz, a tool that clones handles to LSASS to produce an obfuscated memory dump, was executed. This points to a likely credential theft attempt on the endpoint.",
+      "what_it_detects": "Process creation where Image ends with \\loader.exe and CommandLine contains '--pid:'; processes whose Hashes include known HandleKatz IMPHASH values; or CommandLine containing '--pid:' and '--outfile:' plus '.dmp', 'lsass', '.obf' or 'dump'.",
+      "why_it_matters": "Maps to MITRE ATT&CK T1003.001 (LSASS memory dumping). The dump can hold NTLM hashes, Kerberos tickets and cleartext credentials, enabling lateral movement and privilege escalation. Obfuscating the dump aims to evade antivirus.",
+      "triage_steps": [
+        "Review Image, CommandLine and Hashes: note the target PID from '--pid:' and the path from '--outfile:'.",
+        "Confirm whether that PID was lsass.exe on the host using process events or EDR inventory.",
+        "Inspect ParentImage and the parent command line to see what launched the tool (cmd, PowerShell, remote service, WMI).",
+        "Check the user and privileges; HandleKatz needs elevated rights or SeDebugPrivilege.",
+        "On the same host, +/- 15 minutes, look for the output file (.obf, .dmp) being created, copied or exfiltrated.",
+        "Review logons by the same user on other hosts and earlier alerts for this account or host.",
+        "Hash the binary and compare it with the rule's IMPHASH values and internal threat intelligence."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Authorized red team or penetration testing exercises using HandleKatz.",
+        "Legitimate software named loader.exe accepting a '--pid:' argument; validate signature and path."
+      ],
+      "response_steps": [
+        "Confirm with the responsible team whether an authorized exercise is running before escalating.",
+        "Isolate the endpoint through EDR, preserving memory and the dump file as evidence.",
+        "Reset passwords of accounts that logged on to the host and purge Kerberos tickets; assess krbtgt if domain admins had sessions.",
+        "Remove the binary and dump files after evidence collection, and hunt for the same hash fleet-wide.",
+        "Enable LSASS protection (RunAsPPL, Credential Guard) and ASR rules blocking credential theft."
+      ],
+      "severity_rationale": "High fits because the indicators are specific to an offensive LSASS dumping tool with very few legitimate uses."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "HandleKatz loader.exe dumping LSASS PID to an obfuscated file (matches selection_loader_img and selection_flags)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\loader.exe",
+          "CommandLine": "C:\\Users\\Public\\loader.exe --pid:712 --outfile:C:\\Users\\Public\\lsass.obf",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\loader.exe --pid:712 --outfile:C:\\Users\\Public\\lsass.obf",
+          "IntegrityLevel": "High",
+          "Hashes": "SHA256=1111111111111111111111111111111111111111111111111111111111111111,IMPHASH=0E2216679CA6E1094D63322E3412D650"
+        }
+      },
+      {
+        "description": "Renamed HandleKatz binary identified only by its IMPHASH (matches selection_loader_imphash)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\svcupd.exe",
+          "CommandLine": "C:\\ProgramData\\svcupd.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "System",
+          "Hashes": "MD5=22222222222222222222222222222222,SHA256=3333333333333333333333333333333333333333333333333333333333333333,IMPHASH=38D9E015591BBFD4929E0D0F47FA0055"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate application launcher named loader.exe without a --pid: argument and with an unrelated IMPHASH",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Program Files\\ExampleApp\\loader.exe",
+          "CommandLine": "\"C:\\Program Files\\ExampleApp\\loader.exe\" --config:default --lang:es",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium",
+          "Hashes": "SHA256=4444444444444444444444444444444444444444444444444444444444444444,IMPHASH=AABBCCDDEEFF00112233445566778899"
+        }
+      },
+      {
+        "description": "Performance export tool using --pid: and --outfile: but writing a CSV, with none of the dump-related keywords",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-01.andes.example.com",
+          "User": "ANDES\\admin_ops",
+          "Image": "C:\\Tools\\perfexport.exe",
+          "CommandLine": "C:\\Tools\\perfexport.exe --pid:4120 --outfile:C:\\Logs\\cpu_stats.csv",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High",
+          "Hashes": "SHA256=5555555555555555555555555555555555555555555555555555555555555555,IMPHASH=99887766554433221100FFEEDDCCBBAA"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

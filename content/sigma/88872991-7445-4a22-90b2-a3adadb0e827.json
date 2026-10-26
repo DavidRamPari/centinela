@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "88872991-7445-4a22-90b2-a3adadb0e827",
+    "title": "Stop Windows Service Via Net.EXE",
+    "level": "low",
+    "status": "test",
+    "author": "Jakob Weinzettl, oscd.community, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_net_stop_service.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_net_stop_service.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1489"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó net.exe o net1.exe con el argumento \"stop\" para detener un servicio de Windows. Por sí sola es actividad administrativa común; el contexto define si es maliciosa.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\net.exe o \\net1.exe (u OriginalFileName es net.exe/net1.exe) y CommandLine contiene \" stop \", es decir, \"net stop <servicio>\".",
+      "why_it_matters": "Los atacantes detienen servicios (ATT&CK T1489, Service Stop) antes de cifrar datos o para desactivar defensas: antivirus, respaldos, VSS o bases de datos que bloquean archivos. El ransomware suele detener muchos servicios en lote.",
+      "triage_steps": [
+        "Identifique en CommandLine qué servicio se detuvo; priorice seguridad (WinDefend, EDR), respaldos (VSS, Veeam), bases de datos (MSSQL*) y servicios de registro de eventos.",
+        "Revise ParentImage y la línea de comandos del padre: cmd.exe o powershell.exe desde un script desconocido, Office o un binario en %TEMP% es sospechoso.",
+        "Valide el usuario: ¿es una cuenta administrativa o de servicio esperada para ese host y horario?",
+        "Busque en el mismo host, +/- 15 minutos, otras ejecuciones de net stop, sc stop, taskkill, vssadmin delete shadows o bcdedit; varias seguidas indican preparación de ransomware.",
+        "Correlacione con ventanas de mantenimiento, despliegues de software o tickets de cambio para ese host.",
+        "Revise alertas previas del mismo host y usuario, inicios de sesión remotos (PsExec, WMI) y conexiones de red cercanas.",
+        "Confirme con los eventos 7036/7040 del Service Control Manager si el servicio quedó detenido o deshabilitado."
+      ],
+      "false_positives": [
+        "Administradores que detienen servicios manualmente para mantenimiento o solución de problemas.",
+        "Instaladores, actualizadores y scripts de despliegue (SCCM, GPO) que detienen servicios antes de actualizar binarios.",
+        "Software de respaldo que detiene bases de datos o servicios durante la ventana de copia.",
+        "Scripts de monitoreo o automatización que reinician servicios con net stop / net start."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del sistema o el equipo de cambios si la detención estaba planificada.",
+        "Si no está justificada y afecta servicios de seguridad o respaldo, aísle el endpoint desde el EDR y preserve evidencia (árbol de procesos, script origen).",
+        "Reinicie los servicios detenidos y confirme su configuración de inicio; revise si fueron deshabilitados.",
+        "Restablezca credenciales de la cuenta usada si hay indicios de compromiso y busque la misma actividad en otros hosts.",
+        "Documente exclusiones para procesos padre y servicios legítimos recurrentes, para reducir ruido."
+      ],
+      "severity_rationale": "Nivel bajo porque detener servicios es frecuente y legítimo; la alerta solo escala al combinarse con servicios críticos, padres inusuales o actividad de ransomware asociada."
+    },
+    "en": {
+      "summary": "net.exe or net1.exe was run with the \"stop\" argument to stop a Windows service. On its own this is common admin activity; context decides whether it is malicious.",
+      "what_it_detects": "Process creation where Image ends with \\net.exe or \\net1.exe (or OriginalFileName is net.exe/net1.exe) and CommandLine contains \" stop \", i.e. \"net stop <service>\".",
+      "why_it_matters": "Attackers stop services (ATT&CK T1489, Service Stop) before encrypting data or to disable defenses: antivirus, backups, VSS or databases that lock files. Ransomware often stops many services in bulk.",
+      "triage_steps": [
+        "Read the service name in CommandLine; prioritize security (WinDefend, EDR), backup (VSS, Veeam), database (MSSQL*) and event logging services.",
+        "Check ParentImage and its command line: cmd.exe or powershell.exe launched from an unknown script, Office, or a binary in %TEMP% is suspicious.",
+        "Validate the user: is it an expected admin or service account for this host and time?",
+        "On the same host within +/- 15 minutes, look for more net stop, sc stop, taskkill, vssadmin delete shadows or bcdedit; bursts suggest ransomware staging.",
+        "Correlate with maintenance windows, software deployments or change tickets for the host.",
+        "Review earlier alerts for the same host and user, remote logons (PsExec, WMI) and nearby network connections.",
+        "Confirm via Service Control Manager events 7036/7040 whether the service actually stopped or was disabled."
+      ],
+      "false_positives": [
+        "Administrators stopping services manually for maintenance or troubleshooting.",
+        "Installers, updaters and deployment scripts (SCCM, GPO) stopping services before replacing binaries.",
+        "Backup software stopping databases or services during the backup window.",
+        "Monitoring or automation scripts restarting services with net stop / net start."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or change team whether the stop was planned.",
+        "If unjustified and security or backup services are affected, isolate the endpoint via EDR and preserve evidence (process tree, source script).",
+        "Restart stopped services and verify their startup type; check whether they were disabled.",
+        "Reset credentials of the account used if compromise is suspected and hunt for the same activity on other hosts.",
+        "Document exclusions for recurring legitimate parents and services to reduce noise."
+      ],
+      "severity_rationale": "Low level because stopping services is frequent and legitimate; it only escalates when combined with critical services, unusual parents or related ransomware activity."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "net.exe launched from a batch script in a temp folder stopping the SQL Server service",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net stop \"MSSQLSERVER\" /y",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\jperez\\AppData\\Local\\Temp\\svc.bat"
+        }
+      },
+      {
+        "description": "net1.exe child spawned by net.exe stopping the Volume Shadow Copy service",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\net1.exe",
+          "OriginalFileName": "net1.exe",
+          "CommandLine": "C:\\Windows\\system32\\net1  stop VSS",
+          "ParentImage": "C:\\Windows\\System32\\net.exe",
+          "ParentCommandLine": "net  stop VSS"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "net.exe used to start a service, no ' stop ' in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net start Spooler",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Service stopped with sc.exe instead of net.exe, so the image selection does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe stop Spooler ",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

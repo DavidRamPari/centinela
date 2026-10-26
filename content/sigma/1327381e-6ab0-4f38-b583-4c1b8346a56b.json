@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "1327381e-6ab0-4f38-b583-4c1b8346a56b",
+    "title": "Potential Command Line Path Traversal Evasion Attempt",
+    "level": "medium",
+    "status": "test",
+    "author": "Christian Burkard (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_commandline_path_traversal_evasion.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_commandline_path_traversal_evasion.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un proceso con una línea de comandos que contiene secuencias falsas de path traversal, como '\\..\\System32\\' después de una ruta de Windows o '.exe\\..\\' después del nombre de un ejecutable. Es una técnica conocida para ocultar el objetivo real de un comando ante detecciones basadas en cadenas.",
+      "what_it_detects": "Eventos de creación de procesos donde Image está bajo \\Windows\\ y CommandLine contiene '\\..\\Windows\\', '\\..\\System32\\' o '\\..\\..\\', o bien CommandLine contiene '.exe\\..\\'. Se excluyen rutas conocidas de Google Drive y del launcher de Citrix Virtual Smart Card.",
+      "why_it_matters": "Windows resuelve estos segmentos redundantes, así que 'C:\\Windows\\System32\\svchost.exe\\..\\..\\..\\Users\\Public\\x.exe' ejecuta x.exe aunque parezca referirse a svchost.exe. Los atacantes usan este enmascaramiento (ATT&CK T1036) para evadir reglas y confundir a los analistas.",
+      "triage_steps": [
+        "Normalice CommandLine resolviendo cada segmento '..' y anote el binario o archivo que realmente se referencia.",
+        "Compare la ruta resuelta con Image: ¿el archivo ejecutado está en una carpeta escribible por usuarios (Users\\Public, AppData, Temp, ProgramData)?",
+        "Revise ParentImage y la línea de comandos del padre; marque como sospechosos Office, intérpretes de scripts, navegadores o binarios desconocidos.",
+        "Verifique el hash y la firma de Image y de cualquier archivo de la ruta resuelta en fuentes de reputación.",
+        "Identifique al usuario y la sesión; confirme si la actividad corresponde a su rol y horario habitual.",
+        "Pivotee en el mismo host +/- 15 minutos: procesos hijos, conexiones de red, escritura de archivos y cambios de persistencia.",
+        "Busque el mismo patrón de CommandLine en otros hosts y alertas previas para este host o usuario."
+      ],
+      "false_positives": [
+        "Cliente de sincronización de Google Drive en rutas no cubiertas por el filtro, por ejemplo otra ubicación de instalación o versión.",
+        "Componentes de Citrix, como el launcher de Virtual Smart Card instalado en una ruta no predeterminada.",
+        "Instaladores antiguos, launchers o scripts administrativos que construyen rutas con segmentos '..' relativos al ejecutable."
+      ],
+      "response_steps": [
+        "Verifique con la ruta resuelta, el hash y la cadena de procesos si la ejecución es legítima; documente el software benigno y proponga un filtro acotado.",
+        "Si es malicioso, aísle el endpoint mediante el EDR y preserve el árbol de procesos, la memoria y los archivos referenciados.",
+        "Deshabilite o restablezca las credenciales del usuario involucrado si se sospecha compromiso.",
+        "Elimine el payload y la persistencia tras recolectar evidencia, y busque el mismo patrón en toda la flota.",
+        "Restaure el host desde un estado confiable si no puede confirmarse su integridad y monitoree recurrencias."
+      ],
+      "severity_rationale": "Medio es adecuado porque el traversal falso es una señal fuerte de ofuscación, pero algunos programas legítimos lo generan, por lo que cada alerta requiere verificación antes de escalar."
+    },
+    "en": {
+      "summary": "A process was started with a command line that contains fake path traversal sequences, such as '\\..\\System32\\' after a Windows path or '.exe\\..\\' after an executable name. This is a known way to hide the real target of a command from string-based detections.",
+      "what_it_detects": "Process creation events where either the Image is under \\Windows\\ and the CommandLine contains '\\..\\Windows\\', '\\..\\System32\\' or '\\..\\..\\', or the CommandLine contains '.exe\\..\\'. Known Google Drive and Citrix Virtual Smart Card launcher paths are excluded.",
+      "why_it_matters": "Windows resolves these redundant segments, so 'C:\\Windows\\System32\\svchost.exe\\..\\..\\..\\Users\\Public\\x.exe' runs x.exe while appearing to reference svchost.exe. Attackers use this masquerading (ATT&CK T1036) to evade command-line rules and confuse analysts.",
+      "triage_steps": [
+        "Normalize the CommandLine by resolving every '..' segment and note the binary or file that is actually referenced.",
+        "Compare the resolved path with Image: is the executed file in a user-writable folder (Users\\Public, AppData, Temp, ProgramData)?",
+        "Review ParentImage and the parent command line; flag Office apps, script hosts, browsers or unknown binaries as parents.",
+        "Check the hash and signature of Image and of any file named in the resolved path against reputation sources.",
+        "Identify the user and logon session; confirm whether the activity fits that user's role and normal hours.",
+        "Pivot on the same host +/- 15 minutes for child processes, network connections, file writes and persistence changes.",
+        "Search for the same CommandLine pattern on other hosts and for earlier alerts on this host or user."
+      ],
+      "false_positives": [
+        "Google Drive sync client paths not covered by the filter, for example a different install location or version.",
+        "Citrix components, such as the Virtual Smart Card launcher installed in a non-default path.",
+        "Legacy installers, launchers or admin scripts that build paths with relative '..' segments from the executable location."
+      ],
+      "response_steps": [
+        "Verify with the resolved path, hash and parent chain whether the execution is legitimate; document benign software and propose a narrow filter.",
+        "If malicious, isolate the endpoint through EDR and preserve the process tree, memory and referenced files.",
+        "Disable or reset the credentials of the involved user if compromise is suspected.",
+        "Remove the payload and any persistence after collecting evidence, then hunt for the same pattern fleet-wide.",
+        "Restore the host from a known-good state if integrity cannot be confirmed, and monitor it for recurrence."
+      ],
+      "severity_rationale": "Medium fits because bogus traversal is a strong obfuscation signal but some legitimate software produces it, so each alert needs verification before escalation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe launched with a redundant '\\..\\System32\\' segment to obfuscate the command (selection_1).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\..\\System32\\cmd.exe /c whoami /all",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      },
+      {
+        "description": "Executable in Users\\Public launched via a path that pretends to be svchost.exe using '.exe\\..\\' (selection_2).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\upd.exe",
+          "CommandLine": "C:\\Windows\\System32\\svchost.exe\\..\\..\\..\\Users\\Public\\upd.exe",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\Downloads\\invoice.js"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Google Drive sync client using its known traversal path, excluded by filter_optional_google_drive.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Google\\Drive\\googledrivesync.exe",
+          "CommandLine": "\"C:\\Program Files\\Google\\Drive\\googledrivesync.exe\\..\\crashreporter.exe\" --upload",
+          "ParentImage": "C:\\Program Files\\Google\\Drive\\googledrivesync.exe"
+        }
+      },
+      {
+        "description": "cmd.exe copying a file with a normal relative path; no '\\..\\Windows\\', '\\..\\System32\\', '\\..\\..\\' or '.exe\\..\\'.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c copy ..\\config\\app.ini C:\\Temp\\app.ini",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

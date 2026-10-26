@@ -1,0 +1,121 @@
+{
+  "rule": {
+    "id": "d20ee2f4-822c-4827-9e15-41500b1fff10",
+    "title": "Potential Amazon SSM Agent Hijacking",
+    "level": "medium",
+    "status": "test",
+    "author": "Muhammad Faisal",
+    "path": "windows/process_creation/proc_creation_win_ssm_agent_abuse.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_ssm_agent_abuse.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1219.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó amazon-ssm-agent.exe con los parámetros -register, -code, -id y -region, es decir, alguien registró el agente SSM con una activación híbrida. Si esa activación no pertenece a una cuenta AWS de la organización, el host podría quedar controlado desde una cuenta externa.",
+      "what_it_detects": "La creación de un proceso cuyo Image termina en \\amazon-ssm-agent.exe y cuyo CommandLine contiene a la vez '-register ', '-code ', '-id ' y '-region ', la sintaxis para registrar el agente con un código e ID de activación de AWS Systems Manager.",
+      "why_it_matters": "Según la investigación de Mitiga, un atacante con privilegios de administrador puede registrar el agente SSM en su propia cuenta AWS y usarlo como herramienta de acceso remoto (T1219.002) para ejecutar comandos y abrir sesiones. El tráfico va a endpoints legítimos de AWS, lo que da persistencia y C2 difíciles de distinguir.",
+      "triage_steps": [
+        "Revise el CommandLine y extraiga el valor de -id (ID de activación) y el de -region; anote también el código de activación, pero no lo comparta por canales inseguros.",
+        "Valide con el equipo de nube que el ID de activación y la región correspondan a una activación híbrida de una cuenta AWS de la organización (aws ssm describe-activations).",
+        "Identifique ParentImage, el usuario y la sesión de logon: un registro legítimo suele venir de un instalador, un script de aprovisionamiento o una herramienta de gestión conocida.",
+        "Determine si el host ya era una instancia EC2 o un nodo híbrido registrado; si se re-registra un nodo ya gestionado, el riesgo es mayor.",
+        "Revise C:\\ProgramData\\Amazon\\SSM\\Logs\\amazon-ssm-agent.log y los datos de registro en InstanceData para ver el ID de instancia administrada (mi-...) y la región resultantes.",
+        "Busque varios procesos amazon-ssm-agent.exe simultáneos y conexiones salientes a ssm.<región>.amazonaws.com en regiones que su organización no usa.",
+        "Pivote en el mismo host +/- 15 minutos: creación de usuarios, servicios nuevos, descargas, procesos hijos de ssm-document-worker o ssm-session-worker.",
+        "Consulte alertas previas del mismo usuario y host, y busque esta misma línea de comandos en otros endpoints."
+      ],
+      "false_positives": [
+        "Administradores o pipelines de aprovisionamiento que registran servidores on-premises o VM en una activación híbrida legítima de la organización.",
+        "Re-registro del agente durante migraciones de cuenta o región AWS, o al reconstruir imágenes base, previamente documentado en un cambio aprobado."
+      ],
+      "response_steps": [
+        "Confirme con el responsable de la cuenta AWS y del host si el registro fue autorizado; si lo fue, documente la activación y considere una excepción acotada.",
+        "Si no fue autorizado, aísle el endpoint de la red y conserve los logs del agente SSM, la carpeta InstanceData y la telemetría del proceso.",
+        "Detenga el agente no autorizado, elimine el registro malicioso y reinstale o vuelva a registrar el agente únicamente con la activación corporativa.",
+        "Investigue cómo obtuvo el atacante privilegios de administrador, restablezca las credenciales expuestas y revise los comandos que se ejecutaron por SSM.",
+        "Bloquee o supervise el tráfico SSM hacia regiones no usadas y busque registros similares en toda la flota."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque registrar el agente es una tarea administrativa habitual, pero si la activación es externa, el atacante obtiene acceso remoto persistente."
+    },
+    "en": {
+      "summary": "amazon-ssm-agent.exe was run with -register, -code, -id and -region, meaning the SSM agent was registered with a hybrid activation. If that activation belongs to an account outside the organization, the host may now be controlled externally.",
+      "what_it_detects": "Process creation where Image ends with \\amazon-ssm-agent.exe and CommandLine contains all of '-register ', '-code ', '-id ' and '-region ', the syntax for registering the agent with an AWS Systems Manager activation code and ID.",
+      "why_it_matters": "Mitiga's research showed that an attacker with admin rights can register the SSM agent to their own AWS account and use it as a remote access tool (T1219.002) to run commands and open sessions. Traffic goes to legitimate AWS endpoints, so this gives persistence and C2 that blend in.",
+      "triage_steps": [
+        "Review CommandLine and extract the -id (activation ID) and -region values; note the activation code but do not share it over insecure channels.",
+        "Ask the cloud team to confirm the activation ID and region belong to a hybrid activation in an organization AWS account (aws ssm describe-activations).",
+        "Identify ParentImage, user and logon session; legitimate registrations usually come from an installer, provisioning script or known management tool.",
+        "Determine whether the host was already an EC2 instance or registered hybrid node; re-registering an already managed node is higher risk.",
+        "Check C:\\ProgramData\\Amazon\\SSM\\Logs\\amazon-ssm-agent.log and InstanceData registration files for the resulting managed instance ID (mi-...) and region.",
+        "Look for multiple concurrent amazon-ssm-agent.exe processes and outbound connections to ssm.<region>.amazonaws.com in regions your organization does not use.",
+        "Pivot on the same host +/- 15 minutes: new users, new services, downloads, child processes of ssm-document-worker or ssm-session-worker.",
+        "Check earlier alerts for the same user and host, and hunt for the same command line on other endpoints."
+      ],
+      "false_positives": [
+        "Administrators or provisioning pipelines registering on-premises servers or VMs to a legitimate organization hybrid activation.",
+        "Agent re-registration during AWS account or region migrations, or golden image rebuilds, covered by an approved change."
+      ],
+      "response_steps": [
+        "Confirm with the AWS account and host owners whether the registration was authorized; if so, record the activation and consider a narrow exception.",
+        "If unauthorized, isolate the endpoint and preserve SSM agent logs, the InstanceData folder and process telemetry.",
+        "Stop the rogue agent, remove the malicious registration, and reinstall or re-register the agent only with the corporate activation.",
+        "Investigate how admin rights were obtained, reset exposed credentials and review commands executed through SSM.",
+        "Block or monitor SSM traffic to unused regions and hunt for similar registrations across the fleet."
+      ],
+      "severity_rationale": "Medium fits because agent registration is a normal admin task, but an external activation gives the attacker persistent remote access."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "SSM agent registered from an elevated PowerShell session with an activation code, ID and region",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Amazon\\SSM\\amazon-ssm-agent.exe",
+          "CommandLine": "\"C:\\Program Files\\Amazon\\SSM\\amazon-ssm-agent.exe\" -register -code \"EXAMPLEactCode0000\" -id \"0a1b2c3d-1111-2222-3333-444455556666\" -region \"ap-southeast-1\" -y",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal SSM agent service start without registration parameters",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Program Files\\Amazon\\SSM\\amazon-ssm-agent.exe",
+          "CommandLine": "\"C:\\Program Files\\Amazon\\SSM\\amazon-ssm-agent.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Same registration arguments echoed by a different binary, so the Image condition does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "CommandLine": "notepad.exe C:\\docs\\ssm-howto -register -code -id -region .txt",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

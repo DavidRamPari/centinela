@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "762bb580-79b4-40f4-8b9e-9349ce1710f4",
+    "title": "Indirect Command Execution via SFTP ProxyCommand",
+    "level": "medium",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_sftp_proxy_command_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sftp_proxy_command_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1202"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó sftp.exe con la opción ProxyCommand= en la línea de comandos, lo que permite que el cliente OpenSSH lance un comando arbitrario como proceso hijo. Puede ser administración legítima o ejecución indirecta para evadir controles.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\sftp.exe y CommandLine contiene 'ProxyCommand='. El valor de ProxyCommand es un comando que sftp.exe ejecuta antes de conectarse, por lo que sirve como proxy de ejecución.",
+      "why_it_matters": "Corresponde a ATT&CK T1202 (Indirect Command Execution): se usa un binario firmado de Windows (LOLBAS) para lanzar cmd, PowerShell u otros payloads y eludir reglas centradas en el proceso padre. Las referencias de la regla incluyen un informe de Sophos sobre Lumma Stealer.",
+      "triage_steps": [
+        "Lea el CommandLine completo y extraiga el comando dentro de ProxyCommand=: ¿lanza cmd.exe, powershell.exe, mshta, rundll32, scripts o binarios en rutas de usuario?",
+        "Revise ParentImage y ParentCommandLine: explorer.exe (diálogo Ejecutar), navegadores, wscript, mshta u Office son sospechosos; una consola de administrador conocida lo es menos.",
+        "Busque procesos hijos de sftp.exe y sus descendientes en el mismo host en +/- 15 minutos, incluidas descargas, escritura de archivos y conexiones de red.",
+        "Verifique que Image sea la ruta esperada (C:\\Windows\\System32\\OpenSSH\\sftp.exe) y valide el hash y la firma.",
+        "Confirme con el usuario o su equipo si realiza tareas SFTP; los usuarios no técnicos rara vez usan sftp.exe.",
+        "Revise si el host de destino del comando sftp existe o si es un valor ficticio, señal de que solo se buscaba ejecutar el ProxyCommand.",
+        "Busque alertas previas del mismo usuario y host, y el mismo patrón de CommandLine en otros endpoints."
+      ],
+      "false_positives": [
+        "Administradores o desarrolladores que usan ProxyCommand para conectarse vía bastión, netcat, connect.exe o un proxy corporativo.",
+        "Scripts de automatización o transferencias programadas que configuran ProxyCommand por línea de comandos.",
+        "Herramientas de despliegue o CI que invocan sftp.exe a través de un proxy documentado."
+      ],
+      "response_steps": [
+        "Valide con el responsable del host si la ejecución es esperada; documente y ajuste la regla para el patrón legítimo exacto si corresponde.",
+        "Si es sospechosa, aísle el endpoint y preserve evidencia: árbol de procesos, archivos creados y conexiones de red.",
+        "Identifique y elimine los payloads ejecutados por ProxyCommand y mecanismos de persistencia asociados, tras confirmar su naturaleza maliciosa.",
+        "Restablezca credenciales del usuario y revise robo de sesiones o datos de navegador si hay indicios de infostealer.",
+        "Busque el mismo indicador en toda la flota y bloquee dominios o IP relacionados."
+      ],
+      "severity_rationale": "Nivel medio porque el uso de ProxyCommand tiene usos administrativos legítimos, pero en endpoints de usuario es una técnica conocida de ejecución indirecta."
+    },
+    "en": {
+      "summary": "sftp.exe was launched with ProxyCommand= on its command line, which makes the OpenSSH client run an arbitrary command as a child process. This may be legitimate administration or indirect execution to evade controls.",
+      "what_it_detects": "Windows process creation events where Image ends with \\sftp.exe and CommandLine contains 'ProxyCommand='. The ProxyCommand value is executed by sftp.exe before connecting, so it works as an execution proxy.",
+      "why_it_matters": "This maps to ATT&CK T1202 (Indirect Command Execution): a signed Windows binary (LOLBAS) launches cmd, PowerShell or other payloads, evading parent-process based detections. The rule's references include a Sophos report on Lumma Stealer.",
+      "triage_steps": [
+        "Read the full CommandLine and extract the ProxyCommand= value: does it launch cmd.exe, powershell.exe, mshta, rundll32, scripts or binaries in user-writable paths?",
+        "Check ParentImage and ParentCommandLine: explorer.exe (Run dialog), browsers, wscript, mshta or Office are suspicious; a known admin console is less so.",
+        "Find child processes of sftp.exe and their descendants on the same host within +/- 15 minutes, including downloads, file writes and network connections.",
+        "Confirm Image is the expected path (C:\\Windows\\System32\\OpenSSH\\sftp.exe) and validate hash and signature.",
+        "Confirm with the user or their team whether they perform SFTP work; non-technical users rarely run sftp.exe.",
+        "Check whether the sftp target host is real or a dummy value, suggesting the goal was only to run the ProxyCommand.",
+        "Look for earlier alerts on the same user and host, and the same CommandLine pattern on other endpoints."
+      ],
+      "false_positives": [
+        "Administrators or developers using ProxyCommand to reach hosts via a bastion, netcat, connect.exe or a corporate proxy.",
+        "Automation scripts or scheduled transfers that set ProxyCommand on the command line.",
+        "Deployment or CI tooling that calls sftp.exe through a documented proxy."
+      ],
+      "response_steps": [
+        "Validate with the host owner whether the execution is expected; document and tune the rule for the exact legitimate pattern if so.",
+        "If suspicious, isolate the endpoint and preserve evidence: process tree, created files and network connections.",
+        "After confirming they are malicious, remove payloads run via ProxyCommand and any related persistence.",
+        "Reset the user's credentials and review session or browser data theft if infostealer activity is indicated.",
+        "Hunt for the same indicator fleet-wide and block related domains or IPs."
+      ],
+      "severity_rationale": "Medium because ProxyCommand has legitimate admin uses, but on user endpoints it is a known indirect execution technique."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sftp.exe launched from the Run dialog with ProxyCommand spawning cmd.exe to start a binary from a public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\OpenSSH\\sftp.exe",
+          "CommandLine": "sftp.exe -o ProxyCommand=\"cmd.exe /c start C:\\Users\\Public\\update.exe\" dummy@localhost",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE",
+          "ProcessId": 6120
+        }
+      },
+      {
+        "description": "Mixed-case path and option, ProxyCommand invoking PowerShell from a script host parent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\WINDOWS\\System32\\OpenSSH\\SFTP.EXE",
+          "CommandLine": "\"C:\\WINDOWS\\System32\\OpenSSH\\SFTP.EXE\" -o proxycommand=\"powershell.exe -NoProfile -File C:\\Users\\mrojas\\AppData\\Local\\Temp\\task.ps1\" x@203.0.113.10",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\mrojas\\Downloads\\invoice.js",
+          "ProcessId": 4432
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal sftp.exe transfer through a bastion using ProxyJump, no ProxyCommand",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-01.andes.example.com",
+          "User": "ANDES\\admin.lgomez",
+          "Image": "C:\\Windows\\System32\\OpenSSH\\sftp.exe",
+          "CommandLine": "sftp.exe -o ProxyJump=bastion-01.example.com deploy@198.51.100.20",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ProcessId": 3010
+        }
+      },
+      {
+        "description": "ssh.exe (not sftp.exe) using ProxyCommand for legitimate admin access",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-01.andes.example.com",
+          "User": "ANDES\\admin.lgomez",
+          "Image": "C:\\Windows\\System32\\OpenSSH\\ssh.exe",
+          "CommandLine": "ssh.exe -o ProxyCommand=\"ssh -W %h:%p bastion-01.example.com\" admin@198.51.100.30",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ProcessId": 3388
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

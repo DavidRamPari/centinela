@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "455b9d50-15a1-4b99-853f-8d37655a4c1b",
+    "title": "PUA - Suspicious ActiveDirectory Enumeration Via AdFind.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_pua_adfind_enumeration.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_pua_adfind_enumeration.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1087.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso cuya CommandLine contiene flags de AdFind para consultar la política de contraseñas y bloqueo del dominio, o atajos para volcar cuentas privilegiadas (-sc admincountdmp) y objetos de Exchange (-sc exchaddresses).",
+      "what_it_detects": "Eventos de process_creation en Windows donde CommandLine contiene atributos de política de contraseñas (lockoutthreshold, maxpwdage, minpwdlength, pwdproperties, etc.), '-sc admincountdmp' o '-sc exchaddresses'. La regla no valida Image, así que cualquier binario con esos valores genera la alerta.",
+      "why_it_matters": "AdFind es una herramienta legítima de consulta LDAP que los atacantes suelen usar para reconocer Active Directory (T1087.002, Domain Account Discovery). Si conocen la política de bloqueo, pueden ajustar ataques de password spraying. Si identifican admins y servidores Exchange, pueden elegir objetivos para escalar privilegios.",
+      "triage_steps": [
+        "Revise CommandLine e Image: confirme si se trata de AdFind (o de un binario renombrado) y qué selección coincidió: política de contraseñas, admincountdmp o exchaddresses.",
+        "Verifique el hash, la ruta y los metadatos del binario. Si AdFind corre desde Temp, ProgramData, Public o perfiles de usuario, es más sospechoso.",
+        "Identifique al usuario y el host. ¿Pertenece al equipo de AD o de identidad? ¿El host es un servidor de administración o una estación de usuario común?",
+        "Examine ParentImage y la cadena de procesos. Que lo lance cmd.exe o powershell.exe desde scripts, macros o herramientas de acceso remoto es una señal de alerta.",
+        "Busque en el mismo host, +/- 15 minutos, otras ejecuciones de AdFind o comandos de reconocimiento (nltest, net group, whoami) y si la salida se redirigió a archivos .txt.",
+        "Revise los inicios de sesión del usuario y si hubo intentos de autenticación fallidos en el dominio que sugieran password spraying después de la consulta.",
+        "Consulte alertas previas del mismo host y usuario, sobre todo de acceso inicial, malware o movimiento lateral."
+      ],
+      "false_positives": [
+        "Actividad administrativa autorizada: personal de AD que audita la política de contraseñas o las cuentas con adminCount.",
+        "Auditorías de seguridad o pentests aprobados que usan AdFind.",
+        "Scripts de inventario o cumplimiento que consultan atributos como maxPwdAge con PowerShell u otras herramientas LDAP."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o su responsable si la ejecución estaba autorizada. Si lo estaba, documente la excepción por host y cuenta.",
+        "Si no estaba autorizada, aísle el endpoint y conserve el binario, los archivos de salida y la memoria para el análisis forense.",
+        "Restablezca las credenciales de la cuenta involucrada y revise el uso de cuentas privilegiadas y de los servidores Exchange enumerados.",
+        "Busque el mismo hash o la misma CommandLine en toda la flota y elimine las herramientas y la persistencia que se confirmen como maliciosas."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque los atacantes usan con frecuencia estas consultas antes de password spraying y de la escalada de privilegios, y en la mayoría de los entornos casi nadie las ejecuta de forma legítima."
+    },
+    "en": {
+      "summary": "A process command line contained AdFind flags that query the domain password and lockout policy, or shortcuts that dump privileged accounts (-sc admincountdmp) or Exchange objects (-sc exchaddresses).",
+      "what_it_detects": "Windows process_creation events where CommandLine contains password-policy attributes (lockoutthreshold, maxpwdage, minpwdlength, pwdproperties, etc.), '-sc admincountdmp' or '-sc exchaddresses'. The rule does not check Image, so any binary with these values fires.",
+      "why_it_matters": "AdFind is a legitimate LDAP query tool that attackers often use for Active Directory reconnaissance (T1087.002, Domain Account Discovery). Knowing the lockout policy helps them tune password spraying. Listing admins and Exchange servers helps them pick targets for privilege escalation.",
+      "triage_steps": [
+        "Review CommandLine and Image. Check whether this is AdFind or a renamed binary, and which selection matched: password policy, admincountdmp or exchaddresses.",
+        "Check the binary's hash, path and metadata. AdFind running from Temp, ProgramData, Public or user profiles is more suspicious.",
+        "Identify the user and host. Is the user on the AD or identity team? Is the host an admin server or an ordinary workstation?",
+        "Inspect ParentImage and the process tree. A launch by cmd.exe or powershell.exe from scripts, macros or remote-access tools is a red flag.",
+        "On the same host within +/- 15 minutes, look for other AdFind runs, recon commands (nltest, net group, whoami) and output redirected to .txt files.",
+        "Review the user's logons and look for failed authentications across the domain after the query that would point to password spraying.",
+        "Check earlier alerts for the same host and user, especially initial access, malware or lateral movement."
+      ],
+      "false_positives": [
+        "Authorized administrative activity: AD staff auditing the password policy or adminCount accounts.",
+        "Approved security audits or penetration tests that use AdFind.",
+        "Inventory or compliance scripts that query attributes such as maxPwdAge through PowerShell or other LDAP tools."
+      ],
+      "response_steps": [
+        "Ask the user or their manager to confirm the run was authorized. If it was, record an exception scoped to the host and account.",
+        "If it was not authorized, isolate the endpoint and keep the binary, output files and memory for forensics.",
+        "Reset the involved account's credentials and review activity on the enumerated privileged accounts and Exchange servers.",
+        "Search the fleet for the same hash or CommandLine. Remove tooling and persistence once they are confirmed malicious."
+      ],
+      "severity_rationale": "High fits because attackers commonly run these queries before password spraying and privilege escalation, and in most environments few people run them legitimately."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "AdFind querying the domain password and lockout policy (selection_password)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\AdFind.exe",
+          "OriginalFileName": "AdFind.exe",
+          "CommandLine": "AdFind.exe -default -s base lockoutduration lockoutthreshold lockoutobservationwindow maxpwdage minpwdage minpwdlength pwdhistorylength pwdproperties",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\recon.bat",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      },
+      {
+        "description": "AdFind dumping accounts with adminCount set (selection_enum_ad)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\ProgramData\\af.exe",
+          "OriginalFileName": "AdFind.exe",
+          "CommandLine": "af.exe -sc admincountdmp",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\ProgramData\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "AdFind listing computer objects, with no password-policy attribute and no admincountdmp or exchaddresses shortcut",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-SRV-01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Tools\\AdFind\\AdFind.exe",
+          "OriginalFileName": "AdFind.exe",
+          "CommandLine": "AdFind.exe -f \"objectcategory=computer\" name operatingSystem",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Tools\\AdFind\\"
+        }
+      },
+      {
+        "description": "Native password policy check with net accounts, which uses none of the matched strings",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-SRV-01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net accounts /domain",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Windows\\System32\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "15b75071-74cc-47e0-b4c6-b43744a62a2b",
+    "title": "Suspicious Process Start Locations",
+    "level": "medium",
+    "status": "test",
+    "author": "juju4, Jonhnathan Ribeiro, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_rundll32_run_locations.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_rundll32_run_locations.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un proceso cuyo ejecutable (Image) está en una carpeta de Windows que normalmente no aloja ejecutables, como C:\\Windows\\Tasks\\, \\fonts\\, \\debug\\ o \\RECYCLER\\. Puede indicar malware oculto en rutas del sistema poco revisadas.",
+      "what_it_detects": "Eventos de creación de procesos donde Image comienza con C:\\Windows\\Tasks\\, debug, fonts, help, drivers, addins, cursors o system32\\tasks, o donde contiene :\\RECYCLER\\ o :\\SystemVolumeInformation\\. Ese último valor no tiene espacios, así que no coincide con la carpeta real \"System Volume Information\".",
+      "why_it_matters": "Los atacantes dejan payloads en carpetas del sistema con permisos de escritura o poca visibilidad para que parezcan legítimos y no llamen la atención (ATT&CK T1036, Masquerading). Ejecutar desde estas rutas suele relacionarse con persistencia, droppers o herramientas de post-explotación.",
+      "triage_steps": [
+        "Revise Image: nombre del archivo, extensión y si imita binarios de Windows (svchost.exe, rundll32.exe) fuera de System32.",
+        "Obtenga el hash del ejecutable y consúltelo en su plataforma de threat intelligence; verifique firma digital, editor y fecha de creación del archivo.",
+        "Analice ParentImage y ParentCommandLine: explorer.exe, un servicio, el Programador de tareas, Office o un script dan contextos muy distintos.",
+        "Inspeccione CommandLine en busca de URLs, rutas codificadas, rundll32 con DLL o argumentos de red.",
+        "Identifique el usuario (User) y si tiene privilegios administrativos; confirme si la actividad corresponde a su función.",
+        "Pivotee en el mismo host +/- 15 minutos: procesos hijos, conexiones de red, escritura de archivos, tareas programadas o servicios nuevos.",
+        "Busque el mismo hash o la misma ruta en otros endpoints y alertas previas para la misma entidad."
+      ],
+      "false_positives": [
+        "Scripts o herramientas administrativas internas que se copian o ejecutan desde C:\\Windows\\debug\\ o C:\\Windows\\Tasks\\.",
+        "Instaladores o actualizadores de controladores, fuentes o ayuda que ejecutan utilidades temporales en drivers, fonts o help.",
+        "Software de gestión o inventario heredado que despliega agentes en carpetas del sistema poco comunes."
+      ],
+      "response_steps": [
+        "Valide con el responsable del host o de TI si el ejecutable y la ruta son conocidos y autorizados.",
+        "Si no es legítimo, aísle el endpoint con su EDR y conserve una copia del archivo y sus artefactos para análisis.",
+        "Termine el proceso, elimine el binario y retire mecanismos de persistencia asociados (tareas, servicios, claves Run) tras documentarlos.",
+        "Revise credenciales del usuario afectado y restablézcalas si hubo ejecución maliciosa; busque movimiento lateral desde el host.",
+        "Si es legítimo, documente la ruta y el hash, y cree una exclusión acotada por Image y hash."
+      ],
+      "severity_rationale": "Nivel medio: estas rutas casi nunca alojan ejecutables legítimos, pero algunas herramientas administrativas las usan, por lo que hace falta contexto antes de escalar."
+    },
+    "en": {
+      "summary": "A process started from an executable (Image) in a Windows folder that normally holds no executables, such as C:\\Windows\\Tasks\\, \\fonts\\, \\debug\\ or \\RECYCLER\\. This may indicate malware hiding in rarely inspected system paths.",
+      "what_it_detects": "Process creation events where Image starts with C:\\Windows\\Tasks\\, debug, fonts, help, drivers, addins, cursors or system32\\tasks, or contains :\\RECYCLER\\ or :\\SystemVolumeInformation\\. That last value has no spaces, so it will not match the real \"System Volume Information\" folder.",
+      "why_it_matters": "Attackers drop payloads in writable or low-visibility system folders so they look legitimate and avoid scrutiny (ATT&CK T1036, Masquerading). Execution from these paths often relates to persistence, droppers or post-exploitation tooling.",
+      "triage_steps": [
+        "Review Image: file name, extension, and whether it mimics Windows binaries (svchost.exe, rundll32.exe) outside System32.",
+        "Get the executable hash and check it in threat intelligence; verify digital signature, publisher and file creation time.",
+        "Examine ParentImage and ParentCommandLine: explorer.exe, a service, Task Scheduler, Office or a script imply very different contexts.",
+        "Inspect CommandLine for URLs, encoded paths, rundll32 with a DLL, or network arguments.",
+        "Identify the User and their privileges; confirm whether the activity fits their role.",
+        "Pivot on the same host +/- 15 minutes: child processes, network connections, file writes, new scheduled tasks or services.",
+        "Search for the same hash or path on other endpoints and earlier alerts for the same entity."
+      ],
+      "false_positives": [
+        "Internal admin scripts or tools copied to or run from C:\\Windows\\debug\\ or C:\\Windows\\Tasks\\.",
+        "Driver, font or help installers and updaters that run temporary utilities from drivers, fonts or help.",
+        "Legacy management or inventory software deploying agents into unusual system folders."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the executable and path are known and authorized.",
+        "If not legitimate, isolate the endpoint via EDR and preserve the file and related artifacts for analysis.",
+        "Kill the process, remove the binary and associated persistence (tasks, services, Run keys) after documenting them.",
+        "Review and reset the affected user's credentials if malicious execution occurred; hunt for lateral movement from the host.",
+        "If legitimate, document path and hash and add a narrow exclusion by Image and hash."
+      ],
+      "severity_rationale": "Medium fits because these paths rarely host legitimate executables, yet some admin tools use them, so context is needed before escalating."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Masquerading svchost.exe executed from C:\\Windows\\Fonts\\ launched by a script host",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\Fonts\\svchost.exe",
+          "CommandLine": "\"C:\\Windows\\Fonts\\svchost.exe\" -k netsvc",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\invoice.vbs",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000001"
+        }
+      },
+      {
+        "description": "Executable run from C:\\Windows\\Tasks\\ by Task Scheduler",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "c:\\windows\\tasks\\updater.exe",
+          "CommandLine": "c:\\windows\\tasks\\updater.exe /silent",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000002"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate font driver host from System32; path resembles fonts but is not under C:\\Windows\\fonts\\",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "Font Driver Host\\UMFD-1",
+          "Image": "C:\\Windows\\System32\\fontdrvhost.exe",
+          "CommandLine": "\"fontdrvhost.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\wininit.exe",
+          "ParentCommandLine": "wininit.exe"
+        }
+      },
+      {
+        "description": "Scheduled task binary run from C:\\Windows\\System32 rather than the Tasks folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\taskhostw.exe",
+          "CommandLine": "taskhostw.exe {222A245B-E637-4AE9-A93F-A59CA119A75E}",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

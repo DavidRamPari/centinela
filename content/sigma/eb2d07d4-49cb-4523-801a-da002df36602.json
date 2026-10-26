@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "eb2d07d4-49cb-4523-801a-da002df36602",
+    "title": "HackTool - EDRSilencer Execution",
+    "level": "high",
+    "status": "test",
+    "author": "@gott_cyber",
+    "path": "windows/process_creation/proc_creation_win_hktl_edrsilencer.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_edrsilencer.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó EDRSilencer en un endpoint Windows, identificado por la ruta de la imagen, el OriginalFileName o la Description del PE. Lo más probable es que alguien intente impedir que el agente EDR reporte a su consola.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\EDRSilencer.exe, OriginalFileName es EDRSilencer.exe o Description contiene 'EDRSilencer'. Los metadatos PE permiten detectar el binario aunque lo hayan renombrado.",
+      "why_it_matters": "EDRSilencer crea filtros de Windows Filtering Platform (WFP) que bloquean el tráfico saliente de los procesos EDR. El agente sigue en ejecución, pero la consola deja de recibir telemetría y alertas (ATT&CK T1685, debilitamiento de defensas).",
+      "triage_steps": [
+        "Revise Image, OriginalFileName, Description y el hash. Si Image no coincide con OriginalFileName, el binario fue renombrado para evadir detección.",
+        "Lea el CommandLine: 'blockedr', 'block <ruta>', 'unblockall', 'unblock' o 'list' muestran si se bloqueó el EDR, se revirtió el bloqueo o solo se consultó.",
+        "Identifique ParentImage y el usuario. Normalmente requiere privilegios de administrador; confirme cómo los obtuvo esa cuenta.",
+        "Revise en la consola EDR la última comunicación del host. Si hay un hueco de telemetría desde la hora de la alerta, el bloqueo funcionó.",
+        "Busque eventos 5447 (cambio de filtro WFP) y 5157 (conexión bloqueada) en el log de Security, o ejecute 'netsh wfp show filters' de forma remota.",
+        "Revise en el mismo host, en una ventana de +/- 15 minutos, la descarga del binario, accesos a credenciales, movimiento lateral y otras herramientas de hacking.",
+        "Revise alertas previas del mismo usuario y host. También busque el mismo hash en otros endpoints."
+      ],
+      "false_positives": [
+        "Ejercicios autorizados de red team o pruebas de penetración que evalúan la resiliencia del EDR. Confírmelos con el ticket o el responsable del ejercicio.",
+        "Ingenieros de seguridad que prueban la herramienta en laboratorio. Verifique que el host sea de laboratorio y que la actividad esté documentada."
+      ],
+      "response_steps": [
+        "Confirme con el equipo responsable que no se trata de una prueba autorizada. Si no se confirma, escale como incidente de alta prioridad.",
+        "Aísle el host por red. Si el EDR está silenciado, aplique el aislamiento por firewall perimetral o switch.",
+        "Elimine los filtros WFP maliciosos (EDRSilencer unblockall o netsh/PowerShell) después de documentarlos, y confirme que el agente vuelve a reportar.",
+        "Recolecte el binario y la memoria. Restablezca las credenciales de la cuenta usada y busque persistencia antes de devolver el host a producción."
+      ],
+      "severity_rationale": "Es alta porque ejecutar una herramienta diseñada para cegar el EDR casi nunca es legítimo y deja al host sin visibilidad."
+    },
+    "en": {
+      "summary": "EDRSilencer ran on a Windows endpoint, identified by its image path, OriginalFileName or PE Description. Someone is likely trying to stop the EDR agent from reporting to its console.",
+      "what_it_detects": "Process creation where Image ends with \\EDRSilencer.exe, OriginalFileName is EDRSilencer.exe, or Description contains 'EDRSilencer'. The PE metadata catches the binary even when it has been renamed.",
+      "why_it_matters": "EDRSilencer adds Windows Filtering Platform (WFP) filters that block outbound traffic from EDR processes. The agent keeps running, but the console stops receiving telemetry and alerts (ATT&CK T1685, defense impairment).",
+      "triage_steps": [
+        "Check Image, OriginalFileName, Description and the hash. If Image and OriginalFileName don't match, the binary was renamed to evade detection.",
+        "Read the CommandLine: 'blockedr', 'block <path>', 'unblockall', 'unblock' or 'list' show whether the EDR was blocked, the block was undone, or filters were only listed.",
+        "Identify the ParentImage and the user. The tool normally needs admin rights, so confirm how that account got them.",
+        "Check the host's last check-in in the EDR console. A telemetry gap starting at the alert time means the block worked.",
+        "Look for Security events 5447 (WFP filter change) and 5157 (connection blocked), or run 'netsh wfp show filters' remotely.",
+        "On the same host, within +/- 15 minutes, look for the binary download, credential access, lateral movement and other hacktools.",
+        "Review earlier alerts for the same user and host. Also hunt for the same hash on other endpoints."
+      ],
+      "false_positives": [
+        "Authorized red team exercises or penetration tests of EDR resilience. Confirm them against the engagement ticket or the exercise owner.",
+        "Security engineers testing the tool in a lab. Check that the host is a lab system and the activity is documented."
+      ],
+      "response_steps": [
+        "Confirm with the owning team that this is not an authorized test. If you can't confirm it, escalate as a high-priority incident.",
+        "Isolate the host. If the EDR is silenced, contain it at the perimeter firewall or the switch.",
+        "Document the malicious WFP filters, then remove them (EDRSilencer unblockall or netsh/PowerShell). Confirm the agent reports again.",
+        "Collect the binary and memory. Reset credentials for the account used and check for persistence before returning the host to service."
+      ],
+      "severity_rationale": "High fits because a tool built to blind the EDR is rarely run legitimately and leaves the host without visibility."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "EDRSilencer run under its original name to block all detected EDR processes",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\EDRSilencer.exe",
+          "OriginalFileName": "EDRSilencer.exe",
+          "Description": "EDRSilencer",
+          "CommandLine": "EDRSilencer.exe blockedr",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed EDRSilencer binary detected through its PE OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\adm.rlopez",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "EDRSilencer.exe",
+          "Description": "EDRSilencer",
+          "CommandLine": "svchelper.exe block \"C:\\Program Files\\ExampleEDR\\agent.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator listing WFP filters with netsh. Legitimate binary, no EDRSilencer metadata.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\adm.rlopez",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "Description": "Network Command Shell",
+          "CommandLine": "netsh wfp show filters",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Defender scanning a file named EDRSilencer.exe. The name appears only in CommandLine, which the rule does not inspect.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Program Files\\Windows Defender\\MpCmdRun.exe",
+          "OriginalFileName": "MpCmdRun.exe",
+          "Description": "Microsoft Malware Protection Command Line Utility",
+          "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" -Scan -ScanType 3 -File C:\\Users\\jperez\\Downloads\\EDRSilencer.exe",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

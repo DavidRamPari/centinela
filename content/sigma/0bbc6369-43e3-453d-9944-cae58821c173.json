@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "0bbc6369-43e3-453d-9944-cae58821c173",
+    "title": "Execution via WorkFolders.exe",
+    "level": "high",
+    "status": "test",
+    "author": "Maxime Thiebaut (@0xThiebaut)",
+    "path": "windows/process_creation/proc_creation_win_susp_workfolders.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_workfolders.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "WorkFolders.exe inició un control.exe que no está en C:\\Windows\\System32. Suele indicar que alguien puso un control.exe falso en una carpeta y abusó del binario firmado para ejecutarlo.",
+      "what_it_detects": "Eventos de creación de procesos en los que ParentImage termina en \\WorkFolders.exe e Image termina en \\control.exe, pero Image no es C:\\Windows\\System32\\control.exe. WorkFolders.exe puede ejecutar control.exe desde su directorio de trabajo actual, así que un atacante puede ejecutar su propio binario si lo nombra control.exe.",
+      "why_it_matters": "Es una ejecución mediante proxy de binarios del sistema (ATT&CK T1218). Un binario firmado por Microsoft inicia el payload, lo que puede evadir controles de lista blanca y hacer que la cadena de procesos parezca legítima.",
+      "triage_steps": [
+        "Revise la ruta completa de Image, su hash, firma y fecha de creación. Una ruta en Downloads, Temp, AppData o un recurso compartido es muy sospechosa.",
+        "Revise CommandLine y CurrentDirectory de WorkFolders.exe. Confirme desde qué carpeta se lanzó y quién la creó.",
+        "Identifique el proceso padre de WorkFolders.exe, como cmd.exe, powershell.exe, wscript.exe o un adjunto de Office, y revise su línea de comandos.",
+        "Busque el hash del control.exe falso en inteligencia de amenazas y en otros endpoints de la organización.",
+        "Revise los procesos hijos, las conexiones de red y la actividad de archivos y registro del control.exe falso en el mismo host, +/- 15 minutos.",
+        "Valide con el usuario si usa Work Folders y si esperaba esta actividad. Revise alertas anteriores del usuario y del host."
+      ],
+      "false_positives": [
+        "Uso legítimo de Work Folders, una función poco común. Normalmente lanzaría el control.exe de System32 y el filtro lo excluiría.",
+        "Copias de control.exe ubicadas en rutas no estándar por herramientas de empaquetado, pruebas de compatibilidad o laboratorios de seguridad autorizados."
+      ],
+      "response_steps": [
+        "Confirme que el binario no es legítimo con hash, firma y ruta. Preserve el archivo y la telemetría del host.",
+        "Si es malicioso, aísle el endpoint y termine el control.exe falso y sus procesos hijos.",
+        "Ponga en cuarentena el binario y los archivos relacionados de la misma carpeta. Elimine cualquier persistencia que haya creado.",
+        "Bloquee el hash y busque la misma técnica en toda la flota.",
+        "Restablezca las credenciales del usuario si hay indicios de robo de credenciales. Restaure el host desde una imagen confiable si se comprometió."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque es casi imposible que WorkFolders.exe lance un control.exe fuera de System32 por motivos legítimos, y eso indica una ejecución mediante proxy deliberada."
+    },
+    "en": {
+      "summary": "WorkFolders.exe started a control.exe that is not in C:\\Windows\\System32. This usually means someone put a fake control.exe in a folder and abused the signed binary to run it.",
+      "what_it_detects": "Process creation events where ParentImage ends in \\WorkFolders.exe and Image ends in \\control.exe, but Image is not C:\\Windows\\System32\\control.exe. WorkFolders.exe can run control.exe from its current working directory, so an attacker can run their own binary by naming it control.exe.",
+      "why_it_matters": "This is system binary proxy execution (ATT&CK T1218). A Microsoft-signed binary starts the payload, which can bypass allowlisting and make the process chain look legitimate.",
+      "triage_steps": [
+        "Check the full Image path, its hash, signature and creation time. A path in Downloads, Temp, AppData or a network share is highly suspicious.",
+        "Check the CommandLine and CurrentDirectory of WorkFolders.exe. Confirm which folder it was launched from and who created it.",
+        "Identify the parent of WorkFolders.exe, such as cmd.exe, powershell.exe, wscript.exe or an Office attachment, and review its command line.",
+        "Look up the fake control.exe hash in threat intelligence and on other endpoints.",
+        "Review the fake control.exe's child processes, network connections, and file and registry activity on the same host, +/- 15 minutes.",
+        "Ask the user whether they use Work Folders and expected this activity. Review earlier alerts for the user and host."
+      ],
+      "false_positives": [
+        "Legitimate use of Work Folders, an uncommon feature. It would normally launch the System32 control.exe, which the filter excludes.",
+        "Copies of control.exe in non-standard paths placed by packaging tools, compatibility tests or authorized security labs."
+      ],
+      "response_steps": [
+        "Confirm the binary is not legitimate using its hash, signature and path. Preserve the file and host telemetry.",
+        "If it is malicious, isolate the endpoint and kill the fake control.exe and its child processes.",
+        "Quarantine the binary and related files in the same folder. Remove any persistence it created.",
+        "Block the hash and hunt for the same technique across the fleet.",
+        "Reset the user's credentials if there are signs of credential theft. Reimage the host from a trusted image if it was compromised."
+      ],
+      "severity_rationale": "High fits because there is almost no legitimate reason for WorkFolders.exe to launch a control.exe outside System32, which points to deliberate proxy execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WorkFolders.exe launches a fake control.exe from the user's Downloads folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\Downloads\\kit\\control.exe",
+          "CommandLine": "control.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\Downloads\\kit\\",
+          "ParentImage": "C:\\Windows\\System32\\WorkFolders.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\WorkFolders.exe",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000001"
+        }
+      },
+      {
+        "description": "WorkFolders.exe launches control.exe from a temp directory, with the path in mixed case",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207",
+          "User": "ANDES\\mgomez",
+          "Image": "C:\\Users\\mgomez\\AppData\\Local\\Temp\\x1\\Control.EXE",
+          "CommandLine": "Control.EXE",
+          "CurrentDirectory": "C:\\Users\\mgomez\\AppData\\Local\\Temp\\x1\\",
+          "ParentImage": "C:\\Windows\\System32\\workfolders.exe",
+          "ParentCommandLine": "workfolders.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Work Folders use opening the genuine System32 control.exe; the filter excludes it",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\control.exe",
+          "CommandLine": "C:\\Windows\\System32\\control.exe /name Microsoft.WorkFolders",
+          "ParentImage": "C:\\Windows\\System32\\WorkFolders.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\WorkFolders.exe"
+        }
+      },
+      {
+        "description": "control.exe run from an unusual folder, but its parent is explorer.exe rather than WorkFolders.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311",
+          "User": "ANDES\\lrios",
+          "Image": "C:\\Tools\\control.exe",
+          "CommandLine": "C:\\Tools\\control.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

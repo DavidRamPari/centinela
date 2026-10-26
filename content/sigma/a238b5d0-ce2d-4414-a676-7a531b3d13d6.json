@@ -1,0 +1,138 @@
+{
+  "rule": {
+    "id": "a238b5d0-ce2d-4414-a676-7a531b3d13d6",
+    "title": "ETW Trace Evasion Activity",
+    "level": "high",
+    "status": "test",
+    "author": "@neu5ron, Florian Roth (Nextron Systems), Jonhnathan Ribeiro, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_susp_etw_trace_evasion.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_etw_trace_evasion.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1070",
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó wevtutil, logman o PowerShell con argumentos que borran o deshabilitan logs de ETW o eliminan o modifican proveedores de trazas. Esto puede dejar a las herramientas de seguridad sin visibilidad en el endpoint.",
+      "what_it_detects": "Eventos de creación de procesos que coinciden con uno de tres patrones. El primero es wevtutil con 'cl'/'clear-log' sobre '/Trace' o con 'sl'/'set-log' y '/e:false'. El segundo es logman con 'update trace --p ... -ets'. El tercero es PowerShell con Remove-EtwTraceProvider o con Set-EtwTraceProvider y la propiedad 0x11/17.",
+      "why_it_matters": "ETW alimenta al EDR, a Sysmon y al registro de eventos. Si se apaga un canal o se quita un proveedor, el atacante puede actuar sin dejar rastro. Corresponde a Indicator Removal (T1070) y al deterioro de defensas (T1685).",
+      "triage_steps": [
+        "Revise CommandLine para saber qué canal, sesión (por ejemplo EventLog-Application) o GUID de proveedor se tocó y qué acción se hizo: borrar, deshabilitar o eliminar.",
+        "Identifique User, IntegrityLevel y ParentImage. Que el padre sea cmd, un script, un servicio o una herramienta de gestión cambia mucho el contexto.",
+        "Confirme el estado actual con 'wevtutil gl <canal>' o 'logman query -ets' y anote si el canal o proveedor sigue deshabilitado.",
+        "Busque huecos de telemetría en el host: menos eventos del EDR, de Sysmon o de Security después de la hora de la alerta.",
+        "Revise los procesos del mismo host en un rango de +/- 15 minutos: borrado de logs, detención de servicios, cambios en Defender y herramientas de credenciales o de movimiento lateral.",
+        "Revise si el mismo usuario o el mismo proceso padre generó alertas antes en otros hosts, para descartar una ejecución masiva.",
+        "Valide con el equipo de TI si hay un cambio aprobado o un script de afinamiento de logs que justifique la acción."
+      ],
+      "false_positives": [
+        "Administradores que deshabilitan canales ruidosos, como DNS-Client/Operational, durante tareas de afinamiento o de solución de problemas.",
+        "Scripts de hardening o de imágenes base (golden image) que ajustan sesiones Autologger con logman o con los cmdlets de EtwTraceProvider.",
+        "Herramientas de diagnóstico de proveedores o de soporte que reconfiguran sesiones ETW de forma temporal."
+      ],
+      "response_steps": [
+        "Verifique con el responsable del host si existe un cambio autorizado antes de escalar.",
+        "Si no está autorizado, aísle el endpoint desde el EDR y conserve la memoria y los logs que queden.",
+        "Restablezca la telemetría: vuelva a habilitar el canal con 'wevtutil sl <canal> /e:true' y restaure el proveedor o la configuración Autologger.",
+        "Investigue el acceso inicial y la actividad ocurrida durante el hueco de visibilidad usando fuentes externas al host, como la red, el proxy o el controlador de dominio.",
+        "Restablezca las credenciales de la cuenta usada y elimine los mecanismos de persistencia que encuentre."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque apagar ETW casi nunca es una tarea rutinaria y deja ciegos a los controles de detección, lo que suele preceder a actividad maliciosa más grave."
+    },
+    "en": {
+      "summary": "wevtutil, logman or PowerShell ran with arguments that clear or disable ETW logs or remove or modify trace providers. This can blind security tooling on the endpoint.",
+      "what_it_detects": "Process creation events that match one of three patterns. The first is wevtutil with 'cl'/'clear-log' on '/Trace' or with 'sl'/'set-log' and '/e:false'. The second is logman with 'update trace --p ... -ets'. The third is PowerShell with Remove-EtwTraceProvider or with Set-EtwTraceProvider and property 0x11/17.",
+      "why_it_matters": "ETW feeds EDR, Sysmon and the event log. Disabling a channel or removing a provider lets an attacker act without leaving traces. This maps to Indicator Removal (T1070) and defense impairment (T1685).",
+      "triage_steps": [
+        "Read CommandLine to find which channel, session (for example EventLog-Application) or provider GUID was affected, and whether it was cleared, disabled or removed.",
+        "Identify User, IntegrityLevel and ParentImage. A parent of cmd, a script, a service or a management agent changes the context a lot.",
+        "Check the current state with 'wevtutil gl <channel>' or 'logman query -ets' and note whether the channel or provider is still disabled.",
+        "Look for telemetry gaps on the host: fewer EDR, Sysmon or Security events after the alert time.",
+        "Review processes on the same host within +/- 15 minutes: log clearing, stopped services, Defender changes, and credential or lateral movement tools.",
+        "Check whether the same user or the same parent process triggered earlier alerts on other hosts, to rule out a mass rollout.",
+        "Confirm with IT whether an approved change or a log-tuning script explains the action."
+      ],
+      "false_positives": [
+        "Administrators disabling noisy channels, such as DNS-Client/Operational, during tuning or troubleshooting.",
+        "Hardening or golden-image scripts that adjust Autologger sessions with logman or the EtwTraceProvider cmdlets.",
+        "Diagnostic or support tools that reconfigure ETW sessions temporarily."
+      ],
+      "response_steps": [
+        "Check with the host owner whether an authorized change exists before escalating.",
+        "If it is not authorized, isolate the endpoint through EDR and preserve memory and any remaining logs.",
+        "Restore telemetry: re-enable the channel with 'wevtutil sl <channel> /e:true' and restore the provider or Autologger configuration.",
+        "Investigate initial access and activity during the visibility gap using sources outside the host, such as network, proxy and domain controller logs.",
+        "Reset credentials for the account used and remove any persistence mechanisms you find."
+      ],
+      "severity_rationale": "High fits because disabling ETW is rarely routine and blinds detection controls, which often comes before more serious malicious activity."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "wevtutil disables the DNS-Client operational channel with /e:false",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wevtutil.exe",
+          "OriginalFileName": "wevtutil.exe",
+          "CommandLine": "wevtutil sl \"Microsoft-Windows-DNS-Client/Operational\" /e:false",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell removes a provider from the EventLog-Application Autologger",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command Remove-EtwTraceProvider -AutologgerName \"EventLog-Application\" -Guid \"{54849625-5478-4994-A5BA-3E3B0328C30D}\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "wevtutil set-log used only to resize the Application log, without /e:false",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-LOG-01.andes.example.com",
+          "User": "ANDES\\adm_mrojas",
+          "Image": "C:\\Windows\\System32\\wevtutil.exe",
+          "OriginalFileName": "wevtutil.exe",
+          "CommandLine": "wevtutil sl Application /ms:104857600",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "logman only lists running ETW sessions, with no update trace",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\adm_mrojas",
+          "Image": "C:\\Windows\\System32\\logman.exe",
+          "OriginalFileName": "Logman.exe",
+          "CommandLine": "logman query -ets",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

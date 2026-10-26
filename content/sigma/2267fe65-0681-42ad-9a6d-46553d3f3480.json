@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "2267fe65-0681-42ad-9a6d-46553d3f3480",
+    "title": "WSL Child Process Anomaly",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wsl_child_processes_anomalies.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wsl_child_processes_anomalies.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1202",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso de WSL (wsl.exe o wslhost.exe) creó un proceso hijo de Windows poco común, como un intérprete o LOLBin, o un ejecutable ubicado en una carpeta temporal o de usuario. Puede tratarse de ejecución indirecta para evadir detecciones de relación padre/hijo.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage termina en \\wsl.exe o \\wslhost.exe y el Image es cmd, powershell, pwsh, mshta, rundll32, regsvr32, cscript, wscript o calc, o se ejecuta desde Temp, Users\\Public, Downloads o Desktop.",
+      "why_it_matters": "WSL permite lanzar binarios de Windows desde Linux y con ello ocultar el origen real de la ejecución (T1202, ejecución indirecta de comandos; T1218, ejecución mediante binarios del sistema). También sirve para persistencia con cron dentro de la distribución.",
+      "triage_steps": [
+        "Revise Image, CommandLine y ParentCommandLine para identificar qué comando de WSL lanzó el proceso hijo y con qué argumentos.",
+        "Valide el usuario y el host: ¿WSL está aprobado y es de uso habitual para ese usuario o equipo (por ejemplo, un desarrollador)?",
+        "Si Image está en Temp, Downloads, Desktop o Users\\Public, obtenga el hash, la firma y el origen del archivo (Zone.Identifier, descarga reciente).",
+        "Revise los procesos hijos y nietos del proceso detectado y la actividad de red, archivos y registro en el mismo host +/- 15 minutos.",
+        "Busque persistencia dentro de la distribución: crontab, /etc/cron*, .bashrc y .profile que invoquen binarios .exe de Windows.",
+        "Busque alertas previas del mismo usuario o host y el mismo CommandLine en otros endpoints."
+      ],
+      "false_positives": [
+        "Desarrolladores o scripts de build que llaman cmd.exe o powershell.exe desde WSL (por ejemplo, cmd.exe /c echo %USERPROFILE%).",
+        "Herramientas de interoperabilidad o IDE que integran WSL y abren shells de Windows.",
+        "Usuarios que ejecutan instaladores o utilidades descargadas desde Downloads o Desktop mediante WSL."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del equipo si la ejecución fue intencional y documente el resultado.",
+        "Si es malicioso, aísle el endpoint y conserve evidencia: el binario, el historial de shell de WSL, crontab y el volcado de memoria si procede.",
+        "Elimine la persistencia identificada y los artefactos maliciosos, solo después de verificarlos y respaldarlos.",
+        "Restablezca las credenciales del usuario si hubo ejecución de payloads y considere restringir WSL mediante políticas donde no se necesite."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque el patrón es poco común y útil para evasión, pero el uso legítimo de interoperabilidad de WSL en equipos de desarrollo es posible."
+    },
+    "en": {
+      "summary": "A WSL process (wsl.exe or wslhost.exe) spawned an uncommon Windows child process, such as a script interpreter or LOLBin, or an executable in a temp or user folder. This may be indirect execution to evade parent/child detections.",
+      "what_it_detects": "Process creation where ParentImage ends with \\wsl.exe or \\wslhost.exe and Image is cmd, powershell, pwsh, mshta, rundll32, regsvr32, cscript, wscript or calc, or runs from Temp, Users\\Public, Downloads or Desktop.",
+      "why_it_matters": "WSL can launch Windows binaries from Linux, hiding the true origin of execution (T1202 Indirect Command Execution; T1218 System Binary Proxy Execution). It can also provide persistence through cron inside the distribution.",
+      "triage_steps": [
+        "Review Image, CommandLine and ParentCommandLine to learn which WSL command launched the child and with what arguments.",
+        "Validate user and host: is WSL approved and routinely used by this user or machine, for example a developer workstation?",
+        "If Image is in Temp, Downloads, Desktop or Users\\Public, collect hash, signature and file origin (Zone.Identifier, recent download).",
+        "Review child and grandchild processes plus network, file and registry activity on the same host within +/- 15 minutes.",
+        "Check the distribution for persistence: crontab, /etc/cron*, .bashrc and .profile entries invoking Windows .exe binaries.",
+        "Search for earlier alerts on the same user or host and the same CommandLine on other endpoints."
+      ],
+      "false_positives": [
+        "Developers or build scripts calling cmd.exe or powershell.exe from WSL (for example cmd.exe /c echo %USERPROFILE%).",
+        "Interop tools or IDEs integrating WSL that open Windows shells.",
+        "Users running installers or utilities from Downloads or Desktop through WSL."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether the execution was intended and document the outcome.",
+        "If malicious, isolate the endpoint and preserve evidence: the binary, WSL shell history, crontab and memory if needed.",
+        "Remove identified persistence and malicious artifacts only after verifying and backing them up.",
+        "Reset the user's credentials if payloads ran, and consider restricting WSL by policy where it is not required."
+      ],
+      "severity_rationale": "Medium fits because the pattern is uncommon and useful for evasion, yet legitimate WSL interop on developer machines is plausible."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "wsl.exe spawns PowerShell with an encoded command",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\wsl.exe",
+          "ParentCommandLine": "wsl.exe -e /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -nop -enc SQBFAFgA",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -enc SQBFAFgA",
+          "ProcessId": 6120,
+          "ParentProcessId": 5532
+        }
+      },
+      {
+        "description": "wslhost.exe launches an executable from the user's Temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Program Files\\WSL\\wslhost.exe",
+          "ParentCommandLine": "wslhost.exe --distro-id {1a2b3c4d-0000-0000-0000-000000000000}",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\updater.exe",
+          "CommandLine": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\updater.exe --silent",
+          "ProcessId": 7344,
+          "ParentProcessId": 7012
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "wsl.exe launches notepad.exe from System32, which is not in the image list or a suspicious path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\wsl.exe",
+          "ParentCommandLine": "wsl.exe -e notepad.exe",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "CommandLine": "notepad.exe",
+          "ProcessId": 4410,
+          "ParentProcessId": 4388
+        }
+      },
+      {
+        "description": "PowerShell spawned by explorer.exe, not by a WSL parent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe",
+          "ProcessId": 3920,
+          "ParentProcessId": 2216
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "rule": {
+    "id": "15c7904e-6ad1-4a45-9b46-5fb25df37fd2",
+    "title": "Malicious PE Execution by Microsoft Visual Studio Debugger",
+    "level": "medium",
+    "status": "test",
+    "author": "Agro (@agro_sev), Ensar Şamil (@sblmsrsn), oscd.community",
+    "path": "windows/process_creation/proc_creation_win_susp_use_of_vsjitdebugger_bin.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_use_of_vsjitdebugger_bin.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "vsjitdebugger.exe, el depurador Just-In-Time de Visual Studio, inició un proceso hijo que no es devenv.exe ni vsimmersiveactivatehelper. Puede tratarse de un binario firmado usado como proxy para ejecutar código malicioso.",
+      "what_it_detects": "Eventos de creación de procesos cuyo ParentImage termina en \\vsjitdebugger.exe, excluyendo los hijos esperados: Image que termina en \\devenv.exe o que coincide con \\vsimmersiveactivatehelper*.exe.",
+      "why_it_matters": "vsjitdebugger.exe puede iniciar un ejecutable arbitrario y adjuntarle un depurador. Como el binario está firmado por Microsoft, un atacante puede usarlo para ejecutar su payload y evadir controles basados en confianza (ATT&CK T1218, System Binary Proxy Execution).",
+      "triage_steps": [
+        "Revise Image, CommandLine y hash del proceso hijo: ruta, firma digital, fecha de creación del archivo y reputación del hash.",
+        "Revise ParentCommandLine de vsjitdebugger.exe: confirme si se pasó un ejecutable como argumento y quién lo invocó (proceso abuelo).",
+        "Identifique al usuario: ¿es desarrollador y el endpoint tiene Visual Studio instalado y en uso habitual?",
+        "Busque rutas sospechosas del hijo, como %TEMP%, %APPDATA%, C:\\Users\\Public o carpetas de descargas.",
+        "Pivote en el mismo host +/- 15 minutos: conexiones de red, archivos escritos, cambios en registro y procesos hijos del ejecutable lanzado.",
+        "Busque alertas previas del mismo host o usuario y la misma ejecución de vsjitdebugger.exe en otros endpoints."
+      ],
+      "false_positives": [
+        "Desarrolladores depurando sus propias aplicaciones con el depurador JIT; el hijo suele ser un binario del proyecto en su carpeta de compilación.",
+        "Fallas de aplicaciones que activan el depurador JIT registrado en AeDebug y lanzan herramientas de Visual Studio no excluidas por la regla."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o el equipo de desarrollo si la depuración era legítima antes de actuar.",
+        "Si el binario hijo es desconocido o malicioso, aísle el endpoint y suspenda el proceso conservando evidencia (volcado de memoria, copia del archivo).",
+        "Elimine el payload y cualquier persistencia relacionada, por ejemplo claves AeDebug modificadas, tras confirmar el compromiso.",
+        "Restablezca credenciales del usuario si hubo ejecución confirmada y considere restringir vsjitdebugger.exe en equipos sin Visual Studio."
+      ],
+      "severity_rationale": "Media: el patrón es poco común y puede indicar evasión, pero el depurador JIT tiene usos legítimos en equipos de desarrollo."
+    },
+    "en": {
+      "summary": "vsjitdebugger.exe, the Visual Studio Just-In-Time debugger, started a child process other than devenv.exe or vsimmersiveactivatehelper. A signed binary may be acting as a proxy to run malicious code.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\vsjitdebugger.exe, excluding expected children: Image ending with \\devenv.exe or matching \\vsimmersiveactivatehelper*.exe.",
+      "why_it_matters": "vsjitdebugger.exe can launch an arbitrary executable and attach a debugger. Because it is Microsoft-signed, attackers can run payloads through it and bypass trust-based controls (ATT&CK T1218, System Binary Proxy Execution).",
+      "triage_steps": [
+        "Review the child's Image, CommandLine and hash: path, digital signature, file creation time and hash reputation.",
+        "Review vsjitdebugger.exe's ParentCommandLine: was an executable passed as an argument, and which grandparent process invoked it?",
+        "Identify the user: are they a developer, and is Visual Studio installed and routinely used on this endpoint?",
+        "Flag suspicious child paths such as %TEMP%, %APPDATA%, C:\\Users\\Public or download folders.",
+        "Pivot on the same host +/- 15 minutes: network connections, files written, registry changes and children of the launched executable.",
+        "Check earlier alerts for the same host or user, and the same vsjitdebugger.exe execution on other endpoints."
+      ],
+      "false_positives": [
+        "Developers debugging their own applications via the JIT debugger; the child is usually a project binary in its build folder.",
+        "Application crashes triggering the JIT debugger registered under AeDebug that launch Visual Studio tools not excluded by the rule."
+      ],
+      "response_steps": [
+        "Confirm with the user or development team whether debugging was legitimate before acting.",
+        "If the child binary is unknown or malicious, isolate the endpoint and suspend the process, preserving evidence (memory dump, file copy).",
+        "After confirming compromise, remove the payload and related persistence, such as modified AeDebug keys.",
+        "Reset the user's credentials if execution is confirmed and consider restricting vsjitdebugger.exe on hosts without Visual Studio."
+      ],
+      "severity_rationale": "Medium: the pattern is uncommon and may indicate defense evasion, but the JIT debugger has legitimate uses on developer workstations."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "vsjitdebugger.exe launches an unsigned executable from C:\\Users\\Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\vsjitdebugger.exe",
+          "ParentCommandLine": "vsjitdebugger.exe C:\\Users\\Public\\update.exe",
+          "Image": "C:\\Users\\Public\\update.exe",
+          "CommandLine": "C:\\Users\\Public\\update.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "JIT debugger opens Visual Studio (devenv.exe), excluded by reduction2",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "ParentImage": "C:\\Windows\\System32\\vsjitdebugger.exe",
+          "ParentCommandLine": "vsjitdebugger.exe -p 4412 -e 1120",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\devenv.exe",
+          "CommandLine": "\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\devenv.exe\" /debugexe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "JIT debugger starts the immersive activate helper, excluded by reduction1",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "ParentImage": "C:\\Windows\\System32\\vsjitdebugger.exe",
+          "Image": "C:\\Program Files (x86)\\Common Files\\Microsoft Shared\\VS7Debug\\vsimmersiveactivatehelper64.exe",
+          "CommandLine": "vsimmersiveactivatehelper64.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

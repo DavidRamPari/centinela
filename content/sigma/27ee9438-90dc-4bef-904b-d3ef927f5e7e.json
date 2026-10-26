@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "27ee9438-90dc-4bef-904b-d3ef927f5e7e",
+    "title": "Windows Kernel Debugger Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_kd_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_kd_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó el depurador de kernel de Windows (kd.exe), identificado por la ruta de su imagen o por el OriginalFileName del PE. La depuración de kernel es poco común en sistemas productivos y requiere una justificación clara.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\kd.exe u OriginalFileName es kd.exe. La coincidencia por OriginalFileName también detecta copias de kd.exe renombradas para ocultarse.",
+      "why_it_matters": "kd.exe puede leer y escribir memoria del kernel, por ejemplo durante la depuración local de kernel. Un atacante puede usarlo para manipular estructuras del kernel, desactivar controles de seguridad o elevar privilegios. Corresponde a las tácticas de escalamiento de privilegios y evasión (stealth).",
+      "triage_steps": [
+        "Revise la ruta de Image. Lo esperado es la carpeta Debuggers de Windows Kits; las carpetas de usuario, temporales o públicas son sospechosas. Verifique la firma y el hash.",
+        "Compare Image con OriginalFileName. Si el nombre difiere, se trata de un kd.exe renombrado para evadir la detección.",
+        "Analice CommandLine. -kl indica depuración local de kernel y -k una conexión de depuración remota. -z solo abre un archivo de volcado.",
+        "Revise ParentImage y User. Determine si lo lanzó un desarrollador de drivers o un ingeniero de soporte conocido desde una shell o herramienta esperada.",
+        "Busque en el host cambios con bcdedit /debug o /dbgsettings y reinicios, que son necesarios para la depuración de kernel en vivo.",
+        "En un rango de +/- 15 minutos, busque en el mismo host cargas de drivers, agentes de seguridad detenidos, servicios nuevos o acceso a credenciales.",
+        "Revise alertas previas del mismo host y usuario, y ejecuciones de kd.exe de esa cuenta en otros endpoints."
+      ],
+      "false_positives": [
+        "Casos poco comunes en los que se necesita depurar el kernel en producción, con aprobación de gestión de cambios.",
+        "Desarrolladores de drivers o equipos de laboratorio con el Windows Driver Kit instalado.",
+        "Análisis de volcados de memoria con kd -z por parte de TI o soporte.",
+        "Sesiones de diagnóstico de un proveedor o del soporte de Microsoft."
+      ],
+      "response_steps": [
+        "Confirme con el usuario, el dueño del activo y los registros de cambios que la sesión de depuración estaba autorizada.",
+        "Si no estaba autorizada, aísle el endpoint y capture la memoria y el binario antes de hacer cualquier cambio.",
+        "Una vez preservada la evidencia, restaure la configuración de arranque (bcdedit debug off) y confirme que los agentes de seguridad estén activos e íntegros.",
+        "Elimine las copias no autorizadas del depurador, restablezca las credenciales involucradas y busque el mismo hash u OriginalFileName en otros hosts."
+      ],
+      "severity_rationale": "La severidad media es adecuada porque kd.exe es una herramienta legítima de Microsoft con usos autorizados poco comunes, pero puede dar control total sobre el kernel y debe revisarse."
+    },
+    "en": {
+      "summary": "A process ran the Windows Kernel Debugger (kd.exe), identified by its image path or by its PE OriginalFileName. Kernel debugging is rare on production systems and needs a clear explanation.",
+      "what_it_detects": "Process creation events where Image ends with \\kd.exe or OriginalFileName is kd.exe. Matching on OriginalFileName also catches a kd.exe copy that was renamed to hide it.",
+      "why_it_matters": "kd.exe can read and write kernel memory, for example during local kernel debugging. Attackers can use it to tamper with kernel structures, disable security controls or raise privileges. This maps to the privilege escalation and stealth tactics.",
+      "triage_steps": [
+        "Check the Image path. The Windows Kits Debuggers folder is expected, while user, temp or public folders are suspicious. Confirm the signature and hash.",
+        "Compare Image with OriginalFileName. A different file name points to a renamed kd.exe used to avoid detection.",
+        "Review CommandLine. -kl means local kernel debugging and -k means a remote debug connection. -z means it only opens a crash dump file.",
+        "Look at ParentImage and User. Ask whether a known driver developer or support engineer launched it from an expected shell or tool.",
+        "Search the host for bcdedit /debug or /dbgsettings changes and reboots, which are needed for live kernel debugging.",
+        "Within +/- 15 minutes, look for driver loads, security agents stopping, new services or credential access on the same host.",
+        "Look for earlier alerts on the same host and user, and for kd.exe runs on other endpoints by the same account."
+      ],
+      "false_positives": [
+        "Rare cases where kernel debugging is needed in production, approved by change management.",
+        "Driver developers or lab machines with the Windows Driver Kit installed.",
+        "Crash dump analysis with kd -z by IT or support staff.",
+        "Vendor or Microsoft support troubleshooting sessions."
+      ],
+      "response_steps": [
+        "Check with the user, the asset owner and change records that the debugging session was authorized.",
+        "If it was not authorized, isolate the endpoint and capture memory and the binary before you change anything.",
+        "Once evidence is preserved, restore the boot configuration (bcdedit debug off) and confirm that security agents are running and intact.",
+        "Remove unauthorized debugger copies, reset the credentials involved and hunt for the same hash or OriginalFileName on other hosts."
+      ],
+      "severity_rationale": "Medium fits because kd.exe is a legitimate Microsoft tool with rare authorized uses, but it can give full control over the kernel and must be reviewed."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "kd.exe launched from the Windows Kits folder for local kernel debugging",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\kd.exe",
+          "OriginalFileName": "kd.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\kd.exe\" -kl",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed copy of kd.exe in a public folder, matched by OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "kd.exe",
+          "CommandLine": "C:\\Users\\Public\\svchelper.exe -kl -c \"q\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "WinDbg used to analyze a user-mode crash dump; this is not kd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\windbg.exe",
+          "OriginalFileName": "windbg.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\windbg.exe\" -z C:\\Dumps\\app.dmp",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "kdnet.exe from the same Debuggers folder; the name does not end with \\kd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "LAB-DRV-03.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\kdnet.exe",
+          "OriginalFileName": "kdnet.exe",
+          "CommandLine": "kdnet.exe 192.0.2.25 50000",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

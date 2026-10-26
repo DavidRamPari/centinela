@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "e83e8899-c9b2-483b-b355-5decc942b959",
+    "title": "Interesting Service Enumeration Via Sc.EXE",
+    "level": "low",
+    "status": "test",
+    "author": "Swachchhanda Shrawan Poudel",
+    "path": "windows/process_creation/proc_creation_win_sc_query_interesting_services.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sc_query_interesting_services.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó sc.exe para consultar el servicio TermService (Servicios de Escritorio remoto). Puede ser el paso previo para localizar el svchost.exe que lo aloja y volcar su memoria en busca de credenciales RDP en texto plano.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\sc.exe u OriginalFileName es sc.exe, y CommandLine contiene tanto 'query' como 'termservice', por ejemplo 'sc queryex termservice'.",
+      "why_it_matters": "'sc queryex termservice' devuelve el PID del svchost.exe que aloja TermService. Con ese PID, un atacante puede volcar la memoria del proceso y extraer credenciales RDP (T1003, OS Credential Dumping).",
+      "triage_steps": [
+        "Revise CommandLine: 'queryex' devuelve el PID y es más sospechoso que un 'query' simple de estado.",
+        "Identifique ParentImage y la línea de comandos del padre: cmd.exe o powershell.exe interactivos, una web shell o un agente remoto pesan más que una herramienta de gestión conocida.",
+        "Valide al usuario y la sesión: confirme si es un administrador autorizado y si la sesión es interactiva, RDP o remota (WinRM, PsExec).",
+        "En el mismo host, busque en +/- 15 minutos accesos a svchost.exe (Sysmon EID 10), procdump, rundll32 con comsvcs.dll MiniDump o mimikatz.",
+        "Busque archivos .dmp creados recientemente o grandes en directorios temporales, públicos o del perfil del usuario.",
+        "Revise si hubo otros comandos de reconocimiento (tasklist /svc, whoami, net user) y alertas previas del mismo usuario o host.",
+        "Determine si el host acepta conexiones RDP entrantes y qué cuentas iniciaron sesión por RDP recientemente."
+      ],
+      "false_positives": [
+        "Administradores o soporte técnico que revisan el estado del servicio de Escritorio remoto durante un diagnóstico.",
+        "Scripts de inventario, monitoreo o cumplimiento que consultan periódicamente TermService.",
+        "Herramientas de gestión remota o RMM que verifican la disponibilidad de RDP."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del sistema si la consulta fue legítima; si lo fue, documente el caso y considere una exclusión por parent o cuenta.",
+        "Si hay indicios de volcado de memoria, aísle el endpoint y preserve los archivos .dmp y la telemetría para el análisis forense.",
+        "Restablezca las credenciales de las cuentas que iniciaron sesión por RDP en el host y revise su uso en otros sistemas.",
+        "Elimine las herramientas de volcado y los mecanismos de persistencia encontrados, y luego reincorpore el host monitoreado."
+      ],
+      "severity_rationale": "Es nivel bajo porque consultar TermService es común en administración; sube de prioridad si se combina con acceso a la memoria de svchost.exe o con archivos de volcado."
+    },
+    "en": {
+      "summary": "sc.exe was used to query the TermService (Remote Desktop Services) service. This can be the first step in finding the hosting svchost.exe and dumping its memory for plaintext RDP credentials.",
+      "what_it_detects": "Process creation where Image ends with \\sc.exe or OriginalFileName is sc.exe, and CommandLine contains both 'query' and 'termservice', for example 'sc queryex termservice'.",
+      "why_it_matters": "'sc queryex termservice' returns the PID of the svchost.exe that hosts TermService. With that PID, an attacker can dump the process memory and extract RDP credentials (T1003, OS Credential Dumping).",
+      "triage_steps": [
+        "Check CommandLine: 'queryex' returns the PID and is more suspicious than a plain status 'query'.",
+        "Identify ParentImage and its command line. Interactive cmd.exe or powershell.exe, a web shell or a remote agent count for more than a known management tool.",
+        "Validate the user and session. Confirm whether this is an authorized admin and whether the session was interactive, RDP or remote (WinRM, PsExec).",
+        "On the same host within +/- 15 minutes, look for svchost.exe process access (Sysmon EID 10), procdump, rundll32 comsvcs.dll MiniDump or mimikatz.",
+        "Look for new or large .dmp files in temp folders, public folders or the user's profile.",
+        "Check for other recon commands (tasklist /svc, whoami, net user) and for earlier alerts on the same user or host.",
+        "Determine whether the host accepts inbound RDP and which accounts logged on through RDP recently."
+      ],
+      "false_positives": [
+        "Administrators or helpdesk staff checking Remote Desktop service status while troubleshooting.",
+        "Inventory, monitoring or compliance scripts that query TermService on a schedule.",
+        "Remote management or RMM tools checking whether RDP is available."
+      ],
+      "response_steps": [
+        "Ask the user or system owner whether the query was legitimate. If it was, document it and consider an exclusion by parent process or account.",
+        "If you find signs of memory dumping, isolate the endpoint and preserve the .dmp files and telemetry for forensics.",
+        "Reset credentials for accounts that logged on through RDP to the host, and check how they were used on other systems.",
+        "Remove any dumping tools and persistence you find, then return the host to service under monitoring."
+      ],
+      "severity_rationale": "The level is low because querying TermService is common admin work. Raise priority when it appears alongside svchost.exe memory access or dump files."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sc.exe queryex on TermService to get the hosting svchost PID, launched from an interactive cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe queryex termservice",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\cmd.exe\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed sc binary identified by OriginalFileName, querying TermService with mixed case",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-RDS-02.andes.example.com",
+          "User": "ANDES\\svc_temp",
+          "Image": "C:\\Users\\Public\\svc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "svc.exe Query TermService",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "sc.exe qc on TermService: the configuration query does not contain the string 'query'",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe qc termservice",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "sc.exe query on an unrelated service (Windows Update)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe query wuauserv",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:57:07+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

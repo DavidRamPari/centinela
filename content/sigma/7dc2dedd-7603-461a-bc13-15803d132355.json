@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "7dc2dedd-7603-461a-bc13-15803d132355",
+    "title": "Uncommon Child Process Of Conhost.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "omkar72",
+    "path": "windows/process_creation/proc_creation_win_conhost_susp_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_conhost_susp_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1202"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un proceso cuyo padre es conhost.exe, y el hijo no es el propio conhost.exe. Conhost aloja consolas y rara vez lanza programas, por lo que puede tratarse de ejecución como LOLBIN o de inyección de procesos.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage termina en \\conhost.exe e Image es distinto de \\Windows\\System32\\conhost.exe. Se excluyen los eventos con Image vacío o nulo y los del proveedor SystemTraceProvider-Process.",
+      "why_it_matters": "Un atacante puede lanzar un payload a través de conhost.exe (por ejemplo 'conhost.exe payload.exe' o 'conhost.exe --headless ...'). Así un binario confiable de Windows aparece como padre y oculta el verdadero origen. Esto es ejecución indirecta de comandos (ATT&CK T1202). Un hijo inusual también puede indicar código inyectado en conhost.",
+      "triage_steps": [
+        "Revise Image, CommandLine, hash y firma del proceso hijo. Anote si se ejecuta desde rutas con permisos de escritura para el usuario, como AppData, Temp o Public.",
+        "Revise el CommandLine completo del conhost.exe padre. Busque una ruta de programa embebida, '--headless' u otros argumentos inusuales en lugar del habitual '0xffffffff -ForceV1'.",
+        "Suba por el árbol de procesos: identifique qué proceso lanzó conhost.exe (cmd, powershell, wscript, Office, un servicio) y con qué línea de comandos.",
+        "En el mismo host, revise la actividad de procesos, red, archivos y registro del hijo en un rango de +/- 15 minutos.",
+        "Valide el contexto del usuario: ¿suele usar herramientas de consola y tenía una sesión interactiva?",
+        "Busque el mismo hash o la misma línea de comandos en otros endpoints, y revise alertas previas del mismo host o usuario.",
+        "Si el hijo no tiene un lanzador claro, busque en el EDR señales de inyección en conhost.exe, como hilos remotos o memoria sin respaldo en disco."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos y se espera que dispare con poca frecuencia.",
+        "Herramientas de desarrollo o de administración que invocan conhost.exe con un programa para abrirlo en una consola separada.",
+        "Condiciones de carrera en la telemetría que registran un padre incorrecto o un Image incompleto, cuando el filtro de proveedor no aplica."
+      ],
+      "response_steps": [
+        "Compare el binario hijo y su línea de comandos con las herramientas administrativas conocidas, y confirme con el usuario o el responsable del sistema.",
+        "Si parece malicioso, aísle el endpoint desde el EDR y preserve el árbol de procesos, el binario y un volcado de memoria de conhost.exe.",
+        "Termine los procesos maliciosos y elimine el payload y cualquier persistencia después de recolectar la evidencia.",
+        "Restablezca las credenciales del usuario si el payload pudo acceder a ellas, y busque los mismos indicadores en el resto de la flota."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque los hijos de conhost son poco comunes y pueden indicar evasión o inyección, pero la alerta por sí sola no confirma una ejecución maliciosa."
+    },
+    "en": {
+      "summary": "A process was started with conhost.exe as its parent, and the child is not conhost.exe itself. Conhost normally hosts console windows and rarely starts other programs, so this may be LOLBIN proxy execution or process injection.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\conhost.exe and Image is anything other than \\Windows\\System32\\conhost.exe. Events with an empty or null Image, and events from the SystemTraceProvider-Process provider, are excluded.",
+      "why_it_matters": "Attackers can run a payload through conhost.exe (for example 'conhost.exe payload.exe' or 'conhost.exe --headless ...') so that a trusted Windows binary becomes the parent and the real launcher is hidden. This is indirect command execution (ATT&CK T1202). An unusual child can also point to code injected into conhost.",
+      "triage_steps": [
+        "Review Image, CommandLine, hashes and signer of the child process. Note whether it runs from a user-writable path such as AppData, Temp or Public.",
+        "Read the full CommandLine of the parent conhost.exe. Look for an embedded program path, '--headless' or other unusual arguments instead of the normal '0xffffffff -ForceV1'.",
+        "Walk up the tree: find the grandparent that started conhost.exe (cmd, powershell, wscript, Office, a service) and its command line.",
+        "On the same host, check process, network, file and registry activity from the child within +/- 15 minutes.",
+        "Check the user context: is the user expected to run console tools, and did they log on interactively?",
+        "Search for the same child hash or command line on other endpoints, and look for earlier alerts on this host or user.",
+        "If the child has no clear launcher, check EDR for injection signals in conhost.exe, such as remote thread creation or unbacked memory."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. Expect it to be rare.",
+        "Developer or admin tools that start conhost.exe with a target program to get a separate console window.",
+        "Telemetry race conditions that record the wrong parent or a partial Image when the provider filter does not apply."
+      ],
+      "response_steps": [
+        "Check the child binary and command line against known admin tooling, and confirm with the user or the system owner.",
+        "If it looks malicious, isolate the endpoint through EDR and save the process tree, the binary and a memory capture of conhost.exe.",
+        "Kill the malicious processes and remove the payload and any persistence after you have collected evidence.",
+        "Reset credentials for the affected user if the payload could have accessed them, then hunt for the same indicators across the fleet."
+      ],
+      "severity_rationale": "Medium fits because conhost children are uncommon and can indicate evasion or injection, but the alert alone does not confirm malicious execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "conhost.exe used as a LOLBIN to launch an unsigned binary from the user's AppData folder",
+        "event": {
+          "EventID": 1,
+          "Provider_Name": "Microsoft-Windows-Sysmon",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\conhost.exe",
+          "ParentCommandLine": "conhost.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\updater.exe",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\updater.exe",
+          "CommandLine": "C:\\Users\\jperez\\AppData\\Local\\Temp\\updater.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "conhost.exe in headless mode spawning cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Provider_Name": "Microsoft-Windows-Sysmon",
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Windows\\System32\\conhost.exe",
+          "ParentCommandLine": "conhost.exe --headless cmd.exe /c whoami",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "conhost.exe starting another conhost.exe instance from System32, excluded by filter_main_conhost",
+        "event": {
+          "EventID": 1,
+          "Provider_Name": "Microsoft-Windows-Sysmon",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\conhost.exe",
+          "ParentCommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1"
+        }
+      },
+      {
+        "description": "Event from SystemTraceProvider-Process with a conhost parent, excluded by filter_optional_provider",
+        "event": {
+          "EventID": 1,
+          "Provider_Name": "SystemTraceProvider-Process",
+          "Computer": "SRV-APP-03.andes.example.com",
+          "ParentImage": "C:\\Windows\\System32\\conhost.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

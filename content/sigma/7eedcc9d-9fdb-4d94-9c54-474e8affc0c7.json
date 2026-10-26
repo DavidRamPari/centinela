@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "7eedcc9d-9fdb-4d94-9c54-474e8affc0c7",
+    "title": "Invoke-Obfuscation COMPRESS OBFUSCATION",
+    "level": "medium",
+    "status": "test",
+    "author": "Timur Zinniatullin, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_hktl_invoke_obfuscation_via_compress.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_invoke_obfuscation_via_compress.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un proceso con una línea de comandos de PowerShell que crea objetos para descomprimir y decodificar en memoria un payload incrustado. El patrón coincide con la ofuscación COMPRESS de Invoke-Obfuscation.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene a la vez 'new-object' y 'text.encoding]::ascii', y además al menos uno de 'system.io.compression.deflatestream', 'system.io.streamreader' o 'readtoend('. Estas cadenas muestran que un bloque Base64 se descomprime con DeflateStream, se lee como texto ASCII y se pasa para ejecutarse.",
+      "why_it_matters": "Los atacantes comprimen y codifican scripts de PowerShell para que las firmas y los analistas no puedan leerlos (Obfuscated Files or Information, T1027). Luego el script decodificado se ejecuta mediante PowerShell (T1059.001). Así suelen arrancar loaders, downloaders y frameworks de post-explotación.",
+      "triage_steps": [
+        "Revise el CommandLine completo. Extraiga la cadena Base64 y decodifíquela fuera de línea: primero Base64 y luego inflate con DeflateStream, sin ejecutarla. Busque URL, IP, Invoke-Expression o capas adicionales.",
+        "Analice ParentImage y la línea de comandos del proceso padre. Un padre como Office, wscript, mshta, WMI o un servicio es más sospechoso que la consola interactiva de un administrador.",
+        "Identifique el User y la sesión de inicio. Confirme si esa cuenta suele ejecutar PowerShell en este equipo.",
+        "Consulte el Script Block Logging de PowerShell (Event ID 4104) del host para ver el contenido del script ya desofuscado.",
+        "En el mismo host, en una ventana de +/- 15 minutos, revise procesos hijos, conexiones de red, archivos creados, tareas programadas o cambios en claves Run.",
+        "Busque en otros hosts el mismo hash de línea de comandos o el mismo fragmento Base64, y revise alertas previas del usuario o del host."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos. El uso legítimo es poco común.",
+        "Scripts internos de administración o despliegue que envían PowerShell comprimido y codificado en Base64 para reducir su tamaño.",
+        "Ejercicios de red team o pruebas de penetración que usan Invoke-Obfuscation."
+      ],
+      "response_steps": [
+        "Antes de actuar, confirme que la actividad es maliciosa con el payload decodificado, el proceso padre y la actividad posterior.",
+        "Si es maliciosa, aísle el endpoint desde el EDR y preserve la memoria y los registros de eventos relevantes.",
+        "Termine los procesos maliciosos. Elimine la persistencia y los archivos dejados que encuentre, y bloquee los dominios e IP relacionados.",
+        "Restablezca las credenciales del usuario afectado y revise la actividad de esa cuenta en otros sistemas.",
+        "Si hace falta, restaure el equipo a un estado confiable. Ajuste la regla solo para scripts documentados y aprobados."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque esta combinación de cadenas indica con fuerza una ofuscación deliberada, pero no demuestra qué hace el payload, así que el analista debe decodificarlo."
+    },
+    "en": {
+      "summary": "A process started with a PowerShell command line that builds objects to decompress and decode an embedded payload in memory. This pattern matches the COMPRESS obfuscation output of Invoke-Obfuscation.",
+      "what_it_detects": "Process creation events where CommandLine contains both 'new-object' and 'text.encoding]::ascii', plus at least one of 'system.io.compression.deflatestream', 'system.io.streamreader' or 'readtoend('. Together these strings show a Base64 blob being inflated with DeflateStream, read as ASCII text and passed on for execution.",
+      "why_it_matters": "Attackers compress and encode PowerShell scripts so that signatures and analysts cannot read them (Obfuscated Files or Information, T1027). The decoded script then runs through PowerShell (T1059.001). This is often how loaders, downloaders and post-exploitation frameworks get started.",
+      "triage_steps": [
+        "Read the full CommandLine. Extract the Base64 string and decode it offline: Base64, then raw DeflateStream inflate. Do not execute it. Check the cleartext for URLs, IPs, Invoke-Expression or further layers.",
+        "Review ParentImage and the parent command line. Office apps, wscript, mshta, WMI or services as parent are more suspicious than an admin's interactive console.",
+        "Identify the User and the logon session. Confirm whether this account normally runs PowerShell on this host.",
+        "Check PowerShell Script Block Logging (Event ID 4104) on the host for the deobfuscated script content.",
+        "Pivot on the host within +/- 15 minutes for child processes, network connections, file writes, scheduled tasks or registry Run key changes.",
+        "Search other hosts for the same command line hash or Base64 fragment, and check for earlier alerts on this user or host."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. Legitimate use is rare.",
+        "In-house admin or deployment scripts that ship compressed, Base64-encoded PowerShell to reduce size.",
+        "Red team or penetration testing exercises that use Invoke-Obfuscation."
+      ],
+      "response_steps": [
+        "Confirm maliciousness from the decoded payload, parent process and follow-on activity before acting.",
+        "If malicious, isolate the endpoint through EDR and preserve memory and the relevant event logs.",
+        "Kill the malicious processes. Remove any persistence and dropped files you find, and block the related domains and IPs.",
+        "Reset the affected user's credentials and review that account's activity on other systems.",
+        "Restore from a known-good state if needed. Tune the rule only for documented, approved scripts."
+      ],
+      "severity_rationale": "Medium fits because this string combination strongly points to deliberate obfuscation, but it does not prove what the payload does, so the analyst has to decode it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell launched from Word that runs an Invoke-Obfuscation COMPRESS-style command: a DeflateStream wrapped in a StreamReader with ASCII encoding, then ReadToEnd().",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -NoP -W Hidden -C \". ( $ShellId[1]+$ShellId[13]+'x') ( New-Object System.IO.StreamReader( ( New-Object System.IO.Compression.DeflateStream([System.IO.MemoryStream][Convert]::FromBase64String('C0ktLgEA'),[System.IO.Compression.CompressionMode]::Decompress)),[System.Text.Encoding]::ASCII)).ReadToEnd()\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Variant that uses only StreamReader and ReadToEnd with ASCII encoding, started by wscript.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "CommandLine": "powershell -c \"$r = New-Object IO.StreamReader([IO.MemoryStream][Convert]::FromBase64String('SGVsbG8='), [Text.Encoding]::ASCII); iex $r.ReadToEnd()\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin script that reads a log file with StreamReader using UTF8 encoding, so the required 'text.encoding]::ascii' string is missing.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -C \"$sr = New-Object System.IO.StreamReader('C:\\Logs\\app.log', [System.Text.Encoding]::UTF8); $sr.ReadToEnd() | Select-String 'ERROR'\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Command that converts bytes with ASCII encoding but uses no New-Object, DeflateStream, StreamReader or ReadToEnd.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell -C \"[System.Text.Encoding]::ASCII.GetString([Convert]::FromBase64String('SGVsbG8='))\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

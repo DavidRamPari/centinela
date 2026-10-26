@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "62b20d44-1546-4e61-afce-8e175eb9473c",
+    "title": "Service StartupType Change Via PowerShell Set-Service",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_set_service_disabled.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_set_service_disabled.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Windows PowerShell con el cmdlet Set-Service para cambiar el tipo de inicio de un servicio a Disabled o Manual. Puede ser administración legítima o un intento de impedir que se inicien servicios de seguridad o recuperación.",
+      "what_it_detects": "Creación de procesos de powershell.exe (por Image o por OriginalFileName PowerShell.EXE, lo que también detecta binarios renombrados) cuyo CommandLine contiene 'Set-Service', '-StartupType' y además 'Disabled' o 'Manual'.",
+      "why_it_matters": "Los atacantes deshabilitan servicios de antivirus, EDR, registro de eventos, copias de seguridad o actualizaciones antes de ejecutar payloads o ransomware. La regla lo etiqueta como ejecución y debilitamiento de defensas (T1685): se reducen las capacidades de detección y recuperación del endpoint.",
+      "triage_steps": [
+        "Lea el CommandLine completo e identifique el servicio afectado (-Name o -DisplayName). Priorice si es WinDefend, Sense, EventLog, wuauserv, VSS, un agente EDR o de backup.",
+        "Compare Image con OriginalFileName: si el binario no está en System32\\WindowsPowerShell\\v1.0 o tiene otro nombre, trátelo como sospechoso.",
+        "Revise ParentImage y la cadena de procesos padres: ¿lo lanzó un script de administración, SCCM o Intune, o un proceso de Office, un navegador, wscript o cmd?",
+        "Identifique el usuario y si tiene una función administrativa. Confirme con el responsable si hubo una ventana de cambio o un ticket.",
+        "Busque en el mismo host, 15 minutos antes y después, otros comandos Set-Service, sc.exe config, Stop-Service, vssadmin, bcdedit o borrado de logs.",
+        "Verifique el estado actual del servicio (Get-Service, registro StartType) y si se detuvo después del cambio.",
+        "Revise alertas anteriores del mismo host y del mismo usuario, y si el mismo comando se ejecutó en otros equipos."
+      ],
+      "false_positives": [
+        "Scripts de troubleshooting o de soporte técnico que cambian servicios temporalmente.",
+        "Scripts de hardening o líneas base de configuración que deshabilitan servicios innecesarios (por ejemplo Spooler o Xbox).",
+        "Despliegues de software o herramientas de gestión (SCCM, Intune, GPO) que ajustan el tipo de inicio."
+      ],
+      "response_steps": [
+        "Valide con el usuario o el equipo de TI si el cambio estaba autorizado; si lo estaba, documéntelo y evalúe una exclusión acotada.",
+        "Si no está autorizado y afecta un servicio de seguridad, aísle el endpoint con el EDR y preserve la evidencia (historial de PowerShell, registros 4104 y 7040).",
+        "Restaure el tipo de inicio original del servicio y reinícielo después de confirmar la integridad del binario.",
+        "Busque persistencia, credenciales comprometidas y movimiento lateral asociados; restablezca contraseñas de las cuentas usadas."
+      ],
+      "severity_rationale": "Medium es adecuado porque cambiar el inicio de servicios es habitual en administración, pero se vuelve crítico cuando el servicio afectado protege o registra la actividad del equipo."
+    },
+    "en": {
+      "summary": "Windows PowerShell ran the Set-Service cmdlet to change a service's startup type to Disabled or Manual. This can be routine administration or an attempt to stop security or recovery services from starting.",
+      "what_it_detects": "Process creation of powershell.exe (matched by Image or by OriginalFileName PowerShell.EXE, which also catches renamed copies) whose CommandLine contains 'Set-Service', '-StartupType' and either 'Disabled' or 'Manual'.",
+      "why_it_matters": "Attackers disable antivirus, EDR, event logging, backup or update services before running payloads or ransomware. The rule tags this as execution and defense impairment (T1685): the endpoint loses detection and recovery capability.",
+      "triage_steps": [
+        "Read the full CommandLine and identify the target service (-Name or -DisplayName). Prioritize WinDefend, Sense, EventLog, wuauserv, VSS, EDR or backup agents.",
+        "Compare Image with OriginalFileName: a binary outside System32\\WindowsPowerShell\\v1.0 or with a different name is suspicious.",
+        "Review ParentImage and the process tree: admin script, SCCM or Intune, versus Office, a browser, wscript or cmd.",
+        "Identify the user and whether they hold an admin role. Confirm with the owner whether a change window or ticket exists.",
+        "Search the same host within +/- 15 minutes for more Set-Service, sc.exe config, Stop-Service, vssadmin, bcdedit or log clearing.",
+        "Check the service's current state (Get-Service, StartType registry value) and whether it was stopped after the change.",
+        "Review earlier alerts for the same host and user, and whether the same command ran on other hosts."
+      ],
+      "false_positives": [
+        "Troubleshooting or helpdesk scripts that temporarily change services.",
+        "Hardening scripts or configuration baselines disabling unneeded services (for example Spooler or Xbox services).",
+        "Software deployments or management tools (SCCM, Intune, GPO) adjusting startup types."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT whether the change was authorized; if so, document it and consider a narrow exclusion.",
+        "If unauthorized and a security service is affected, isolate the endpoint via EDR and preserve evidence (PowerShell history, events 4104 and 7040).",
+        "Restore the original startup type and restart the service after confirming the binary's integrity.",
+        "Hunt for related persistence, compromised credentials and lateral movement; reset passwords of the accounts used."
+      ],
+      "severity_rationale": "Medium fits because changing service startup types is common in administration, but it becomes critical when the target service protects or logs the host."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "powershell.exe disables Microsoft Defender service startup",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Set-Service -Name WinDefend -StartupType Disabled\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat"
+        }
+      },
+      {
+        "description": "Renamed PowerShell binary (matched by OriginalFileName) sets Windows Update to Manual",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "svchelper.exe -c Set-Service -Name wuauserv -StartupType Manual",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "powershell.exe sets Print Spooler startup to Automatic (no Disabled or Manual)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-PRN-01.andes.example.com",
+          "User": "ANDES\\adm.lgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -Command \"Set-Service -Name Spooler -StartupType Automatic\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "PowerShell 7 (pwsh.exe) disables a service; image selection does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "pwsh.exe -Command \"Set-Service -Name XblGameSave -StartupType Disabled\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:29+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

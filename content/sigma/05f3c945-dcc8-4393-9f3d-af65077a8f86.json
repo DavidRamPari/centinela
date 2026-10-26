@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "05f3c945-dcc8-4393-9f3d-af65077a8f86",
+    "title": "Suspicious SYSVOL Domain Group Policy Access",
+    "level": "medium",
+    "status": "test",
+    "author": "Markus Neis, Jonhnathan Ribeiro, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_susp_sysvol_access.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_sysvol_access.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1552.006"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso cuya línea de comandos hace referencia a las rutas \\SYSVOL\\ y \\Policies\\, donde se guardan las directivas de grupo del dominio. Podría ser un intento de buscar credenciales en Group Policy Preferences.",
+      "what_it_detects": "Eventos de creación de procesos en Windows con un CommandLine que contiene a la vez '\\SYSVOL\\' y '\\policies\\'. Por ejemplo, findstr, type, dir, copy o PowerShell recorriendo los archivos de GPO de un controlador de dominio.",
+      "why_it_matters": "Cualquier usuario del dominio puede leer SYSVOL. Los archivos XML de Group Policy Preferences, como Groups.xml, Services.xml o ScheduledTasks.xml, pueden traer un atributo cpassword con una contraseña cifrada mediante una clave AES que es pública, así que se descifra sin dificultad. Corresponde a la técnica ATT&CK T1552.006 (Unsecured Credentials: Group Policy Preferences).",
+      "triage_steps": [
+        "Lea el CommandLine completo. Busque términos como cpassword, *.xml, Groups.xml o Preferences, y modificadores de búsqueda recursiva como findstr /S o Get-ChildItem -Recurse.",
+        "Revise el Image y el ParentImage. Un cmd o PowerShell lanzado por Office, por un navegador o por un proceso no habitual aumenta la sospecha.",
+        "Confirme el usuario y el host. Verifique si la cuenta pertenece a administradores de GPO y si el equipo es una estación de administración autorizada.",
+        "En el mismo host, revise los procesos de +/- 15 minutos para detectar reconocimiento de AD (net group, nltest, BloodHound/SharpHound) o herramientas que descifran GPP.",
+        "Busque procesos hijos y archivos creados, por ejemplo copias de XML de SYSVOL en directorios temporales o del perfil del usuario.",
+        "Pivote por el usuario hacia los logons posteriores (4624/4648) con cuentas que puedan aparecer en archivos GPP, sobre todo administradores locales.",
+        "Revise si hubo alertas anteriores para el mismo host o el mismo usuario."
+      ],
+      "false_positives": [
+        "Administradores que revisan, respaldan o solucionan problemas de GPO con las rutas de SYSVOL.",
+        "Scripts de auditoría o de inventario que recorren las directivas del dominio, por ejemplo búsquedas autorizadas de cpassword.",
+        "Herramientas de gestión de GPO o de respaldo que copian las carpetas de Policies."
+      ],
+      "response_steps": [
+        "Valide con el dueño de la cuenta o con el equipo de AD si la actividad estaba autorizada.",
+        "Si es maliciosa, aísle el endpoint y deshabilite o restablezca la cuenta usada, preservando antes la evidencia.",
+        "Busque atributos cpassword en SYSVOL. Elimine esas preferencias y cambie de inmediato las contraseñas expuestas.",
+        "Revise el uso de esas credenciales en otros hosts y adopte LAPS para las cuentas de administrador local."
+      ],
+      "severity_rationale": "Medium es adecuado porque los administradores acceden a SYSVOL con frecuencia, aunque esta misma actividad también puede revelar credenciales reutilizables a un atacante."
+    },
+    "en": {
+      "summary": "A process was started with a command line that points at the \\SYSVOL\\ and \\Policies\\ paths, where the domain's Group Policy objects are stored. This may be an attempt to find credentials in Group Policy Preferences.",
+      "what_it_detects": "Windows process creation events where the CommandLine contains both '\\SYSVOL\\' and '\\policies\\'. Examples are findstr, type, dir, copy or PowerShell walking the GPO files on a domain controller.",
+      "why_it_matters": "Any domain user can read SYSVOL. Group Policy Preferences XML files such as Groups.xml, Services.xml or ScheduledTasks.xml may hold a cpassword attribute, which is encrypted with a published AES key and is easy to decrypt. This maps to ATT&CK T1552.006 (Unsecured Credentials: Group Policy Preferences).",
+      "triage_steps": [
+        "Read the full CommandLine. Look for cpassword, *.xml, Groups.xml, Preferences, and recursive search switches such as findstr /S or Get-ChildItem -Recurse.",
+        "Check the Image and ParentImage. A cmd or PowerShell started by Office, a browser or an unusual process is more suspicious.",
+        "Confirm the user and host. Check whether the account administers GPOs and whether the machine is an approved admin workstation.",
+        "On the same host, review processes within +/- 15 minutes for AD reconnaissance (net group, nltest, SharpHound) or tools that decrypt GPP passwords.",
+        "Look for child processes and new files, such as SYSVOL XML copies in temp or user profile folders.",
+        "Pivot on the user to later logons (4624/4648) with accounts that may appear in GPP files, especially local administrators.",
+        "Check for earlier alerts on the same host or user."
+      ],
+      "false_positives": [
+        "Administrators reviewing, backing up or troubleshooting GPOs through SYSVOL paths.",
+        "Audit or inventory scripts that walk domain policies, including approved cpassword hygiene checks.",
+        "GPO management or backup tools that copy the Policies folders."
+      ],
+      "response_steps": [
+        "Ask the account owner or the AD team whether the activity was authorized.",
+        "If it is malicious, preserve evidence first, then isolate the endpoint and disable or reset the account used.",
+        "Search SYSVOL for cpassword attributes. Remove those preferences and rotate any exposed passwords immediately.",
+        "Check where those credentials were used on other hosts, and move local admin accounts to LAPS."
+      ],
+      "severity_rationale": "Medium fits because administrators access SYSVOL often, yet the same activity can hand an attacker reusable credentials."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "findstr recursively searching domain GPO XML files for cpassword",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.corp.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "findstr /S /I cpassword \\\\corp.example.com\\SYSVOL\\corp.example.com\\Policies\\*.xml"
+        }
+      },
+      {
+        "description": "type reading a GPP Groups.xml file from SYSVOL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.corp.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "cmd.exe /c type \\\\DC01\\SYSVOL\\corp.example.com\\Policies\\{31B2F340-016D-11D2-945F-00C04FB984F9}\\MACHINE\\Preferences\\Groups\\Groups.xml"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Listing the SYSVOL scripts folder, which contains \\SYSVOL\\ but not \\Policies\\",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.corp.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "cmd.exe /c dir \\\\corp.example.com\\SYSVOL\\corp.example.com\\scripts\\"
+        }
+      },
+      {
+        "description": "Routine policy refresh with gpupdate, which does not reference SYSVOL",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.corp.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\gpupdate.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "gpupdate /force"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

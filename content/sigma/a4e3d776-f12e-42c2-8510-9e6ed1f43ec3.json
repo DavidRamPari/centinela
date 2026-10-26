@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "a4e3d776-f12e-42c2-8510-9e6ed1f43ec3",
+    "title": "Unusual Child Process of dns.exe",
+    "level": "high",
+    "status": "test",
+    "author": "Tim Rauch, Elastic (idea)",
+    "path": "windows/process_creation/proc_creation_win_dns_susp_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_dns_susp_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1133"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "El servicio DNS de Windows (dns.exe) creó un proceso hijo distinto de conhost.exe. dns.exe casi nunca lanza procesos, así que esto puede indicar explotación remota (por ejemplo, CVE-2020-1350, SigRed) o un DLL de plugin malicioso.",
+      "what_it_detects": "Eventos de creación de procesos cuyo ParentImage termina en \\dns.exe y cuyo Image no termina en \\conhost.exe.",
+      "why_it_matters": "dns.exe corre como SYSTEM y suele estar en controladores de dominio. Si un atacante ejecuta código desde ahí, obtiene privilegios altos y puede mantener acceso. La regla lo mapea a ATT&CK T1133 (servicios remotos externos), en las tácticas de acceso inicial y persistencia.",
+      "triage_steps": [
+        "Revise Image, CommandLine, User y el hash del proceso hijo. Shells, PowerShell, rundll32 o binarios en rutas temporales son muy sospechosos.",
+        "Confirme que ParentImage sea C:\\Windows\\System32\\dns.exe y anote su ProcessId para buscar otros hijos del mismo proceso.",
+        "Siga el árbol de procesos hacia abajo: nietos, conexiones de red salientes, archivos creados y tareas o servicios nuevos en el mismo host dentro de +/- 15 minutos.",
+        "Revise HKLM\\SYSTEM\\CurrentControlSet\\Services\\DNS\\Parameters\\ServerLevelPluginDll y averigüe quién lo modificó. Un DLL de plugin no autorizado indica abuso de DNSAdmins.",
+        "Busque caídas o reinicios del servicio DNS (System, evento 7031) y respuestas DNS anómalas por TCP 53, típicas de intentos de SigRed.",
+        "Verifique si el servidor tiene el parche para CVE-2020-1350 o el workaround TcpReceivePacketSize.",
+        "Busque alertas previas del mismo host y de las cuentas que lo administran, sobre todo integrantes de DnsAdmins."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Puede aparecer WerFault.exe cuando dns.exe falla. Aun así, investigue la causa: una caída también puede ser un intento de explotación.",
+        "Herramientas de diagnóstico o plugins DNS legítimos y documentados que lancen procesos auxiliares. Valídelos con el equipo de infraestructura."
+      ],
+      "response_steps": [
+        "Valide con el equipo de infraestructura si la actividad era esperada antes de actuar.",
+        "Si se confirma, contenga el servidor de forma coordinada. Si es un controlador de dominio, evalúe el impacto en DNS y autenticación antes de aislarlo.",
+        "Capture memoria y artefactos del proceso hijo y del DLL de plugin antes de cualquier limpieza.",
+        "Elimine el ServerLevelPluginDll no autorizado y los artefactos maliciosos solo después de verificarlos. Luego reinicie el servicio DNS.",
+        "Aplique el parche de CVE-2020-1350, revise los miembros de DnsAdmins y restablezca las credenciales privilegiadas expuestas."
+      ],
+      "severity_rationale": "La severidad alta es adecuada porque dns.exe corre como SYSTEM, rara vez crea procesos hijos y un hijo inesperado sugiere ejecución de código en un servidor crítico."
+    },
+    "en": {
+      "summary": "The Windows DNS Server service (dns.exe) started a child process other than conhost.exe. dns.exe almost never starts processes, so this may mean remote exploitation (for example CVE-2020-1350, SigRed) or a malicious plugin DLL.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\dns.exe and Image does not end with \\conhost.exe.",
+      "why_it_matters": "dns.exe runs as SYSTEM, often on domain controllers. An attacker who runs code from it gets high privileges and can keep access. The rule maps this to ATT&CK T1133 (External Remote Services), under initial access and persistence.",
+      "triage_steps": [
+        "Review the child's Image, CommandLine, User and hash. Shells, PowerShell, rundll32 or binaries in temporary paths are highly suspicious.",
+        "Confirm ParentImage is C:\\Windows\\System32\\dns.exe and note its ProcessId to find other children of the same process.",
+        "Follow the process tree down: grandchildren, outbound network connections, file writes, and new services or tasks on the same host within +/- 15 minutes.",
+        "Check HKLM\\SYSTEM\\CurrentControlSet\\Services\\DNS\\Parameters\\ServerLevelPluginDll and find out who changed it. An unauthorized plugin DLL points to DNSAdmins abuse.",
+        "Look for DNS service crashes or restarts (System event 7031) and unusual DNS responses over TCP 53, which are typical of SigRed attempts.",
+        "Check whether the server has the CVE-2020-1350 patch or the TcpReceivePacketSize workaround.",
+        "Look for earlier alerts on the same host and on the accounts that manage it, especially DnsAdmins members."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "WerFault.exe may appear when dns.exe crashes. Still find out why it crashed, because a crash can also be an exploitation attempt.",
+        "Documented, legitimate diagnostic tools or DNS plugins that start helper processes. Confirm them with the infrastructure team."
+      ],
+      "response_steps": [
+        "Check with the infrastructure team whether the activity was expected before acting.",
+        "If it is malicious, contain the server in a coordinated way. If it is a domain controller, weigh the impact on DNS and authentication before isolating it.",
+        "Capture memory and artifacts of the child process and any plugin DLL before cleanup.",
+        "Remove the unauthorized ServerLevelPluginDll and other malicious artifacts only after verifying them. Then restart the DNS service.",
+        "Apply the CVE-2020-1350 patch, review DnsAdmins membership and reset any exposed privileged credentials."
+      ],
+      "severity_rationale": "High fits because dns.exe runs as SYSTEM and rarely starts child processes, so an unexpected child suggests code execution on a critical server."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "dns.exe spawns cmd.exe running reconnaissance commands on a domain controller",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\dns.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\dns.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami && ipconfig /all",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "dns.exe spawns rundll32.exe loading a DLL from a temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "DNS-02.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\dns.exe",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe C:\\Windows\\Temp\\plug.dll,Start",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "dns.exe spawning conhost.exe, which the filter excludes",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\dns.exe",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "services.exe starting the DNS service itself; the parent is not dns.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "Image": "C:\\Windows\\System32\\dns.exe",
+          "CommandLine": "C:\\Windows\\system32\\dns.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

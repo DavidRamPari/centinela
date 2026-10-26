@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "cc9cbe82-7bc0-4ef5-bc23-bbfb83947be7",
+    "title": "File Decoded From Base64/Hex Via Certutil.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Jonhnathan Ribeiro, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_certutil_decode.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_certutil_decode.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó certutil.exe con la opción -decode o -decodehex para convertir un archivo codificado en Base64 o hexadecimal a su forma original. Los atacantes suelen hacerlo para obtener un payload justo antes de ejecutarlo.",
+      "what_it_detects": "Creación de procesos en Windows donde Image termina en \\certutil.exe u OriginalFileName es CertUtil.exe, y CommandLine contiene -decode o -decodehex. También se detectan las variantes con /, – o — en lugar del guion.",
+      "why_it_matters": "Certutil es un binario firmado de Microsoft (LOLBin) con el que se puede decodificar malware sin usar herramientas externas. Así se ocultan archivos o información (ATT&CK T1027) y se evaden controles que solo inspeccionan ejecutables.",
+      "triage_steps": [
+        "Revise CommandLine: identifique el archivo de entrada y el de salida, y si este último tiene extensión ejecutable (.exe, .dll, .ps1, .vbs, .bat) o está en Temp, Public o AppData.",
+        "Confirme si Image es la ruta legítima (System32 o SysWOW64). Si OriginalFileName es CertUtil.exe pero el nombre o la ruta difieren, trate el binario como renombrado y sospechoso.",
+        "Analice ParentImage y la línea de comandos del padre. Un cmd.exe, powershell.exe, wscript.exe, mshta.exe o una aplicación de Office como padre aumenta la sospecha.",
+        "Busque en el mismo host, entre 15 minutos antes y 15 después, si hubo procesos hijos o ejecuciones del archivo de salida, por ejemplo con rundll32 o regsvr32.",
+        "Revise la creación del archivo de entrada: si llegó por descarga (certutil -urlcache, navegador, correo) y desde qué dominio o IP se obtuvo.",
+        "Obtenga el hash del archivo decodificado y búsquelo en EDR y en fuentes de inteligencia. Si es posible, envíelo a un sandbox.",
+        "Verifique si el usuario suele hacer tareas de PKI y si hay alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "Administradores de PKI que decodifican certificados o CRL en formato Base64 (.cer, .crt, .p7b) como parte de su trabajo.",
+        "Scripts de instalación o despliegue de software que usan certutil para extraer archivos incrustados en Base64.",
+        "Herramientas internas de soporte o automatización que transfieren binarios codificados como texto."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o el responsable del sistema si la decodificación era esperada y si el archivo de salida es legítimo.",
+        "Si se confirma actividad maliciosa, aísle el endpoint desde el EDR y conserve los archivos de entrada y salida como evidencia.",
+        "Bloquee el hash del payload y los dominios o IP de origen. Busque el mismo hash y patrón de CommandLine en otros hosts.",
+        "Elimine los artefactos y la persistencia relacionados solo después de documentarlos. Restablezca las credenciales del usuario si pudieron estar comprometidas.",
+        "Evalúe restringir certutil.exe con AppLocker o WDAC para los usuarios que no lo necesiten."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque decodificar archivos con certutil fuera de tareas de PKI es poco común y suele preceder a la ejecución de un payload."
+    },
+    "en": {
+      "summary": "certutil.exe ran with -decode or -decodehex to turn a Base64 or hex encoded file back into its original form. Attackers often do this to rebuild a payload just before running it.",
+      "what_it_detects": "Windows process creation where Image ends with \\certutil.exe or OriginalFileName is CertUtil.exe, and CommandLine contains -decode or -decodehex. Variants that use /, – or — instead of the dash also match.",
+      "why_it_matters": "Certutil is a signed Microsoft binary (LOLBin) that can decode malware without any external tools. This hides files or information (ATT&CK T1027) and gets past controls that only inspect executables.",
+      "triage_steps": [
+        "Review CommandLine: find the input and output files, and check whether the output has an executable extension or sits in Temp, Public or AppData.",
+        "Confirm that Image is the legitimate System32 or SysWOW64 path. If OriginalFileName is CertUtil.exe but the name or path differs, treat it as a suspicious renamed copy.",
+        "Examine ParentImage and the parent's command line. cmd, powershell, wscript, mshta or an Office app as the parent makes the activity more suspicious.",
+        "On the same host, from 15 minutes before to 15 minutes after, look for child processes or for the output file being run, for example through rundll32 or regsvr32.",
+        "Trace where the input file came from (certutil -urlcache, a browser, email) and which domain or IP served it.",
+        "Hash the decoded file and look it up in EDR and threat intelligence. Detonate it in a sandbox if you can.",
+        "Check whether the user normally does PKI work and whether the user or host has earlier alerts."
+      ],
+      "false_positives": [
+        "PKI administrators decoding Base64 certificates or CRLs (.cer, .crt, .p7b) as part of their job.",
+        "Software install or deployment scripts that use certutil to extract files embedded as Base64.",
+        "Internal support or automation tools that move binaries around as encoded text."
+      ],
+      "response_steps": [
+        "Ask the user or the system owner whether the decode was expected and whether the output file is legitimate.",
+        "If the activity is malicious, isolate the endpoint through EDR and keep the input and output files as evidence.",
+        "Block the payload hash and the source domains or IPs. Hunt for the same hash and CommandLine pattern on other hosts.",
+        "Remove related artifacts and persistence only after you have documented them. Reset the user's credentials if they may be exposed.",
+        "Consider restricting certutil.exe with AppLocker or WDAC for users who do not need it."
+      ],
+      "severity_rationale": "High fits because decoding files with certutil is rare outside PKI work and usually comes right before a payload runs."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "certutil from System32, launched by cmd.exe, decodes a Base64 text file into an executable in C:\\Users\\Public.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil -decode C:\\Users\\Public\\update.txt C:\\Users\\Public\\update.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c certutil -decode C:\\Users\\Public\\update.txt C:\\Users\\Public\\update.exe",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      },
+      {
+        "description": "A renamed copy of certutil (OriginalFileName CertUtil.exe) uses the slash form /decodehex to decode a hex file into a DLL.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Users\\mrodriguez\\AppData\\Local\\Temp\\cu.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "cu.exe /decodehex C:\\Users\\mrodriguez\\AppData\\Local\\Temp\\data.hex C:\\Users\\mrodriguez\\AppData\\Local\\Temp\\lib.dll",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Users\\mrodriguez\\AppData\\Local\\Temp\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "certutil run with -encode (encode, not decode), so the CommandLine selection does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-PKI-01.andes.example.com",
+          "User": "ANDES\\adm.lgomez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil -encode C:\\PKI\\export\\root.cer C:\\PKI\\export\\root_b64.cer",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "A different tool takes a -decode argument, but neither Image nor OriginalFileName is certutil.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Tools\\base64\\b64.exe",
+          "OriginalFileName": "b64.exe",
+          "CommandLine": "b64.exe -decode C:\\Data\\report.b64 C:\\Data\\report.pdf",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

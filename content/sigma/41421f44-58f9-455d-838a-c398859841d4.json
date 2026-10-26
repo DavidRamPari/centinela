@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "41421f44-58f9-455d-838a-c398859841d4",
+    "title": "ETW Logging Tamper In .NET Processes Via CommandLine",
+    "level": "high",
+    "status": "test",
+    "author": "Roberto Rodriguez (Cyb3rWard0g), OTR (Open Threat Research)",
+    "path": "windows/process_creation/proc_creation_win_susp_etw_modification_cmdline.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_etw_modification_cmdline.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso se creó con una línea de comandos que hace referencia a COMPlus_ETWEnabled o COMPlus_ETWFlags. Esto suele indicar un intento de desactivar la telemetría ETW del runtime .NET antes de ejecutar un ensamblado.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo campo CommandLine contiene 'COMPlus_ETWEnabled' o 'COMPlus_ETWFlags'. Son variables de entorno del CLR que, por ejemplo con COMPlus_ETWEnabled=0, desactivan los proveedores ETW de .NET en los procesos hijos.",
+      "why_it_matters": "Los proveedores ETW de .NET registran los ensamblados que se cargan. Si se desactivan, las herramientas de seguridad pierden visibilidad sobre la ejecución de ensamblados en memoria, como herramientas ofensivas en C# o cargadores. Es debilitamiento de defensas (ATT&CK T1685, según la regla).",
+      "triage_steps": [
+        "Revise el CommandLine completo: qué valor se asigna (por ejemplo =0) y qué comando o binario se ejecuta a continuación en la misma línea.",
+        "Identifique Image, ParentImage y ParentCommandLine. Un cmd.exe o powershell.exe lanzado por Office, un navegador o wmiprvse.exe aumenta mucho la sospecha.",
+        "Revise los procesos hijos creados con esa variable, sobre todo binarios .NET, ejecutables en rutas temporales o de usuario, o herramientas LOLBin como InstallUtil, MSBuild o regsvcs.",
+        "Pivotee en el mismo host +/- 15 minutos: conexiones de red, archivos creados, cargas de clr.dll y otras alertas de evasión o de AMSI.",
+        "Verifique el usuario y el tipo de inicio de sesión. Revise si la cuenta tiene un rol de desarrollo y si hay alertas previas para el usuario o el host.",
+        "Busque la misma cadena en otros endpoints para saber si es un caso aislado o forma parte de una actividad más amplia.",
+        "Calcule el hash de los binarios involucrados y consulte su reputación interna y su firma digital."
+      ],
+      "false_positives": [
+        "Desarrolladores o ingenieros de rendimiento que ajustan variables COMPlus_ para depurar el CLR. Es raro y debe estar documentado.",
+        "Pruebas autorizadas de red team o de validación de EDR que reproducen técnicas de evasión de ETW.",
+        "Scripts de laboratorio o de investigación de seguridad en equipos de análisis aislados."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del equipo o del usuario si la actividad estaba autorizada. Si no lo estaba, escálela como incidente.",
+        "Aísle el endpoint desde el EDR si hay indicios de ejecución maliciosa, y preserve la memoria y los artefactos antes de remediar.",
+        "Detenga los procesos asociados después de capturarlos. Elimine las variables de entorno persistentes en HKCU\\Environment o HKLM y los mecanismos de persistencia que encuentre.",
+        "Restablezca las credenciales del usuario si hubo ejecución de herramientas ofensivas, y busque movimiento lateral desde el host.",
+        "Restaure el equipo a un estado conocido y confirme que la telemetría ETW de .NET vuelve a generar eventos."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque casi nunca hay una razón legítima para desactivar ETW de .NET desde la línea de comandos, y hacerlo deja ciegas las defensas antes de ejecutar código."
+    },
+    "en": {
+      "summary": "A process was created with a command line that references COMPlus_ETWEnabled or COMPlus_ETWFlags. This usually means someone is trying to turn off .NET runtime ETW telemetry before running an assembly.",
+      "what_it_detects": "Windows process creation events where CommandLine contains 'COMPlus_ETWEnabled' or 'COMPlus_ETWFlags'. These are CLR environment variables. Setting one, for example COMPlus_ETWEnabled=0, disables .NET ETW providers in child processes.",
+      "why_it_matters": ".NET ETW providers record which assemblies get loaded. With them turned off, security tools can't see in-memory assembly execution such as C# offensive tooling or loaders. This is defense impairment (ATT&CK T1685, per the rule).",
+      "triage_steps": [
+        "Read the full CommandLine. Note the value being set (for example =0) and what binary or command runs next on the same line.",
+        "Identify Image, ParentImage and ParentCommandLine. Suspicion rises sharply if cmd.exe or powershell.exe was spawned by Office, a browser or wmiprvse.exe.",
+        "Review child processes that inherited the variable, especially .NET binaries, executables in temp or user paths, and LOLBins such as InstallUtil, MSBuild or regsvcs.",
+        "Pivot on the same host within +/- 15 minutes: network connections, file writes, clr.dll loads, and other evasion or AMSI alerts.",
+        "Check the user and logon type. Confirm whether the account belongs to a developer, and look for earlier alerts on the same user or host.",
+        "Search other endpoints for the same string to tell whether this is isolated or part of broader activity.",
+        "Hash the binaries involved and check their internal reputation and code signing."
+      ],
+      "false_positives": [
+        "Developers or performance engineers setting COMPlus_ variables to debug the CLR. This is rare and should be documented.",
+        "Authorized red team or EDR validation exercises that reproduce ETW evasion.",
+        "Lab or security research scripts on isolated analysis machines."
+      ],
+      "response_steps": [
+        "Ask the host or user owner whether the activity was authorized. If it wasn't, escalate it as an incident.",
+        "If malicious execution is likely, isolate the endpoint through EDR. Preserve memory and artifacts before you remediate.",
+        "Capture the related processes, then kill them. Remove any persistent variables in HKCU\\Environment or HKLM, along with any persistence you find.",
+        "If offensive tooling ran, reset the user's credentials and hunt for lateral movement from the host.",
+        "Restore the host to a known-good state and confirm that .NET ETW telemetry produces events again."
+      ],
+      "severity_rationale": "High fits because there is almost never a legitimate reason to disable .NET ETW from a command line, and doing so blinds defenses right before code runs."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe disables .NET ETW with COMPlus_ETWEnabled=0 before launching a .NET binary from a user temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c \"set COMPlus_ETWEnabled=0 && C:\\Users\\jperez\\AppData\\Local\\Temp\\updater.exe\"",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n \"C:\\Users\\jperez\\Downloads\\factura.docm\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "PowerShell persists COMPlus_ETWFlags in the user environment using setx",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\setx.exe",
+          "CommandLine": "setx COMPlus_ETWFlags 0",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile -WindowStyle Hidden",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Developer sets an unrelated CLR JIT variable (COMPlus_JitDisasm) for debugging; no ETW variable is referenced",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c \"set COMPlus_JitDisasm=Main && dotnet run --project C:\\src\\demo\\demo.csproj\"",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\devenv.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Registry-based ETWEnabled change without the COMPlus_ prefix; the rule's command-line strings do not appear",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg add HKCU\\Software\\Microsoft\\.NETFramework /v ETWEnabled /t REG_DWORD /d 0 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

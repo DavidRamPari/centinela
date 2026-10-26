@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "88d306e9-8e2d-4025-9768-28757d2732db",
+    "title": "Suspicious WSL Binary Hijack via Proxy Execution",
+    "level": "high",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wsl_binary_hijack_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wsl_binary_hijack_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036.005",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "El stub legítimo C:\\Windows\\System32\\wsl.exe lanzó un proceso hijo llamado wsl.exe desde una ruta fuera de las ubicaciones de instalación conocidas de WSL. Esto suele indicar que alguien modificó el valor de registro InstallLocation para redirigir la ejecución a un binario controlado por un atacante.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage es C:\\Windows\\System32\\wsl.exe e Image termina en \\wsl.exe, pero no está en System32, C:\\Program Files\\WSL, WinSxS (lxss-wsl), WindowsApps del paquete de WSL ni en %LOCALAPPDATA%\\Microsoft\\WindowsApps del usuario.",
+      "why_it_matters": "Al invocar wsl o bash, el stub de System32 ejecuta el wsl.exe indicado en InstallLocation. Si un atacante cambia ese valor, su payload corre como hijo de un binario firmado de Microsoft y con un nombre legítimo. Esto corresponde a enmascaramiento con nombre o ubicación legítimos (T1036.005) y a ejecución mediante un binario de sistema como proxy (T1218), y sirve para persistencia y evasión.",
+      "triage_steps": [
+        "Revise la ruta exacta del campo Image, su hash, su firma digital y su editor. Un wsl.exe sin firmar o fuera de rutas de Microsoft es una señal fuerte.",
+        "Revise CommandLine y el usuario del proceso hijo y del padre para identificar quién invocó wsl o bash y con qué argumentos.",
+        "Busque cambios en el valor de registro InstallLocation de WSL (por ejemplo, Sysmon EventID 13) en el mismo host y averigüe qué proceso y qué usuario lo modificaron.",
+        "Revise los procesos hijos del wsl.exe sospechoso y su actividad de red, archivos y registro en el mismo host dentro de +/- 15 minutos.",
+        "Determine cuándo se creó el binario en disco y qué proceso lo escribió (Sysmon EventID 11); rastree la cadena de procesos padre.",
+        "Busque el mismo hash o la misma ruta en otros endpoints y revise alertas anteriores del host y del usuario."
+      ],
+      "false_positives": [
+        "La regla indica que los falsos positivos son poco probables.",
+        "Instalaciones de WSL en ubicaciones personalizadas o compilaciones de desarrollo de WSL que no están en las rutas filtradas; confírmelo con TI y valide la firma de Microsoft."
+      ],
+      "response_steps": [
+        "Valide si el binario es malicioso: firma, hash, análisis en sandbox y el valor actual de InstallLocation.",
+        "Si se confirma, aísle el endpoint y termine el proceso wsl.exe sospechoso y sus procesos hijos.",
+        "Restaure InstallLocation al valor legítimo, ponga el binario en cuarentena y elimine otros mecanismos de persistencia que encuentre.",
+        "Restablezca las credenciales del usuario afectado si hubo ejecución, busque el IOC en toda la flota y documente los hallazgos."
+      ],
+      "severity_rationale": "El nivel high se justifica porque un hijo wsl.exe fuera de las rutas legítimas casi no tiene usos benignos e indica un secuestro de ejecución con fines de evasión."
+    },
+    "en": {
+      "summary": "The legitimate C:\\Windows\\System32\\wsl.exe stub spawned a child process named wsl.exe from a path outside the known WSL install locations. This usually means someone changed the InstallLocation registry value to redirect execution to an attacker-controlled binary.",
+      "what_it_detects": "Process creation events where ParentImage is C:\\Windows\\System32\\wsl.exe and Image ends with \\wsl.exe, but is not in System32, C:\\Program Files\\WSL, WinSxS (lxss-wsl), the WSL WindowsApps package or the user's %LOCALAPPDATA%\\Microsoft\\WindowsApps.",
+      "why_it_matters": "When wsl or bash runs, the System32 stub executes the wsl.exe named in InstallLocation. If an attacker changes that value, their payload runs as a child of a signed Microsoft binary and under a legitimate name. This is masquerading with a legitimate name or location (T1036.005) and system binary proxy execution (T1218). Attackers use it for persistence and evasion.",
+      "triage_steps": [
+        "Check the exact Image path, its hash, signature and publisher. An unsigned wsl.exe, or one outside Microsoft paths, is a strong signal.",
+        "Review CommandLine and the user for both the child and the parent to see who invoked wsl or bash and with which arguments.",
+        "Look for changes to the WSL InstallLocation registry value (for example Sysmon EventID 13) on the same host, and find which process and user made them.",
+        "Review the suspicious wsl.exe's child processes and its network, file and registry activity on the same host within +/- 15 minutes.",
+        "Find when the binary was written to disk and by which process (Sysmon EventID 11), then trace its parent chain.",
+        "Search other endpoints for the same hash or path, and check earlier alerts for this host and user."
+      ],
+      "false_positives": [
+        "The rule says false positives are unlikely.",
+        "WSL installed in a custom location, or WSL development builds outside the filtered paths. Confirm with IT and check for a valid Microsoft signature."
+      ],
+      "response_steps": [
+        "Confirm whether the binary is malicious: check its signature and hash, run it in a sandbox and read the current InstallLocation value.",
+        "If it is confirmed, isolate the endpoint and kill the suspicious wsl.exe and its child processes.",
+        "Reset InstallLocation to its legitimate value, quarantine the binary and remove any other persistence you find.",
+        "Reset the affected user's credentials if the payload ran, search the whole fleet for the IOCs and document what you found."
+      ],
+      "severity_rationale": "High fits because a wsl.exe child outside legitimate paths has almost no benign use and points to execution hijacking for evasion."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "System32 wsl.exe stub proxies execution to a wsl.exe planted in ProgramData after InstallLocation was changed",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\wsl.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\wsl.exe -e sh -c id",
+          "Image": "C:\\ProgramData\\Lxss\\wsl.exe",
+          "CommandLine": "C:\\ProgramData\\Lxss\\wsl.exe -e sh -c id",
+          "IntegrityLevel": "Medium",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000001"
+        }
+      },
+      {
+        "description": "Hijacked wsl.exe in the user's AppData\\Roaming, outside the WindowsApps filter path, launched when bash is run",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "ParentImage": "C:\\Windows\\System32\\wsl.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\wsl.exe",
+          "Image": "C:\\Users\\mrodriguez\\AppData\\Roaming\\WSL\\wsl.exe",
+          "CommandLine": "C:\\Users\\mrodriguez\\AppData\\Roaming\\WSL\\wsl.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Store WSL: the System32 stub launches C:\\Program Files\\WSL\\wsl.exe, which filter_main_legit_paths_1 excludes",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\wsl.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\wsl.exe --list --verbose",
+          "Image": "C:\\Program Files\\WSL\\wsl.exe",
+          "CommandLine": "\"C:\\Program Files\\WSL\\wsl.exe\" --list --verbose",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Legitimate per-user app execution alias under AppData\\Local\\Microsoft\\WindowsApps, which filter_main_legit_paths_3 excludes",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "ParentImage": "C:\\Windows\\System32\\wsl.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\wsl.exe",
+          "Image": "C:\\Users\\mrodriguez\\AppData\\Local\\Microsoft\\WindowsApps\\wsl.exe",
+          "CommandLine": "C:\\Users\\mrodriguez\\AppData\\Local\\Microsoft\\WindowsApps\\wsl.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

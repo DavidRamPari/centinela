@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "e4ed6030-ffe5-4e6a-8a8a-ab3c1ab9d94e",
+    "title": "Disable Windows IIS HTTP Logging",
+    "level": "high",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_iis_appcmd_http_logging.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_iis_appcmd_http_logging.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó appcmd.exe (la herramienta de administración de IIS), ya sea con su nombre o renombrada, para desactivar el registro HTTP de un sitio o servidor IIS con dontLog:true. Un atacante puede hacer esto en un servidor web para operar sin dejar rastro en los logs HTTP.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\appcmd.exe u OriginalFileName es appcmd.exe, y CommandLine contiene a la vez 'set', 'config', 'section:httplogging' y 'dontLog:true'.",
+      "why_it_matters": "Desactivar el registro HTTP de IIS elimina la evidencia de solicitudes web, como el uso de web shells o la explotación de aplicaciones, y es una forma de debilitar las defensas. La descripción de la regla menciona que Threat Group 3390 (Bronze Union) usó esta técnica. La regla está etiquetada como T1685.001 y su referencia es la prueba de Atomic Red Team para T1562.002.",
+      "triage_steps": [
+        "Revise CommandLine: identifique el sitio o la ruta afectada y si el cambio se aplica a nivel de servidor (sin nombre de sitio) o a un solo sitio.",
+        "Compare Image con OriginalFileName. Si appcmd.exe se ejecutó desde fuera de %windir%\\System32\\inetsrv o con otro nombre, trátelo como sospechoso.",
+        "Examine ParentImage y la cadena de procesos. Que lo lance w3wp.exe, cmd.exe o powershell.exe desde un worker de IIS sugiere una web shell.",
+        "Identifique al User y verifique si es un administrador de IIS conocido y si existe un ticket de cambio aprobado.",
+        "Revise el mismo host +/- 15 minutos: archivos nuevos en directorios web (.aspx, .ashx), creación de cuentas, borrado de logs o más comandos appcmd.",
+        "Revise los últimos logs HTTP de IIS que quedaron antes del cambio en busca de solicitudes POST anómalas a archivos poco comunes.",
+        "Busque alertas anteriores para el mismo host y usuario, y la misma línea de comando en otros servidores IIS."
+      ],
+      "false_positives": [
+        "Administradores que desactivan el registro de forma intencional en sitios de prueba o de alto volumen, con un cambio documentado.",
+        "Scripts de hardening o de despliegue (DSC, Ansible) que configuran httpLogging por diseño.",
+        "Ejercicios de Red Team o pruebas de Atomic Red Team autorizadas."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del servidor si el cambio fue autorizado antes de tomar acciones de contención.",
+        "Si no fue autorizado, vuelva a habilitar el registro con appcmd set config /section:httplogging /dontLog:false y verifique que los logs se escriban.",
+        "Aísle el servidor de la red o limite su acceso si hay indicios de web shell, y preserve la memoria, los logs y los directorios web.",
+        "Busque y elimine las web shells o la persistencia identificadas, y restablezca las credenciales comprometidas.",
+        "Monitoree cambios posteriores en la configuración de IIS y revise los demás servidores web en busca del mismo patrón."
+      ],
+      "severity_rationale": "El nivel high se justifica porque desactivar el registro HTTP rara vez es legítimo en producción y suele preceder o encubrir la actividad de un atacante en un servidor expuesto."
+    },
+    "en": {
+      "summary": "appcmd.exe, the IIS management tool (under its own name or renamed), was used to disable HTTP logging on an IIS site or server with dontLog:true. Attackers do this on web servers to operate without leaving HTTP log evidence.",
+      "what_it_detects": "Windows process creation events where Image ends with \\appcmd.exe or OriginalFileName is appcmd.exe, and CommandLine contains all of 'set', 'config', 'section:httplogging' and 'dontLog:true'.",
+      "why_it_matters": "Turning off IIS HTTP logging removes evidence of web requests such as web shell use or application exploitation, which impairs defenses. The rule description says Threat Group 3390 (Bronze Union) used this technique. The rule is tagged T1685.001 and its reference is the Atomic Red Team test for T1562.002.",
+      "triage_steps": [
+        "Read CommandLine: identify the site or path affected, and whether the change applies server-wide (no site name) or to a single site.",
+        "Compare Image with OriginalFileName. If appcmd.exe ran from outside %windir%\\System32\\inetsrv or under another name, treat it as suspicious.",
+        "Inspect ParentImage and the process tree. A launch from w3wp.exe, or from cmd.exe/powershell.exe spawned by an IIS worker, suggests a web shell.",
+        "Identify the User and check whether they are a known IIS admin with an approved change ticket.",
+        "Check the same host +/- 15 minutes for new files in web directories (.aspx, .ashx), account creation, log clearing or more appcmd commands.",
+        "Review the last IIS HTTP logs written before the change for unusual POST requests to rarely used files.",
+        "Search for earlier alerts on the same host and user, and for the same command line on other IIS servers."
+      ],
+      "false_positives": [
+        "Administrators intentionally disabling logging on test or high-volume sites, with a documented change.",
+        "Hardening or deployment scripts (DSC, Ansible) that configure httpLogging by design.",
+        "Authorized red team exercises or Atomic Red Team tests."
+      ],
+      "response_steps": [
+        "Confirm with the server owner whether the change was authorized before taking containment actions.",
+        "If it was unauthorized, re-enable logging with appcmd set config /section:httplogging /dontLog:false and verify that logs are being written.",
+        "Isolate or restrict the server if a web shell is suspected, and preserve memory, logs and web directories.",
+        "Remove any web shells or persistence you find and reset compromised credentials.",
+        "Monitor for further IIS configuration changes and sweep other web servers for the same pattern."
+      ],
+      "severity_rationale": "High fits because disabling HTTP logging is rarely legitimate in production and often precedes or hides attacker activity on an exposed server."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Native appcmd.exe disables HTTP logging for the Default Web Site, launched from cmd.exe under the IIS worker process",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-01.andes.example.com",
+          "User": "IIS APPPOOL\\DefaultAppPool",
+          "Image": "C:\\Windows\\System32\\inetsrv\\appcmd.exe",
+          "OriginalFileName": "appcmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\inetsrv\\appcmd.exe set config \"Default Web Site\" /section:httplogging /dontLog:true",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c appcmd set config \"Default Web Site\" /section:httplogging /dontLog:true"
+        }
+      },
+      {
+        "description": "Renamed appcmd copy, matched by OriginalFileName, disables HTTP logging server-wide",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-02.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "appcmd.exe",
+          "CommandLine": "C:\\Users\\Public\\svchelper.exe set config -section:httpLogging -dontLog:True",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator re-enables HTTP logging (dontLog:false), so the dontLog:true value is absent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-01.andes.example.com",
+          "User": "ANDES\\admin.iis",
+          "Image": "C:\\Windows\\System32\\inetsrv\\appcmd.exe",
+          "OriginalFileName": "appcmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\inetsrv\\appcmd.exe set config \"Default Web Site\" /section:httplogging /dontLog:false",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Read-only listing of the httpLogging section, with no 'set' verb or dontLog:true",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-01.andes.example.com",
+          "User": "ANDES\\admin.iis",
+          "Image": "C:\\Windows\\System32\\inetsrv\\appcmd.exe",
+          "OriginalFileName": "appcmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\inetsrv\\appcmd.exe list config \"Default Web Site\" /section:httplogging",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

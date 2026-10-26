@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "5b768e71-86f2-4879-b448-81061cbae951",
+    "title": "Suspicious Manipulation Of Default Accounts Via Net.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_net_user_default_accounts_manipulation.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_net_user_default_accounts_manipulation.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1560.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó net.exe o net1.exe con la opción 'user' sobre una cuenta predeterminada (Administrator, Guest, DefaultAccount o su nombre localizado). Puede indicar que se habilitó una cuenta integrada, se cambió su contraseña o se modificó para persistencia o movimiento lateral.",
+      "what_it_detects": "Creación de procesos net.exe/net1.exe (por Image u OriginalFileName) cuyo CommandLine contiene ' user ' y el nombre de una cuenta predeterminada en varios idiomas, con o sin comillas. Excluye la deshabilitación de guest con '/active no'.",
+      "why_it_matters": "Varias operaciones de ransomware citadas en las referencias cambian la contraseña o habilitan Administrator o Guest para asegurarse acceso. La regla está etiquetada T1560.001, pero el comportamiento corresponde a manipulación de cuentas y uso de cuentas predeterminadas válidas.",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique la cuenta y la acción (cambio de contraseña, '/active:yes', '/add', '/domain', solo consulta).",
+        "Revise ParentImage y la línea de comandos del padre: cmd.exe, powershell.exe, wmiprvse.exe o servicios remotos son más sospechosos que una herramienta de gestión conocida.",
+        "Valide el usuario que ejecutó el proceso y si es un administrador autorizado del equipo o un ticket de cambio vigente.",
+        "Busque en el mismo host, +/- 15 minutos, eventos 4724 (restablecimiento de contraseña), 4722 (cuenta habilitada) y 4738 sobre la cuenta afectada.",
+        "Correlacione con otros comandos de net, vssadmin, wmic o borrado de logs en el mismo host y con inicios de sesión posteriores con esa cuenta (4624).",
+        "Revise alertas previas del mismo usuario y host, y si el mismo comando apareció en otros equipos, lo que sugeriría despliegue masivo."
+      ],
+      "false_positives": [
+        "Scripts de administradores o de despliegue que restablecen la contraseña de Administrator local o habilitan la cuenta durante el aprovisionamiento.",
+        "Herramientas de hardening que deshabilitan guest con '/active:no' (sintaxis con dos puntos no cubierta por el filtro).",
+        "Técnicos de soporte que recuperan acceso a un equipo mediante la cuenta integrada, con ticket documentado."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del equipo o el equipo de TI si el cambio estaba autorizado; si lo estaba, documente y considere ajustar la regla.",
+        "Si no está autorizado, aísle el endpoint y deshabilite o restablezca la contraseña de la cuenta afectada tras preservar evidencia.",
+        "Investigue el origen: proceso padre, sesión de inicio, herramientas de acceso remoto y credenciales usadas; restablezca las credenciales comprometidas.",
+        "Busque el mismo comando en toda la flota y revise indicios de ransomware (borrado de shadow copies, cifrado masivo).",
+        "Recupere: restaure el estado esperado de las cuentas, aplique LAPS o rotación de contraseñas locales y monitoree nuevos inicios de sesión."
+      ],
+      "severity_rationale": "Es alta porque manipular cuentas integradas es una táctica frecuente previa al ransomware y otorga acceso privilegiado, aunque existen scripts administrativos legítimos."
+    },
+    "en": {
+      "summary": "net.exe or net1.exe ran with the 'user' option against a default account (Administrator, Guest, DefaultAccount or a localized name). This may mean a built-in account was enabled, had its password changed or was modified for persistence or lateral movement.",
+      "what_it_detects": "net.exe/net1.exe process creation (by Image or OriginalFileName) whose CommandLine contains ' user ' plus a default account name in several languages, bare or quoted. Disabling guest with '/active no' is excluded.",
+      "why_it_matters": "Ransomware operations in the references reset passwords or enable Administrator or Guest to secure access. The rule is tagged T1560.001, but the behavior is really account manipulation and abuse of valid default accounts.",
+      "triage_steps": [
+        "Read the full CommandLine: identify the account and action (password change, '/active:yes', '/add', '/domain', or lookup only).",
+        "Check ParentImage and the parent command line: cmd.exe, powershell.exe, wmiprvse.exe or remote services are more suspicious than a known management tool.",
+        "Verify the executing user is an authorized admin of the host or tied to an open change ticket.",
+        "On the same host, +/- 15 minutes, look for events 4724 (password reset), 4722 (account enabled) and 4738 for the affected account.",
+        "Correlate with other net, vssadmin, wmic or log-clearing commands on the host, and later logons with that account (4624).",
+        "Review earlier alerts for the same user and host, and whether the same command ran on other machines, suggesting mass deployment."
+      ],
+      "false_positives": [
+        "Admin or deployment scripts that reset the local Administrator password or enable it during provisioning.",
+        "Hardening tools disabling guest with '/active:no' (colon syntax is not covered by the filter).",
+        "Support staff regaining access to a machine via the built-in account, with a documented ticket."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the change was authorized; if so, document it and consider tuning.",
+        "If unauthorized, isolate the endpoint and disable or reset the affected account after preserving evidence.",
+        "Trace the origin: parent process, logon session, remote access tools and credentials used; reset compromised credentials.",
+        "Hunt for the same command fleet-wide and check for ransomware precursors such as shadow copy deletion or mass encryption.",
+        "Recover: restore expected account state, enforce LAPS or local password rotation, and monitor new logons."
+      ],
+      "severity_rationale": "High fits because tampering with built-in accounts is a common pre-ransomware step granting privileged access, though legitimate admin scripts exist."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "net.exe resets the local Administrator password and enables the account from a cmd.exe spawned by a remote session",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net  user Administrator Winter2024! /active:yes",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c net  user Administrator Winter2024! /active:yes"
+        }
+      },
+      {
+        "description": "net1.exe enables the built-in guest account",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc-backup",
+          "Image": "C:\\Windows\\System32\\net1.exe",
+          "OriginalFileName": "net1.exe",
+          "CommandLine": "C:\\Windows\\system32\\net1  user guest /active:yes",
+          "ParentImage": "C:\\Windows\\System32\\net.exe",
+          "ParentCommandLine": "net user guest /active:yes"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Hardening script disables guest with '/active no'; the filter excludes it",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\adm-mrojas",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net user guest /active no",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      },
+      {
+        "description": "Simple lookup of the Administrator account with no trailing argument, so ' Administrator ' is not present",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net user Administrator",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

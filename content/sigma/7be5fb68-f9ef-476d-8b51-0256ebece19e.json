@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "7be5fb68-f9ef-476d-8b51-0256ebece19e",
+    "title": "Suspicious Execution of Hostname",
+    "level": "low",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_hostname_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hostname_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1082"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó hostname.exe en un endpoint Windows. Por sí solo suele ser benigno, pero puede formar parte del reconocimiento inicial de un atacante.",
+      "what_it_detects": "Cualquier creación de proceso cuyo Image termina en \\HOSTNAME.EXE, sin importar argumentos, usuario ni proceso padre.",
+      "why_it_matters": "hostname devuelve el nombre del equipo. Los atacantes lo usan para el descubrimiento de información del sistema (ATT&CK T1082) y así orientar el movimiento lateral o etiquetar los equipos comprometidos.",
+      "triage_steps": [
+        "Revise ParentImage y ParentCommandLine: un padre como cmd.exe o powershell.exe lanzado desde Office, un navegador, w3wp.exe o un binario en una ruta temporal resulta sospechoso.",
+        "Identifique al usuario (User) y confirme si es un administrador, una cuenta de servicio o un usuario estándar que normalmente no ejecuta comandos de consola.",
+        "Confirme que Image esté en C:\\Windows\\System32 o SysWOW64 y valide el hash; si está en otra ruta, podría ser un binario suplantado.",
+        "Busque en el mismo host, dentro de +/- 15 minutos, otros comandos de descubrimiento: whoami, systeminfo, ipconfig, net user, nltest, tasklist.",
+        "Revise los procesos hijos y hermanos del mismo padre, además de las conexiones de red salientes del proceso padre.",
+        "Consulte alertas previas para el mismo host y usuario, sobre todo de acceso inicial, ejecución o persistencia."
+      ],
+      "false_positives": [
+        "Administradores o personal de soporte que ejecutan hostname manualmente durante un diagnóstico.",
+        "Scripts de inicio de sesión, de inventario o de despliegue (SCCM, GPO, instaladores) que consultan el nombre del equipo.",
+        "Herramientas de monitoreo, de respaldo o agentes RMM que llaman a hostname de forma periódica."
+      ],
+      "response_steps": [
+        "Si el padre y el usuario son legítimos y no hay más actividad, cierre la alerta y evalúe una exclusión por ParentImage o por script conocido.",
+        "Si hay una cadena de descubrimiento o un padre anómalo, escale el caso y recopile el árbol de procesos, la línea de tiempo y los artefactos del host.",
+        "Ante una confirmación de compromiso, aísle el endpoint, deshabilite o restablezca las credenciales afectadas y elimine los mecanismos de persistencia identificados.",
+        "Restaure el equipo desde un estado limpio y busque los mismos indicadores en otros hosts."
+      ],
+      "severity_rationale": "El nivel bajo es adecuado porque hostname es un comando común y sin daño directo; solo cobra relevancia junto con otra actividad sospechosa."
+    },
+    "en": {
+      "summary": "hostname.exe was executed on a Windows endpoint. This is usually benign on its own, but it can be part of an attacker's early reconnaissance.",
+      "what_it_detects": "Any process creation where Image ends with \\HOSTNAME.EXE, regardless of arguments, user or parent process.",
+      "why_it_matters": "hostname prints the computer name. Attackers use it for system information discovery (ATT&CK T1082) to orient lateral movement or to tag compromised hosts.",
+      "triage_steps": [
+        "Check ParentImage and ParentCommandLine. A cmd.exe or powershell.exe parent spawned by Office, a browser, w3wp.exe or a binary in a temp path is suspicious.",
+        "Identify the User. Confirm whether it is an admin, a service account or a standard user who rarely runs console commands.",
+        "Confirm Image sits in C:\\Windows\\System32 or SysWOW64 and validate the hash. Any other path may mean a masqueraded binary.",
+        "On the same host within +/- 15 minutes, look for other discovery commands: whoami, systeminfo, ipconfig, net user, nltest, tasklist.",
+        "Review child and sibling processes of the same parent, plus outbound network connections from the parent.",
+        "Check earlier alerts for the same host and user, especially initial access, execution or persistence alerts."
+      ],
+      "false_positives": [
+        "Administrators or helpdesk staff running hostname by hand while troubleshooting.",
+        "Logon, inventory or deployment scripts (SCCM, GPO, installers) that look up the computer name.",
+        "Monitoring, backup or RMM agents that call hostname on a schedule."
+      ],
+      "response_steps": [
+        "If the parent and user are legitimate and nothing else stands out, close the alert and consider an exclusion for that ParentImage or known script.",
+        "If you see a discovery chain or an unusual parent, escalate and collect the process tree, a timeline and host artifacts.",
+        "If compromise is confirmed, isolate the endpoint, disable or reset the affected credentials and remove any persistence you found.",
+        "Restore the host from a clean state and hunt for the same indicators on other hosts."
+      ],
+      "severity_rationale": "Low fits because hostname is a common, harmless command that matters only alongside other suspicious activity."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "hostname.exe launched from a cmd.exe spawned by a PowerShell script in a user temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\HOSTNAME.EXE",
+          "OriginalFileName": "hostname.exe",
+          "CommandLine": "hostname",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c hostname & whoami & ipconfig /all",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "Lowercase hostname.exe path from SysWOW64 run by PowerShell (case-insensitive match)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_web",
+          "Image": "C:\\Windows\\SysWOW64\\hostname.exe",
+          "CommandLine": "\"C:\\Windows\\SysWOW64\\hostname.exe\"",
+          "ParentImage": "C:\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -c hostname"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "PowerShell reading the computer name through an environment variable, so hostname.exe never runs",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -c $env:COMPUTERNAME",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Unrelated binary whose name only contains 'hostname' but does not end with \\HOSTNAME.EXE",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0200.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files\\InventoryAgent\\hostname_report.exe",
+          "CommandLine": "hostname_report.exe --upload",
+          "ParentImage": "C:\\Program Files\\InventoryAgent\\agent.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

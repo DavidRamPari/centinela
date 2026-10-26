@@ -1,0 +1,138 @@
+{
+  "rule": {
+    "id": "9fc3072c-dc8f-4bf7-b231-18950000fadd",
+    "title": "Potential Recon Activity Using DriverQuery.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_driverquery_recon.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_driverquery_recon.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó driverquery.exe desde un intérprete de scripts, un LOLBin proxy (rundll32, regsvr32, mshta) o un binario ubicado en una carpeta escribible por el usuario. Es típico de malware que enumera los drivers instalados poco después de la ejecución inicial.",
+      "what_it_detects": "Creación de procesos en la que Image termina en driverquery.exe u OriginalFileName es drvqry.exe, y ParentImage es cscript, wscript, mshta, regsvr32 o rundll32, o está ubicado bajo \\AppData\\Local\\, \\Users\\Public\\ o \\Windows\\Temp\\.",
+      "why_it_matters": "Listar los drivers es una técnica de Discovery. Le muestra al atacante qué productos de seguridad y qué drivers de virtualización o sandbox están presentes. Las referencias de la regla describen este comportamiento en intrusiones de Ursnif, donde fue uno de los primeros pasos de reconocimiento del host.",
+      "triage_steps": [
+        "Revise CommandLine (por ejemplo /v, /si, /fo csv) y verifique si la salida se redirigió a un archivo para exfiltrarla después.",
+        "Analice ParentImage y su línea de comandos: identifique el script, la DLL o el HTA ejecutado y su ruta.",
+        "Recorra el árbol de procesos hacia arriba hasta el vector inicial: documento de Office, adjunto de correo, descarga del navegador, ISO o LNK.",
+        "En el mismo host, dentro de +/- 15 minutos, busque otros comandos de reconocimiento como systeminfo, ipconfig, net, whoami, nltest y tasklist.",
+        "Revise las conexiones de red del proceso padre y de sus procesos hermanos en busca de C2 o descargas de payloads.",
+        "Obtenga el hash del binario o script padre y verifique su reputación y su prevalencia en la flota.",
+        "Busque alertas previas del mismo usuario y host, y el mismo hash del padre en otros endpoints."
+      ],
+      "false_positives": [
+        "Scripts legítimos de administración o inventario (VBS/JS ejecutados con cscript o wscript) que recopilan información de drivers.",
+        "Instaladores o herramientas de soporte que se ejecutan desde AppData\\Local o Windows\\Temp y recopilan diagnósticos del sistema.",
+        "Utilidades de diagnóstico de proveedores que la mesa de ayuda ejecuta desde Users\\Public."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del activo si el script o la herramienta padre es esperado.",
+        "Si es malicioso o desconocido, aísle el endpoint mediante el EDR y preserve la memoria y los artefactos del proceso padre.",
+        "Bloquee el hash del padre y los dominios o IP de C2, y búsquelos en todo el entorno.",
+        "Elimine la persistencia y los archivos maliciosos solo después de recolectar evidencia. Restablezca las credenciales del usuario si se confirma el compromiso.",
+        "Reinstale o restaure el host si hace falta. Documente los scripts benignos para excluirlos por ruta exacta o hash."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque que un intérprete de scripts, un binario proxy o una ruta escribible por el usuario lance la enumeración de drivers es poco común en uso legítimo y suele indicar reconocimiento posterior a la explotación."
+    },
+    "en": {
+      "summary": "driverquery.exe ran from a script host, a LOLBin proxy (rundll32, regsvr32, mshta) or a binary in a user-writable folder. This is typical of malware enumerating installed drivers soon after initial execution.",
+      "what_it_detects": "Process creation where Image ends with driverquery.exe or OriginalFileName is drvqry.exe, and ParentImage is cscript, wscript, mshta, regsvr32 or rundll32, or is located under \\AppData\\Local\\, \\Users\\Public\\ or \\Windows\\Temp\\.",
+      "why_it_matters": "Listing drivers is a Discovery technique. It shows attackers which security products, virtualization or sandbox drivers are present. The rule's references describe this behavior in Ursnif intrusions, where it was one of the first host recon steps.",
+      "triage_steps": [
+        "Review CommandLine (for example /v, /si, /fo csv) and check whether output was redirected to a file for later exfiltration.",
+        "Inspect ParentImage and its command line: identify the script, DLL or HTA being executed and its path.",
+        "Walk the process tree upward to find the initial vector: Office document, email attachment, browser download, ISO or LNK.",
+        "On the same host within +/- 15 minutes, look for other recon commands such as systeminfo, ipconfig, net, whoami, nltest and tasklist.",
+        "Check network connections from the parent process and its siblings for C2 or payload downloads.",
+        "Get the hash of the parent binary or script and check reputation and prevalence across the fleet.",
+        "Search for earlier alerts for the same user and host, and for the same parent hash on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate admin or inventory scripts (VBS/JS run through cscript or wscript) that collect driver information.",
+        "Software installers or support tools run from AppData\\Local or Windows\\Temp that gather system diagnostics.",
+        "Vendor troubleshooting utilities run from Users\\Public by helpdesk staff."
+      ],
+      "response_steps": [
+        "Confirm with the user or asset owner whether the parent script or tool is expected.",
+        "If it is malicious or unknown, isolate the endpoint through EDR and preserve memory and the parent artifacts.",
+        "Block the parent hash and any C2 domains or IPs, then hunt for them across the environment.",
+        "Remove persistence and malicious files only after collecting evidence. Reset the user's credentials if compromise is confirmed.",
+        "Reimage or restore the host if needed. Document benign scripts so they can be tuned as exclusions by exact path or hash."
+      ],
+      "severity_rationale": "High fits because a script host, proxy binary or user-writable path launching driver enumeration rarely happens in legitimate use and usually points to post-exploitation recon."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "driverquery launched by wscript.exe running a VBS file from the user's Downloads folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\driverquery.exe",
+          "OriginalFileName": "drvqry.exe",
+          "CommandLine": "driverquery /v /fo csv",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\wscript.exe\" C:\\Users\\jperez\\Downloads\\factura_0193.vbs",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed driverquery (identified by OriginalFileName) spawned by an unknown binary in AppData\\Local",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\dq.exe",
+          "OriginalFileName": "drvqry.exe",
+          "CommandLine": "dq.exe",
+          "ParentImage": "C:\\Users\\mrojas\\AppData\\Local\\Microsoft\\updsvc.exe",
+          "ParentCommandLine": "C:\\Users\\mrojas\\AppData\\Local\\Microsoft\\updsvc.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator runs driverquery interactively from cmd.exe; the parent does not match selection_parent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.lgarcia",
+          "Image": "C:\\Windows\\System32\\driverquery.exe",
+          "OriginalFileName": "drvqry.exe",
+          "CommandLine": "driverquery /si",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\cmd.exe\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "wscript.exe spawns systeminfo, not driverquery; selection_img does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\systeminfo.exe",
+          "OriginalFileName": "sysinfo.exe",
+          "CommandLine": "systeminfo",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\wscript.exe\" \\\\fs01.andes.example.com\\netlogon\\inventario.vbs",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

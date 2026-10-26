@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "10c14723-61c7-4c75-92ca-9af245723ad2",
+    "title": "HackTool - Potential Impacket Lateral Movement Activity",
+    "level": "high",
+    "status": "stable",
+    "author": "Ecco, oscd.community, Jonhnathan Ribeiro, Tim Rauch",
+    "path": "windows/process_creation/proc_creation_win_hktl_impacket_lateral_movement.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_impacket_lateral_movement.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.003",
+      "T1047"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso cmd.exe se ejecutó con el patrón de línea de comandos típico de wmiexec, dcomexec, smbexec o atexec de Impacket. Lo más probable es que alguien esté ejecutando comandos de forma remota en este host con credenciales válidas.",
+      "what_it_detects": "Eventos de creación de procesos en los que cmd.exe se ejecuta con /Q /c y redirige la salida a \\\\127.0.0.1\\ADMIN$ o C$ (2>&1) desde WmiPrvSE.exe, mmc.exe, explorer.exe o services.exe. También detecta cmd.exe /C con salida redirigida a Windows\\Temp cuando el padre es svchost.exe -k netsvcs o taskeng.exe (atexec).",
+      "why_it_matters": "Impacket permite moverse lateralmente con credenciales o hashes robados mediante WMI (T1047), DCOM, servicios SMB o tareas programadas (T1021.003). Normalmente se ejecuta como SYSTEM o como administrador y suele aparecer antes del robo de credenciales o del despliegue de ransomware.",
+      "triage_steps": [
+        "Revise CommandLine: identifique el comando ejecutado (whoami, tasklist, net, reg save, etc.) y el archivo de salida (__<timestamp>, __output o .tmp en Windows\\Temp).",
+        "Confirme ParentImage o ParentCommandLine para saber qué módulo se usó: WmiPrvSE=wmiexec, mmc/explorer=dcomexec, services=smbexec, svchost netsvcs/taskeng=atexec.",
+        "Busque inicios de sesión de tipo 3 (4624) en el host +/- 15 minutos para identificar la IP de origen y la cuenta usada; compruebe si se usó NTLM.",
+        "Para smbexec busque el evento 7045 (servicio nuevo con nombre aleatorio y execute.bat); para atexec, los eventos 4698/4699 (creación y borrado de una tarea).",
+        "Revise en la línea de tiempo todos los procesos hijos del mismo padre en el host para reconstruir la secuencia de comandos del atacante.",
+        "Pivote por la IP de origen y la cuenta: busque alertas similares en otros hosts y actividad previa en el equipo de origen."
+      ],
+      "false_positives": [
+        "La regla declara falsos positivos desconocidos; los casos legítimos son poco comunes.",
+        "Herramientas de administración o RMM que redirigen salidas de cmd.exe a recursos compartidos administrativos locales de forma similar.",
+        "Tareas programadas legítimas que ejecutan cmd.exe /C y redirigen la salida a C:\\Windows\\Temp.",
+        "Ejercicios autorizados de red team o pentesting que usan Impacket."
+      ],
+      "response_steps": [
+        "Valide con el equipo de TI o el responsable del ejercicio si la actividad estaba autorizada antes de actuar.",
+        "Si no estaba autorizada, aísle el host afectado y el host de origen desde el EDR, conservando la evidencia.",
+        "Deshabilite o restablezca la cuenta usada y rote las credenciales privilegiadas que pudieron quedar expuestas, incluidas las de cuentas de servicio.",
+        "Elimine los servicios, las tareas programadas y los archivos de salida residuales tras capturarlos como evidencia.",
+        "Revise los demás hosts accedidos desde la misma IP o con la misma cuenta y restrinja el acceso WMI/SMB remoto a las estaciones de administración."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque este patrón es muy específico de Impacket, apenas genera falsos positivos y apunta a ejecución remota con credenciales privilegiadas."
+    },
+    "en": {
+      "summary": "cmd.exe ran with a command-line pattern typical of Impacket's wmiexec, dcomexec, smbexec or atexec. Most likely someone is running commands on this host remotely with valid credentials.",
+      "what_it_detects": "Process creation events where cmd.exe runs with /Q /c and redirects output (2>&1) to \\\\127.0.0.1\\ADMIN$ or C$, with WmiPrvSE.exe, mmc.exe, explorer.exe or services.exe as parent. It also catches cmd.exe /C writing output to Windows\\Temp when the parent is svchost.exe -k netsvcs or taskeng.exe (atexec).",
+      "why_it_matters": "Impacket lets attackers move laterally with stolen passwords or hashes through WMI (T1047), DCOM, SMB services or scheduled tasks (T1021.003). It usually runs as SYSTEM or an admin and often comes before credential theft or ransomware.",
+      "triage_steps": [
+        "Read CommandLine: note the command executed (whoami, tasklist, net, reg save, etc.) and the output file (__<timestamp>, __output or a .tmp in Windows\\Temp).",
+        "Check ParentImage or ParentCommandLine to identify the module: WmiPrvSE=wmiexec, mmc/explorer=dcomexec, services=smbexec, svchost netsvcs/taskeng=atexec.",
+        "Look for type 3 logons (4624) on the host within +/- 15 minutes to find the source IP and account, and check whether NTLM was used.",
+        "For smbexec, search for event 7045 (new service with a random name and execute.bat); for atexec, events 4698/4699 (task created and deleted).",
+        "Build a timeline of all child processes of the same parent on the host to reconstruct the attacker's command sequence.",
+        "Pivot on source IP and account: look for similar alerts on other hosts and earlier activity on the source machine."
+      ],
+      "false_positives": [
+        "The rule lists false positives as unknown; legitimate matches are rare.",
+        "Admin or RMM tools that redirect cmd.exe output to local admin shares in a similar way.",
+        "Legitimate scheduled tasks that run cmd.exe /C and redirect output to C:\\Windows\\Temp.",
+        "Authorized red team or penetration tests using Impacket."
+      ],
+      "response_steps": [
+        "Before acting, check with IT or the exercise owner whether the activity was authorized.",
+        "If it was not, isolate the affected host and the source host through EDR and preserve evidence.",
+        "Disable or reset the account used, and rotate any privileged credentials that may have been exposed, including service accounts.",
+        "After capturing them as evidence, remove leftover services, scheduled tasks and output files.",
+        "Review other hosts reached from the same IP or with the same account, and limit remote WMI/SMB access to admin workstations."
+      ],
+      "severity_rationale": "High fits because this pattern is very specific to Impacket, rarely triggers on benign activity, and points to remote execution with privileged credentials."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "wmiexec.py: WmiPrvSE.exe spawns cmd.exe /Q /c with output redirected to \\\\127.0.0.1\\ADMIN$",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\adm-jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\wbem\\wmiprvse.exe -secured -Embedding",
+          "CommandLine": "cmd.exe /Q /c whoami 1> \\\\127.0.0.1\\ADMIN$\\__1567439113.54 2>&1"
+        }
+      },
+      {
+        "description": "atexec.py: Task Scheduler svchost spawns cmd.exe /C with output in Windows\\Temp",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule",
+          "CommandLine": "cmd.exe /C tasklist /m > C:\\Windows\\Temp\\bAJrYQtL.tmp 2>&1"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "User runs a batch command from Explorer and writes output to a local profile file, not to \\\\127.0.0.1\\",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE",
+          "CommandLine": "cmd.exe /Q /c dir C:\\Users\\jperez\\Documents > C:\\Users\\jperez\\out.txt 2>&1"
+        }
+      },
+      {
+        "description": "Legitimate scheduled task from svchost netsvcs writing its log to ProgramData instead of Windows\\Temp",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule",
+          "CommandLine": "cmd.exe /C C:\\Scripts\\backup.cmd > C:\\ProgramData\\Backup\\log.txt 2>&1"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

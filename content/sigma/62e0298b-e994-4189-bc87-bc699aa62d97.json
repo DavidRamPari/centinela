@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "62e0298b-e994-4189-bc87-bc699aa62d97",
+    "title": "Potential Suspicious Registry File Imported Via Reg.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113, Nasreddine Bencherchali",
+    "path": "windows/process_creation/proc_creation_win_reg_import_from_suspicious_paths.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reg_import_from_suspicious_paths.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1112"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó reg.exe con el subcomando import para cargar un archivo .reg desde una ruta escribible por el usuario o temporal (perfil de usuario, Temp, AppData o ProgramData). Esto puede indicar modificación maliciosa del registro para persistencia o para debilitar defensas.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\reg.exe u OriginalFileName es reg.exe, el CommandLine contiene ' import ' y hace referencia a C:\\Users\\, %temp%, %tmp%, %appdata%, \\AppData\\Local\\Temp\\, C:\\Windows\\Temp\\ o C:\\ProgramData\\.",
+      "why_it_matters": "Importar un .reg aplica muchos cambios al registro en una sola acción (ATT&CK T1112, Modify Registry). Un atacante puede usarlo para crear claves Run, desactivar controles de seguridad o configurar servicios, a partir de archivos dejados en rutas temporales.",
+      "triage_steps": [
+        "Revise el CommandLine completo e identifique la ruta y el nombre del archivo .reg importado.",
+        "Si es posible, obtenga el archivo .reg del endpoint y revise qué claves modifica: Run/RunOnce, Services, Winlogon, políticas de Defender o IFEO.",
+        "Analice ParentImage y la línea de comandos del proceso padre: cmd.exe, powershell.exe, wscript.exe o mshta.exe son más sospechosos que un instalador firmado.",
+        "Valide el usuario y si el host o la cuenta tienen tareas administrativas o despliegues de software esperados.",
+        "Busque en el mismo host, +/- 15 minutos, quién creó el archivo .reg (eventos de creación de archivos), descargas y otros procesos hijos del mismo padre.",
+        "Revise eventos de registro posteriores en ese host para confirmar qué valores cambiaron en realidad.",
+        "Si Image no es reg.exe pero OriginalFileName sí, trátelo como binario renombrado y escale la prioridad.",
+        "Consulte alertas previas del mismo host y usuario y calcule el hash del .reg para buscarlo en otros endpoints."
+      ],
+      "false_positives": [
+        "Importaciones legítimas de claves hechas por administradores o soporte técnico con archivos guardados en su perfil o en Temp.",
+        "Instaladores o scripts de despliegue que extraen un .reg en Temp o ProgramData y lo importan durante la instalación.",
+        "Herramientas de migración de perfiles o de configuración de aplicaciones que restauran preferencias desde AppData."
+      ],
+      "response_steps": [
+        "Verifique el contenido del .reg y confirme con el usuario o el responsable del cambio si fue autorizado.",
+        "Si es malicioso, aísle el endpoint y conserve el archivo .reg, el árbol de procesos y una exportación de las claves afectadas.",
+        "Revierta las claves modificadas a partir de una copia de respaldo o de una línea base conocida, y elimine la persistencia identificada.",
+        "Investigue el origen del archivo (descarga, adjunto, script) y bloquee ese vector; busque el mismo hash en otros endpoints.",
+        "Restablezca las credenciales de la cuenta si hay indicios de compromiso y documente las exclusiones para despliegues legítimos."
+      ],
+      "severity_rationale": "Es nivel medio porque importar .reg desde rutas temporales es una técnica real de persistencia y evasión, pero también es habitual en instaladores y en el trabajo de soporte."
+    },
+    "en": {
+      "summary": "reg.exe ran the import subcommand to load a .reg file from a user-writable or temporary path (user profile, Temp, AppData or ProgramData). This may be malicious registry modification for persistence or defense impairment.",
+      "what_it_detects": "Process creation where Image ends with \\reg.exe or OriginalFileName is reg.exe, CommandLine contains ' import ', and it references C:\\Users\\, %temp%, %tmp%, %appdata%, \\AppData\\Local\\Temp\\, C:\\Windows\\Temp\\ or C:\\ProgramData\\.",
+      "why_it_matters": "A .reg import applies many registry changes in one step (ATT&CK T1112, Modify Registry). Attackers use it to add Run keys, disable security controls or configure services from files dropped in temporary locations.",
+      "triage_steps": [
+        "Read the full CommandLine and note the path and name of the imported .reg file.",
+        "If you can, collect the .reg file from the endpoint and check which keys it changes: Run/RunOnce, Services, Winlogon, Defender policies, IFEO.",
+        "Check ParentImage and the parent command line. cmd.exe, powershell.exe, wscript.exe or mshta.exe are more suspicious than a signed installer.",
+        "Confirm the user and whether admin work or a software deployment was expected on this host or account.",
+        "On the same host within +/- 15 minutes, find what created the .reg file (file creation events), any downloads, and sibling processes.",
+        "Review later registry events on the host to see which values actually changed.",
+        "If Image is not reg.exe but OriginalFileName is, the binary was renamed. Raise the priority.",
+        "Check earlier alerts for the same host and user, and hash the .reg file to hunt for it on other endpoints."
+      ],
+      "false_positives": [
+        "Admins or helpdesk staff legitimately importing keys from files saved in their profile or in Temp.",
+        "Installers or deployment scripts that extract a .reg file to Temp or ProgramData and import it during setup.",
+        "Profile migration or application configuration tools that restore settings from AppData."
+      ],
+      "response_steps": [
+        "Check the .reg contents and confirm with the user or change owner that the import was authorized.",
+        "If it is malicious, isolate the endpoint. Keep the .reg file, the process tree and an export of the affected keys.",
+        "Restore modified keys from a backup or known baseline, and remove any persistence you found.",
+        "Find where the file came from (download, attachment, script), block that vector, and hunt for the same hash on other endpoints.",
+        "Reset the account's credentials if compromise is suspected. Document tuning exclusions for legitimate deployments."
+      ],
+      "severity_rationale": "Medium fits because importing .reg files from temporary paths is a real persistence and evasion technique, but installers and support staff also do it routinely."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe started by PowerShell imports a .reg file from the user's Temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe import C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.reg",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden -File C:\\Users\\jperez\\AppData\\Local\\Temp\\s.ps1",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "Renamed reg.exe (matched by OriginalFileName) imports a .reg file via the %temp% variable",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svc\\rgx.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "rgx.exe import %temp%\\cfg.reg",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c rgx.exe import %temp%\\cfg.reg"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "reg.exe imports a corporate baseline from a network share, which is not one of the suspicious paths",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\adm_soporte",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe import \\\\fs01.example.com\\deploy\\baseline.reg",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "reg.exe exports a key into the user profile. The command line has a suspicious path but no ' import '",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe export HKCU\\Software\\ExampleApp C:\\Users\\jperez\\Documents\\exampleapp.reg",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

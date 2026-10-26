@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "696bfb54-227e-4602-ac5b-30d9d2053312",
+    "title": "Veeam Backup Database Suspicious Query",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_sqlcmd_veeam_db_recon.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sqlcmd_veeam_db_recon.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó sqlcmd.exe con una consulta SELECT ... FROM contra la base de datos VeeamBackup, sobre tablas que guardan credenciales, repositorios o información de infraestructura. Puede ser un intento de robar secretos almacenados por Veeam Backup & Replication.",
+      "what_it_detects": "Creación de un proceso cuya Image termina en \\sqlcmd.exe y cuya CommandLine contiene 'VeeamBackup' y 'From ', junto con alguna de estas tablas: Credentials, HostCreds, Ssh_creds, SmbFileShares, BackupRepositories, Backups o VSphereInfo.",
+      "why_it_matters": "La base de datos de Veeam guarda credenciales cifradas de hosts, vCenter, recursos compartidos SMB y SSH. Si un atacante las extrae, puede moverse lateralmente y destruir respaldos antes de desplegar ransomware. Corresponde a ATT&CK T1005, recopilación de datos del sistema local.",
+      "triage_steps": [
+        "Revise la CommandLine completa: qué tablas y columnas consulta (por ejemplo user_name, password) y si redirige la salida a un archivo con -o o '>'.",
+        "Identifique el User y el ParentImage. Si el padre es cmd.exe, powershell.exe, un shell web o una herramienta de acceso remoto, el riesgo aumenta.",
+        "Confirme que el host es el servidor Veeam o su servidor SQL, y si el usuario es un administrador de respaldos conocido con un cambio aprobado.",
+        "Pivote en el mismo host +/- 15 minutos: otros sqlcmd, PowerShell que descifre contraseñas (ProtectedStorage, DPAPI), archivos nuevos en directorios temporales o compresión de datos.",
+        "Busque inicios de sesión de ese usuario y conexiones RDP/SMB entrantes previas en el host, junto con su IP de origen.",
+        "Revise alertas anteriores del mismo usuario o host: reconocimiento, volcado de credenciales o eliminación de respaldos."
+      ],
+      "false_positives": [
+        "Administradores de respaldos o soporte del proveedor que consultan la base de datos para diagnosticar fallas o revisar el inventario de repositorios.",
+        "Scripts internos de inventario o auditoría que leen las tablas BackupRepositories o Backups en un horario fijo."
+      ],
+      "response_steps": [
+        "Valide la ejecución con el dueño del servidor Veeam. Si nadie la reconoce, trátela como un incidente.",
+        "Aísle el host con el EDR y preserve los archivos de salida, el historial de PowerShell y los registros de SQL.",
+        "Rote todas las credenciales registradas en Veeam (hosts, vCenter, SMB, SSH) y la cuenta que ejecutó la consulta.",
+        "Verifique la integridad de los respaldos y proteja las copias inmutables u offline antes de restaurar el servicio."
+      ],
+      "severity_rationale": "La severidad media es adecuada porque una consulta a estas tablas indica un posible robo de credenciales, aunque un administrador también puede hacerla de forma legítima, así que hace falta contexto para escalar."
+    },
+    "en": {
+      "summary": "sqlcmd.exe ran a SELECT ... FROM query against the VeeamBackup database, targeting tables that hold credentials, repositories or infrastructure details. This may be an attempt to steal secrets stored by Veeam Backup & Replication.",
+      "what_it_detects": "A process whose Image ends with \\sqlcmd.exe and whose CommandLine contains both 'VeeamBackup' and 'From ', plus one of these tables: Credentials, HostCreds, Ssh_creds, SmbFileShares, BackupRepositories, Backups or VSphereInfo.",
+      "why_it_matters": "The Veeam database stores encrypted credentials for hosts, vCenter, SMB shares and SSH. If attackers extract them, they can move laterally and destroy backups before deploying ransomware. This maps to ATT&CK T1005, Data from Local System.",
+      "triage_steps": [
+        "Read the full CommandLine. Note which tables and columns it queries (for example user_name, password) and whether output goes to a file through -o or '>'.",
+        "Identify the User and the ParentImage. Risk is higher if the parent is cmd.exe, powershell.exe, a web shell or a remote access tool.",
+        "Confirm the host is the Veeam server or its SQL server, and check whether the user is a known backup admin with an approved change.",
+        "Pivot on the same host within +/- 15 minutes: more sqlcmd runs, PowerShell decrypting passwords (ProtectedStorage, DPAPI), new files in temp folders, or archiving.",
+        "Check the user's earlier logons and any inbound RDP/SMB sessions to the host, along with their source IP.",
+        "Review earlier alerts for the same user or host: reconnaissance, credential dumping or backup deletion."
+      ],
+      "false_positives": [
+        "Backup admins or vendor support querying the database to troubleshoot or review the repository inventory.",
+        "Internal inventory or audit scripts that read the BackupRepositories or Backups tables on a schedule."
+      ],
+      "response_steps": [
+        "Confirm the activity with the Veeam server owner. If no one recognizes it, treat it as an incident.",
+        "Isolate the host with EDR. Preserve output files, PowerShell history and SQL logs.",
+        "Rotate every credential stored in Veeam (hosts, vCenter, SMB, SSH) and the account that ran the query.",
+        "Check backup integrity and protect immutable or offline copies before restoring service."
+      ],
+      "severity_rationale": "Medium fits because querying these tables points to possible credential theft, but admins can also do it legitimately, so you need context before escalating."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sqlcmd dumps usernames and encrypted passwords from the Veeam Credentials table, launched from PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "VBR-01.andes.example.com",
+          "User": "ANDES\\svc_tmp",
+          "Image": "C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\SQLCMD.EXE",
+          "CommandLine": "sqlcmd.exe -S localhost\\VEEAMSQL2016 -E -Q \"SELECT [user_name],[password],[description] FROM [VeeamBackup].[dbo].[Credentials]\" -o C:\\Users\\Public\\c.txt",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden"
+        }
+      },
+      {
+        "description": "sqlcmd enumerates backup repositories in the VeeamBackup database",
+        "event": {
+          "EventID": 1,
+          "Computer": "VBR-01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\sqlcmd.exe",
+          "CommandLine": "sqlcmd -S localhost\\VEEAMSQL2016 -E -d VeeamBackup -Q \"select name, path from dbo.BackupRepositories\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Scheduled SQL maintenance backs up the VeeamBackup database (no 'From ' clause and no targeted table)",
+        "event": {
+          "EventID": 1,
+          "Computer": "VBR-01.andes.example.com",
+          "User": "ANDES\\svc_sqlmaint",
+          "Image": "C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\sqlcmd.exe",
+          "CommandLine": "sqlcmd -S localhost\\VEEAMSQL2016 -E -Q \"BACKUP DATABASE [VeeamBackup] TO DISK='D:\\SQLDump\\VeeamBackup.bak' WITH COMPRESSION\"",
+          "ParentImage": "C:\\Windows\\System32\\taskeng.exe",
+          "ParentCommandLine": "taskeng.exe"
+        }
+      },
+      {
+        "description": "DBA uses sqlcmd to list databases on an unrelated SQL server (no VeeamBackup reference)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SQL-02.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn\\sqlcmd.exe",
+          "CommandLine": "sqlcmd -S SQL-02 -E -Q \"SELECT name, state_desc FROM sys.databases\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "12f6b752-042d-483e-bf9c-915a6d06ad75",
+    "title": "Windows Firewall Disabled via PowerShell",
+    "level": "medium",
+    "status": "test",
+    "author": "Tim Rauch, Elastic (idea)",
+    "path": "windows/process_creation/proc_creation_win_powershell_disable_firewall.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_disable_firewall.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó PowerShell con Set-NetFirewallProfile y -Enabled False sobre uno o más perfiles (Domain, Private, Public o -All). Esto apaga el Firewall de Windows en el endpoint.",
+      "what_it_detects": "Detecta la creación de un proceso de PowerShell (powershell.exe, pwsh.exe o powershell_ise.exe, o con OriginalFileName PowerShell.EXE o pwsh.dll) cuyo CommandLine contiene Set-NetFirewallProfile, -Enabled y False, y además indica -All, Domain, Private o Public.",
+      "why_it_matters": "Con el firewall apagado, el host queda expuesto a conexiones entrantes, movimiento lateral, acceso remoto y comunicación de C2 sin restricciones. La regla lo etiqueta como deterioro de defensas (ATT&CK T1685): un atacante desactiva controles de seguridad antes de seguir actuando.",
+      "triage_steps": [
+        "Revise el CommandLine completo: perfiles afectados (Domain, Private, Public, -All) y si hay ofuscación, comandos encadenados o ejecución remota (-ComputerName, CimSession).",
+        "Identifique al usuario y el nivel de integridad. Confirme si es administrador autorizado o una cuenta de servicio esperada.",
+        "Analice ParentImage y la cadena de procesos: cmd.exe, wmiprvse.exe, un agente RMM, Office o un script desconocido cambian mucho la valoración.",
+        "Busque un ticket de cambio, una ventana de mantenimiento o una herramienta de despliegue (SCCM, Intune, GPO) que justifique la acción.",
+        "En el mismo host, en un rango de +/- 15 minutos, busque procesos hijos, nuevas reglas de firewall, servicios creados, cambios en Defender y conexiones de red entrantes.",
+        "Confirme el estado actual con Get-NetFirewallProfile y revise el evento 2003 del registro Windows Firewall With Advanced Security.",
+        "Revise alertas anteriores del mismo usuario o host y busque el mismo CommandLine en otros endpoints para detectar una ejecución masiva."
+      ],
+      "false_positives": [
+        "Administradores que apagan el firewall temporalmente para diagnosticar problemas de conectividad.",
+        "Scripts de aprovisionamiento, imágenes doradas o laboratorios que desactivan el firewall durante la configuración.",
+        "Instaladores de software o herramientas de soporte de proveedores que lo apagan por error de diseño."
+      ],
+      "response_steps": [
+        "Valide la actividad con el usuario o el propietario del sistema antes de actuar.",
+        "Si no está autorizada, vuelva a activar los perfiles con Set-NetFirewallProfile -Enabled True y aísle el endpoint desde el EDR si hay otros indicadores.",
+        "Investigue el script o el proceso padre, obtenga su hash y elimine cualquier persistencia o herramienta maliciosa que encuentre.",
+        "Restablezca la credencial de la cuenta usada si hay indicios de compromiso y revise los accesos realizados mientras el firewall estuvo apagado.",
+        "Aplique GPO que fuercen el firewall y documente las excepciones legítimas para ajustar la regla."
+      ],
+      "severity_rationale": "Es media porque se trata de un debilitamiento claro de las defensas, pero los administradores también lo hacen de forma legítima y por sí solo no confirma un compromiso."
+    },
+    "en": {
+      "summary": "PowerShell ran Set-NetFirewallProfile with -Enabled False on one or more profiles (Domain, Private, Public or -All). This turns off Windows Firewall on the endpoint.",
+      "what_it_detects": "A PowerShell process (powershell.exe, pwsh.exe, powershell_ise.exe, or OriginalFileName PowerShell.EXE or pwsh.dll) whose CommandLine contains Set-NetFirewallProfile, -Enabled and False, plus -All, Domain, Private or Public.",
+      "why_it_matters": "With the firewall off, the host is open to inbound connections, lateral movement, remote access and C2 traffic without restriction. The rule tags this as defense impairment (ATT&CK T1685): an attacker disables security controls before acting further.",
+      "triage_steps": [
+        "Read the full CommandLine: which profiles are affected, and whether it shows obfuscation, chained commands or remote targets (-ComputerName, CimSession).",
+        "Identify the user and integrity level. Confirm whether this is an authorized admin or an expected service account.",
+        "Examine ParentImage and the process tree. cmd.exe, wmiprvse.exe, an RMM agent, Office or an unknown script each change the assessment considerably.",
+        "Look for a change ticket, a maintenance window or a deployment tool (SCCM, Intune, GPO) that explains the action.",
+        "On the same host, within +/- 15 minutes, look for child processes, new firewall rules, new services, Defender changes and inbound network connections.",
+        "Check the current state with Get-NetFirewallProfile and review event 2003 in the Windows Firewall With Advanced Security log.",
+        "Review earlier alerts for the same user or host. Search other endpoints for the same CommandLine to spot a mass rollout."
+      ],
+      "false_positives": [
+        "Administrators turning off the firewall temporarily to troubleshoot connectivity.",
+        "Provisioning scripts, golden images or lab builds that disable the firewall during setup.",
+        "Software installers or vendor support tools that turn it off by design."
+      ],
+      "response_steps": [
+        "Confirm the activity with the user or system owner before acting.",
+        "If it was not authorized, re-enable the profiles with Set-NetFirewallProfile -Enabled True. Isolate the endpoint through EDR if there are other indicators.",
+        "Investigate the parent script or process, collect its hash and remove any persistence or malicious tooling you find.",
+        "If compromise is suspected, reset the account's credentials and review access that happened while the firewall was off.",
+        "Enforce the firewall through GPO and document legitimate exceptions so the rule can be tuned."
+      ],
+      "severity_rationale": "Medium fits because this clearly weakens defenses, but admins also do it legitimately, so it does not confirm a compromise on its own."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Windows PowerShell disables the Domain, Public and Private profiles, launched from cmd.exe.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell 7 (pwsh.exe) disables every profile with -All.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -c Set-NetFirewallProfile -All -Enabled False",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "An administrator re-enables all profiles (-Enabled True). The CommandLine never contains ' False'.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.rgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -Command \"Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "The firewall is disabled with netsh.exe rather than PowerShell, so the PowerShell image and Set-NetFirewallProfile arguments are absent.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\lmartinez",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh advfirewall set allprofiles state off",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

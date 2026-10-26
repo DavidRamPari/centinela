@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "c02e96b7-c63a-4c47-bd83-4a9f74afcfb2",
+    "title": "New Service Creation Using PowerShell",
+    "level": "low",
+    "status": "test",
+    "author": "Timur Zinniatullin, Daniil Yugoslavskiy, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_powershell_create_service.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_create_service.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1543.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso se ejecutó con una línea de comandos que llama al cmdlet New-Service de PowerShell con el parámetro -BinaryPathName, es decir, se intentó registrar un nuevo servicio de Windows.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene a la vez 'New-Service' y '-BinaryPathName'. No confirma que el servicio se haya creado ni que se haya iniciado.",
+      "why_it_matters": "Los servicios se ejecutan normalmente como LocalSystem y pueden arrancar con el equipo. Un atacante puede crear uno para lograr persistencia o escalar privilegios (ATT&CK T1543.003, servicio de Windows).",
+      "triage_steps": [
+        "Revise el CommandLine completo: nombre del servicio, DisplayName, StartupType y la ruta de -BinaryPathName. Fíjese en rutas en Temp, AppData, ProgramData, recursos compartidos UNC o cmd/powershell incrustados.",
+        "Identifique el User y el ParentImage. Un padre como Office, navegador, wmiprvse.exe o un script remoto es más sospechoso que una consola de administrador o un instalador conocido.",
+        "Verifique si el servicio existe: evento 7045 del log System, eventos 4697 de Security o la clave HKLM\\SYSTEM\\CurrentControlSet\\Services\\<nombre>.",
+        "Obtenga el hash del binario indicado en -BinaryPathName, su firma digital y su reputación; compruebe cuándo se escribió en disco.",
+        "Pivote en el mismo host +/- 15 minutos: procesos hijo de services.exe, conexiones de red, descargas previas y uso de sc.exe o PsExec.",
+        "Busque alertas anteriores del mismo usuario o host y la misma línea de comandos en otros endpoints para detectar despliegue lateral.",
+        "Confirme con el equipo de TI o el responsable del activo si existe un cambio o instalación planificada."
+      ],
+      "false_positives": [
+        "Administradores que crean servicios manualmente o con scripts de configuración documentados.",
+        "Instaladores de software o agentes (monitoreo, backup, EDR) que registran su servicio mediante PowerShell.",
+        "Herramientas de gestión como SCCM, Intune o Ansible que ejecutan New-Service durante despliegues."
+      ],
+      "response_steps": [
+        "Si no hay justificación, documente la evidencia y aísle el endpoint según el procedimiento de contención.",
+        "Detenga y deshabilite el servicio tras verificar que no es legítimo; preserve el binario y la clave de registro antes de eliminarlos.",
+        "Restablezca las credenciales de la cuenta que ejecutó el comando si hay indicios de compromiso y revise su actividad en otros equipos.",
+        "Busque el mismo hash, nombre de servicio o ruta en toda la flota y elimine las instancias confirmadas.",
+        "Si es legítimo, registre la excepción acotada por host, usuario y ruta para reducir ruido futuro."
+      ],
+      "severity_rationale": "El nivel bajo es adecuado porque crear servicios con PowerShell es habitual en administración e instalaciones, y la alerta solo gana peso con contexto sospechoso."
+    },
+    "en": {
+      "summary": "A process ran with a command line calling the PowerShell New-Service cmdlet with -BinaryPathName, meaning someone attempted to register a new Windows service.",
+      "what_it_detects": "Process creation events whose CommandLine contains both 'New-Service' and '-BinaryPathName'. It does not confirm the service was created or started.",
+      "why_it_matters": "Services usually run as LocalSystem and can start at boot. Attackers create them for persistence or privilege escalation (ATT&CK T1543.003, Windows Service).",
+      "triage_steps": [
+        "Read the full CommandLine: service name, DisplayName, StartupType and the -BinaryPathName path. Flag paths in Temp, AppData, ProgramData, UNC shares, or embedded cmd/powershell commands.",
+        "Identify the User and ParentImage. Office, browsers, wmiprvse.exe or remote scripts as parents are more suspicious than an admin console or known installer.",
+        "Confirm whether the service exists: System event 7045, Security event 4697, or HKLM\\SYSTEM\\CurrentControlSet\\Services\\<name>.",
+        "Get the hash, signature and reputation of the binary in -BinaryPathName, and check when it was written to disk.",
+        "Pivot on the same host +/- 15 minutes: children of services.exe, network connections, prior downloads, sc.exe or PsExec usage.",
+        "Search earlier alerts for the same user or host, and the same command line on other endpoints to spot lateral deployment.",
+        "Check with IT or the asset owner for a planned change or installation."
+      ],
+      "false_positives": [
+        "Administrators creating services manually or through documented configuration scripts.",
+        "Software or agent installers (monitoring, backup, EDR) registering their service via PowerShell.",
+        "Management tools such as SCCM, Intune or Ansible running New-Service during deployments."
+      ],
+      "response_steps": [
+        "If unjustified, record the evidence and isolate the endpoint per the containment procedure.",
+        "After confirming it is malicious, stop and disable the service; preserve the binary and registry key before removing them.",
+        "Reset credentials of the executing account if compromise is suspected and review its activity on other hosts.",
+        "Hunt for the same hash, service name or path fleet-wide and remove confirmed instances.",
+        "If legitimate, add a narrow exception scoped by host, user and path."
+      ],
+      "severity_rationale": "Low fits because creating services with PowerShell is common in administration and installs; the alert matters mainly with suspicious context."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell spawned by Word creates an auto-start service pointing to a binary in ProgramData.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command \"New-Service -Name 'UpdSvcHost' -BinaryPathName 'C:\\ProgramData\\upd\\svchelper.exe' -StartupType Automatic\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Admin console using pwsh to create a service with mixed-case parameters (matching is case-insensitive).",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03",
+          "User": "ANDES\\adm.mrojas",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "pwsh.exe -c new-service -name AtomicTestService -binarypathname \"C:\\AtomicRedTeam\\atomics\\T1543.003\\bin\\AtomicService.exe\"",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "New-Service used with the binary path passed positionally, so '-BinaryPathName' is absent.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03",
+          "User": "ANDES\\adm.mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command \"New-Service BackupAgent 'C:\\Program Files\\Example\\BackupAgent\\agent.exe'\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Administrator only querying an existing service with Get-Service.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command \"Get-Service -Name Spooler | Select-Object Name,Status,StartType\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

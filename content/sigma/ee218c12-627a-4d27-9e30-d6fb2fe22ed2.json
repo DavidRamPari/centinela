@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "ee218c12-627a-4d27-9e30-d6fb2fe22ed2",
+    "title": "Powershell Inline Execution From A File",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_powershell_exec_data_file.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_exec_data_file.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso se ejecutó con una línea de comandos que lee un archivo completo con Get-Content/cat/type -Raw y ejecuta su contenido en memoria con Invoke-Expression o Invoke-Command. Es una técnica común para ejecutar scripts sin lanzarlos como .ps1.",
+      "what_it_detects": "Eventos de creación de procesos en los que CommandLine contiene al mismo tiempo un verbo de ejecución (iex, Invoke-Expression, Invoke-Command, icm), un verbo de lectura (cat, get-content, type) y el parámetro -Raw.",
+      "why_it_matters": "Leer un archivo como una sola cadena y pasarlo a Invoke-Expression ejecuta código PowerShell arbitrario. Así se evaden controles basados en la extensión .ps1 o en la política de ejecución, y se pueden ejecutar payloads guardados con extensiones inocuas (.txt, .log, .dat). Corresponde a ATT&CK T1059.001, PowerShell.",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique la ruta del archivo leído, su extensión y si está en rutas de escritura de usuario como %TEMP%, %APPDATA%, Public o Downloads.",
+        "Revise Image y ParentImage: un padre como winword.exe, excel.exe, mshta.exe, wscript.exe o un servicio web es mucho más sospechoso que explorer.exe o una herramienta de despliegue.",
+        "Obtenga el archivo referenciado del endpoint y analice su contenido, su hash y la fecha de creación. Busque descargas, ofuscación o base64.",
+        "Determine quién creó el archivo: consulte los eventos de creación de archivos y los procesos que escribieron en esa ruta en +/- 15 minutos.",
+        "Revise los procesos hijos y las conexiones de red del proceso PowerShell en el mismo host en +/- 15 minutos.",
+        "Revise los logs de Script Block (Event ID 4104) para ver el código que realmente se ejecutó.",
+        "Valide con el usuario o con el equipo de TI si la actividad corresponde a una tarea administrativa conocida y busque alertas previas del mismo host o usuario."
+      ],
+      "false_positives": [
+        "Scripts de administración o despliegue (SCCM, Intune, GPO) que cargan módulos o configuraciones con iex (Get-Content -Raw).",
+        "Desarrolladores o administradores que ejecutan fragmentos de código guardados en archivos de texto durante pruebas.",
+        "Herramientas de automatización o CI que construyen y ejecutan scripts dinámicamente."
+      ],
+      "response_steps": [
+        "Si el archivo o el padre son sospechosos, aísle el endpoint desde el EDR y conserve el archivo y la memoria del proceso como evidencia.",
+        "Termine el proceso PowerShell malicioso y sus hijos después de documentar el árbol de procesos.",
+        "Busque el hash y la ruta del archivo en otros hosts y bloquee los indicadores de red asociados.",
+        "Elimine la persistencia identificada (tareas programadas, claves Run, servicios) y restablezca las credenciales del usuario si hubo exposición.",
+        "Si es legítimo, documente el script y su ruta y cree una exclusión específica por padre y ruta, nunca por patrón genérico."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque el patrón es típico de ejecución sin archivo .ps1, pero también aparece en automatización legítima y requiere contexto para confirmar."
+    },
+    "en": {
+      "summary": "A process ran a command line that reads an entire file with Get-Content/cat/type -Raw and executes its content in memory via Invoke-Expression or Invoke-Command. This is a common way to run scripts without launching them as .ps1 files.",
+      "what_it_detects": "Process creation events where CommandLine contains an execution verb (iex, Invoke-Expression, Invoke-Command, icm), a read verb (cat, get-content, type) and the -Raw parameter.",
+      "why_it_matters": "Reading a file as one string and passing it to Invoke-Expression runs arbitrary PowerShell code, bypassing controls tied to the .ps1 extension or execution policy and allowing payloads stored as .txt, .log or .dat. Maps to ATT&CK T1059.001, PowerShell.",
+      "triage_steps": [
+        "Read the full CommandLine: note the file path, its extension and whether it sits in user-writable paths such as %TEMP%, %APPDATA%, Public or Downloads.",
+        "Check Image and ParentImage: Office apps, mshta.exe, wscript.exe or web server processes as parent are far more suspicious than explorer.exe or deployment agents.",
+        "Collect the referenced file from the endpoint; review its content, hash and creation time, looking for downloads, obfuscation or base64.",
+        "Identify who wrote the file: review file creation events and writing processes for that path within +/- 15 minutes.",
+        "Review child processes and network connections of the PowerShell process on the same host within +/- 15 minutes.",
+        "Check Script Block logging (Event ID 4104) to see the code that actually ran.",
+        "Confirm with the user or IT whether this is a known admin task, and look for earlier alerts on the same host or user."
+      ],
+      "false_positives": [
+        "Administration or deployment scripts (SCCM, Intune, GPO) loading modules or configuration via iex (Get-Content -Raw).",
+        "Developers or admins running code snippets saved in text files during testing.",
+        "Automation or CI tooling that builds and executes scripts dynamically."
+      ],
+      "response_steps": [
+        "If the file or parent is suspicious, isolate the endpoint via EDR and preserve the file and process memory as evidence.",
+        "Terminate the malicious PowerShell process and its children after documenting the process tree.",
+        "Hunt for the file hash and path on other hosts and block related network indicators.",
+        "Remove any persistence found (scheduled tasks, Run keys, services) and reset the user's credentials if exposed.",
+        "If legitimate, document the script and path and add a narrow exclusion by parent and path, never a generic pattern."
+      ],
+      "severity_rationale": "Medium fits because the pattern is typical of script execution outside .ps1 files but also appears in legitimate automation, so context is needed to confirm."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell launched from Word executes a text file from the Public folder via iex and Get-Content -Raw",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -NoProfile -WindowStyle Hidden -Command \"iex (Get-Content C:\\Users\\Public\\notes.txt -Raw)\""
+        }
+      },
+      {
+        "description": "Invoke-Command running a script block built from cat -Raw of a .dat file",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_batch",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -c \"Invoke-Command -ScriptBlock ([scriptblock]::Create((cat C:\\ProgramData\\cache\\cfg.dat -Raw)))\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Get-Content -Raw used only to read and search a log file, with no execution verb",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command \"Get-Content C:\\logs\\app.log -Raw | Select-String error\""
+        }
+      },
+      {
+        "description": "iex with Get-Content but without the -Raw parameter",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\admin.mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command \"iex ((Get-Content C:\\scripts\\setup.ps1) -join [Environment]::NewLine)\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

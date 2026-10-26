@@ -1,0 +1,145 @@
+{
+  "rule": {
+    "id": "c4e49831-1496-40cf-8ce1-b53f942b02f9",
+    "title": "Renamed PAExec Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Jason Lynch",
+    "path": "windows/process_creation/proc_creation_win_renamed_paexec.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_renamed_paexec.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1202"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso que, por sus metadatos PE o su import hash, corresponde a PAExec, pero con otro nombre de archivo o desde una ruta inesperada. Renombrar una herramienta de ejecución remota es una forma común de evadir detecciones basadas en el nombre.",
+      "what_it_detects": "Eventos de creación de procesos con Description 'PAExec Application', OriginalFileName 'PAExec.exe', Product que contiene 'PAExec' o Hashes con un IMPHASH conocido de PAExec. Se excluyen los Image que terminan en '\\paexec.exe' o empiezan con 'C:\\Windows\\PAExec-'.",
+      "why_it_matters": "PAExec es una alternativa open source a PsExec que ejecuta comandos en equipos remotos mediante un servicio temporal. Los atacantes la renombran para moverse lateralmente y lanzar payloads sin llamar la atención. Corresponde a T1202, ejecución indirecta de comandos, en la táctica de evasión.",
+      "triage_steps": [
+        "Compare Image con OriginalFileName y Description para confirmar el renombrado. Anote la ruta: perfiles de usuario, ProgramData, Temp o Public son sospechosas.",
+        "Revise en CommandLine los equipos destino (\\\\host), las credenciales (-u/-p), -s (SYSTEM), -c (copia de archivo) y el comando remoto.",
+        "Analice ParentImage y su línea de comandos: script, agente RMM, cmd/powershell interactivo, Office o navegador.",
+        "Identifique el User y la sesión. Confirme si es un administrador que normalmente usa herramientas de ejecución remota.",
+        "En el mismo host, dentro de +/- 15 minutos, busque la creación del binario, conexiones SMB/445 y servicios nuevos.",
+        "En los equipos destino, busque instalación de servicios (evento 7045) y procesos C:\\Windows\\PAExec-*, y revise qué ejecutaron.",
+        "Busque el SHA256 de Hashes en todo el entorno y revise alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "Administradores que renombran PAExec por comodidad o para evitar bloqueos.",
+        "Software comercial o interno que incluye PAExec renombrado para despliegue o soporte.",
+        "Copias remotas creadas con -s que quedan en una ruta que el filtro C:\\Windows\\PAExec- no cubre."
+      ],
+      "response_steps": [
+        "Confirme con el responsable de la cuenta o con un registro de cambios si la ejecución estaba autorizada. Si lo estaba, documente la justificación.",
+        "Si no estaba autorizada, aísle el host de origen y los destinos que recibieron comandos, y conserve el binario y los logs.",
+        "Deshabilite o restablezca las credenciales usadas y busque otros inicios de sesión con ellas.",
+        "Después de recolectar evidencia, elimine el binario renombrado y los servicios asociados, y busque el mismo hash en otros equipos.",
+        "Si se ejecutaron payloads, restaure los equipos afectados a un estado confiable y agregue las rutas aprobadas de PAExec a una lista de permitidos."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque renombrar una herramienta de ejecución remota es una señal clara de evasión, suele acompañar al movimiento lateral y su uso legítimo es poco frecuente."
+    },
+    "en": {
+      "summary": "A process whose PE metadata or import hash identifies it as PAExec ran under a different file name or from an unexpected path. Renaming a remote execution tool is a common way to avoid name-based detection.",
+      "what_it_detects": "Process creation events where Description is 'PAExec Application', OriginalFileName is 'PAExec.exe', Product contains 'PAExec', or Hashes contains a known PAExec IMPHASH, unless Image ends with '\\paexec.exe' or starts with 'C:\\Windows\\PAExec-' (the service copy made on remote hosts).",
+      "why_it_matters": "PAExec is an open-source PsExec alternative that runs commands on remote hosts through a temporary service. Attackers rename it to move laterally and run payloads while blending in. The rule maps to T1202, Indirect Command Execution, under stealth.",
+      "triage_steps": [
+        "Compare Image with OriginalFileName and Description to confirm the renamed binary, and note its path, such as user profiles, ProgramData, Temp or Public folders.",
+        "Review CommandLine for target hosts (\\\\host), credentials (-u/-p), -s (SYSTEM), -c (copy file) and the remote command being launched.",
+        "Check ParentImage and the parent command line: script, RMM agent, cmd/powershell from an interactive session, or an Office or browser process.",
+        "Identify the User and logon session. Confirm whether the account is an administrator expected to use remote execution tools.",
+        "Pivot on the same host within +/- 15 minutes for file creation of the binary, network connections to SMB/445 and new services.",
+        "On target hosts named in CommandLine, look for service installs (Event 7045) and C:\\Windows\\PAExec-* processes, and check what they ran.",
+        "Search the SHA256 from Hashes across the environment and look for earlier alerts on the same user or host."
+      ],
+      "false_positives": [
+        "Administrators who rename PAExec for convenience or to work around tool blocks.",
+        "Commercial or in-house software that bundles a renamed PAExec for deployment or support.",
+        "Remote copies made with -s that land in a path not covered by the C:\\Windows\\PAExec- filter."
+      ],
+      "response_steps": [
+        "Confirm with the account owner or change record whether the execution was authorized. Document the business justification if it was.",
+        "If it was not authorized, isolate the source host and any targets that received commands, and keep the binary and logs.",
+        "Disable or reset the credentials used in CommandLine or the session, and look for other logons with them.",
+        "Remove the renamed binary and any related services after collecting evidence, then hunt for the same hash elsewhere.",
+        "Restore affected hosts from known-good state if payloads ran, and add approved PAExec paths to an allowlist."
+      ],
+      "severity_rationale": "High fits because renaming a remote execution tool is a strong evasion signal that often comes with lateral movement, and legitimate renamed use is rare."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PAExec renamed to svchost.exe and run from C:\\Users\\Public against a remote host as SYSTEM",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\svchost.exe",
+          "OriginalFileName": "PAExec.exe",
+          "Description": "PAExec Application",
+          "Product": "PAExec",
+          "Company": "Power Admin LLC",
+          "CommandLine": "C:\\Users\\Public\\svchost.exe \\\\SRV-FS01 -s -c C:\\Users\\Public\\upd.bat",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Hashes": "SHA256=AAAABBBBCCCCDDDDEEEEFFFF0000111122223333444455556666777788889999,IMPHASH=11D40A7B7876288F919AB819CC2D9802"
+        }
+      },
+      {
+        "description": "Renamed binary with stripped version info, matched only by its PAExec IMPHASH",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\Intel\\igfxsvc.exe",
+          "OriginalFileName": "-",
+          "Description": "-",
+          "Product": "-",
+          "CommandLine": "C:\\ProgramData\\Intel\\igfxsvc.exe \\\\192.0.2.25 -u ANDES\\svc_backup cmd.exe /c whoami",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "Hashes": "SHA256=1111222233334444555566667777888899990000AAAABBBBCCCCDDDDEEEEFFFF,IMPHASH=6444f8a34e99b8f7d9647de66aabe516"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "PAExec run under its original name from an admin tools folder, excluded by the Image endswith filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Tools\\SysAdmin\\PAExec.exe",
+          "OriginalFileName": "PAExec.exe",
+          "Description": "PAExec Application",
+          "Product": "PAExec",
+          "CommandLine": "C:\\Tools\\SysAdmin\\PAExec.exe \\\\SRV-APP02 ipconfig /all",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Hashes": "SHA256=AAAABBBBCCCCDDDDEEEEFFFF0000111122223333444455556666777788889999,IMPHASH=11D40A7B7876288F919AB819CC2D9802"
+        }
+      },
+      {
+        "description": "Remote service copy created by PAExec -s on the target host, excluded by the C:\\Windows\\PAExec- filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP02.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\PAExec-4321-WS-0142.exe",
+          "OriginalFileName": "PAExec.exe",
+          "Description": "PAExec Application",
+          "Product": "PAExec",
+          "CommandLine": "C:\\Windows\\PAExec-4321-WS-0142.exe -service",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "Hashes": "SHA256=AAAABBBBCCCCDDDDEEEEFFFF0000111122223333444455556666777788889999,IMPHASH=11D40A7B7876288F919AB819CC2D9802"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "d75d6b6b-adb9-48f7-824b-ac2e786efe1f",
+    "title": "Suspicious FromBase64String Usage On Gzip Archive - Process Creation",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_powershell_frombase64string_archive.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_frombase64string_archive.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1132.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se lanzó un proceso cuyo CommandLine decodifica en memoria un archivo Gzip codificado en Base64 (FromBase64String + MemoryStream + el prefijo 'H4sI'). Es un patrón común para ocultar y cargar código malicioso.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde el CommandLine contiene a la vez 'FromBase64String', 'MemoryStream' y 'H4sI'. Este último es la codificación Base64 de la cabecera Gzip (1F 8B 08), lo que indica un payload comprimido y codificado que se descomprime en memoria.",
+      "why_it_matters": "Codificar y comprimir el payload (ATT&CK T1132.001, codificación estándar de datos) evita que los controles basados en texto lo inspeccionen y permite ejecutar código solo en memoria, sin dejar archivos. Suele preceder a loaders, stagers de C2 o descarga de herramientas adicionales.",
+      "triage_steps": [
+        "Revise el CommandLine completo y extraiga la cadena que empieza con 'H4sI'. Decodifíquela y descomprímala en un entorno aislado, sin ejecutarla, para ver el script real.",
+        "Identifique Image y ParentImage: powershell.exe lanzado por Office, wscript, mshta, un navegador o un servicio es mucho más sospechoso que una consola administrativa.",
+        "Verifique el usuario y el host: ¿es una cuenta administrativa conocida o una cuenta estándar o de servicio inesperada?",
+        "Busque cadenas como IEX, Invoke-Expression, GzipStream, Reflection.Assembly o URLs en el contenido decodificado.",
+        "Revise procesos hijos y conexiones de red del mismo host en +/- 15 minutos; consulte los eventos 4104 (Script Block Logging) para ver el código desofuscado.",
+        "Busque alertas previas para el mismo host, usuario o hash, incluida la regla relacionada df69cb1d (misma técnica en scripts de PowerShell)."
+      ],
+      "false_positives": [
+        "Scripts administrativos legítimos que empaquetan contenido comprimido en Base64 para distribuirlo en un solo comando.",
+        "Herramientas de gestión o despliegue (RMM, SCCM, Intune) que envían scripts comprimidos; confirme con el equipo responsable.",
+        "Pruebas de red team o pentest autorizadas."
+      ],
+      "response_steps": [
+        "Verifique la legitimidad con el dueño del script o del sistema antes de actuar; documente el contenido decodificado.",
+        "Si es malicioso, aísle el endpoint desde el EDR y suspenda o restablezca las credenciales del usuario involucrado.",
+        "Bloquee los dominios, IPs y hashes identificados en el payload y búsquelos en el resto de la flota.",
+        "Elimine los mecanismos de persistencia encontrados (tareas programadas, claves Run, servicios) tras confirmarlos.",
+        "Restaure el equipo desde una imagen limpia si hubo ejecución confirmada y documente las lecciones aprendidas."
+      ],
+      "severity_rationale": "Nivel medio: el patrón es típico de malware sin archivos, pero también aparece en scripts administrativos, por lo que requiere decodificar y revisar el contexto antes de escalar."
+    },
+    "en": {
+      "summary": "A process started with a CommandLine that decodes a Base64-encoded Gzip archive in memory (FromBase64String + MemoryStream + the 'H4sI' prefix). This is a common way to hide and load malicious code.",
+      "what_it_detects": "Windows process creation events where CommandLine contains all of 'FromBase64String', 'MemoryStream' and 'H4sI'. 'H4sI' is the Base64 form of the Gzip header (1F 8B 08), indicating a compressed, encoded payload being decompressed in memory.",
+      "why_it_matters": "Encoding and compressing a payload (ATT&CK T1132.001, standard data encoding) hides it from text-based inspection and enables in-memory, fileless execution. It often precedes loaders, C2 stagers or follow-on tool downloads.",
+      "triage_steps": [
+        "Read the full CommandLine and extract the string starting with 'H4sI'. Decode and decompress it in an isolated environment, without executing it, to see the real script.",
+        "Check Image and ParentImage: powershell.exe spawned by Office, wscript, mshta, a browser or a service is far more suspicious than an admin console.",
+        "Check the user and host: known admin account, or an unexpected standard or service account?",
+        "Look for IEX, Invoke-Expression, GzipStream, Reflection.Assembly or URLs in the decoded content.",
+        "Review child processes and network connections on the same host within +/- 15 minutes; check event 4104 (Script Block Logging) for deobfuscated code.",
+        "Search earlier alerts for the same host, user or hash, including related rule df69cb1d (same technique in PowerShell scripts)."
+      ],
+      "false_positives": [
+        "Legitimate administrative scripts that embed Base64-compressed content to ship as a single command.",
+        "Management or deployment tools (RMM, SCCM, Intune) pushing compressed scripts; confirm with the owning team.",
+        "Authorized red team or penetration testing."
+      ],
+      "response_steps": [
+        "Confirm legitimacy with the script or system owner before acting; record the decoded content.",
+        "If malicious, isolate the endpoint via EDR and disable or reset the involved user's credentials.",
+        "Block domains, IPs and hashes found in the payload and hunt for them across the fleet.",
+        "Remove confirmed persistence (scheduled tasks, Run keys, services).",
+        "Reimage from a clean baseline if execution is confirmed, and document lessons learned."
+      ],
+      "severity_rationale": "Medium: the pattern is typical of fileless malware but also appears in admin scripts, so it needs decoding and context review before escalation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Hidden PowerShell spawned by Word decodes a Base64 Gzip blob into a MemoryStream and pipes it to IEX.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -nop -w hidden -c \"$s=New-Object IO.MemoryStream(,[Convert]::FromBase64String('H4sIAAAAAAAEAPLMSy0uSU1RyM9TBAAAAP__PLACEHOLDER'));IEX (New-Object IO.StreamReader(New-Object IO.Compression.GzipStream($s,[IO.Compression.CompressionMode]::Decompress))).ReadToEnd()\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "pwsh.exe launched by cmd.exe using a lowercase method name; matching is case-insensitive.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "pwsh.exe -c \"$m=[System.IO.MemoryStream]::new([convert]::frombase64string('H4sIAAAAAAAACgtJLS4BAPLACEHOLDER'));$g=[IO.Compression.GZipStream]::new($m,'Decompress')\"",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin script decodes plain (non-Gzip) Base64 into a MemoryStream; no 'H4sI' prefix.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0200",
+          "User": "ANDES\\admin.mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -c \"$ms=New-Object IO.MemoryStream(,[Convert]::FromBase64String('SGVsbG8gV29ybGQ='));$ms.Length\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Script contains a Gzip Base64 string and FromBase64String but writes to a file instead of using MemoryStream.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-BKP-01",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -c \"[IO.File]::WriteAllBytes('C:\\Backup\\cfg.gz',[Convert]::FromBase64String('H4sIAAAAAAAACgtJLS4BAPLACEHOLDER'))\"",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,119 @@
+{
+  "rule": {
+    "id": "b2ddd389-f676-4ac4-845a-e00781a48e5f",
+    "title": "Using SettingSyncHost.exe as LOLBin",
+    "level": "high",
+    "status": "test",
+    "author": "Anton Kutepov, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_lolbin_settingsynchost.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_settingsynchost.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1574.008"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso fuera de C:\\Windows\\System32 o SysWOW64 se ejecutó como hijo de cmd.exe mientras corría RoamDiag.cmd con -outputpath. Este patrón coincide con el abuso de SettingSyncHost.exe para lanzar un binario secuestrado.",
+      "what_it_detects": "Eventos de creación de procesos cuyo ParentCommandLine contiene 'cmd.exe /c', 'RoamDiag.cmd' y '-outputpath', y cuyo Image no está en C:\\Windows\\System32\\ ni C:\\Windows\\SysWOW64\\. SettingSyncHost.exe puede lanzar RoamDiag.cmd, y ese script invoca utilidades sin ruta completa. Si se coloca un ejecutable con el mismo nombre en el directorio de trabajo, se ejecuta en lugar de la utilidad legítima.",
+      "why_it_matters": "Es un secuestro del orden de búsqueda de rutas (T1574.008, path interception by search order hijacking). Permite ejecutar código arbitrario detrás de un binario firmado de Microsoft, lo que facilita la evasión, la persistencia y posiblemente la escalada de privilegios.",
+      "triage_steps": [
+        "Revise Image, su hash, firma y fecha de creación. Un binario con nombre de utilidad del sistema (reg.exe, find.exe) en una carpeta de usuario o temporal es muy sospechoso.",
+        "Examine ParentCommandLine: identifique la ruta de RoamDiag.cmd y el valor de -outputpath. Verifique si el script es el original de System32 o una copia.",
+        "Suba en el árbol de procesos: confirme si SettingSyncHost.exe lanzó cmd.exe y qué proceso inició SettingSyncHost.exe (por ejemplo, con -LoadAndRunDiagScript).",
+        "Liste los archivos del directorio de trabajo y de la ruta de -outputpath para buscar ejecutables o DLL colocados ahí.",
+        "Revise los procesos hijos de Image, sus conexiones de red y la actividad del mismo host +/- 15 minutos.",
+        "Busque alertas previas del mismo usuario y del mismo host, y si el hash aparece en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Diagnósticos de sincronización de configuración ejecutados por soporte técnico desde un directorio con herramientas propias. Valide el caso con el equipo responsable antes de cerrarlo."
+      ],
+      "response_steps": [
+        "Confirme la ejecución maliciosa validando el hash y la ubicación del binario, y conserve una copia para el análisis.",
+        "Aísle el endpoint si el binario no es legítimo o si muestra actividad de red o de persistencia.",
+        "Termine los procesos relacionados y elimine el binario plantado y los artefactos del directorio de trabajo después de recolectar la evidencia.",
+        "Busque mecanismos de persistencia (tareas programadas, claves Run, servicios) que invoquen SettingSyncHost.exe o RoamDiag.cmd.",
+        "Restablezca las credenciales del usuario afectado si hubo ejecución con su contexto, y busque el mismo hash en toda la flota."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque este patrón casi no tiene usos legítimos y significa que se ejecutó código no confiable a través de un binario firmado del sistema."
+    },
+    "en": {
+      "summary": "A process outside C:\\Windows\\System32 or SysWOW64 was launched by cmd.exe while it ran RoamDiag.cmd with -outputpath. This matches SettingSyncHost.exe being abused to run a hijacked binary.",
+      "what_it_detects": "Process creation events where ParentCommandLine contains 'cmd.exe /c', 'RoamDiag.cmd' and '-outputpath', and Image does not start with C:\\Windows\\System32\\ or C:\\Windows\\SysWOW64\\. SettingSyncHost.exe can launch RoamDiag.cmd, which calls utilities without full paths. If an attacker plants a same-named executable in the working directory, that file runs instead of the real utility.",
+      "why_it_matters": "This is path interception by search order hijacking (T1574.008). It lets arbitrary code run behind a signed Microsoft binary, which helps the attacker evade defenses, persist and possibly escalate privileges.",
+      "triage_steps": [
+        "Check the Image path, hash, signature and creation time. A system-utility name (reg.exe, find.exe) in a user or temp folder is highly suspicious.",
+        "Read ParentCommandLine: note the RoamDiag.cmd path and the -outputpath value. Confirm whether the script is the original in System32 or a copy.",
+        "Walk up the process tree: confirm SettingSyncHost.exe spawned cmd.exe, and find what started SettingSyncHost.exe (for example with -LoadAndRunDiagScript).",
+        "List the files in the working directory and the -outputpath folder, looking for planted executables or DLLs.",
+        "Review child processes of Image, its network connections and other activity on the same host within +/- 15 minutes.",
+        "Look for earlier alerts on the same user and host, and check whether the hash appears on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Support staff running settings-sync diagnostics from a folder that holds their own tools. Confirm with the owning team before closing."
+      ],
+      "response_steps": [
+        "Confirm the execution is malicious by checking the binary's hash and location. Keep a copy for analysis.",
+        "Isolate the endpoint if the binary is not legitimate or shows network or persistence activity.",
+        "Kill the related processes. After collecting evidence, remove the planted binary and any artifacts in the working directory.",
+        "Hunt for persistence such as scheduled tasks, Run keys or services that invoke SettingSyncHost.exe or RoamDiag.cmd.",
+        "If code ran under the affected user's context, reset that user's credentials. Sweep the whole fleet for the same hash."
+      ],
+      "severity_rationale": "High fits because this pattern has almost no legitimate use and means untrusted code ran through a signed system binary."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Planted reg.exe in a user temp folder executed by cmd.exe running RoamDiag.cmd from SettingSyncHost.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\sync\\reg.exe",
+          "CommandLine": "reg.exe query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\SettingSync",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\sync\\",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\cmd.exe /c C:\\Windows\\System32\\RoamDiag.cmd -outputpath C:\\Users\\jperez\\AppData\\Local\\Temp\\sync\\out",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000001"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate RoamDiag.cmd run that calls the genuine reg.exe from System32, so the system_utility exclusion applies",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg.exe query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\SettingSync",
+          "CurrentDirectory": "C:\\Windows\\System32\\",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\cmd.exe /c C:\\Windows\\System32\\RoamDiag.cmd -outputpath C:\\Users\\jperez\\AppData\\Local\\Temp\\diag"
+        }
+      },
+      {
+        "description": "Non-system binary launched by a cmd.exe batch that does not involve RoamDiag.cmd",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\7-Zip\\7z.exe",
+          "CommandLine": "7z.exe a C:\\Users\\jperez\\backup.zip C:\\Users\\jperez\\Documents",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\cmd.exe /c C:\\Scripts\\backup.cmd -outputpath C:\\Users\\jperez"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

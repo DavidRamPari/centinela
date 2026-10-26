@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "28ac00d6-22d9-4a3c-927f-bbd770104573",
+    "title": "RestrictedAdminMode Registry Value Tampering - ProcCreation",
+    "level": "high",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_reg_lsa_disable_restricted_admin.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reg_lsa_disable_restricted_admin.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1112"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso cuya línea de comandos hace referencia a la clave HKLM\\System\\CurrentControlSet\\Control\\Lsa y al valor DisableRestrictedAdmin, lo que indica un intento de habilitar o deshabilitar el modo RestrictedAdmin de RDP.",
+      "what_it_detects": "Eventos de creación de procesos (Sysmon 1 o Security 4688) en los que CommandLine contiene a la vez '\\System\\CurrentControlSet\\Control\\Lsa' y 'DisableRestrictedAdmin', normalmente mediante reg.exe, PowerShell o scripts.",
+      "why_it_matters": "Modificar el registro (T1112) para fijar DisableRestrictedAdmin en 0 habilita RestrictedAdmin, que permite iniciar sesión por RDP con un hash NTLM (pass-the-hash) y facilita el movimiento lateral. Fijarlo en 1 debilita la protección de credenciales.",
+      "triage_steps": [
+        "Revise CommandLine: identifique si es add, delete o query y el dato asignado (/d 0 habilita RestrictedAdmin; /d 1 lo deshabilita).",
+        "Identifique Image, ParentImage y ParentCommandLine; desconfíe de cmd.exe, powershell.exe, wmiprvse.exe, psexesvc.exe o procesos de Office como padre.",
+        "Valide el usuario (User) y si la ejecución corresponde a un cambio aprobado o a una GPO o herramienta de gestión conocida.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, otras modificaciones de registro, volcado de LSASS, creación de cuentas o herramientas de acceso remoto.",
+        "Revise los inicios de sesión RDP posteriores hacia el host (4624 tipo 10 con Restricted Admin Mode = Sí) y sus IP de origen.",
+        "Busque alertas previas del mismo usuario y del mismo host, y la misma línea de comandos en otros endpoints."
+      ],
+      "false_positives": [
+        "Administradores que habilitan RestrictedAdmin a propósito para endurecer conexiones RDP de soporte, documentado en un cambio.",
+        "Scripts de configuración, imágenes base o herramientas de cumplimiento que consultan o fijan este valor.",
+        "Ejercicios de red team o pruebas de Atomic Red Team (T1112) autorizados."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host o el equipo de TI si el cambio estaba autorizado.",
+        "Si no lo estaba, aísle el endpoint y restaure el valor DisableRestrictedAdmin según la línea base de la organización.",
+        "Restablezca las credenciales de las cuentas usadas en el host e investigue posibles pass-the-hash por RDP desde o hacia él.",
+        "Identifique y elimine el mecanismo de ejecución (script, tarea programada, servicio) y preserve evidencia antes de limpiar.",
+        "Agregue excepciones solo para herramientas de gestión verificadas, por Image y usuario."
+      ],
+      "severity_rationale": "El nivel high se justifica porque este cambio rara vez es legítimo fuera de procesos de cambio y suele preceder al movimiento lateral con pass-the-hash por RDP."
+    },
+    "en": {
+      "summary": "A process ran with a command line that references the HKLM\\System\\CurrentControlSet\\Control\\Lsa key and the DisableRestrictedAdmin value, indicating an attempt to enable or disable RDP RestrictedAdmin mode.",
+      "what_it_detects": "Process creation events (Sysmon 1 or Security 4688) where CommandLine contains both '\\System\\CurrentControlSet\\Control\\Lsa' and 'DisableRestrictedAdmin', typically via reg.exe, PowerShell or scripts.",
+      "why_it_matters": "Modifying the registry (T1112) to set DisableRestrictedAdmin to 0 enables RestrictedAdmin, which allows RDP logon with an NTLM hash (pass-the-hash) and eases lateral movement. Setting it to 1 weakens credential protection.",
+      "triage_steps": [
+        "Read CommandLine: determine add, delete or query and the data written (/d 0 enables RestrictedAdmin; /d 1 disables it).",
+        "Identify Image, ParentImage and ParentCommandLine; be suspicious of cmd.exe, powershell.exe, wmiprvse.exe, psexesvc.exe or Office processes as parent.",
+        "Validate the User and whether the execution matches an approved change, GPO or known management tool.",
+        "On the same host within +/- 15 minutes, look for other registry changes, LSASS dumping, account creation or remote access tools.",
+        "Review subsequent inbound RDP logons (4624 type 10 with Restricted Admin Mode = Yes) and their source IPs.",
+        "Check earlier alerts for the same user and host, and the same command line on other endpoints."
+      ],
+      "false_positives": [
+        "Administrators deliberately enabling RestrictedAdmin to harden support RDP sessions, documented in a change ticket.",
+        "Configuration scripts, base images or compliance tools that query or set this value.",
+        "Authorized red team exercises or Atomic Red Team T1112 tests."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the change was authorized.",
+        "If not, isolate the endpoint and restore DisableRestrictedAdmin to the organization's baseline.",
+        "Reset credentials of accounts used on the host and investigate possible RDP pass-the-hash to or from it.",
+        "Find and remove the execution mechanism (script, scheduled task, service), preserving evidence before cleanup.",
+        "Add exclusions only for verified management tools, scoped by Image and user."
+      ],
+      "severity_rationale": "High fits because this change is rarely legitimate outside change management and often precedes lateral movement via RDP pass-the-hash."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe spawned from cmd.exe sets DisableRestrictedAdmin to 0, enabling RestrictedAdmin for RDP pass-the-hash",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg add \"HKLM\\System\\CurrentControlSet\\Control\\Lsa\" /v DisableRestrictedAdmin /t REG_DWORD /d 0 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\setup.bat"
+        }
+      },
+      {
+        "description": "PowerShell New-ItemProperty writing DisableRestrictedAdmin under the Lsa key",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE02.andes.example.com",
+          "User": "ANDES\\adm.rgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command New-ItemProperty -Path 'HKLM:\\System\\CurrentControlSet\\Control\\Lsa' -Name 'DisableRestrictedAdmin' -Value 0 -PropertyType DWORD -Force",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\wbem\\wmiprvse.exe -secured -Embedding"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin queries the Lsa key for RunAsPPL; DisableRestrictedAdmin is not referenced",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\adm.rgomez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg query \"HKLM\\System\\CurrentControlSet\\Control\\Lsa\" /v RunAsPPL",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      },
+      {
+        "description": "Client-side RDP restricted administration policy set under CredentialsDelegation, not the Lsa key",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0188.andes.example.com",
+          "User": "ANDES\\adm.rgomez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg add \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CredentialsDelegation\" /v RestrictedRemoteAdministration /t REG_DWORD /d 1 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\IT\\hardening.cmd"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

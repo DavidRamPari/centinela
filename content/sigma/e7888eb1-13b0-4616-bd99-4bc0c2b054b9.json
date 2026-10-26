@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "e7888eb1-13b0-4616-bd99-4bc0c2b054b9",
+    "title": "Dllhost.EXE Execution Anomaly",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_dllhost_no_cli_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_dllhost_no_cli_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1055"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso dllhost.exe cuyo CommandLine es solo 'dllhost' o 'dllhost.exe', sin argumentos. El dllhost.exe legítimo casi siempre se inicia con /Processid:{CLSID}, así que esto puede indicar inyección de procesos o malware que se hace pasar por un proceso del sistema.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\dllhost.exe y CommandLine es exactamente 'dllhost.exe' o 'dllhost' (sin distinguir mayúsculas). Se excluyen los eventos con CommandLine nulo.",
+      "why_it_matters": "Algunas herramientas de post-explotación inician dllhost.exe sin argumentos como proceso de sacrificio y le inyectan código. Así el código malicioso corre bajo un nombre confiable y puede escalar privilegios (ATT&CK T1055, Process Injection).",
+      "triage_steps": [
+        "Revise Image: confirme si la ruta es C:\\Windows\\System32 o SysWOW64. Si es otra ruta, como un perfil de usuario o Temp, es casi seguro que se trata de malware que imita el nombre.",
+        "Revise ParentImage y la línea de comandos del padre. El padre normal es svchost.exe (DcomLaunch). Un padre como rundll32, powershell, Office o un binario desconocido es sospechoso.",
+        "Valide el hash y la firma de la imagen contra el dllhost.exe de Microsoft de esa versión de Windows.",
+        "Busque en el mismo host, +/- 15 minutos, accesos a procesos o creación de hilos remotos hacia este dllhost (Sysmon 8/10), además de memoria RWX si su EDR la registra.",
+        "Revise si dllhost abrió conexiones de red (Sysmon 3, DNS 22), sobre todo conexiones periódicas que parezcan beaconing hacia destinos externos.",
+        "Identifique el usuario y el nivel de integridad, y revise si dllhost creó procesos hijos como cmd, powershell o whoami.",
+        "Busque alertas anteriores del mismo host o usuario y CommandLine idénticos en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla indica que los falsos positivos son poco probables.",
+        "Ejercicios autorizados de red team o pruebas de emulación de adversarios.",
+        "Software poco común o mal programado que lanza dllhost.exe sin argumentos; verifique el padre y la firma."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa por la ruta, el padre, el hash y la evidencia de inyección o red antes de actuar.",
+        "Si se confirma, aísle el endpoint con el EDR y conserve un volcado de memoria del proceso dllhost y de su padre.",
+        "Termine el proceso y elimine el binario o la persistencia relacionados solo después de recolectar la evidencia.",
+        "Restablezca las credenciales del usuario afectado y bloquee los IOC de red y los hashes en todo el entorno.",
+        "Busque los mismos IOC en otros hosts, y restaure el equipo o reconstrúyalo desde una imagen confiable."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque el dllhost.exe legítimo casi nunca se ejecuta sin argumentos, y este patrón se relaciona directamente con la inyección de procesos."
+    },
+    "en": {
+      "summary": "A dllhost.exe process started with a CommandLine of only 'dllhost' or 'dllhost.exe' and no arguments. Legitimate dllhost.exe nearly always runs with /Processid:{CLSID}, so this may mean process injection or malware posing as a system process.",
+      "what_it_detects": "Windows process creation events where Image ends with \\dllhost.exe and CommandLine is exactly 'dllhost.exe' or 'dllhost' (case-insensitive). Events with a null CommandLine are excluded.",
+      "why_it_matters": "Some post-exploitation tools start dllhost.exe with no arguments as a sacrificial process and inject code into it. The malicious code then runs under a trusted name and may escalate privileges (ATT&CK T1055, Process Injection).",
+      "triage_steps": [
+        "Check Image: confirm whether the path is C:\\Windows\\System32 or SysWOW64. Any other path, such as a user profile or Temp, almost certainly means malware copying the name.",
+        "Check ParentImage and the parent's command line. The normal parent is svchost.exe (DcomLaunch). A parent such as rundll32, powershell, Office or an unknown binary is suspicious.",
+        "Check the image hash and signature against Microsoft's dllhost.exe for that Windows build.",
+        "On the same host within +/- 15 minutes, look for process access or remote thread creation targeting this dllhost (Sysmon 8/10), plus RWX memory if your EDR logs it.",
+        "Check whether dllhost made network connections (Sysmon 3, DNS 22), especially periodic connections to external destinations that look like beaconing.",
+        "Identify the user and integrity level, and check whether dllhost spawned child processes such as cmd, powershell or whoami.",
+        "Look for earlier alerts on the same host or user, and for identical CommandLine values on other endpoints."
+      ],
+      "false_positives": [
+        "The rule rates false positives as unlikely.",
+        "Authorized red team exercises or adversary emulation tests.",
+        "Rare or poorly written software that launches dllhost.exe with no arguments; check the parent and the signature."
+      ],
+      "response_steps": [
+        "Before acting, confirm malicious activity from the path, parent, hash and any injection or network evidence.",
+        "If confirmed, isolate the endpoint through EDR and capture a memory dump of the dllhost process and its parent.",
+        "Kill the process and remove the related binary or persistence only after you have collected evidence.",
+        "Reset the affected user's credentials and block the network IOCs and hashes across the environment.",
+        "Hunt for the same IOCs on other hosts, then restore the machine or rebuild it from a trusted image."
+      ],
+      "severity_rationale": "High fits because legitimate dllhost.exe almost never runs without arguments, and this pattern is directly tied to process injection."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "System32 dllhost.exe spawned by rundll32 with no arguments (sacrificial process for injection)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\dllhost.exe",
+          "CommandLine": "dllhost.exe",
+          "ParentImage": "C:\\Windows\\System32\\rundll32.exe",
+          "ParentCommandLine": "rundll32.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.dll,Start",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Fake dllhost.exe in a public folder launched as 'DLLHOST' (name masquerading)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "Image": "C:\\Users\\Public\\Libraries\\dllhost.exe",
+          "CommandLine": "DLLHOST",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\mrojas",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate COM surrogate started by DcomLaunch with a /Processid CLSID argument",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\dllhost.exe",
+          "CommandLine": "C:\\Windows\\system32\\DllHost.exe /Processid:{3EB3C877-1F16-487C-9050-104DBCD66683}",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k DcomLaunch -p",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "dllhost.exe event with no CommandLine recorded (null), excluded by filter_main_null",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "Image": "C:\\Windows\\System32\\dllhost.exe",
+          "CommandLine": null,
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "User": "NT AUTHORITY\\SYSTEM"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

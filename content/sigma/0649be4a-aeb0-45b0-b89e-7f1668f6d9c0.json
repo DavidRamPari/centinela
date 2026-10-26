@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "0649be4a-aeb0-45b0-b89e-7f1668f6d9c0",
+    "title": "IIS WebServer Log Deletion via CommandLine Utilities",
+    "level": "medium",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_iis_logs_deletion.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_iis_logs_deletion.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1070"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó cmd.exe o PowerShell con un comando de borrado (del, erase, rm, rmdir, Remove-Item) dirigido al directorio de logs de IIS (\\inetpub\\logs\\). Puede ser un intento de borrar rastros después de comprometer el servidor web.",
+      "what_it_detects": "Creación de procesos de cmd.exe, powershell.exe, powershell_ise.exe o pwsh (por Image u OriginalFileName) cuyo CommandLine contiene un verbo de borrado y la ruta \\inetpub\\logs\\.",
+      "why_it_matters": "Los logs de IIS registran las solicitudes HTTP con las que un atacante explota una aplicación web o usa una web shell. Borrarlos elimina evidencia y dificulta la investigación (ATT&CK T1070, Indicator Removal).",
+      "triage_steps": [
+        "Revise el CommandLine completo: ¿borra archivos antiguos por fecha o elimina todo W3SVC* o los logs del día actual?",
+        "Identifique el usuario y el ParentImage. Un padre w3wp.exe, o una cuenta del application pool, indica fuertemente una web shell.",
+        "Verifique si existe una tarea programada o un script de mantenimiento documentado que coincida con el comando, el horario y la cuenta.",
+        "Pivotee en el mismo host +/- 15 minutos: procesos hijos de w3wp.exe, archivos .aspx/.ashx nuevos en wwwroot, whoami, net user, herramientas de volcado.",
+        "Compruebe qué logs siguen existiendo y si hay huecos de tiempo; recupere copias desde backups, reenvío a SIEM o shadow copies.",
+        "Busque alertas previas del mismo host o usuario, como explotación web, borrado de Event Logs o desactivación del logging en IIS."
+      ],
+      "false_positives": [
+        "Limpieza de logs de IIS que superan el período de retención como parte del mantenimiento regular.",
+        "Tareas programadas o scripts legítimos (por ejemplo, forfiles con del) que depuran logs periódicamente.",
+        "Administradores que liberan espacio en disco manualmente durante una ventana de cambio aprobada."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del servidor si el borrado estaba autorizado; si lo estaba, documente y considere una exclusión acotada por script y cuenta.",
+        "Si no hay justificación, preserve los logs restantes, la memoria y la línea de tiempo del host antes de cualquier cambio.",
+        "Aísle el servidor o restrinja su acceso de red si hay indicios de web shell o ejecución desde w3wp.exe.",
+        "Elimine web shells y persistencia identificadas, rote las credenciales del application pool y de las cuentas usadas, y aplique parches a la aplicación vulnerable.",
+        "Restaure los logs desde backups y asegure el reenvío de logs de IIS a un repositorio central inmutable."
+      ],
+      "severity_rationale": "Es medium porque el borrado de logs de IIS también ocurre en el mantenimiento rutinario, pero merece revisión rápida porque oculta posible actividad de explotación web."
+    },
+    "en": {
+      "summary": "cmd.exe or PowerShell ran a delete command (del, erase, rm, rmdir, Remove-Item) targeting the IIS log directory (\\inetpub\\logs\\). This may be an attacker covering tracks after compromising the web server.",
+      "what_it_detects": "Process creation of cmd.exe, powershell.exe, powershell_ise.exe or pwsh (by Image or OriginalFileName) whose CommandLine contains a delete verb and the path \\inetpub\\logs\\.",
+      "why_it_matters": "IIS logs record the HTTP requests used to exploit web applications or drive web shells. Deleting them destroys evidence and hampers investigation (ATT&CK T1070, Indicator Removal).",
+      "triage_steps": [
+        "Read the full CommandLine: does it remove old files by age, or wipe all W3SVC* folders or today's logs?",
+        "Identify the user and ParentImage. A w3wp.exe parent or an application pool identity strongly suggests a web shell.",
+        "Check for a documented scheduled task or maintenance script matching the command, schedule and account.",
+        "Pivot on the same host +/- 15 minutes: w3wp.exe child processes, new .aspx/.ashx files in wwwroot, whoami, net user, credential dumping tools.",
+        "Check which logs remain and look for time gaps; recover copies from backups, SIEM forwarding or shadow copies.",
+        "Look for earlier alerts on the same host or user, such as web exploitation, Event Log clearing or IIS logging being disabled."
+      ],
+      "false_positives": [
+        "Deletion of IIS logs older than the retention period as regular maintenance.",
+        "Legitimate scheduled tasks or scripts (for example forfiles with del) that clean up logs regularly.",
+        "Administrators freeing disk space manually during an approved change window."
+      ],
+      "response_steps": [
+        "Confirm with the server owner whether the deletion was authorized; if so, document it and consider a narrow exclusion by script and account.",
+        "If unexplained, preserve remaining logs, memory and host timeline before making changes.",
+        "Isolate the server or restrict network access if there are signs of a web shell or execution from w3wp.exe.",
+        "Remove identified web shells and persistence, rotate application pool and used account credentials, and patch the vulnerable application.",
+        "Restore logs from backups and ensure IIS logs are forwarded to a central, immutable store."
+      ],
+      "severity_rationale": "Medium because IIS log deletion also happens in routine maintenance, but it deserves prompt review since it can hide web exploitation activity."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe spawned by w3wp.exe force-deleting all IIS logs for site W3SVC1",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-01.andes.example.com",
+          "User": "IIS APPPOOL\\DefaultAppPool",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c del /f /q C:\\inetpub\\logs\\LogFiles\\W3SVC1\\*.log",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+          "ParentCommandLine": "c:\\windows\\system32\\inetsrv\\w3wp.exe -ap \"DefaultAppPool\"",
+          "CurrentDirectory": "C:\\Windows\\System32\\inetsrv\\"
+        }
+      },
+      {
+        "description": "PowerShell Remove-Item deleting a specific IIS log file",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-02.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command Remove-Item -Path C:\\inetpub\\logs\\LogFiles\\W3SVC2\\u_ex250901.log -Force",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "cmd.exe reading an IIS log with type; no delete verb present",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c type C:\\inetpub\\logs\\LogFiles\\W3SVC1\\u_ex250901.log",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "cmd.exe deleting temp files outside the IIS log directory",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c del /q C:\\Windows\\Temp\\*.tmp",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CurrentDirectory": "C:\\Windows\\System32\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,138 @@
+{
+  "rule": {
+    "id": "589ac73f-8e12-409c-964e-31a2f5775ae2",
+    "title": "HackTool - WSASS Execution",
+    "level": "high",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_wsass.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_wsass.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó WSASS o un binario con su imphash o con su sintaxis de línea de comandos. Es una herramienta que abusa de WerFaultSecure.exe para volcar la memoria de LSASS y saltarse la protección PPL.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\wsass.exe, Hashes contiene el IMPHASH 32F5095C9BBDCACF28FD4060EB4DFC42 o CommandLine sigue el patrón 'herramienta.exe <ruta>\\werfaultsecure.exe <PID>'. Con cualquiera de las tres condiciones basta.",
+      "why_it_matters": "Volcar LSASS (ATT&CK T1003.001) expone hashes NTLM, tickets Kerberos y a veces credenciales en texto claro. Esto permite el movimiento lateral y la escalada de privilegios. Saltarse PPL anula una defensa clave de Windows moderno.",
+      "triage_steps": [
+        "Revise Image, CommandLine y Hashes. Identifique qué condición se cumplió y si el binario fue renombrado (imphash o patrón de CLI sin el nombre wsass.exe).",
+        "Compare el PID del argumento con el PID real de lsass.exe en el host para confirmar que apuntaba a LSASS.",
+        "Analice ParentImage, ParentCommandLine y User. Determine si se lanzó desde una shell interactiva, un script, una herramienta de administración remota o un servicio.",
+        "Busque procesos hijo WerFaultSecure.exe y archivos .dmp o de nombre inusual creados en el host +/- 15 minutos.",
+        "Determine el origen del binario: ruta, hora de creación, descarga web, recurso compartido SMB o sesión RDP previa. Calcule su hash y consúltelo en inteligencia interna.",
+        "Revise logons (4624/4648) del mismo usuario y host y detecte la exfiltración del volcado o un uso posterior de credenciales en otros equipos.",
+        "Consulte alertas previas del mismo host, usuario e IP de origen: reconocimiento, desactivación del EDR, otras herramientas de hacking."
+      ],
+      "false_positives": [
+        "Ejercicios autorizados de red team o pentest que usan WSASS. Valide con el responsable y la ventana del ejercicio.",
+        "Investigación de seguridad en laboratorios aislados. Confirme que el host no pertenece a producción."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del host y el usuario si la actividad es legítima. Si no lo es, aísle el endpoint desde el EDR.",
+        "Conserve evidencia: el binario, los volcados .dmp, una imagen de memoria si es viable y la línea de tiempo de procesos.",
+        "Restablezca las contraseñas de las cuentas con sesión en el host. Si hubo cuentas privilegiadas, evalúe la rotación de krbtgt y de las cuentas de servicio.",
+        "Elimine el binario y los volcados tras preservarlos, y busque el mismo hash e imphash en toda la flota.",
+        "Busque el uso de las credenciales robadas en otros sistemas y restaure el host solo cuando se haya validado la erradicación."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque el imphash, el nombre y la sintaxis son exclusivos de una herramienta de volcado de credenciales, y su uso legítimo es casi inexistente."
+    },
+    "en": {
+      "summary": "WSASS ran, or a binary that shares its imphash or command-line syntax. The tool abuses WerFaultSecure.exe to dump LSASS memory past PPL protection.",
+      "what_it_detects": "Process creation events where Image ends with \\wsass.exe, Hashes contains IMPHASH 32F5095C9BBDCACF28FD4060EB4DFC42, or CommandLine matches 'tool.exe <path>\\werfaultsecure.exe <PID>'. Any one of the three is enough.",
+      "why_it_matters": "An LSASS dump (ATT&CK T1003.001) exposes NTLM hashes, Kerberos tickets and sometimes cleartext credentials. Attackers use these for lateral movement and privilege escalation. Getting past PPL defeats a key protection on modern Windows.",
+      "triage_steps": [
+        "Review Image, CommandLine and Hashes. Find which condition matched and whether the binary was renamed (imphash or CLI pattern without the wsass.exe name).",
+        "Compare the PID argument with the actual lsass.exe PID on the host to confirm LSASS was the target.",
+        "Inspect ParentImage, ParentCommandLine and User: interactive shell, script, remote admin tool or service.",
+        "Look for WerFaultSecure.exe child processes and new .dmp or oddly named files on the host within +/- 15 minutes.",
+        "Trace where the binary came from: path, creation time, web download, SMB share or prior RDP session. Hash it and check internal threat intel.",
+        "Review logons (4624/4648) for the same user and host. Look for exfiltration of the dump or later credential use elsewhere.",
+        "Check earlier alerts for the same host, user and source IP: reconnaissance, EDR tampering, other hacktools."
+      ],
+      "false_positives": [
+        "Authorized red team or penetration tests using WSASS. Confirm with the engagement owner and the test window.",
+        "Security research in isolated labs. Confirm the host is not in production."
+      ],
+      "response_steps": [
+        "Ask the host owner and the user whether the activity is legitimate. If it is not, isolate the endpoint through the EDR.",
+        "Preserve evidence: the binary, any .dmp files, a memory image if feasible and the process timeline.",
+        "Reset passwords for every account with sessions on the host. If privileged accounts were exposed, consider rotating krbtgt and service accounts.",
+        "After preserving the binary and dumps, remove them. Hunt for the same hash and imphash across the fleet.",
+        "Hunt for use of the stolen credentials on other systems. Restore the host only after eradication is confirmed."
+      ],
+      "severity_rationale": "High fits because the name, imphash and syntax are specific to a credential-dumping tool, and legitimate use is practically nonexistent."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WSASS run by name from a public folder, targeting the LSASS PID through WerFaultSecure.exe, with the known imphash",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\wsass.exe",
+          "CommandLine": "\"C:\\Users\\Public\\wsass.exe\" C:\\Windows\\System32\\WerFaultSecure.exe 712",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000001,IMPHASH=32F5095C9BBDCACF28FD4060EB4DFC42",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed WSASS binary with a different imphash, caught only by the command-line pattern",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\adm_rlopez",
+          "Image": "C:\\ProgramData\\svc_helper.exe",
+          "CommandLine": "C:\\ProgramData\\svc_helper.exe C:\\Windows\\System32\\WerFaultSecure.exe 1044",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000002,IMPHASH=AAAABBBBCCCCDDDDEEEEFFFF00001111",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate WerFaultSecure.exe started by Windows Error Reporting for a crashing protected process",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\WerFaultSecure.exe",
+          "CommandLine": "C:\\Windows\\System32\\WerFaultSecure.exe -u -p 712 -s 1234",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\svchost.exe -k WerSvcGroup",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000003,IMPHASH=11112222333344445555666677778888",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Normal WerFault.exe crash report for a user application",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mgarcia",
+          "Image": "C:\\Windows\\System32\\WerFault.exe",
+          "CommandLine": "C:\\Windows\\System32\\WerFault.exe -u -p 4120 -s 228",
+          "ParentImage": "C:\\Program Files\\ExampleApp\\exampleapp.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\ExampleApp\\exampleapp.exe\"",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000004,IMPHASH=9999AAAA8888BBBB7777CCCC6666DDDD",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "cc9d3712-6310-4320-b2df-7cb408274d53",
+    "title": "Rebuild Performance Counter Values Via Lodctr.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_lodctr_performance_counter_tampering.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lodctr_performance_counter_tampering.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó lodctr.exe con la opción /R para reconstruir los valores de los contadores de rendimiento en el registro. Puede ser mantenimiento legítimo o un intento de alterar la configuración de contadores para engañar al monitoreo.",
+      "what_it_detects": "Creación de un proceso cuyo Image termina en \\lodctr.exe, con OriginalFileName LODCTR.EXE y un CommandLine que contiene ' -r' o ' /r' (y variantes de guion), es decir, lodctr /R o lodctr /R:<archivo>.",
+      "why_it_matters": "Los contadores de rendimiento alimentan herramientas de monitoreo y algunas soluciones de seguridad. Si un atacante reconstruye o restaura la configuración desde un archivo malicioso, puede ocultar actividad o romper la telemetría. La regla la etiqueta como técnica de ejecución en ATT&CK.",
+      "triage_steps": [
+        "Revise el CommandLine: distinga 'lodctr /R' (reconstrucción desde la copia del sistema) de 'lodctr /R:<archivo>' (restauración desde un archivo indicado).",
+        "Si se usa un archivo, ubíquelo, obtenga su hash y revise su contenido; sospeche si está en Temp, Users\\Public, Downloads o un recurso compartido.",
+        "Identifique ParentImage y la cadena de procesos padre: cmd o PowerShell lanzados desde Office, navegadores, WMI o tareas programadas son más sospechosos.",
+        "Valide el usuario y el nivel de integridad; confirme si es un administrador autorizado y si existe un ticket de cambio o mantenimiento.",
+        "Revise en el mismo host, +/- 15 minutos, cambios de registro en HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Perflib y otras ejecuciones de lodctr o unlodctr (/D, /S).",
+        "Compruebe si hubo pérdida de telemetría, errores de contadores o fallas del agente EDR/monitoreo después del evento.",
+        "Busque alertas previas del mismo host y usuario, y ejecuciones similares en otros endpoints."
+      ],
+      "false_positives": [
+        "Uso legítimo por un administrador para reparar contadores de rendimiento dañados.",
+        "Guías de soporte o scripts de remediación que ejecutan lodctr /R tras errores de Perfmon o de agentes de monitoreo.",
+        "Instaladores o actualizaciones de software de monitoreo que reconstruyen los contadores."
+      ],
+      "response_steps": [
+        "Confirme con el administrador o el responsable del host si la ejecución estaba autorizada y documentada.",
+        "Si no está autorizada, aísle el endpoint y preserve el archivo de configuración usado, el registro Perflib y la línea de tiempo de procesos.",
+        "Investigue el proceso padre y el vector de acceso; restablezca credenciales de la cuenta implicada si hay indicios de compromiso.",
+        "Restaure los contadores desde una copia de seguridad confiable (lodctr /R) solo después de verificar, y valide que la telemetría y el EDR funcionen."
+      ],
+      "severity_rationale": "Es medium porque la reconstrucción de contadores es una tarea administrativa habitual, pero también puede usarse para degradar el monitoreo y exige verificación."
+    },
+    "en": {
+      "summary": "lodctr.exe ran with the /R option to rebuild performance counter values in the registry. This may be routine maintenance or an attempt to tamper with counter configuration to mislead monitoring.",
+      "what_it_detects": "Process creation where Image ends with \\lodctr.exe, OriginalFileName is LODCTR.EXE and CommandLine contains ' -r' or ' /r' (or dash variants), i.e. lodctr /R or lodctr /R:<file>.",
+      "why_it_matters": "Performance counters feed monitoring tools and some security products. An attacker who rebuilds or restores counters from a malicious file can hide activity or break telemetry. The rule tags this as ATT&CK execution.",
+      "triage_steps": [
+        "Read the CommandLine: tell 'lodctr /R' (rebuild from system backup) apart from 'lodctr /R:<file>' (restore from a supplied file).",
+        "If a file is used, locate it, hash it and review its contents; be suspicious of Temp, Users\\Public, Downloads or network shares.",
+        "Identify ParentImage and the process chain: cmd or PowerShell spawned by Office, browsers, WMI or scheduled tasks is more suspicious.",
+        "Check the user and integrity level; confirm an authorized admin and a matching change or maintenance ticket.",
+        "On the same host within +/- 15 minutes, look for changes under HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Perflib and other lodctr or unlodctr runs (/D, /S).",
+        "Check for telemetry gaps, counter errors or EDR/monitoring agent failures after the event.",
+        "Search for earlier alerts on the same host and user, and similar executions on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate administrator use to repair corrupted performance counters.",
+        "Support guides or remediation scripts running lodctr /R after Perfmon or monitoring agent errors.",
+        "Installers or updates of monitoring software that rebuild counters."
+      ],
+      "response_steps": [
+        "Confirm with the administrator or host owner whether the run was authorized and documented.",
+        "If unauthorized, isolate the endpoint and preserve the config file used, the Perflib registry keys and the process timeline.",
+        "Investigate the parent process and access vector; reset credentials of the involved account if compromise is indicated.",
+        "After verification, restore counters from a trusted backup (lodctr /R) and confirm telemetry and EDR are working."
+      ],
+      "severity_rationale": "Medium fits because rebuilding counters is a common admin task, yet it can also degrade monitoring and needs verification."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Administrator-style rebuild of performance counters with lodctr /R from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\lodctr.exe",
+          "OriginalFileName": "LODCTR.EXE",
+          "CommandLine": "lodctr.exe /R",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c lodctr.exe /R",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Restore of counter configuration from a file in a user-writable folder, launched by PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\lodctr.exe",
+          "OriginalFileName": "LODCTR.EXE",
+          "CommandLine": "\"C:\\Windows\\System32\\lodctr.exe\" /R:C:\\Users\\Public\\perfcfg.ini",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "lodctr.exe used only to query counter provider status, no /R option",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\lodctr.exe",
+          "OriginalFileName": "LODCTR.EXE",
+          "CommandLine": "lodctr.exe /Q:PerfOS",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "lodctr.exe saving a backup of counter settings with /S, which does not contain the rebuild switch",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\admin.mlopez",
+          "Image": "C:\\Windows\\System32\\lodctr.exe",
+          "OriginalFileName": "LODCTR.EXE",
+          "CommandLine": "lodctr.exe /S:C:\\PerfBackup\\perf_backup.ini",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

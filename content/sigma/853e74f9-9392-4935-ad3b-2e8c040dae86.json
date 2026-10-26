@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "853e74f9-9392-4935-ad3b-2e8c040dae86",
+    "title": "UAC Bypass Using DismHost",
+    "level": "high",
+    "status": "test",
+    "author": "Christian Burkard (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_uac_bypass_dismhost.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_uac_bypass_dismhost.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1548.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "DismHost.exe, ejecutado desde la carpeta AppData\\Local\\Temp de un usuario, inició un proceso con integridad High o System. Coincide con el patrón del método 63 de UACMe, un bypass de UAC que secuestra una DLL cargada por DismHost.",
+      "what_it_detects": "Eventos de creación de procesos en los que ParentImage contiene C:\\Users\\, \\AppData\\Local\\Temp\\ y \\DismHost.exe, y el IntegrityLevel del proceso hijo es High, System, S-1-16-12288 o S-1-16-16384. DismHost suele ejecutarse desde una carpeta temporal con GUID, pero rara vez inicia procesos hijos elevados.",
+      "why_it_matters": "ATT&CK T1548.002 (Bypass User Account Control): un atacante que ya ejecuta código como administrador con integridad media obtiene ejecución elevada sin que aparezca el aviso de UAC. Lo habitual después es persistencia, robo de credenciales o desactivación de defensas.",
+      "triage_steps": [
+        "Revise Image, CommandLine y User del proceso hijo. Considere muy sospechosos cmd.exe, powershell.exe, rundll32.exe o binarios desconocidos.",
+        "Verifique la ruta completa de ParentImage y el hash y la firma de DismHost.exe. Identifique qué proceso creó la carpeta temporal y DismHost.exe.",
+        "Busque DLL sin firma o escritas recientemente en la misma subcarpeta Temp que DismHost.exe (eventos de creación de archivos y de carga de imágenes).",
+        "Obtenga el proceso abuelo (el padre de ParentImage). Determine si fue cleanmgr.exe, dism.exe, o un script o ejecutable desconocido el que inició la cadena.",
+        "En el mismo host, en un rango de +/- 15 minutos, busque escrituras en Temp, servicios nuevos, tareas programadas, claves Run y conexiones de red.",
+        "Confirme si el usuario estaba ejecutando Liberador de espacio o tareas de DISM, y revise alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "La regla indica falsos positivos desconocidos. En teoría, el Liberador de espacio o tareas de DISM lanzadas por un administrador podrían iniciar un proceso auxiliar elevado desde DismHost.",
+        "Herramientas de despliegue de software o de imágenes que usan las API de DISM desde la carpeta temporal del usuario."
+      ],
+      "response_steps": [
+        "Confirme que la actividad es maliciosa: busque un proceso hijo inesperado, una DLL plantada o la ausencia de una tarea administrativa legítima.",
+        "Si se confirma, aísle el endpoint y termine el árbol de procesos elevados.",
+        "Recolecte el contenido de la carpeta Temp, los hashes y las DLL antes de eliminarlos. Después busque esos hashes en toda la flota.",
+        "Elimine la persistencia que encuentre, restablezca las credenciales del usuario afectado y deje las cuentas estándar sin privilegios de administrador o configure UAC en Notificar siempre."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque un hijo elevado de DismHost.exe ejecutado desde una ruta temporal es un indicio específico de bypass de UAC y casi no ocurre en el uso normal."
+    },
+    "en": {
+      "summary": "A process running at High or System integrity was started by DismHost.exe from a user's AppData\\Local\\Temp folder. This matches the UACMe method 63 pattern, a UAC bypass that hijacks a DLL loaded by DismHost.",
+      "what_it_detects": "Process creation events where ParentImage contains C:\\Users\\, \\AppData\\Local\\Temp\\ and \\DismHost.exe, and the child's IntegrityLevel is High, System, S-1-16-12288 or S-1-16-16384. DismHost normally runs from a temp GUID folder but rarely starts elevated children.",
+      "why_it_matters": "ATT&CK T1548.002 (Bypass User Account Control): an attacker who already runs code as a medium-integrity admin user gets elevated execution without a UAC prompt. The usual next steps are persistence, credential theft or disabling defenses.",
+      "triage_steps": [
+        "Review Image, CommandLine and User of the child process. Treat cmd.exe, powershell.exe, rundll32.exe or unknown binaries as highly suspicious.",
+        "Check the full ParentImage path and the DismHost.exe hash and signature. Find out which process created the temp folder and DismHost.exe.",
+        "Look for unsigned or recently written DLLs in the same Temp subfolder as DismHost.exe (file creation and image load events).",
+        "Get the grandparent process (ParentImage's parent). Find out whether it was cleanmgr.exe, dism.exe, or a script or unknown executable that started the chain.",
+        "On the same host within +/- 15 minutes, look for file writes to the Temp folder, new services, scheduled tasks, registry Run keys and network connections.",
+        "Find out whether the user was running Disk Cleanup or DISM servicing, and check for earlier alerts on the same user or host."
+      ],
+      "false_positives": [
+        "The rule lists unknown false positives. In theory, Disk Cleanup or DISM servicing launched by an administrator could start an elevated helper from DismHost.",
+        "Software deployment or imaging tools that call DISM APIs from a user's temp folder."
+      ],
+      "response_steps": [
+        "Confirm the activity is malicious: check for an unexpected child process, a planted DLL or no legitimate admin task.",
+        "If confirmed, isolate the endpoint and kill the elevated child process tree.",
+        "Collect the Temp folder contents, the hashes and the DLLs before you remove them. Then hunt for the same hashes across the fleet.",
+        "Remove any persistence you find, reset the affected user's credentials, and make standard accounts non-admin or set UAC to Always Notify."
+      ],
+      "severity_rationale": "High fits because an elevated child of a temp-path DismHost.exe is a specific sign of a UAC bypass and rarely happens in normal use."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "DismHost.exe running from the user's Temp GUID folder starts an elevated cmd.exe at High integrity.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\cmd.exe\"",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\7C1E4B2A-9D3F-4E61-A8B0-2F5D6C7E8A91\\DismHost.exe",
+          "ParentCommandLine": "C:\\Users\\jperez\\AppData\\Local\\Temp\\7C1E4B2A-9D3F-4E61-A8B0-2F5D6C7E8A91\\DismHost.exe {5E3A1B7C-0D2F-4C88-9A41-6B7E2D9F0C13}",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Same pattern, with the integrity level written as the System SID.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\upd.exe",
+          "CommandLine": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\upd.exe",
+          "ParentImage": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\0A9B8C7D-1E2F-4A3B-8C5D-6E7F8A9B0C1D\\DismHost.exe",
+          "IntegrityLevel": "S-1-16-16384"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "DismHost.exe from the user's Temp folder starts a child at Medium integrity, so the IntegrityLevel check does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\7C1E4B2A-9D3F-4E61-A8B0-2F5D6C7E8A91\\DismHost.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Elevated child of DismHost.exe running from C:\\Windows\\Temp during servicing. The parent path does not contain C:\\Users\\ or \\AppData\\Local\\Temp\\.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "ParentImage": "C:\\Windows\\Temp\\3B4C5D6E-7F80-4192-A3B4-C5D6E7F8091A\\DismHost.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

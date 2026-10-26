@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "53ef0cef-fa24-4f25-a34a-6c72dfa2e6e2",
+    "title": "Query Usage To Exfil Data",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_query_session_exfil.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_query_session_exfil.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó query.exe de System32 con 'session' o 'process' y una redirección '>', lo que guarda en un archivo la lista de sesiones o procesos del equipo. Puede tratarse de reconocimiento previo a movimiento lateral o robo de credenciales.",
+      "what_it_detects": "Eventos de creación de procesos cuyo Image termina en ':\\Windows\\System32\\query.exe' y cuyo CommandLine contiene 'session >' o 'process >'. Es decir, la salida de 'query session' o 'query process' se redirige a un archivo para usarla después.",
+      "why_it_matters": "Listar sesiones y procesos muestra qué usuarios están conectados, incluidos administradores, y qué software de seguridad corre en el equipo. Corresponde a descubrimiento de usuarios y procesos (T1033, T1057), aunque la regla tiene la etiqueta de ejecución. Guardar la salida en un archivo sugiere que se recolecta para revisarla o exfiltrarla.",
+      "triage_steps": [
+        "Revise CommandLine e identifique el archivo de destino de la redirección (ruta, nombre, ubicación compartida o carpetas como Public, Temp o ProgramData).",
+        "Examine ParentImage y la línea de comandos del padre: cmd.exe o powershell.exe lanzados por Office, wmiprvse.exe, una web shell o un agente RMM son más sospechosos.",
+        "Valide el usuario y el tipo de sesión: ¿es un administrador conocido, una cuenta de servicio o un usuario sin funciones de TI?",
+        "Busque en el mismo host, entre 15 minutos antes y 15 minutos después, otros comandos de descubrimiento como whoami, net user, tasklist, quser, nltest o ipconfig.",
+        "Busque si se creó, se comprimió, se copió o se leyó el archivo de salida, y si hubo conexiones de red salientes poco después.",
+        "Revise alertas previas del mismo host y del mismo usuario, y si se usaron las mismas líneas de comandos en otros endpoints."
+      ],
+      "false_positives": [
+        "Scripts de inventario o soporte de TI que guardan la salida de query session o query process en archivos de log.",
+        "Administradores que diagnostican sesiones RDP o de Terminal Services en servidores y guardan el resultado para un ticket.",
+        "Herramientas de monitoreo o RMM que ejecutan comandos con redirección de forma programada."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del equipo o el equipo de TI si la ejecución estaba autorizada; si lo estaba, documente una exclusión acotada por usuario y padre.",
+        "Si no está autorizada, preserve el archivo de salida y el árbol de procesos, y aísle el endpoint según la política.",
+        "Investigue la cuenta usada: restablezca sus credenciales y revise sus inicios de sesión recientes en otros equipos.",
+        "Elimine el mecanismo de ejecución (script, tarea programada o web shell) después de verificarlo, y busque los mismos indicadores en toda la flota."
+      ],
+      "severity_rationale": "El nivel medium es adecuado porque es un comando nativo con usos legítimos, pero redirigir su salida a un archivo es poco común y típico de un reconocimiento organizado."
+    },
+    "en": {
+      "summary": "System32 query.exe ran with 'session' or 'process' and an output redirect '>', which saves the host's session or process list to a file. This may be reconnaissance ahead of lateral movement or credential theft.",
+      "what_it_detects": "Process creation events where Image ends with ':\\Windows\\System32\\query.exe' and CommandLine contains 'session >' or 'process >'. In other words, query session or query process output is being redirected to a file for later use.",
+      "why_it_matters": "Listing sessions and processes shows which users are logged on, including admins, and which security tools are running. This is user and process discovery (T1033, T1057), although the rule is tagged execution. Saving the output to a file suggests it is being collected for review or exfiltration.",
+      "triage_steps": [
+        "Read CommandLine and find the redirect target: its path, its name, whether it is on a share, and whether it sits in Public, Temp or ProgramData.",
+        "Check ParentImage and the parent's command line. cmd.exe or powershell.exe spawned by Office, wmiprvse.exe, a web shell or an RMM agent is more suspicious.",
+        "Check the user and session type. Is it a known admin, a service account, or a user with no IT role?",
+        "On the same host, from 15 minutes before to 15 minutes after, look for other discovery commands such as whoami, net user, tasklist, quser, nltest or ipconfig.",
+        "Check whether the output file was later read, compressed or copied, and whether outbound network connections followed shortly after.",
+        "Look for earlier alerts on the same host and user, and check whether the same command lines ran on other endpoints."
+      ],
+      "false_positives": [
+        "IT inventory or support scripts that write query session or query process output to log files.",
+        "Admins troubleshooting RDP or Terminal Services sessions on servers and saving the output for a ticket.",
+        "Monitoring or RMM tools that run scheduled commands with output redirection."
+      ],
+      "response_steps": [
+        "Ask the host owner or IT whether the run was authorized. If it was, document a narrow exclusion scoped to that user and parent process.",
+        "If it was not authorized, preserve the output file and the process tree, then isolate the endpoint according to policy.",
+        "Investigate the account: reset its credentials and review its recent logons to other hosts.",
+        "After verifying it, remove the execution mechanism (script, scheduled task or web shell), then hunt for the same indicators across the fleet."
+      ],
+      "severity_rationale": "Medium fits because this is a built-in command with legitimate uses, but redirecting its output to a file is uncommon and typical of organized reconnaissance."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "query.exe launched from cmd.exe redirects the session list to a file in Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\query.exe",
+          "OriginalFileName": "query.exe",
+          "CommandLine": "query session > C:\\Users\\Public\\sess.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c query session > C:\\Users\\Public\\sess.txt",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "query.exe process output redirected to ProgramData by a script spawned from wmiprvse",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\query.exe",
+          "OriginalFileName": "query.exe",
+          "CommandLine": "query.exe process > C:\\ProgramData\\p.log",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /q /c query.exe process > C:\\ProgramData\\p.log 2>&1",
+          "CurrentDirectory": "C:\\Windows\\system32\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator runs query session interactively with no output redirect",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-RDS-01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\query.exe",
+          "OriginalFileName": "query.exe",
+          "CommandLine": "query session /server:SRV-RDS-01",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\cmd.exe\"",
+          "CurrentDirectory": "C:\\Users\\adm_lgomez\\"
+        }
+      },
+      {
+        "description": "query user output is redirected, but the subcommand is neither session nor process",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0188.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\query.exe",
+          "OriginalFileName": "query.exe",
+          "CommandLine": "query user > C:\\Temp\\users.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c query user > C:\\Temp\\users.txt",
+          "CurrentDirectory": "C:\\Temp\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "c0b2768a-dd06-4671-8339-b16ca8d1f27f",
+    "title": "Potentially Suspicious NTFS Symlink Behavior Modification",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113, The DFIR Report",
+    "path": "windows/process_creation/proc_creation_win_fsutil_symlinkevaluation.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_fsutil_symlinkevaluation.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059",
+      "T1222.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se usó cmd.exe o PowerShell para ejecutar fsutil y habilitar la evaluación de enlaces simbólicos NTFS (R2L, R2R o L2L). Es un cambio poco común que suele preceder a ataques que necesitan seguir symlinks hacia recursos remotos.",
+      "what_it_detects": "La creación de un proceso cmd.exe, powershell.exe o pwsh.exe (por Image u OriginalFileName) cuyo CommandLine contiene 'fsutil behavior set SymlinkEvaluation' junto con R2L:1, R2R:1 o L2L:1.",
+      "why_it_matters": "Habilitar los symlinks remoto a local o remoto a remoto permite seguir enlaces a través de recursos compartidos SMB. Los informes de ransomware de las referencias muestran que se usa así para cifrar shares de red. Corresponde a T1222.001 (modificación de permisos de archivos) y a T1059.",
+      "triage_steps": [
+        "Revise el CommandLine completo: qué parámetros se habilitaron (R2L:1, R2R:1) y si la ejecución está encadenada con otros comandos.",
+        "Identifique ParentImage y la cadena de procesos: ¿proviene de explorer, de un script de GPO o despliegue, o de psexec, wmic o un binario desconocido?",
+        "Valide el usuario y el tipo de sesión: ¿es una cuenta administrativa conocida? ¿Hubo un inicio de sesión RDP o de red reciente desde una IP inusual?",
+        "Revise el mismo host +/- 15 minutos: vssadmin, wbadmin, bcdedit, borrado de logs, net use, enumeración de shares o binarios nuevos en carpetas temporales.",
+        "Confirme el estado actual con 'fsutil behavior query SymlinkEvaluation' o en HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem (valores Symlink*Evaluation).",
+        "Busque el mismo CommandLine en otros hosts y alertas previas del mismo usuario; si se ejecutó en muchos equipos a la vez, considere un despliegue de ransomware."
+      ],
+      "false_positives": [
+        "Administradores o scripts de configuración que habilitan R2L/R2R para aplicaciones que dependen de symlinks en shares de red.",
+        "Imágenes base, GPO o herramientas de gestión que aplican la configuración de symlinks durante el aprovisionamiento.",
+        "Pruebas de hardening o auditoría que modifican y restauran el valor temporalmente."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host o con el equipo de cambios si la modificación estaba autorizada; si no, escale como incidente.",
+        "Si hay indicadores de ransomware, aísle el endpoint de la red y deshabilite o restablezca las credenciales de la cuenta usada.",
+        "Restaure la configuración segura (fsutil behavior set SymlinkEvaluation R2L:0 R2R:0) tras documentar el estado y preservar evidencia.",
+        "Elimine los artefactos maliciosos identificados, revise los shares accesibles por cambios masivos y recupere desde respaldos si hubo cifrado."
+      ],
+      "severity_rationale": "El nivel medium es adecuado porque el cambio es poco común y está ligado a ransomware, aunque los administradores pueden hacerlo legítimamente, así que se requiere contexto para escalar."
+    },
+    "en": {
+      "summary": "cmd.exe or PowerShell ran fsutil to enable NTFS symbolic link evaluation (R2L, R2R or L2L). This change is unusual and often comes before attacks that need symlinks to resolve across remote shares.",
+      "what_it_detects": "A cmd.exe, powershell.exe or pwsh.exe process (matched by Image or OriginalFileName) whose CommandLine contains 'fsutil behavior set SymlinkEvaluation' plus R2L:1, R2R:1 or L2L:1.",
+      "why_it_matters": "Turning on remote-to-local or remote-to-remote symlinks lets links be followed over SMB shares. The ransomware reports in the references show it used this way to encrypt network shares. It maps to T1222.001 (file permissions modification) and T1059.",
+      "triage_steps": [
+        "Read the full CommandLine: which options were enabled (R2L:1, R2R:1) and whether other commands were chained with it.",
+        "Check ParentImage and the process tree: explorer, a GPO or deployment script, or psexec, wmic or an unknown binary?",
+        "Validate the user and session type: known admin account? Any recent RDP or network logon from an unusual source IP?",
+        "Review the same host +/- 15 minutes for vssadmin, wbadmin, bcdedit, log clearing, net use, share enumeration or new binaries in temp folders.",
+        "Confirm the current state with 'fsutil behavior query SymlinkEvaluation' or the Symlink*Evaluation values under HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem.",
+        "Hunt for the same CommandLine on other hosts and earlier alerts for the user. The same command on many hosts at once suggests ransomware deployment."
+      ],
+      "false_positives": [
+        "Administrators or setup scripts enabling R2L/R2R for applications that rely on symlinks on network shares.",
+        "Base images, GPOs or management tools applying symlink settings during provisioning.",
+        "Hardening or audit tests that change and then restore the setting."
+      ],
+      "response_steps": [
+        "Check with the host owner or change management whether the change was authorized. If it was not, escalate it as an incident.",
+        "If ransomware indicators exist, isolate the endpoint and disable or reset the credentials of the account used.",
+        "After documenting state and preserving evidence, restore safe settings (fsutil behavior set SymlinkEvaluation R2L:0 R2R:0).",
+        "Remove the malicious artifacts you identified, check reachable shares for mass file changes and restore from backups if files were encrypted."
+      ],
+      "severity_rationale": "Medium fits because the change is rare and linked to ransomware, but admins can make it legitimately, so context is needed before escalating."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe enables remote-to-local and remote-to-remote symlink evaluation via fsutil",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c \"fsutil behavior set SymlinkEvaluation R2L:1 R2R:1\"",
+          "ParentImage": "C:\\Users\\Public\\svc_update.exe",
+          "ParentCommandLine": "C:\\Users\\Public\\svc_update.exe -path \\\\FS-01\\share",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed PowerShell (matched by OriginalFileName) enables R2R symlinks",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\adm_rlopez",
+          "Image": "C:\\ProgramData\\ps.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "ps.exe -NoProfile -Command \"fsutil behavior set SymlinkEvaluation R2R:1\"",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator queries the symlink evaluation settings without changing them",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\adm_rlopez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c \"fsutil behavior query SymlinkEvaluation\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Hardening script disables remote symlink evaluation (values set to 0)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c \"fsutil behavior set SymlinkEvaluation R2L:0 R2R:0\"",
+          "ParentImage": "C:\\Windows\\System32\\gpscript.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

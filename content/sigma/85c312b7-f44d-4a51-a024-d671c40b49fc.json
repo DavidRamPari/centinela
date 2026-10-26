@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "85c312b7-f44d-4a51-a024-d671c40b49fc",
+    "title": "Service StartupType Change Via Sc.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_sc_disable_service.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sc_disable_service.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó sc.exe para cambiar el tipo de inicio de un servicio a \"disabled\" o \"demand\". Un atacante puede hacerlo para que un servicio de seguridad, respaldo o registro deje de iniciarse.",
+      "what_it_detects": "Creación de un proceso cuyo Image termina en \\sc.exe u OriginalFileName es sc.exe, con un CommandLine que contiene ' config ', 'start' y 'disabled' o 'demand', por ejemplo: sc config <servicio> start= disabled.",
+      "why_it_matters": "Si se deshabilita o se pasa a inicio manual un servicio como el antivirus, el EDR, el registro de eventos o las copias de respaldo, el equipo pierde protección o visibilidad tras el siguiente reinicio. Corresponde a debilitamiento de defensas (T1685) y a ejecución.",
+      "triage_steps": [
+        "Lea el CommandLine e identifique el servicio afectado y el nuevo tipo de inicio. Dé prioridad a servicios de seguridad, EDR, Windows Update, EventLog, VSS o respaldo.",
+        "Compare Image con OriginalFileName: si sc.exe se ejecutó desde una ruta fuera de System32 o con otro nombre, considérelo sospechoso.",
+        "Revise ParentImage y la línea de comandos del proceso padre: ¿se trata de un script de administración conocido, de una herramienta de gestión o de cmd/powershell lanzado desde Office o un navegador?",
+        "Identifique al usuario y el nivel de integridad. Confirme con el responsable si el cambio estaba planificado o tiene un ticket asociado.",
+        "Busque en el mismo host, en un rango de +/- 15 minutos, otros comandos sc stop/config, net stop, taskkill, vssadmin o wevtutil que indiquen una secuencia de desactivación.",
+        "Verifique el estado actual del servicio (sc qc <servicio>) y los eventos 7040/7036 del registro System.",
+        "Revise alertas anteriores del mismo host y del mismo usuario, y busque el mismo CommandLine en otros equipos para detectar una ejecución masiva."
+      ],
+      "false_positives": [
+        "Scripts de troubleshooting o de soporte que deshabilitan servicios de forma temporal.",
+        "Hardening de equipos o imágenes base que deshabilita servicios innecesarios, como Spooler o RemoteRegistry.",
+        "Instaladores o agentes de gestión (SCCM, GPO, Intune) que ajustan el tipo de inicio de sus propios servicios."
+      ],
+      "response_steps": [
+        "Valide con el dueño del sistema o con el equipo de TI si el cambio fue autorizado.",
+        "Si no fue autorizado y afecta a un servicio de seguridad, aísle el endpoint y restaure el tipo de inicio original una vez preservada la evidencia.",
+        "Investigue el proceso padre y el usuario, restablezca las credenciales comprometidas y elimine los scripts o la persistencia relacionados.",
+        "Busque el mismo patrón en toda la flota y documente las excepciones legítimas para afinar la regla."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque cambiar el tipo de inicio es común en administración, pero cuando afecta a servicios de defensa la alerta puede ser un paso previo a ransomware o a evasión."
+    },
+    "en": {
+      "summary": "sc.exe was used to set a service's startup type to \"disabled\" or \"demand\". Attackers do this so security, backup or logging services stop starting.",
+      "what_it_detects": "Process creation where Image ends with \\sc.exe or OriginalFileName is sc.exe, and the CommandLine contains ' config ', 'start' and either 'disabled' or 'demand', for example: sc config <service> start= disabled.",
+      "why_it_matters": "When AV, EDR, event logging or backup services are disabled or set to manual start, the host loses protection or visibility after the next reboot. This maps to defense impairment (T1685) and execution.",
+      "triage_steps": [
+        "Read the CommandLine to find the target service and the new startup type. Prioritize security, EDR, Windows Update, EventLog, VSS and backup services.",
+        "Compare Image with OriginalFileName. A sc.exe that is renamed or runs from outside System32 is suspicious.",
+        "Review ParentImage and the parent's command line. Is it a known admin script or management tool, or cmd/PowerShell spawned by Office or a browser?",
+        "Identify the user and the integrity level. Confirm with the owner whether the change was planned or has a ticket.",
+        "On the same host, within +/- 15 minutes, look for sc stop/config, net stop, taskkill, vssadmin or wevtutil commands that suggest a sequence of shutting down defenses.",
+        "Check the current service configuration (sc qc <service>) and System log events 7040 and 7036.",
+        "Review earlier alerts for the same host and user. Search for the same CommandLine on other hosts to spot mass execution."
+      ],
+      "false_positives": [
+        "Troubleshooting or support scripts that disable services temporarily.",
+        "Hardening of hosts or base images that disables unneeded services such as Spooler or RemoteRegistry.",
+        "Installers or management agents (SCCM, GPO, Intune) that change the startup type of their own services."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or IT whether the change was authorized.",
+        "If it was unauthorized and hits a security service, isolate the endpoint, preserve the evidence, then restore the original startup type.",
+        "Investigate the parent process and the user, reset compromised credentials, and remove related scripts or persistence.",
+        "Hunt for the same pattern fleet-wide and document legitimate exceptions to tune the rule."
+      ],
+      "severity_rationale": "Medium fits because changing a startup type is common admin work, but when it targets defensive services it can come before ransomware or evasion."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sc.exe disables the Microsoft Defender service from a cmd shell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe config WinDefend start= disabled",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed sc.exe (caught by OriginalFileName) sets Windows Update to manual start",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\svch.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "C:\\Users\\Public\\svch.exe config wuauserv start= demand",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "An admin uses sc.exe to set Spooler to automatic start (neither disabled nor demand)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin_mlopez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe config Spooler start= auto",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell Set-Service disables a service without sc.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\admin_mlopez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -Command Set-Service -Name RemoteRegistry -StartupType Disabled",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "d7b81144-b866-48a4-9bcc-275dc69d870e",
+    "title": "Windows EventLog Autologger Session Registry Modification Via CommandLine",
+    "level": "high",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_autologger_session_registry_modification.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_autologger_session_registry_modification.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó reg.exe o PowerShell para escribir un valor Start o Enabled en una sesión AutoLogger de ETW (\\Control\\WMI\\Autologger\\). Puede ser un intento de apagar el registro de eventos desde el arranque.",
+      "what_it_detects": "Creación de procesos de reg.exe, powershell.exe o pwsh.exe, identificados por Image u OriginalFileName, cuyo CommandLine tiene una acción de escritura (add, Set-ItemProperty, New-ItemProperty o el alias si), la ruta \\Control\\WMI\\Autologger\\ y los valores Start o Enabled. Start desactiva una sesión completa, como EventLog-Application o EventLog-System. Enabled desactiva un proveedor dentro de la sesión.",
+      "why_it_matters": "Las sesiones AutoLogger capturan eventos antes del inicio de sesión del usuario y alimentan los registros de eventos de Windows. Si se desactivan, se pierde visibilidad de forma persistente después del reinicio. La regla lo etiqueta como defense impairment (T1685.001) y las pruebas Atomic lo asocian con T1562.001.",
+      "triage_steps": [
+        "Revise el CommandLine para identificar la sesión o el GUID del proveedor y confirme si el valor escrito es 0 (desactivar) o 1 (habilitar).",
+        "Identifique el usuario, el nivel de integridad y el ParentImage. Un cmd.exe, wscript.exe o una sesión remota como padre genera más sospecha que una herramienta de gestión conocida.",
+        "Revise la cadena de procesos padre e hijos y otros procesos del mismo host en un rango de +/- 15 minutos, por ejemplo wevtutil, auditpol o cambios en servicios.",
+        "Verifique si la sesión afectada sigue activa con logman query -ets y si hay huecos en Application, System o Security después del cambio.",
+        "Busque el mismo CommandLine en otros hosts y alertas previas del mismo usuario o host, como regla relacionada de registro o tampering de ETW.",
+        "Confirme con TI si existe un cambio aprobado o un paquete de software que modifique la configuración de AutoLogger."
+      ],
+      "false_positives": [
+        "Administradores o scripts de hardening que ajustan sesiones AutoLogger para reducir ruido o consumo de disco.",
+        "Instaladores o agentes de rendimiento y diagnóstico que habilitan o deshabilitan sus propios proveedores ETW.",
+        "Pruebas autorizadas de red team o Atomic Red Team que reproducen esta técnica."
+      ],
+      "response_steps": [
+        "Valide con el responsable del host o con el registro de cambios si la modificación fue autorizada antes de actuar.",
+        "Si no fue autorizada, aísle el endpoint y preserve evidencia: exporte la clave Autologger y los registros de eventos disponibles.",
+        "Restaure el valor original de Start o Enabled, reinicie de forma controlada y confirme que la sesión vuelve a registrar eventos.",
+        "Investigue la cuenta usada, restablezca credenciales si están comprometidas y busque persistencia o actividad posterior que el atacante quisiera ocultar."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque desactivar sesiones AutoLogger rara vez es legítimo y deja al SOC sin visibilidad de forma persistente."
+    },
+    "en": {
+      "summary": "reg.exe or PowerShell wrote a Start or Enabled value under an ETW AutoLogger session key (\\Control\\WMI\\Autologger\\). This may be an attempt to switch off event logging from boot onward.",
+      "what_it_detects": "Process creation of reg.exe, powershell.exe or pwsh.exe, matched by Image or OriginalFileName, where the CommandLine has a write action (add, Set-ItemProperty, New-ItemProperty or the si alias), the \\Control\\WMI\\Autologger\\ path, and Start or Enabled. Start disables a whole session, such as EventLog-Application or EventLog-System. Enabled disables one provider inside a session.",
+      "why_it_matters": "AutoLogger sessions record events before user logon and feed the Windows event logs. Disabling them blinds monitoring, and the change persists across reboots. The rule tags this as defense impairment (T1685.001), and the Atomic tests map it to T1562.001.",
+      "triage_steps": [
+        "Read the CommandLine to find the session name or provider GUID, and check whether the value written is 0 (disable) or 1 (enable).",
+        "Identify the user, the integrity level and the ParentImage. A parent such as cmd.exe, wscript.exe or a remote shell is more suspicious than a known management tool.",
+        "Review the parent and child processes, and other activity on the same host within +/- 15 minutes, such as wevtutil, auditpol or service changes.",
+        "Check whether the session is still running (logman query -ets), and look for gaps in the Application, System or Security logs after the change.",
+        "Search other hosts for the same CommandLine, and look for earlier alerts on this user or host, including related registry or ETW tampering rules.",
+        "Ask IT whether an approved change or software package modifies AutoLogger settings."
+      ],
+      "false_positives": [
+        "Administrators or hardening scripts that tune AutoLogger sessions to reduce noise or disk use.",
+        "Installers, or performance and diagnostics agents, that enable or disable their own ETW providers.",
+        "Authorized red team or Atomic Red Team tests of this technique."
+      ],
+      "response_steps": [
+        "Before acting, check with the host owner or the change records whether the change was authorized.",
+        "If it was not authorized, isolate the endpoint and preserve evidence: export the Autologger key and the remaining event logs.",
+        "Restore the original Start or Enabled value, reboot in a controlled way, and confirm the session logs events again.",
+        "Investigate the account used, reset its credentials if compromised, and hunt for persistence or other activity the attacker meant to hide."
+      ],
+      "severity_rationale": "High fits because disabling AutoLogger sessions is rarely legitimate and leaves the SOC without visibility in a way that persists."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe disables the EventLog-Application AutoLogger session by setting Start to 0",
+        "event": {
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\EventLog-Application\" /v Start /t REG_DWORD /d 0 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "High",
+          "Computer": "WS-0142.example.com"
+        }
+      },
+      {
+        "description": "PowerShell disables a provider in the EventLog-System AutoLogger session by setting Enabled to 0",
+        "event": {
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\EventLog-System\\{11111111-2222-3333-4444-555555555555}' -Name Enabled -Value 0",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "User": "ANDES\\mrojas",
+          "IntegrityLevel": "High",
+          "Computer": "WS-0207.example.com"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "An administrator only queries the Start value of an AutoLogger session and writes nothing",
+        "event": {
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\EventLog-System\" /v Start",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\admin.lgarcia",
+          "IntegrityLevel": "High",
+          "Computer": "WS-0142.example.com"
+        }
+      },
+      {
+        "description": "reg.exe changes MaxFileSize on an AutoLogger session and does not touch Start or Enabled",
+        "event": {
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\EventLog-Application\" /v MaxFileSize /t REG_DWORD /d 100 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\admin.lgarcia",
+          "IntegrityLevel": "High",
+          "Computer": "SRV-FILE01.example.com"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

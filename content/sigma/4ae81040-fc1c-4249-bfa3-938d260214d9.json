@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "4ae81040-fc1c-4249-bfa3-938d260214d9",
+    "title": "Use Icacls to Hide File to Everyone",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_icacls_deny.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_icacls_deny.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1564.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó icacls.exe con /deny para el SID S-1-1-0 (Everyone). Así se bloquea el acceso o el borrado de un archivo o carpeta para todos los usuarios, una forma de ocultar o proteger archivos maliciosos.",
+      "what_it_detects": "Creación de un proceso cuyo Image termina en \\icacls.exe u OriginalFileName es iCACLS.EXE, con un CommandLine que contiene '/deny' y '*S-1-1-0:'. Es decir, una ACE de denegación para Everyone, por ejemplo (OI)(CI)(DE,DC) sobre una ruta en AppData.",
+      "why_it_matters": "Corresponde a ATT&CK T1564.001 (Hide Artifacts: archivos y directorios ocultos). Un malware puede negar a Everyone el acceso o el borrado de su carpeta de trabajo para estorbar a los usuarios, a algunas herramientas de seguridad y a la limpieza manual, y así mantener su persistencia.",
+      "triage_steps": [
+        "Revise el CommandLine completo: la ruta objetivo, los permisos denegados (DE, DC, F, RX) y los flags de herencia (OI)(CI).",
+        "Identifique ParentImage y su línea de comandos. Una cadena desde cmd, PowerShell, wscript o un binario en AppData o Temp es sospechosa.",
+        "Confirme el usuario y el nivel de integridad del proceso. Valide si esa cuenta suele administrar permisos en el endpoint.",
+        "Inspeccione la ruta afectada: nombres aleatorios o GUID en AppData\\Local, ejecutables o DLL recientes. Calcule el hash y consulte su reputación.",
+        "Revise el mismo host +/- 15 minutos: archivos creados, tareas programadas, claves Run, servicios y conexiones de red del proceso padre.",
+        "Busque otras ejecuciones de icacls con /deny *S-1-1-0 en otros hosts o del mismo usuario, y alertas previas de esa entidad."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos. Puede ocurrir con scripts de endurecimiento o despliegue que bloquean carpetas de forma intencional.",
+        "Software de protección de licencias o de kioscos que restringe el acceso a sus propios directorios.",
+        "Pruebas autorizadas de red team o de validación de detecciones."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del sistema o con el equipo de TI si el cambio estaba autorizado y documentado.",
+        "Si no lo estaba, aísle el endpoint y conserve evidencia: el árbol de procesos, la ACL actual (icacls <ruta>) y una copia de los archivos.",
+        "Elimine la ACE de denegación con icacls <ruta> /remove:d *S-1-1-0 y analice o ponga en cuarentena los archivos con EDR o antivirus.",
+        "Erradique los mecanismos de persistencia asociados y restablezca las credenciales del usuario si hubo compromiso. Monitoree el host por recurrencia."
+      ],
+      "severity_rationale": "Medium es adecuado: la acción es poco común en usuarios finales y está ligada a malware, pero por sí sola no confirma un compromiso y requiere contexto."
+    },
+    "en": {
+      "summary": "icacls.exe ran with /deny for SID S-1-1-0 (Everyone). This blocks every user from accessing or deleting a file or folder, a way to hide or protect malicious files.",
+      "what_it_detects": "Process creation where Image ends with \\icacls.exe or OriginalFileName is iCACLS.EXE, and CommandLine contains both '/deny' and '*S-1-1-0:'. That is a deny ACE for Everyone, such as (OI)(CI)(DE,DC) on an AppData path.",
+      "why_it_matters": "Maps to ATT&CK T1564.001 (Hide Artifacts: hidden files and directories). Malware can deny Everyone access to its working folder, or the right to delete it. This gets in the way of users, some security tools and manual cleanup, which helps the malware persist.",
+      "triage_steps": [
+        "Read the full CommandLine: the target path, the denied rights (DE, DC, F, RX) and the inheritance flags (OI)(CI).",
+        "Identify ParentImage and its command line. A chain from cmd, PowerShell, wscript or a binary in AppData or Temp is suspicious.",
+        "Confirm the user and the process integrity level. Check whether this account normally manages permissions on the endpoint.",
+        "Inspect the target path: random or GUID names in AppData\\Local, recent executables or DLLs. Hash them and check reputation.",
+        "Review the same host +/- 15 minutes: file creation, scheduled tasks, Run keys, services and network connections from the parent.",
+        "Hunt for other icacls /deny *S-1-1-0 executions on other hosts or by the same user, and for earlier alerts on these entities."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. This could still come from hardening or deployment scripts that lock folders on purpose.",
+        "Licensing-protection or kiosk software that restricts access to its own directories.",
+        "Authorized red team or detection-validation testing."
+      ],
+      "response_steps": [
+        "Check with the system owner or IT whether the change was authorized and documented.",
+        "If it was not, isolate the endpoint and preserve evidence: the process tree, the current ACL (icacls <path>) and copies of the files.",
+        "Remove the deny ACE with icacls <path> /remove:d *S-1-1-0, then scan or quarantine the files with EDR or antivirus.",
+        "Remove the related persistence, reset the user's credentials if compromised, and watch the host for recurrence."
+      ],
+      "severity_rationale": "Medium fits: end users rarely do this and malware does, but on its own it does not confirm a compromise and needs context."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "icacls launched from cmd denies Everyone the delete rights on a GUID folder in AppData\\Local",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\icacls.exe",
+          "OriginalFileName": "iCACLS.EXE",
+          "CommandLine": "icacls \"C:\\Users\\jperez\\AppData\\Local\\37f92fe8-bcf0-4ee0-b8ba-561f797f5696\" /deny *S-1-1-0:(OI)(CI)(DE,DC)",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c icacls \"C:\\Users\\jperez\\AppData\\Local\\37f92fe8-bcf0-4ee0-b8ba-561f797f5696\" /deny *S-1-1-0:(OI)(CI)(DE,DC)",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed icacls binary, caught by OriginalFileName, denies Everyone full control",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0210.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Roaming\\svc\\perm.exe",
+          "OriginalFileName": "iCACLS.EXE",
+          "CommandLine": "perm.exe C:\\Users\\mrojas\\AppData\\Roaming\\svc /deny *S-1-1-0:(F)",
+          "ParentImage": "C:\\Users\\mrojas\\AppData\\Roaming\\svc\\updater.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator grants Everyone read access with icacls, with no /deny and no Everyone deny ACE",
+        "event": {
+          "EventID": 1,
+          "Computer": "FS-01.andes.example.com",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\System32\\icacls.exe",
+          "OriginalFileName": "iCACLS.EXE",
+          "CommandLine": "icacls \"D:\\Shares\\Public\" /grant *S-1-1-0:(OI)(CI)(R)",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "icacls denies write access to one specific domain account SID, not Everyone",
+        "event": {
+          "EventID": 1,
+          "Computer": "FS-01.andes.example.com",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\System32\\icacls.exe",
+          "OriginalFileName": "iCACLS.EXE",
+          "CommandLine": "icacls \"D:\\Finance\\Reports\" /deny *S-1-5-21-1004336348-1177238915-682003330-1105:(W)",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

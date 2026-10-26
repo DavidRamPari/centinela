@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "33be4333-2c6b-44f4-ae28-102cdbde0a31",
+    "title": "Suspicious Msbuild Execution By Uncommon Parent Process",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_msbuild_susp_parent_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_msbuild_susp_parent_process.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "MSBuild.exe, o un binario cuyo OriginalFileName es MSBuild.exe, se ejecutó desde un proceso padre que no es común para builds legítimos. Puede indicar que se usa MSBuild para ejecutar código malicioso de forma encubierta.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\MSBuild.exe u OriginalFileName es MSBuild.exe, y ParentImage no es devenv.exe, cmd.exe, msbuild.exe, python.exe, explorer.exe ni nuget.exe.",
+      "why_it_matters": "MSBuild es una utilidad de desarrollo firmada por Microsoft que puede compilar y ejecutar código C# inline desde archivos de proyecto. Los atacantes la usan como proxy para eludir controles de aplicaciones (ATT&CK T1127.001, Trusted Developer Utilities Proxy Execution).",
+      "triage_steps": [
+        "Revise ParentImage y su línea de comandos: Office, wscript, mshta, powershell o un servicio como padre son señales de alto riesgo.",
+        "Analice CommandLine de MSBuild: identifique el archivo de proyecto (.csproj, .xml, .proj, .txt) y si reside en Temp, Downloads, AppData o rutas públicas.",
+        "Compare Image con OriginalFileName: si el binario está renombrado o fuera de C:\\Windows\\Microsoft.NET, trate el evento como muy sospechoso.",
+        "Obtenga el archivo de proyecto y busque tareas inline (UsingTask, CodeTaskFactory) con código embebido o payloads codificados.",
+        "Pivote en el mismo host +/- 15 minutos: procesos hijos de MSBuild, conexiones de red, archivos creados y modificaciones de registro.",
+        "Verifique si el usuario es desarrollador y si el host tiene herramientas de build o agentes de CI instalados.",
+        "Busque alertas previas para el mismo host, usuario y hash del archivo de proyecto en otros endpoints."
+      ],
+      "false_positives": [
+        "Agentes de CI/CD (Azure DevOps, Jenkins, TeamCity) o scripts de PowerShell que invocan MSBuild para compilar proyectos.",
+        "IDEs o herramientas distintas de Visual Studio, como Rider o VS Code, que lanzan MSBuild directamente.",
+        "Instaladores o actualizadores de software que compilan componentes con MSBuild durante la instalación."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del sistema si la compilación era esperada; documente el padre legítimo para un posible filtro.",
+        "Si es malicioso, aísle el endpoint y termine el árbol de procesos de MSBuild tras preservar evidencia.",
+        "Conserve el archivo de proyecto, la memoria del proceso y los artefactos creados; calcule hashes y búsquelos en el entorno.",
+        "Elimine persistencias y archivos relacionados, restablezca credenciales expuestas y considere restringir MSBuild en equipos que no sean de desarrollo."
+      ],
+      "severity_rationale": "Medium es adecuado porque el abuso de MSBuild es una técnica real de evasión, pero existen padres legítimos no filtrados en entornos de desarrollo y CI."
+    },
+    "en": {
+      "summary": "MSBuild.exe, or a binary whose OriginalFileName is MSBuild.exe, was started by a parent process that is uncommon for legitimate builds. This may mean MSBuild is being used to run malicious code covertly.",
+      "what_it_detects": "Windows process creation events where Image ends with \\MSBuild.exe or OriginalFileName is MSBuild.exe, and ParentImage is not devenv.exe, cmd.exe, msbuild.exe, python.exe, explorer.exe or nuget.exe.",
+      "why_it_matters": "MSBuild is a Microsoft-signed developer utility that can compile and run inline C# code from project files. Attackers use it as a proxy to bypass application controls (ATT&CK T1127.001, Trusted Developer Utilities Proxy Execution).",
+      "triage_steps": [
+        "Review ParentImage and its command line: Office apps, wscript, mshta, powershell or a service as parent are high-risk signs.",
+        "Inspect the MSBuild CommandLine: identify the project file (.csproj, .xml, .proj, .txt) and whether it sits in Temp, Downloads, AppData or public folders.",
+        "Compare Image with OriginalFileName: a renamed binary or one outside C:\\Windows\\Microsoft.NET is highly suspicious.",
+        "Collect the project file and look for inline tasks (UsingTask, CodeTaskFactory) with embedded code or encoded payloads.",
+        "Pivot on the same host +/- 15 minutes: MSBuild child processes, network connections, created files and registry changes.",
+        "Check whether the user is a developer and whether the host runs build tools or CI agents.",
+        "Search for earlier alerts for the same host, user and project file hash on other endpoints."
+      ],
+      "false_positives": [
+        "CI/CD agents (Azure DevOps, Jenkins, TeamCity) or PowerShell build scripts invoking MSBuild.",
+        "IDEs or tools other than Visual Studio, such as Rider or VS Code, launching MSBuild directly.",
+        "Software installers or updaters that compile components with MSBuild during setup."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether the build was expected; document legitimate parents for a possible tuning filter.",
+        "If malicious, isolate the endpoint and terminate the MSBuild process tree after preserving evidence.",
+        "Preserve the project file, process memory and dropped artifacts; hash them and hunt across the environment.",
+        "Remove persistence and related files, reset exposed credentials and consider restricting MSBuild on non-developer machines."
+      ],
+      "severity_rationale": "Medium fits because MSBuild abuse is a real evasion technique, yet legitimate unfiltered parents exist in development and CI environments."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "MSBuild launched by Word, building an inline-task project from the user's Temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\MSBuild.exe",
+          "OriginalFileName": "MSBuild.exe",
+          "CommandLine": "\"C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\MSBuild.exe\" C:\\Users\\jperez\\AppData\\Local\\Temp\\update.xml",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n \"C:\\Users\\jperez\\Downloads\\factura.docm\""
+        }
+      },
+      {
+        "description": "Renamed MSBuild copy (matched by OriginalFileName) started by wscript.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "MSBuild.exe",
+          "CommandLine": "C:\\Users\\Public\\svchelper.exe C:\\Users\\Public\\cfg.txt",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\mlopez\\Downloads\\doc.js"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Developer building a solution from Visual Studio (devenv.exe parent is filtered)",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\rgomez",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64\\MSBuild.exe",
+          "OriginalFileName": "MSBuild.exe",
+          "CommandLine": "MSBuild.exe C:\\src\\Inventario\\Inventario.sln /p:Configuration=Release",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\devenv.exe"
+        }
+      },
+      {
+        "description": "Build run manually from a command prompt (cmd.exe parent is filtered)",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\rgomez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\MSBuild.exe",
+          "OriginalFileName": "MSBuild.exe",
+          "CommandLine": "MSBuild.exe C:\\src\\Inventario\\Inventario.csproj /t:Build",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

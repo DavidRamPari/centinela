@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "517490a7-115a-48c6-8862-1a481504d5a8",
+    "title": "Potential Shim Database Persistence via Sdbinst.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Markus Neis",
+    "path": "windows/process_creation/proc_creation_win_sdbinst_shim_persistence.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sdbinst_shim_persistence.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1546.011"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó sdbinst.exe (o una copia renombrada) con un archivo .sdb en la línea de comandos, lo que instala una nueva base de datos de shims de compatibilidad. Puede ser legítimo, pero también es una técnica conocida de persistencia y escalamiento de privilegios.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\sdbinst.exe u OriginalFileName es sdbinst.exe, y CommandLine contiene '.sdb'. Excluye la instalación del shim de IIS Express lanzada por msiexec.exe desde Program Files.",
+      "why_it_matters": "Los shims de aplicación (ATT&CK T1546.011) permiten inyectar DLL, parchear memoria o redirigir ejecución cada vez que arranca un programa objetivo. Un .sdb malicioso da persistencia sigilosa y puede ejecutarse con privilegios elevados.",
+      "triage_steps": [
+        "Revise CommandLine: ruta del .sdb, uso de -q (silencioso) y si el archivo está en rutas de usuario, Temp o ProgramData en lugar de un instalador conocido.",
+        "Verifique Image frente a OriginalFileName: un sdbinst.exe fuera de System32/SysWOW64 o renombrado es altamente sospechoso.",
+        "Analice ParentImage y la cadena de procesos: cmd.exe, powershell.exe, wscript.exe o un binario desconocido son más preocupantes que msiexec.exe de un producto firmado.",
+        "Obtenga el hash del .sdb y de las copias en C:\\Windows\\AppPatch\\Custom y Custom64; consulte reputación y examine su contenido con un parser de SDB.",
+        "Revise las claves AppCompatFlags\\Custom y AppCompatFlags\\InstalledSDB en HKLM para identificar el ejecutable objetivo del shim.",
+        "Pivote en el mismo host +/- 15 minutos: archivos DLL creados, conexiones de red, nuevos servicios o tareas programadas.",
+        "Busque alertas previas del mismo usuario y host, y el mismo hash de .sdb en otros endpoints."
+      ],
+      "false_positives": [
+        "Instaladores de software legítimo que registran shims propios (similar a IIS Express) desde otras rutas no filtradas.",
+        "Equipos de TI que despliegan correcciones de compatibilidad para aplicaciones heredadas mediante sdbinst.exe.",
+        "Pruebas de compatibilidad con Application Compatibility Toolkit en equipos de desarrollo o laboratorio."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del equipo o el área de TI si la instalación del shim fue autorizada.",
+        "Si no está autorizada, aísle el endpoint y preserve el .sdb, las claves de registro y los archivos relacionados como evidencia.",
+        "Desinstale el shim con sdbinst.exe -u tras documentarlo, y elimine DLL o payloads asociados verificados como maliciosos.",
+        "Restablezca credenciales de la cuenta implicada y busque el mismo .sdb o hash en toda la flota."
+      ],
+      "severity_rationale": "Nivel medio: la instalación de shims es poco frecuente y es una técnica real de persistencia, pero existen usos administrativos legítimos que requieren verificación."
+    },
+    "en": {
+      "summary": "sdbinst.exe (or a renamed copy) ran with a .sdb file on its command line, installing a new application compatibility shim database. This can be legitimate but is a known persistence and privilege escalation technique.",
+      "what_it_detects": "Process creation events where Image ends with \\sdbinst.exe or OriginalFileName is sdbinst.exe, and CommandLine contains '.sdb'. The IIS Express shim installed by msiexec.exe from Program Files is excluded.",
+      "why_it_matters": "Application shims (ATT&CK T1546.011) can inject DLLs, patch memory or redirect execution whenever a target program starts. A malicious .sdb gives stealthy persistence and may run with elevated privileges.",
+      "triage_steps": [
+        "Review CommandLine: .sdb path, use of -q (quiet), and whether the file sits in user, Temp or ProgramData paths rather than a known installer.",
+        "Compare Image with OriginalFileName: sdbinst.exe outside System32/SysWOW64 or renamed is highly suspicious.",
+        "Inspect ParentImage and the process chain: cmd.exe, powershell.exe, wscript.exe or unknown binaries are more concerning than msiexec.exe from a signed product.",
+        "Hash the .sdb and copies in C:\\Windows\\AppPatch\\Custom and Custom64; check reputation and inspect contents with an SDB parser.",
+        "Check HKLM AppCompatFlags\\Custom and AppCompatFlags\\InstalledSDB registry keys to identify the shim's target executable.",
+        "Pivot on the same host +/- 15 minutes: new DLLs, network connections, services or scheduled tasks.",
+        "Look for earlier alerts for the same user and host, and the same .sdb hash on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate software installers registering their own shims (like IIS Express) from paths not covered by the filter.",
+        "IT teams deploying compatibility fixes for legacy applications with sdbinst.exe.",
+        "Compatibility testing with the Application Compatibility Toolkit on developer or lab machines."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the shim installation was authorized.",
+        "If unauthorized, isolate the endpoint and preserve the .sdb, registry keys and related files as evidence.",
+        "After documenting, uninstall the shim with sdbinst.exe -u and remove DLLs or payloads verified as malicious.",
+        "Reset credentials of the involved account and hunt for the same .sdb or hash across the fleet."
+      ],
+      "severity_rationale": "Medium: shim installation is rare and a real persistence technique, but legitimate administrative uses exist and need verification."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sdbinst.exe quietly installs a .sdb from a public user folder, launched by cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sdbinst.exe",
+          "OriginalFileName": "sdbinst.exe",
+          "CommandLine": "sdbinst.exe -q C:\\Users\\Public\\Documents\\update.sdb",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c install.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed sdbinst binary in ProgramData matched via OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svchelper.exe",
+          "OriginalFileName": "sdbinst.exe",
+          "CommandLine": "C:\\ProgramData\\svchelper.exe -q C:\\ProgramData\\cache\\compat.sdb",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "IIS Express installer registering its expected shim via msiexec.exe (excluded by filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\SysWOW64\\sdbinst.exe",
+          "OriginalFileName": "sdbinst.exe",
+          "CommandLine": "\"C:\\Windows\\SysWOW64\\sdbinst.exe\" -q \"C:\\Program Files (x86)\\IIS Express\\iisexpressshim.sdb\"",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "sdbinst.exe uninstalling a shim by GUID, no .sdb in command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\System32\\sdbinst.exe",
+          "OriginalFileName": "sdbinst.exe",
+          "CommandLine": "sdbinst.exe -u -g {2D3A1F6E-8B4C-4E1A-9F0D-123456789ABC}",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

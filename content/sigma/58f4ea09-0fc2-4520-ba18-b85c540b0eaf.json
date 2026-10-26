@@ -1,0 +1,125 @@
+{
+  "rule": {
+    "id": "58f4ea09-0fc2-4520-ba18-b85c540b0eaf",
+    "title": "Suspicious Serv-U Process Pattern",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_servu_susp_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_servu_susp_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1555"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "El servicio Serv-U (Serv-U.exe) inició un intérprete de comandos, un motor de scripts o un LOLBin. Esto puede indicar que se explotó el servidor de transferencia de archivos y que hay ejecución remota de comandos.",
+      "what_it_detects": "Eventos de creación de procesos en los que ParentImage termina en \\Serv-U.exe e Image es cmd.exe, powershell.exe, pwsh.exe, wscript.exe, cscript.exe, sh.exe, bash.exe, schtasks.exe, regsvr32.exe, wmic.exe, mshta.exe, rundll32.exe, msiexec.exe, forfiles.exe o scriptrunner.exe.",
+      "why_it_matters": "Serv-U suele estar expuesto a internet. La regla está etiquetada con CVE-2021-35211, una vulnerabilidad de Serv-U que permite ejecución remota. Que el servicio lance shells o LOLBins es típico de post-explotación: reconocimiento, persistencia y robo de credenciales (T1555, credenciales en almacenes de contraseñas).",
+      "triage_steps": [
+        "Revise CommandLine del proceso hijo: busque whoami, net user, descargas, cadenas codificadas en Base64, creación de tareas o volcado de credenciales.",
+        "Confirme que ParentImage es el Serv-U.exe legítimo (ruta de instalación, firma, hash) y anote la versión instalada de Serv-U.",
+        "Construya el árbol de procesos: nietos del hijo, conexiones de red salientes y archivos escritos en el mismo host dentro de +/- 15 minutos.",
+        "Revise los logs de Serv-U para identificar la IP de origen, la cuenta y las sesiones SSH/SFTP cercanas al evento.",
+        "Busque tareas programadas, servicios o cuentas nuevas, y archivos sospechosos en el directorio de Serv-U o en carpetas temporales.",
+        "Pivote por la IP de origen y el hash del hijo en otros servidores, y busque alertas previas para este host."
+      ],
+      "false_positives": [
+        "Administradores o sistemas automatizados que usan el servicio SSH de Serv-U para ejecutar comandos remotos de forma legítima.",
+        "Scripts de mantenimiento o eventos configurados en Serv-U que llaman a cmd.exe o powershell.exe; valide contra la configuración documentada."
+      ],
+      "response_steps": [
+        "Valide con el responsable del servidor si la ejecución estaba prevista; si no lo estaba, trátelo como un incidente.",
+        "Aísle el host o bloquee el acceso externo a Serv-U y preserve la memoria, los logs de Serv-U y los artefactos de disco.",
+        "Elimine la persistencia identificada y rote las credenciales almacenadas o usadas en el servidor tras la investigación.",
+        "Actualice Serv-U a una versión corregida, restaure desde una imagen confiable si hay compromiso y monitoree el host."
+      ],
+      "severity_rationale": "El nivel alto es apropiado porque un servicio expuesto que lanza shells o LOLBins rara vez es legítimo y suele indicar ejecución remota tras una explotación."
+    },
+    "en": {
+      "summary": "The Serv-U service (Serv-U.exe) started a command shell, script host or LOLBin. This may mean the file transfer server was exploited and is being used for remote command execution.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\Serv-U.exe and Image is cmd.exe, powershell.exe, pwsh.exe, wscript.exe, cscript.exe, sh.exe, bash.exe, schtasks.exe, regsvr32.exe, wmic.exe, mshta.exe, rundll32.exe, msiexec.exe, forfiles.exe or scriptrunner.exe.",
+      "why_it_matters": "Serv-U is often internet-facing. The rule is tagged CVE-2021-35211, a Serv-U remote code execution flaw. A service spawning shells or LOLBins is typical post-exploitation: recon, persistence and credential theft (T1555, credentials from password stores).",
+      "triage_steps": [
+        "Read the child CommandLine: look for whoami, net user, downloads, Base64-encoded strings, task creation or credential dumping.",
+        "Confirm ParentImage is the genuine Serv-U.exe (install path, signature, hash) and record the installed Serv-U version.",
+        "Build the process tree: grandchildren, outbound network connections and files written on the same host within +/- 15 minutes.",
+        "Check Serv-U logs for the source IP, account and SSH/SFTP sessions around the event time.",
+        "Look for new scheduled tasks, services or accounts, and suspicious files in the Serv-U directory or temp folders.",
+        "Pivot on the source IP and child hash across other servers, and check earlier alerts for this host."
+      ],
+      "false_positives": [
+        "Administrators or automation legitimately using the Serv-U SSH service for remote command execution.",
+        "Maintenance scripts or Serv-U event actions configured to call cmd.exe or powershell.exe; validate against documented configuration."
+      ],
+      "response_steps": [
+        "Confirm with the server owner whether the execution was expected; if not, handle it as an incident.",
+        "Isolate the host or block external access to Serv-U, and preserve memory, Serv-U logs and disk artifacts.",
+        "Remove identified persistence and rotate credentials stored on or used by the server once scoped.",
+        "Patch Serv-U to a fixed version, rebuild from a trusted image if compromised, and monitor the host."
+      ],
+      "severity_rationale": "High fits because an exposed service spawning shells or LOLBins is rarely legitimate and usually indicates remote execution after exploitation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Serv-U.exe spawns cmd.exe running reconnaissance commands",
+        "event": {
+          "EventID": 1,
+          "Computer": "FTP-SRV-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Program Files\\RhinoSoft\\Serv-U\\Serv-U.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\RhinoSoft\\Serv-U\\Serv-U.exe\" -service",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami && net user",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Serv-U.exe spawns PowerShell with an encoded command",
+        "event": {
+          "EventID": 1,
+          "Computer": "FTP-SRV-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Program Files\\RhinoSoft\\Serv-U\\Serv-U.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -enc SQBFAFgA",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Serv-U.exe starts conhost.exe, which is not in the monitored child list",
+        "event": {
+          "EventID": 1,
+          "Computer": "FTP-SRV-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Program Files\\RhinoSoft\\Serv-U\\Serv-U.exe",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1"
+        }
+      },
+      {
+        "description": "Administrator opens cmd.exe from explorer.exe on the same server; parent is not Serv-U",
+        "event": {
+          "EventID": 1,
+          "Computer": "FTP-SRV-01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\cmd.exe\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

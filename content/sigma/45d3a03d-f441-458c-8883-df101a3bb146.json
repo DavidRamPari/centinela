@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "45d3a03d-f441-458c-8883-df101a3bb146",
+    "title": "Launch-VsDevShell.PS1 Proxy Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_lolbin_launch_vsdevshell.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_launch_vsdevshell.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1216.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó el script firmado por Microsoft Launch-VsDevShell.ps1 con el parámetro VsWherePath o VsInstallationPath. Esto puede servir para lanzar un binario o cargar un módulo arbitrario a través de un script de confianza.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene 'Launch-VsDevShell.ps1' junto con 'VsWherePath ' o 'VsInstallationPath '. Estos parámetros indican al script qué ejecutable vswhere usar o de qué ruta de instalación de Visual Studio cargar componentes.",
+      "why_it_matters": "Un atacante puede apuntar VsWherePath a su propio ejecutable o VsInstallationPath a una carpeta que controla. Así su código corre detrás de un script firmado por Microsoft y evade controles basados en firmas (proxy de ejecución mediante scripts firmados, T1216).",
+      "triage_steps": [
+        "Revise el CommandLine completo: confirme a qué ruta apuntan VsWherePath o VsInstallationPath y si es una instalación real de Visual Studio en Program Files.",
+        "Si la ruta está en carpetas de escritura del usuario (Temp, Downloads, Public, AppData), trátelo como sospechoso y obtenga el hash del binario referenciado.",
+        "Verifique ParentImage y la cadena de procesos: ¿lo lanzó una terminal de desarrollador, un IDE o Office, un navegador, wscript o un servicio?",
+        "Busque procesos hijo de powershell.exe en el mismo host dentro de +/- 15 minutos, sobre todo ejecutables que no sean vswhere.exe ni herramientas de compilación.",
+        "Confirme si el usuario es desarrollador y si el host tiene Visual Studio instalado; si no hay Visual Studio, la sospecha aumenta.",
+        "Revise conexiones de red, archivos creados y alertas previas del mismo usuario y host."
+      ],
+      "false_positives": [
+        "Desarrolladores que usan Launch-VsDevShell.ps1 con VsInstallationPath para elegir entre varias instalaciones de Visual Studio.",
+        "Pipelines de CI/CD o agentes de compilación que indican VsWherePath o VsInstallationPath de forma explícita en sus scripts."
+      ],
+      "response_steps": [
+        "Valide con el usuario o con el responsable del sistema de compilación si la ejecución era esperada y si la ruta indicada es legítima.",
+        "Si es maliciosa, aísle el endpoint y ponga en cuarentena el binario o módulo referenciado después de conservar una copia y su hash.",
+        "Busque el mismo hash y patrones de CommandLine similares en todo el entorno, y elimine los mecanismos de persistencia que encuentre.",
+        "Restablezca las credenciales del usuario si hay indicios de compromiso y documente las exclusiones legítimas por ruta de instalación."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque el uso legítimo por desarrolladores es común, pero apuntar estos parámetros a rutas que no son de Visual Studio indica ejecución mediante proxy."
+    },
+    "en": {
+      "summary": "The Microsoft-signed script Launch-VsDevShell.ps1 ran with the VsWherePath or VsInstallationPath parameter. That can be used to launch an arbitrary binary or load an arbitrary module through a trusted script.",
+      "what_it_detects": "Windows process creation events where CommandLine contains 'Launch-VsDevShell.ps1' plus either 'VsWherePath ' or 'VsInstallationPath '. These parameters tell the script which vswhere executable to use or which Visual Studio installation path to load components from.",
+      "why_it_matters": "An attacker can point VsWherePath at their own executable, or VsInstallationPath at a folder they control. Their code then runs behind a Microsoft-signed script, which helps it evade signature-based controls (signed script proxy execution, T1216).",
+      "triage_steps": [
+        "Read the full CommandLine. Check which path VsWherePath or VsInstallationPath points to and whether it is a real Visual Studio installation under Program Files.",
+        "If the path is in a user-writable folder (Temp, Downloads, Public, AppData), treat it as suspicious and get the hash of the referenced binary.",
+        "Check ParentImage and the process tree. Was it a developer terminal, an IDE, or something else such as Office, a browser, wscript or a service?",
+        "Look for child processes of powershell.exe on the same host within +/- 15 minutes, especially executables other than vswhere.exe or build tools.",
+        "Confirm whether the user is a developer and whether Visual Studio is installed on the host. No Visual Studio raises suspicion.",
+        "Review network connections, created files and earlier alerts for the same user and host."
+      ],
+      "false_positives": [
+        "Developers using Launch-VsDevShell.ps1 with VsInstallationPath to pick between several Visual Studio installations.",
+        "CI/CD pipelines or build agents whose scripts pass VsWherePath or VsInstallationPath explicitly."
+      ],
+      "response_steps": [
+        "Ask the user or the build system owner whether the run was expected and whether the path is legitimate.",
+        "If it is malicious, isolate the endpoint. Keep a copy and the hash of the referenced binary or module, then quarantine it.",
+        "Hunt for the same hash and similar CommandLine patterns across the environment, and remove any persistence you find.",
+        "Reset the user's credentials if there are signs of compromise, and document legitimate exclusions by installation path."
+      ],
+      "severity_rationale": "Medium fits because developers often use the script legitimately, but pointing these parameters at non-Visual Studio paths signals proxy execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Launch-VsDevShell.ps1 run with -VsWherePath pointing to an executable in C:\\Users\\Public, launched from wscript",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "CommandLine": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools\\Launch-VsDevShell.ps1\" -VsWherePath C:\\Users\\Public\\updater.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\Downloads\\"
+        }
+      },
+      {
+        "description": "Launch-VsDevShell.ps1 run with -VsInstallationPath pointing to a user-controlled folder in AppData",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "pwsh.exe -c \"& 'C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\Common7\\Tools\\Launch-VsDevShell.ps1' -VsInstallationPath C:\\Users\\mrojas\\AppData\\Local\\Temp\\vs\"",
+          "CurrentDirectory": "C:\\Users\\mrojas\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Developer opens a Visual Studio developer shell with only architecture options, no VsWherePath or VsInstallationPath",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal_1.18.0.0_x64__8wekyb3d8bbwe\\WindowsTerminal.exe",
+          "CommandLine": "powershell.exe -NoExit -Command \"& 'C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools\\Launch-VsDevShell.ps1' -Arch amd64 -HostArch amd64\"",
+          "CurrentDirectory": "C:\\src\\proyecto\\"
+        }
+      },
+      {
+        "description": "vswhere.exe called directly by a build script without Launch-VsDevShell.ps1",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-02.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe\" -latest -property installationPath",
+          "CurrentDirectory": "D:\\agent\\_work\\1\\s\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

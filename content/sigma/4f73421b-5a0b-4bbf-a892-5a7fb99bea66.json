@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "4f73421b-5a0b-4bbf-a892-5a7fb99bea66",
+    "title": "Mavinject Inject DLL Into Running Process",
+    "level": "high",
+    "status": "test",
+    "author": "frack113, Florian Roth",
+    "path": "windows/process_creation/proc_creation_win_lolbin_mavinject_process_injection.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_mavinject_process_injection.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1055.001",
+      "T1218.013"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso con el argumento \" /INJECTRUNNING \", la opción de mavinject.exe que inyecta una DLL en un proceso en ejecución, y su proceso padre no fue AppVClient.exe. Puede ser una inyección de código mediante un binario firmado por Microsoft.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene \" /INJECTRUNNING \" (formato habitual: mavinject.exe <PID> /INJECTRUNNING <ruta DLL>). Se excluyen los casos cuyo ParentImage es exactamente C:\\Windows\\System32\\AppVClient.exe, el cliente de App-V que usa mavinject de forma legítima.",
+      "why_it_matters": "Mavinject es un binario firmado de App-V que puede cargar una DLL arbitraria en otro proceso (T1055.001, inyección de DLL) y sirve como proxy de ejecución firmado (T1218.013). Así el atacante ejecuta código dentro de un proceso confiable, evade controles y puede heredar sus privilegios.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el PID objetivo y la ruta de la DLL que se inyecta.",
+        "Determine qué proceso tenía ese PID en el host al momento del evento (nombre, usuario, nivel de integridad). Preocupan lsass.exe, explorer.exe y los navegadores.",
+        "Analice el ParentImage y la cadena de procesos padre: cmd.exe, powershell.exe, wscript.exe o binarios en rutas de usuario son sospechosos.",
+        "Ubique la DLL en disco: obtenga su hash, firma y fecha de creación, y búsquela en inteligencia de amenazas. Las rutas en Temp, Public o AppData son sospechosas.",
+        "Verifique que la Image sea C:\\Windows\\System32 o SysWOW64\\mavinject.exe; si es una copia renombrada o está en otra ruta, aumente la prioridad.",
+        "Revise el host en +/- 15 minutes: conexiones de red y procesos hijos del proceso objetivo, cargas de módulos, escrituras de archivos y otras alertas.",
+        "Busque otras ejecuciones de /INJECTRUNNING del mismo usuario o en otros hosts para descartar una campaña o un despliegue de App-V."
+      ],
+      "false_positives": [
+        "Paquetes App-V lanzados por un proceso distinto de AppVClient.exe, por ejemplo con una ruta de AppVClient no estándar.",
+        "Pruebas de red team o ejecuciones de Atomic Red Team (T1218, T1056.004) autorizadas.",
+        "Herramientas de depuración o instrumentación de desarrolladores que usan mavinject a propósito."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del host o el equipo de App-V si la ejecución estaba autorizada antes de actuar.",
+        "Si es maliciosa, aísle el endpoint desde el EDR y conserve memoria del proceso objetivo y la DLL para análisis.",
+        "Termine el proceso inyectado solo después de capturar evidencia, bloquee el hash de la DLL y elimínela de los hosts afectados.",
+        "Restablezca las credenciales del usuario implicado, sobre todo si el objetivo era lsass.exe o un proceso con privilegios.",
+        "Busque persistencia relacionada (tareas, servicios, claves Run) y restablezca el host desde una imagen confiable si hay compromiso confirmado."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque /INJECTRUNNING fuera de AppVClient.exe casi nunca tiene un uso legítimo y significa ejecución de código dentro de otro proceso."
+    },
+    "en": {
+      "summary": "A process ran with the \" /INJECTRUNNING \" argument, the mavinject.exe option that injects a DLL into a running process, and its parent was not AppVClient.exe. This may be code injection through a Microsoft-signed binary.",
+      "what_it_detects": "Windows process creation events where CommandLine contains \" /INJECTRUNNING \" (typically mavinject.exe <PID> /INJECTRUNNING <DLL path>). Events whose ParentImage is exactly C:\\Windows\\System32\\AppVClient.exe, the App-V client that legitimately uses mavinject, are excluded.",
+      "why_it_matters": "Mavinject is a signed App-V binary that can load an arbitrary DLL into another process (T1055.001, DLL injection) and acts as a signed execution proxy (T1218.013). The attacker runs code inside a trusted process, evades controls and may inherit its privileges.",
+      "triage_steps": [
+        "Read the full CommandLine: note the target PID and the path of the injected DLL.",
+        "Find which process held that PID on the host at event time (name, user, integrity level). lsass.exe, explorer.exe and browsers are high-concern targets.",
+        "Review ParentImage and the parent chain: cmd.exe, powershell.exe, wscript.exe or binaries in user-writable paths are suspicious.",
+        "Locate the DLL on disk: get its hash, signature and creation time, and check threat intelligence. Paths under Temp, Public or AppData are suspicious.",
+        "Check that Image is System32 or SysWOW64\\mavinject.exe; a renamed copy or unusual path raises priority.",
+        "Review the host within +/- 15 minutes: network connections and child processes of the target, module loads, file writes and other alerts.",
+        "Hunt for other /INJECTRUNNING executions by the same user or on other hosts to rule out a campaign or an App-V rollout."
+      ],
+      "false_positives": [
+        "App-V packages launched by a process other than AppVClient.exe, for example from a non-standard AppVClient path.",
+        "Authorized red team tests or Atomic Red Team runs (T1218, T1056.004).",
+        "Developer debugging or instrumentation tools that deliberately use mavinject."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or App-V team whether the execution was authorized before acting.",
+        "If malicious, isolate the endpoint via EDR and preserve memory of the target process and the DLL for analysis.",
+        "Terminate the injected process only after capturing evidence, block the DLL hash and remove it from affected hosts.",
+        "Reset credentials of the involved user, especially if the target was lsass.exe or a privileged process.",
+        "Hunt for related persistence (tasks, services, Run keys) and reimage the host if compromise is confirmed."
+      ],
+      "severity_rationale": "High fits because /INJECTRUNNING outside AppVClient.exe rarely has a legitimate use and means code execution inside another process."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "mavinject launched from cmd.exe injects a DLL from C:\\Users\\Public into PID 4120",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\mavinject.exe",
+          "OriginalFileName": "mavinject.exe",
+          "CommandLine": "C:\\Windows\\System32\\mavinject.exe 4120 /INJECTRUNNING C:\\Users\\Public\\update.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell runs the SysWOW64 mavinject with lowercase flag against explorer.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\SysWOW64\\mavinject.exe",
+          "CommandLine": "mavinject.exe 6632 /injectrunning C:\\Users\\mrojas\\AppData\\Local\\Temp\\k.dll",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate App-V virtualization: mavinject started by AppVClient.exe, excluded by the filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\mavinject.exe",
+          "CommandLine": "C:\\Windows\\System32\\mavinject.exe 5308 /INJECTRUNNING C:\\Windows\\System32\\AppVEntSubsystems64.dll",
+          "ParentImage": "C:\\Windows\\System32\\AppVClient.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "mavinject run with a different option and no /INJECTRUNNING argument",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\mavinject.exe",
+          "CommandLine": "C:\\Windows\\System32\\mavinject.exe /?",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

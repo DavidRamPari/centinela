@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "9b0b7ac3-6223-47aa-a3fd-e8f211e637db",
+    "title": "Changing Existing Service ImagePath Value Via Reg.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_reg_service_imagepath_change.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reg_service_imagepath_change.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1574.011"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó reg.exe para escribir el valor ImagePath de un servicio bajo HKLM\\SYSTEM\\CurrentControlSet\\Services. Esto puede redirigir el servicio a un ejecutable controlado por el atacante.",
+      "what_it_detects": "Procesos cuyo Image termina en \\reg.exe y cuyo CommandLine contiene 'add ', 'SYSTEM\\CurrentControlSet\\Services\\', ' ImagePath ' y la opción de datos ' -d ' o ' /d '. Es decir, el uso de reg add para fijar un nuevo valor ImagePath de un servicio.",
+      "why_it_matters": "Si se cambia ImagePath, el servicio ejecuta otro binario la próxima vez que arranca, normalmente como SYSTEM. Corresponde a ATT&CK T1574.011 (debilidad de permisos en el registro de servicios) y da persistencia y escalamiento de privilegios.",
+      "triage_steps": [
+        "Lea el CommandLine: identifique el servicio afectado y la ruta indicada después de /d. Si apunta a Temp, Users, ProgramData o Public, o usa cmd/powershell, es sospechoso.",
+        "Compare el ImagePath nuevo con el valor anterior o con un equipo de referencia y confirme a qué producto pertenece el servicio.",
+        "Revise ParentImage y el usuario. Si reg.exe viene de un script o de Office, o lo lanza un usuario sin rol administrativo, aumente la prioridad.",
+        "Obtenga el hash del binario de destino, revise su firma y su fecha de creación, y búsquelo en su inventario de software y en su fuente de inteligencia.",
+        "En el mismo host, en una ventana de +/- 15 minutos, busque sc.exe start/stop/config, reinicios del servicio (eventos 7036/7045) y creación de archivos en la ruta indicada.",
+        "Busque alertas previas del mismo host y del mismo usuario, y el mismo CommandLine en otros endpoints."
+      ],
+      "false_positives": [
+        "Instaladores o actualizaciones de software que reconfiguran su propio servicio con reg add.",
+        "Scripts de administración o de despliegue (GPO, SCCM) que corrigen rutas de servicios; verifique el cambio con el equipo responsable.",
+        "Pruebas de Atomic Red Team o ejercicios de red team autorizados."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host o del software si el cambio estaba autorizado antes de actuar.",
+        "Si no está autorizado, aísle el endpoint y evite reiniciar el servicio afectado.",
+        "Respalde la clave del servicio, restaure el ImagePath original y ponga en cuarentena el binario malicioso tras preservar una copia forense.",
+        "Revise los permisos de la clave del servicio, rote las credenciales del usuario implicado y busque el mismo cambio en todo el entorno."
+      ],
+      "severity_rationale": "Es medium porque el comportamiento es un mecanismo directo de persistencia y escalamiento, pero también lo usan instaladores y administradores legítimos, así que hay que confirmarlo."
+    },
+    "en": {
+      "summary": "reg.exe wrote a service's ImagePath value under HKLM\\SYSTEM\\CurrentControlSet\\Services. This can redirect the service to an attacker-controlled executable.",
+      "what_it_detects": "Processes whose Image ends with \\reg.exe and whose CommandLine contains 'add ', 'SYSTEM\\CurrentControlSet\\Services\\', ' ImagePath ' and the data switch ' -d ' or ' /d '. In other words, reg add being used to set a new ImagePath for a service.",
+      "why_it_matters": "A changed ImagePath makes the service run a different binary the next time it starts, usually as SYSTEM. This is ATT&CK T1574.011 (weak service registry permissions) and gives persistence and privilege escalation.",
+      "triage_steps": [
+        "Read the CommandLine: find the targeted service and the path after /d. Paths in Temp, Users, ProgramData or Public, or cmd/powershell wrappers, are suspicious.",
+        "Compare the new ImagePath with the previous value or a baseline host, and confirm which product owns the service.",
+        "Check ParentImage and the user. Raise priority if reg.exe came from a script or Office app, or from a user who is not an administrator.",
+        "Hash the target binary, check its signature and creation time, and look it up in your software inventory and threat intel.",
+        "On the same host within +/- 15 minutes, look for sc.exe start/stop/config, service restarts (events 7036/7045) and file creation at the target path.",
+        "Look for earlier alerts on the same host and user, and for the same CommandLine on other endpoints."
+      ],
+      "false_positives": [
+        "Software installers or updaters that reconfigure their own service with reg add.",
+        "Admin or deployment scripts (GPO, SCCM) that fix service paths; confirm the change with the team that owns them.",
+        "Atomic Red Team tests or authorized red team exercises."
+      ],
+      "response_steps": [
+        "Before you act, confirm with the host or software owner whether the change was authorized.",
+        "If it was not, isolate the endpoint and do not restart the affected service.",
+        "Back up the service key, restore the original ImagePath, and quarantine the malicious binary after you keep a forensic copy.",
+        "Review the service key's permissions, rotate the involved user's credentials, and hunt for the same change across the environment."
+      ],
+      "severity_rationale": "Medium fits because this is a direct persistence and escalation mechanism, but legitimate installers and admins also do it, so it needs confirmation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe started from cmd.exe points the ImagePath of an existing service to a binary in C:\\Users\\Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\UpdaterSvc\" /f /v ImagePath /t REG_EXPAND_SZ /d \"C:\\Users\\Public\\svchelper.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Uses a hyphen for the data switch (windash variant) and the HKEY_LOCAL_MACHINE root",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\SysWOW64\\reg.exe",
+          "CommandLine": "reg add HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\Spooler -v ImagePath -t REG_EXPAND_SZ -d C:\\ProgramData\\spool\\sp.exe -f",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Read-only query of a service ImagePath: there is no 'add ' and no data switch",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg.exe query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Spooler\" /v ImagePath",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "reg add changes a service's Start value, not ImagePath",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03",
+          "User": "ANDES\\admin.rgomez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg.exe add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\WSearch\" /v Start /t REG_DWORD /d 4 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

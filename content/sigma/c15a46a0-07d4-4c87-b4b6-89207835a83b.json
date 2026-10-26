@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "c15a46a0-07d4-4c87-b4b6-89207835a83b",
+    "title": "Add Potential Suspicious New Download Source To Winget",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_winget_add_susp_custom_source.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_winget_add_susp_custom_source.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó winget.exe con \"source add\" para registrar un origen de paquetes que apunta a una dirección IP directa en lugar de un dominio. Esto puede indicar que alguien prepara la instalación de software desde un repositorio controlado por un atacante.",
+      "what_it_detects": "Creación de un proceso cuyo Image termina en \\winget.exe u OriginalFileName es winget.exe, con un CommandLine que contiene \"source \" y \"add \" y una URL con IPv4 literal (patrón ://d.d.d.d).",
+      "why_it_matters": "Un origen de winget malicioso permite descargar e instalar paquetes arbitrarios con una herramienta firmada por Microsoft, lo que facilita la ejecución de código (ATT&CK T1059) y evade controles basados en reputación de binarios.",
+      "triage_steps": [
+        "Revise el CommandLine completo: nombre del origen (--name), URL/IP (--arg), tipo (--type) y puerto. Compruebe si la IP pertenece a infraestructura interna conocida.",
+        "Identifique el usuario y el ParentImage: una consola interactiva de un administrador es menos sospechosa que un script, cmd.exe lanzado por Office o un proceso remoto.",
+        "Busque en el mismo host, +/- 15 minutos, ejecuciones de winget install/upgrade que usen --source con ese nombre y los procesos hijos resultantes.",
+        "Revise la telemetría de red del endpoint hacia la IP de la URL: conexiones, volumen descargado y otros hosts que la contacten.",
+        "Consulte reputación de la IP y busque alertas previas para el mismo host, usuario o IP en el SIEM.",
+        "Verifique con el equipo de TI si existe un cambio aprobado para agregar repositorios privados de winget."
+      ],
+      "false_positives": [
+        "Administradores o equipos de empaquetado que prueban un repositorio REST privado de winget expuesto por IP en un laboratorio.",
+        "Scripts de aprovisionamiento internos que registran un servidor de paquetes corporativo sin nombre DNS."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y el propietario del host si el origen fue agregado intencionalmente y documente la evidencia.",
+        "Si no está autorizado, elimine el origen con \"winget source remove --name <nombre>\" y bloquee la IP en proxy o firewall.",
+        "Aísle el endpoint si se instalaron paquetes desde ese origen; obtenga hashes y analice los binarios instalados.",
+        "Restrinja los orígenes permitidos de winget mediante directivas de grupo de App Installer y restablezca las credenciales usadas si hubo ejecución maliciosa."
+      ],
+      "severity_rationale": "Nivel medio: agregar un origen por IP es poco habitual y habilita instalación de software no confiable, pero por sí solo no confirma ejecución maliciosa."
+    },
+    "en": {
+      "summary": "winget.exe was run with \"source add\" to register a package source pointing to a raw IP address instead of a domain. This may mean someone is preparing to install software from an attacker-controlled repository.",
+      "what_it_detects": "Process creation where Image ends with \\winget.exe or OriginalFileName is winget.exe, and CommandLine contains \"source \" and \"add \" plus a URL with a literal IPv4 address (://d.d.d.d).",
+      "why_it_matters": "A rogue winget source lets an attacker deliver and install arbitrary packages through a Microsoft-signed tool, enabling code execution (ATT&CK T1059) while bypassing binary-reputation controls.",
+      "triage_steps": [
+        "Read the full CommandLine: source name (--name), URL/IP (--arg), type (--type) and port. Check whether the IP belongs to known internal infrastructure.",
+        "Identify the user and ParentImage: an interactive admin console is less suspicious than a script, Office-spawned cmd.exe or a remote process.",
+        "On the same host within +/- 15 minutes, look for winget install/upgrade using --source with that name and any resulting child processes.",
+        "Review endpoint network telemetry to the IP: connections, bytes downloaded and other hosts contacting it.",
+        "Check IP reputation and search the SIEM for earlier alerts on the same host, user or IP.",
+        "Confirm with IT whether an approved change exists for adding private winget repositories."
+      ],
+      "false_positives": [
+        "Administrators or packaging teams testing a private winget REST repository exposed by IP in a lab.",
+        "Internal provisioning scripts registering a corporate package server that has no DNS name."
+      ],
+      "response_steps": [
+        "Confirm with the user and host owner whether the source was added intentionally; record the evidence.",
+        "If unauthorized, remove it with \"winget source remove --name <name>\" and block the IP at proxy or firewall.",
+        "Isolate the endpoint if packages were installed from that source; collect hashes and analyze installed binaries.",
+        "Restrict allowed winget sources via App Installer Group Policy and reset credentials involved if malicious execution occurred."
+      ],
+      "severity_rationale": "Medium: adding an IP-based source is unusual and enables untrusted installs, but alone it does not prove malicious execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "winget adds a REST source pointing to a raw IP address on a non-standard port, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\WindowsApps\\Microsoft.DesktopAppInstaller_1.21.10120.0_x64__8wekyb3d8bbwe\\winget.exe",
+          "OriginalFileName": "winget.exe",
+          "CommandLine": "winget.exe source add --name updates --arg http://203.0.113.45:8080/api --type Microsoft.Rest",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\setup.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed winget binary identified by OriginalFileName adding an HTTPS source by IP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Users\\mlopez\\AppData\\Local\\Temp\\pkg.exe",
+          "OriginalFileName": "winget.exe",
+          "CommandLine": "pkg.exe source add -n mirror https://198.51.100.23/winget",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate winget source added using a corporate domain name, no literal IP in the URL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Program Files\\WindowsApps\\Microsoft.DesktopAppInstaller_1.21.10120.0_x64__8wekyb3d8bbwe\\winget.exe",
+          "OriginalFileName": "winget.exe",
+          "CommandLine": "winget.exe source add --name corp https://packages.example.com/api --type Microsoft.Rest",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "winget listing sources; no 'add' action and no IP URL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\WindowsApps\\Microsoft.DesktopAppInstaller_1.21.10120.0_x64__8wekyb3d8bbwe\\winget.exe",
+          "OriginalFileName": "winget.exe",
+          "CommandLine": "winget.exe source list",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

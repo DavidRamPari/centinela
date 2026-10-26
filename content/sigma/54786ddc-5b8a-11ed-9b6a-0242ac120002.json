@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "54786ddc-5b8a-11ed-9b6a-0242ac120002",
+    "title": "Suspicious Ping/Del Command Combination",
+    "level": "high",
+    "status": "test",
+    "author": "Ilya Krestinichev",
+    "path": "windows/process_creation/proc_creation_win_cmd_ping_del_combined_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmd_ping_del_combined_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1070.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó una línea de comandos que usa ping como temporizador y luego borra un archivo de forma forzada y silenciosa con del /f /q. Es un patrón típico de autoeliminación de ransomware o droppers para ocultar el ejecutable inicial.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene 'ping', ' -n ' (o '/n'), 'Nul', 'del ' y al menos uno de los parámetros ' -f ' o ' -q ' (con cualquier variante de guion, incluida '/'). Ejemplo: cmd.exe /C ping 127.0.0.7 -n 3 > Nul & Del /f /q \"archivo.exe\".",
+      "why_it_matters": "El atacante espera unos segundos a que su proceso termine y luego borra el binario para dificultar el análisis forense (T1070.004, eliminación de archivos). Suele aparecer justo después de la ejecución de ransomware, así que el cifrado puede estar en curso.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique la ruta del archivo que se borra y si hay pasos previos como fsutil setZeroData que sobrescriben su contenido.",
+        "Verifique ParentImage y el árbol de procesos: qué proceso lanzó cmd.exe y si ese padre es el mismo archivo que se elimina.",
+        "Busque el hash y la ruta del archivo borrado en el historial de creación de procesos y archivos, EDR o cuarentena del antivirus.",
+        "Pivote en el mismo host +/- 15 minutos: borrado de shadow copies (vssadmin, wmic), bcdedit, renombrado masivo de archivos o notas de rescate.",
+        "Revise el usuario de la alerta: inicios de sesión recientes, origen remoto (RDP, PsExec, herramientas RMM) y otros hosts donde actúe.",
+        "Busque el mismo patrón de CommandLine en otros endpoints para detectar propagación, y consulte alertas previas del host y del usuario."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Instaladores, desinstaladores o actualizadores legítimos que se autoeliminan con ping y del /f /q; valide el editor, la firma y la ruta del binario padre.",
+        "Scripts internos de mantenimiento o despliegue que usan ping como espera antes de limpiar archivos temporales."
+      ],
+      "response_steps": [
+        "Confirme la actividad con el árbol de procesos y la reputación del binario padre; si es maliciosa, escale como posible incidente de ransomware.",
+        "Aísle el endpoint de la red mediante el EDR, conservando el equipo encendido para preservar memoria y evidencia.",
+        "Recupere el archivo borrado si es posible (cuarentena, copias de seguridad, carving) y obtenga su hash para buscarlo en toda la organización.",
+        "Deshabilite o restablezca las credenciales del usuario involucrado y revise accesos laterales desde ese host.",
+        "Erradique la persistencia identificada y restaure desde copias limpias tras verificar que no queda actividad maliciosa."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque esta combinación específica de ping, Nul y del forzado casi nunca aparece en uso legítimo y suele asociarse a ransomware ya ejecutado."
+    },
+    "en": {
+      "summary": "A command line used ping as a timer and then force-deleted a file quietly with del /f /q. This is a common ransomware or dropper self-deletion pattern meant to hide the initial executable.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains 'ping', ' -n ' (or '/n'), 'Nul', 'del ' and at least one of ' -f ' or ' -q ' (any dash variant, including '/'). Example: cmd.exe /C ping 127.0.0.7 -n 3 > Nul & Del /f /q \"file.exe\".",
+      "why_it_matters": "The attacker waits a few seconds for their process to exit, then deletes the binary to hinder forensics (T1070.004, file deletion). It often follows ransomware execution, so encryption may already be under way.",
+      "triage_steps": [
+        "Read the full CommandLine: note the path being deleted and any preceding steps such as fsutil setZeroData that overwrite the file.",
+        "Check ParentImage and the process tree: which process spawned cmd.exe and whether that parent is the file being deleted.",
+        "Look up the deleted file's path and hash in process and file creation history, EDR telemetry or antivirus quarantine.",
+        "Pivot on the same host +/- 15 minutes: shadow copy deletion (vssadmin, wmic), bcdedit, mass file renames or ransom notes.",
+        "Review the alert's user: recent logons, remote origin (RDP, PsExec, RMM tools) and other hosts where they are active.",
+        "Hunt for the same CommandLine pattern on other endpoints and check earlier alerts for this host and user."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Legitimate installers, uninstallers or updaters that self-delete with ping and del /f /q; validate the parent binary's publisher, signature and path.",
+        "Internal maintenance or deployment scripts that use ping as a delay before cleaning temporary files."
+      ],
+      "response_steps": [
+        "Confirm with the process tree and parent binary reputation; if malicious, escalate as a possible ransomware incident.",
+        "Isolate the endpoint via EDR, keeping it powered on to preserve memory and evidence.",
+        "Recover the deleted file if possible (quarantine, backups, carving), get its hash and hunt for it organization-wide.",
+        "Disable or reset the involved user's credentials and review lateral access from this host.",
+        "Remove identified persistence and restore from clean backups after verifying no malicious activity remains."
+      ],
+      "severity_rationale": "High fits because this specific combination of ping, Nul and forced del rarely appears in legitimate use and usually indicates ransomware that has already run."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "LockBit-style self-deletion: ping delay, fsutil zeroing and forced quiet delete of the payload",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\cmd.exe\" /C ping 127.0.0.7 -n 3 > Nul & fsutil file setZeroData offset=0 length=524288 \"C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.exe\" & Del /f /q \"C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.exe\""
+        }
+      },
+      {
+        "description": "Dropper deletes itself from ProgramData after a ping localhost delay using /q /f",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILES-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\ProgramData\\svchelper.exe",
+          "CommandLine": "cmd.exe /c ping localhost -n 5 >nul & del /q /f C:\\ProgramData\\svchelper.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Build script waits with ping and deletes a log file without /f or /q parameters",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-07.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c ping 127.0.0.1 -n 10 > nul & del C:\\Temp\\build.log"
+        }
+      },
+      {
+        "description": "Cleanup task uses timeout instead of ping before a forced delete",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "cmd.exe /c timeout /t 3 > nul & del /f /q C:\\Users\\lgomez\\AppData\\Local\\Temp\\setup.tmp"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "rule": {
+    "id": "1c8774a0-44d4-4db0-91f8-e792359c70bd",
+    "title": "REGISTER_APP.VBS Proxy Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_lolbin_register_app.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_register_app.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó el script firmado por Microsoft REGISTER_APP.VBS con la opción -register, que registra un proveedor VSS/VDS como aplicación COM+. Un atacante puede usarlo para que un proceso de confianza cargue una DLL arbitraria.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene tanto '\\register_app.vbs' como '-register', normalmente cscript.exe o wscript.exe ejecutando el script del SDK de VSS para registrar una DLL de proveedor.",
+      "why_it_matters": "Corresponde a ATT&CK T1218 (System Binary Proxy Execution): el script firmado y el servicio COM+ (dllhost.exe) cargan la DLL del atacante, lo que evade controles de aplicaciones y puede dar persistencia con privilegios de sistema.",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique el nombre del proveedor, la ruta de la DLL registrada y la descripción indicada.",
+        "Revise ParentImage y el usuario: ¿lo lanzó un instalador o herramienta de backup conocida, o una shell, Office o un script desconocido?",
+        "Verifique la DLL: ubicación (rutas escribibles por usuarios como Temp, Public o AppData son sospechosas), firma digital, hash y reputación.",
+        "Liste los proveedores con 'vssadmin list providers' y revise HKLM\\SYSTEM\\CurrentControlSet\\Services\\VSS\\Providers y el catálogo COM+.",
+        "Busque en el mismo host, +/- 15 minutos, la creación de la DLL, ejecuciones de dllhost.exe o vssvc.exe y conexiones de red posteriores.",
+        "Consulte alertas previas del mismo usuario y host, y si el script o la DLL aparecen en otros endpoints."
+      ],
+      "false_positives": [
+        "Instalación legítima de un proveedor de hardware o software de backup que registra su proveedor VSS con este script.",
+        "Desarrolladores o equipos de QA que prueban proveedores VSS con el SDK de Windows.",
+        "Siempre confirme qué DLL se registra antes de descartar la alerta."
+      ],
+      "response_steps": [
+        "Valide con el dueño del sistema o el equipo de backup si el registro era esperado y la DLL corresponde a un producto aprobado.",
+        "Si es malicioso, aísle el endpoint y preserve la DLL, los logs y la clave de registro del proveedor como evidencia.",
+        "Elimine el registro con '-unregister' y la aplicación COM+ asociada tras documentarlos; ponga la DLL en cuarentena.",
+        "Restablezca credenciales de la cuenta usada y busque el hash en otros equipos para descartar movimiento lateral."
+      ],
+      "severity_rationale": "Medium es adecuado porque el script tiene usos legítimos poco frecuentes, pero registrar una DLL no confiable como COM+ permite ejecución por proxy y persistencia."
+    },
+    "en": {
+      "summary": "The Microsoft-signed script REGISTER_APP.VBS was run with -register, which registers a VSS/VDS provider as a COM+ application. Attackers can abuse this to make a trusted process load an arbitrary DLL.",
+      "what_it_detects": "Process creation events whose CommandLine contains both '\\register_app.vbs' and '-register', typically cscript.exe or wscript.exe running the VSS SDK script to register a provider DLL.",
+      "why_it_matters": "Maps to ATT&CK T1218 (System Binary Proxy Execution): the signed script and the COM+ host (dllhost.exe) load the attacker's DLL, bypassing application control and potentially giving SYSTEM-level persistence.",
+      "triage_steps": [
+        "Read the full CommandLine: note the provider name, the registered DLL path and the description.",
+        "Check ParentImage and the user: a known installer or backup tool, or a shell, Office app or unknown script?",
+        "Inspect the DLL: location (user-writable paths like Temp, Public or AppData are suspicious), signature, hash and reputation.",
+        "Run 'vssadmin list providers' and review HKLM\\SYSTEM\\CurrentControlSet\\Services\\VSS\\Providers and the COM+ catalog.",
+        "On the same host within +/- 15 minutes, look for the DLL being written, dllhost.exe or vssvc.exe activity and new network connections.",
+        "Check earlier alerts for the same user and host, and whether the script or DLL appears on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate installation of storage hardware or backup software that registers its VSS provider with this script.",
+        "Developers or QA testing VSS providers with the Windows SDK.",
+        "Always confirm what DLL is being registered before closing the alert."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or backup team that the registration was expected and the DLL belongs to an approved product.",
+        "If malicious, isolate the endpoint and preserve the DLL, logs and provider registry key as evidence.",
+        "After documenting, remove the registration with '-unregister' and the related COM+ application; quarantine the DLL.",
+        "Reset credentials of the account used and hunt for the DLL hash on other hosts."
+      ],
+      "severity_rationale": "Medium fits because legitimate use is rare but real, while registering an untrusted DLL as COM+ enables proxy execution and persistence."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cscript runs the SDK register_app.vbs to register a DLL from a user-writable folder as a VSS provider",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cscript.exe",
+          "CommandLine": "cscript.exe //nologo \"C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.22621.0\\x64\\register_app.vbs\" -register \"UpdProvider\" \"C:\\Users\\Public\\prov.dll\" \"Update Provider\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Same script used to unregister a provider; '-unregister' does not contain the substring '-register'",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-BKP-01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\cscript.exe",
+          "CommandLine": "cscript.exe //nologo \"C:\\Program Files\\VendorBackup\\register_app.vbs\" -unregister \"VendorVSSProvider\"",
+          "ParentImage": "C:\\Program Files\\VendorBackup\\setup.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Administrator lists VSS providers with vssadmin, no register_app.vbs involved",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-BKP-01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\vssadmin.exe",
+          "CommandLine": "vssadmin list providers",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

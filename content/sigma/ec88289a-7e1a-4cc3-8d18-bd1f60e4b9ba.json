@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "ec88289a-7e1a-4cc3-8d18-bd1f60e4b9ba",
+    "title": "Persistence Via TypedPaths - CommandLine",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_registry_typed_paths_persistence.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_registry_typed_paths_persistence.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso se ejecutó con una línea de comandos que hace referencia a la clave de registro TypedPaths del Explorador de Windows. Esto puede indicar que alguien está modificando esa clave con fines de persistencia.",
+      "what_it_detects": "Eventos de creación de proceso cuyo CommandLine contiene '\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\TypedPaths'. Esta clave guarda las rutas escritas en la barra de direcciones del Explorador (valores url1, url2, etc.), en HKCU o en las hives de otros usuarios.",
+      "why_it_matters": "Es raro que se escriba en TypedPaths desde la línea de comandos. Un atacante podría plantar rutas a binarios o recursos remotos para que se vuelvan a usar en sesiones futuras, una forma de persistencia (TA0003) mediante la modificación del registro.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique la acción (add, delete, query, Set-ItemProperty), el nombre del valor (urlN) y los datos escritos.",
+        "Valide el destino escrito: rutas en %TEMP%, %APPDATA%, C:\\Users\\Public, recursos UNC o URL externas son sospechosos.",
+        "Revise Image y ParentImage: es más preocupante que reg.exe o powershell.exe se lancen desde Office, scripts, wscript o mshta que desde una consola del administrador.",
+        "Identifique el usuario y confirme si esa persona o cuenta de servicio tenía motivos para cambiar el registro de Explorer.",
+        "Busque otros procesos en el mismo host en +/- 15 minutos: descargas, binarios nuevos y otras escrituras en el registro (Run, RunOnce, RunMRU).",
+        "Si escribió una ruta, obtenga el hash del archivo de destino y compruébelo contra la reputación y las detecciones del EDR.",
+        "Revise alertas anteriores del mismo host y usuario, y busque el mismo CommandLine en otros endpoints."
+      ],
+      "false_positives": [
+        "Herramientas forenses o de inventario que consultan TypedPaths con reg query o PowerShell.",
+        "Scripts de limpieza de privacidad o perfiles que borran el historial del Explorador.",
+        "Pruebas autorizadas de red team o validaciones de detección."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o su responsable si el cambio era legítimo antes de actuar.",
+        "Si es malicioso, aísle el endpoint desde el EDR y guarde una exportación de la clave TypedPaths como evidencia.",
+        "Elimine solo los valores maliciosos confirmados y ponga en cuarentena los binarios referenciados.",
+        "Busque otros mecanismos de persistencia en el host, restablezca las credenciales del usuario si fueron comprometidas y documente los IOC."
+      ],
+      "severity_rationale": "Medium es adecuado: la escritura en TypedPaths por línea de comandos es inusual y puede indicar persistencia, pero las consultas forenses también coinciden y deben corroborarse con el contexto."
+    },
+    "en": {
+      "summary": "A process ran with a command line that references the Windows Explorer TypedPaths registry key. This may mean someone is changing that key for persistence.",
+      "what_it_detects": "Process creation events whose CommandLine contains '\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\TypedPaths'. This key stores paths typed into the Explorer address bar (values url1, url2, and so on), in HKCU or other users' hives.",
+      "why_it_matters": "Writing to TypedPaths from the command line is uncommon. An attacker could plant paths to binaries or remote resources so they get reused in later sessions, a form of persistence (TA0003) through registry modification.",
+      "triage_steps": [
+        "Read the full CommandLine. Identify the action (add, delete, query, Set-ItemProperty), the value name (urlN) and the data written.",
+        "Check the data written. Paths in %TEMP%, %APPDATA% or C:\\Users\\Public, UNC shares and external URLs are suspicious.",
+        "Check Image and ParentImage. reg.exe or powershell.exe spawned by Office, scripts, wscript or mshta is more concerning than an admin console.",
+        "Identify the user and confirm whether that person or service account had a reason to change Explorer registry settings.",
+        "Pivot on the same host within +/- 15 minutes: downloads, new binaries and other registry writes (Run, RunOnce, RunMRU).",
+        "If a path was written, get the target file's hash and check its reputation and any EDR detections.",
+        "Review earlier alerts for the same host and user, and search for the same CommandLine on other endpoints."
+      ],
+      "false_positives": [
+        "Forensic or inventory tools that query TypedPaths with reg query or PowerShell.",
+        "Privacy or profile cleanup scripts that clear Explorer history.",
+        "Authorized red team exercises or detection validation tests."
+      ],
+      "response_steps": [
+        "Confirm with the user or their manager whether the change was legitimate before you act.",
+        "If it is malicious, isolate the endpoint through the EDR and export the TypedPaths key as evidence.",
+        "Remove only the values confirmed as malicious and quarantine the referenced binaries.",
+        "Hunt for other persistence on the host. Reset the user's credentials if they were compromised, and record the IOCs."
+      ],
+      "severity_rationale": "Medium fits because command-line writes to TypedPaths are unusual and may mean persistence, but forensic queries also match, so the alert needs context to confirm it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe launched from cmd.exe adds a url1 value under HKCU TypedPaths that points to a binary in C:\\Users\\Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\TypedPaths\" /v url1 /t REG_SZ /d \"C:\\Users\\Public\\update.exe\" /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\jperez\\AppData\\Local\\Temp\\setup.bat",
+          "ProcessId": 6412
+        }
+      },
+      {
+        "description": "PowerShell sets a TypedPaths value that points to a UNC share",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoP -C \"Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\TypedPaths' -Name url2 -Value '\\\\198.51.100.23\\share\\tools'\"",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ProcessId": 3388
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "reg.exe deletes the Explorer RunMRU history; the TypedPaths key is not referenced",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg delete \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RunMRU\" /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ProcessId": 5120
+        }
+      },
+      {
+        "description": "reg.exe queries the Internet Explorer TypedURLs key, which is a different registry path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\soc.forense",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg query \"HKCU\\Software\\Microsoft\\Internet Explorer\\TypedURLs\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ProcessId": 7740
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

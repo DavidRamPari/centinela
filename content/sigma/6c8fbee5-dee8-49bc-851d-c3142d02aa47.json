@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "6c8fbee5-dee8-49bc-851d-c3142d02aa47",
+    "title": "Allow Service Access Using Security Descriptor Tampering Via Sc.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_sc_sdset_allow_service_changes.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sc_sdset_allow_service_changes.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1543.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó sc.exe con 'sdset' para reescribir el descriptor de seguridad (DACL) de un servicio con ACE de permiso (A;) para trustees amplios o privilegiados como WD, IU, SU, BA o SY. Esto puede abrir el control del servicio a usuarios no autorizados.",
+      "what_it_detects": "Procesos sc.exe (por Image u OriginalFileName) cuyo CommandLine contiene 'sdset', una ACE de permiso 'A;' y un SID de trustee ';IU', ';SU', ';BA', ';SY' o ';WD'. Se excluye el agente Hexnode como proceso padre.",
+      "why_it_matters": "Si un atacante concede derechos como cambiar la configuración, iniciar o detener un servicio a Everyone o a usuarios interactivos, puede modificar su binario y ejecutar código como SYSTEM o mantener persistencia (ATT&CK T1543.003, servicio de Windows).",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el nombre del servicio y decodifique la cadena SDDL (derechos como WP, DC, WD, WO y trustees como WD o IU).",
+        "Compare el nuevo SDDL con el valor por defecto del servicio ejecutando 'sc sdshow <servicio>' en un host de referencia limpio.",
+        "Analice ParentImage y la cadena de procesos padre: cmd.exe, powershell.exe o un binario en un directorio de usuario es más sospechoso que una herramienta de gestión conocida.",
+        "Identifique el usuario que ejecutó el comando y confirme si es un administrador autorizado o tiene un cambio aprobado.",
+        "Busque en el mismo host, +/- 15 minutos, comandos 'sc config', 'sc create' o cambios en HKLM\\SYSTEM\\CurrentControlSet\\Services sobre ese servicio.",
+        "Verifique si después algún usuario sin privilegios modificó, inició o detuvo el servicio (eventos 7040, 7045 y 4697).",
+        "Consulte alertas previas del mismo host y del mismo usuario, en especial de manipulación de descriptores de seguridad o escalamiento de privilegios."
+      ],
+      "false_positives": [
+        "Herramientas de gestión de endpoints o MDM, distintas de Hexnode, que ajustan permisos de servicios durante la instalación.",
+        "Scripts de hardening o instaladores de software que fijan una DACL personalizada para su propio servicio.",
+        "Administradores que corrigen permisos de un servicio durante soporte técnico, con un ticket asociado."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host o del cambio si la modificación fue autorizada antes de actuar.",
+        "Si no fue autorizada, aísle el endpoint y restaure la DACL original del servicio con 'sc sdset' usando el SDDL de referencia.",
+        "Revise y corrija la configuración del servicio (ImagePath, cuenta de inicio) y elimine cualquier binario o servicio añadido por el atacante.",
+        "Restablezca las credenciales de la cuenta implicada y busque el mismo patrón de comando en otros hosts."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque conceder acceso a un servicio a trustees amplios rara vez es legítimo y permite de forma directa escalar privilegios o persistir."
+    },
+    "en": {
+      "summary": "sc.exe ran with 'sdset' to rewrite a service's security descriptor (DACL) with allow ACEs (A;) for broad or privileged trustees such as WD, IU, SU, BA or SY. This may open service control to unauthorized users.",
+      "what_it_detects": "sc.exe processes (by Image or OriginalFileName) whose CommandLine contains 'sdset', an allow ACE 'A;' and a trustee SID ';IU', ';SU', ';BA', ';SY' or ';WD'. The Hexnode agent as parent is excluded.",
+      "why_it_matters": "Granting rights such as change config, start or stop to Everyone or interactive users lets an attacker repoint the service binary and run code as SYSTEM, or persist (ATT&CK T1543.003, Windows Service).",
+      "triage_steps": [
+        "Read the full CommandLine: identify the service name and decode the SDDL string (rights such as WP, DC, WD, WO; trustees such as WD or IU).",
+        "Compare the new SDDL with the service's default by running 'sc sdshow <service>' on a clean reference host.",
+        "Inspect ParentImage and the process tree: cmd.exe, powershell.exe or a binary in a user folder is more suspicious than a known management tool.",
+        "Identify the executing user and confirm whether they are an authorized admin with an approved change.",
+        "On the same host, +/- 15 minutes, look for 'sc config', 'sc create' or registry changes under HKLM\\SYSTEM\\CurrentControlSet\\Services for that service.",
+        "Check whether a non-privileged user later modified, started or stopped the service (events 7040, 7045, 4697).",
+        "Review earlier alerts for the same host and user, especially security descriptor tampering or privilege escalation."
+      ],
+      "false_positives": [
+        "Endpoint management or MDM tools other than Hexnode that adjust service permissions during installation.",
+        "Hardening scripts or software installers setting a custom DACL on their own service.",
+        "Administrators fixing service permissions during support work, with an associated ticket."
+      ],
+      "response_steps": [
+        "Confirm with the host or change owner whether the modification was authorized before acting.",
+        "If unauthorized, isolate the endpoint and restore the original service DACL with 'sc sdset' using the reference SDDL.",
+        "Review and fix the service configuration (ImagePath, logon account) and remove any attacker-added binaries or services.",
+        "Reset credentials for the involved account and hunt for the same command pattern on other hosts."
+      ],
+      "severity_rationale": "High fits because granting service access to broad trustees is rarely legitimate and directly enables privilege escalation or persistence."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sc.exe launched from cmd.exe grants Everyone (WD) broad rights on a service via sdset.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe sdset ExampleSvc \"D:(A;;CCLCSWRPWPDTLOCRRC;;;WD)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c svcperm.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed sc binary identified by OriginalFileName grants interactive users (IU) control of a service.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "svc.exe sdset UpdaterSvc D:(A;;CCLCSWRPWPDTLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SY)",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Same sdset command launched by the Hexnode agent, excluded by the optional filter.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe sdset ExampleSvc \"D:(A;;CCLCSWRPWPDTLOCRRC;;;WD)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)\"",
+          "ParentImage": "C:\\Hexnode\\Hexnode Agent\\Current\\HexnodeAgent.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "sc.exe sdset with only a deny ACE (no 'A;' allow ACE), so selection_sdset does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe sdset ExampleSvc D:(D;;DCLCWPDTSD;;;WD)",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

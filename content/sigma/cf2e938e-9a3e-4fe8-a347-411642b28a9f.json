@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "cf2e938e-9a3e-4fe8-a347-411642b28a9f",
+    "title": "Potential PowerShell Execution Policy Tampering - ProcCreation",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_registry_set_unsecure_powershell_policy.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_registry_set_unsecure_powershell_policy.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso se ejecutó con una línea de comandos que hace referencia a la clave de registro de la política de ejecución de PowerShell junto con un valor permisivo (Bypass, RemoteSigned o Unrestricted). Puede indicar que alguien intenta ejecutar scripts sin firmar.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene la ruta \\ShellIds\\Microsoft.PowerShell\\ExecutionPolicy o \\Policies\\Microsoft\\Windows\\PowerShell\\ExecutionPolicy y además una de las cadenas Bypass, RemoteSigned o Unrestricted, por ejemplo con reg.exe o Set-ItemProperty.",
+      "why_it_matters": "Si se cambia la política de ejecución directamente en el registro, se quitan las restricciones de firma y se pueden ejecutar scripts maliciosos en sesiones posteriores. Corresponde a debilitamiento de defensas (ATT&CK Impair Defenses) y suele ocurrir antes de ejecutar un payload o establecer persistencia.",
+      "triage_steps": [
+        "Revise el CommandLine completo: qué ruta (ShellIds o Policies), qué valor y qué hive (HKLM afecta a todo el equipo, HKCU solo al usuario).",
+        "Identifique Image y ParentImage. Un reg.exe o powershell.exe lanzado por Office, un navegador, wscript o mshta es muy sospechoso.",
+        "Valide el usuario y si tiene privilegios administrativos. Confirme si el cambio corresponde a un ticket o a una tarea de TI conocida.",
+        "Revise los procesos hijos y los eventos del mismo host en +/- 15 minutos, buscando ejecución de .ps1, descargas o conexiones de red salientes.",
+        "Consulte la telemetría de registro (Sysmon 13) para confirmar el valor final escrito y si después se revirtió.",
+        "Busque alertas previas del mismo host o usuario y la misma línea de comandos en otros endpoints para detectar una ejecución masiva."
+      ],
+      "false_positives": [
+        "Scripts de administración o de despliegue (SCCM, Intune, imágenes doradas) que fijan RemoteSigned en los equipos.",
+        "Instaladores de software o herramientas de desarrollo que ajustan la política de ejecución durante la instalación.",
+        "Administradores que corrigen manualmente la política de ejecución durante tareas de soporte."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del equipo o con TI si el cambio estaba autorizado antes de actuar.",
+        "Si no está autorizado, aísle el endpoint y conserve la evidencia: árbol de procesos, scripts ejecutados y hashes.",
+        "Restaure la política de ejecución al valor corporativo, de preferencia aplicada mediante GPO, y revise si hay persistencia asociada.",
+        "Si se sospecha robo de credenciales, restablezca las credenciales del usuario implicado y busque el mismo patrón en toda la flota."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque modificar la política de ejecución en el registro desde la línea de comandos es poco común en uso legítimo y facilita directamente la ejecución de scripts maliciosos."
+    },
+    "en": {
+      "summary": "A process ran with a command line that references the PowerShell execution policy registry key together with a permissive value (Bypass, RemoteSigned or Unrestricted). This may be an attempt to run unsigned scripts.",
+      "what_it_detects": "Process creation events whose CommandLine contains \\ShellIds\\Microsoft.PowerShell\\ExecutionPolicy or \\Policies\\Microsoft\\Windows\\PowerShell\\ExecutionPolicy and also one of Bypass, RemoteSigned or Unrestricted, for example through reg.exe or Set-ItemProperty.",
+      "why_it_matters": "Changing the execution policy directly in the registry removes script signing restrictions for later sessions, so malicious scripts can run. This is defense impairment (ATT&CK Impair Defenses) and often comes right before a payload runs or persistence is set up.",
+      "triage_steps": [
+        "Read the full CommandLine: which path (ShellIds or Policies), which value, and which hive (HKLM affects the whole machine, HKCU only the user).",
+        "Identify Image and ParentImage. A reg.exe or powershell.exe started by Office, a browser, wscript or mshta is highly suspicious.",
+        "Check the user and whether they have admin rights. Confirm whether the change matches a ticket or a known IT task.",
+        "Review child processes and same-host events within +/- 15 minutes for .ps1 execution, downloads or outbound network connections.",
+        "Use registry telemetry (Sysmon event 13) to confirm the value that was written and whether it was reverted later.",
+        "Search for earlier alerts on the same host or user, and for the same command line on other endpoints, to spot mass execution."
+      ],
+      "false_positives": [
+        "Admin or deployment scripts (SCCM, Intune, golden images) that set RemoteSigned across machines.",
+        "Software installers or developer tooling that adjust the execution policy during setup.",
+        "Administrators fixing the execution policy by hand during support work."
+      ],
+      "response_steps": [
+        "Check with the machine owner or IT whether the change was authorized before you act.",
+        "If it was not authorized, isolate the endpoint and preserve evidence: process tree, executed scripts and hashes.",
+        "Restore the execution policy to the corporate value, ideally enforced by GPO, and look for related persistence.",
+        "If credential theft is suspected, reset the user's credentials and hunt for the same pattern across the fleet."
+      ],
+      "severity_rationale": "High fits because changing the execution policy in the registry from the command line is uncommon in legitimate use and directly enables malicious script execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe launched from cmd sets the ShellIds ExecutionPolicy to Unrestricted",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "reg.exe add \"HKCU\\Software\\Microsoft\\PowerShell\\1\\ShellIds\\Microsoft.PowerShell\\ExecutionPolicy\" /ve /t REG_SZ /d Unrestricted /f",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "PowerShell spawned by Word writes RemoteSigned to the Policies ExecutionPolicy path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Set-ItemProperty -Path 'HKLM:\\Software\\Policies\\Microsoft\\Windows\\PowerShell\\ExecutionPolicy' -Name '(default)' -Value 'RemoteSigned'\"",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Read-only reg query of the ExecutionPolicy key with no permissive value in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\soporte01",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "reg.exe query \"HKLM\\SOFTWARE\\Microsoft\\PowerShell\\1\\ShellIds\\Microsoft.PowerShell\\ExecutionPolicy\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Per-process -ExecutionPolicy Bypass flag without touching the registry key path",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -ExecutionPolicy Bypass -File C:\\Scripts\\nightly_backup.ps1",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

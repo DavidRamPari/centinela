@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "de587dce-915e-4218-aac4-835ca6af6f70",
+    "title": "Potential Persistence Attempt Via Run Keys Using Reg.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_reg_add_run_key.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reg_add_run_key.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1547.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó reg.exe con el verbo 'add' sobre una clave Run o RunOnce del Registro. Esto puede indicar que alguien configuró un programa para ejecutarse automáticamente al iniciar sesión o arrancar el equipo.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\reg.exe y CommandLine contiene ' add ' junto con una ruta Run: Software\\Microsoft\\Windows\\CurrentVersion\\Run (también cubre RunOnce y RunServices), su equivalente WOW6432Node o Policies\\Explorer\\Run.",
+      "why_it_matters": "Las claves Run son un mecanismo clásico de persistencia (ATT&CK T1547.001, Registry Run Keys / Startup Folder). El malware las usa para sobrevivir reinicios. Si escribe en HKLM, el programa se ejecuta para cualquier usuario que inicie sesión.",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique la colmena (HKCU o HKLM), el nombre del valor (/v) y el dato (/d) que se ejecutará al inicio.",
+        "Revise la ruta del dato: sospeche de AppData, Temp, ProgramData, Public, rutas UNC, LOLBins (mshta, rundll32, powershell -enc) o nombres que imitan software legítimo.",
+        "Analice ParentImage y la cadena de procesos: cmd.exe o powershell lanzados desde Office, navegadores, wscript o mshta son señales de alarma; msiexec o un instalador firmado son más benignos.",
+        "Identifique al usuario y el nivel de integridad; confirme si es administrador o cuenta de servicio y si la actividad coincide con su rol.",
+        "Obtenga el hash y la firma del binario referenciado en /d; consulte reputación y si el archivo se creó recientemente en el host.",
+        "Pivotee en el mismo host +/- 15 minutos: descargas, creación de archivos, conexiones de red, tareas programadas o servicios nuevos.",
+        "Busque alertas previas del mismo host y usuario, y el mismo nombre de valor o ruta en otros endpoints."
+      ],
+      "false_positives": [
+        "Instaladores de software legítimo que registran su agente o actualizador en Run durante la instalación.",
+        "Administradores o scripts de despliegue (GPO, SCCM, Intune) que configuran autoarranque de herramientas corporativas.",
+        "Aplicaciones como Discord que agregan su entrada de inicio mediante reg.exe."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o el equipo de TI si el cambio fue autorizado y documente la evidencia.",
+        "Si es malicioso, aísle el endpoint y exporte la clave Run afectada antes de modificarla.",
+        "Elimine el valor de Run y ponga en cuarentena el binario referenciado tras confirmar el hallazgo.",
+        "Busque otros mecanismos de persistencia (tareas programadas, servicios, carpeta Startup, WMI) y restablezca credenciales expuestas.",
+        "Si es legítimo, agregue una exclusión acotada por ruta del dato, ParentImage firmado y host."
+      ],
+      "severity_rationale": "Medium es adecuado porque es una técnica de persistencia común, pero muchos instaladores y administradores la usan legítimamente, por lo que requiere contexto para confirmarse."
+    },
+    "en": {
+      "summary": "reg.exe was run with the 'add' verb against a Run or RunOnce registry key. Someone may have set a program to start automatically at logon or boot.",
+      "what_it_detects": "Process creation events where Image ends with \\reg.exe and CommandLine contains ' add ' plus a Run path: Software\\Microsoft\\Windows\\CurrentVersion\\Run (also covers RunOnce and RunServices), its WOW6432Node equivalent, or Policies\\Explorer\\Run.",
+      "why_it_matters": "Run keys are a classic persistence mechanism (ATT&CK T1547.001, Registry Run Keys / Startup Folder). Malware uses them to survive reboots. Writes under HKLM run the program for every user who logs on.",
+      "triage_steps": [
+        "Read the full CommandLine: note the hive (HKCU or HKLM), value name (/v) and data (/d) that will run at startup.",
+        "Check the data path: AppData, Temp, ProgramData, Public, UNC paths, LOLBins (mshta, rundll32, powershell -enc) or look-alike names are suspicious.",
+        "Review ParentImage and the process tree: cmd or PowerShell spawned by Office, browsers, wscript or mshta is a red flag; msiexec or signed installers are more benign.",
+        "Identify the user and integrity level; confirm whether admin or service account and whether it fits their role.",
+        "Get the hash and signature of the binary referenced in /d; check reputation and whether it was recently written to disk.",
+        "Pivot on the same host +/- 15 minutes: downloads, file creation, network connections, new scheduled tasks or services.",
+        "Look for earlier alerts on the same host and user, and the same value name or path on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate installers registering their agent or updater under Run during setup.",
+        "Administrators or deployment scripts (GPO, SCCM, Intune) configuring autostart for corporate tools.",
+        "Applications such as Discord adding their startup entry through reg.exe."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT whether the change was authorized and record the evidence.",
+        "If malicious, isolate the endpoint and export the affected Run key before changing it.",
+        "Delete the Run value and quarantine the referenced binary once confirmed.",
+        "Hunt for other persistence (scheduled tasks, services, Startup folder, WMI) and reset exposed credentials.",
+        "If legitimate, add a narrow exclusion scoped to the data path, signed ParentImage and host."
+      ],
+      "severity_rationale": "Medium fits because this is a common persistence technique but is also used legitimately by installers and admins, so context is needed to confirm it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe spawned by Word runs reg add to persist a binary from AppData under HKCU Run",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg  add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\" /v OneDriveSync /t REG_SZ /d \"C:\\Users\\jperez\\AppData\\Roaming\\odsync.exe\" /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c reg  add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\" /v OneDriveSync /t REG_SZ /d \"C:\\Users\\jperez\\AppData\\Roaming\\odsync.exe\" /f",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "reg.exe adds a value to the HKLM WOW6432Node Run key pointing to ProgramData",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\adm.mrojas",
+          "Image": "C:\\Windows\\SysWOW64\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "C:\\Windows\\SysWOW64\\reg.exe add HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Run /v svchelper /d \"C:\\ProgramData\\svchelper\\svch.exe\" /f",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator queries the Run key with reg query; no ' add ' in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg query \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "reg add writes an application setting to a non-autorun key",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg add \"HKCU\\Software\\ExampleCorp\\Viewer\\Settings\" /v Theme /t REG_SZ /d Dark /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

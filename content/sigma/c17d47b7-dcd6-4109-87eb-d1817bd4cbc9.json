@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "c17d47b7-dcd6-4109-87eb-d1817bd4cbc9",
+    "title": "Windows Credential Guard Registry Tampering Via CommandLine",
+    "level": "high",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_credential_guard_registry_tampering.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_credential_guard_registry_tampering.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó reg.exe o PowerShell con una línea de comandos que agrega, modifica o elimina valores de registro de Credential Guard o VBS. Puede ser un intento de desactivar la protección de credenciales del endpoint.",
+      "what_it_detects": "Procesos reg.exe, powershell.exe o pwsh.exe cuyo CommandLine incluye una operación de escritura o borrado (add, Set-ItemProperty, New-ItemProperty, si, delete, del, Remove-ItemProperty, rp), una ruta \\Control\\DeviceGuard, \\Control\\LSA o la política DeviceGuard, y los valores EnableVirtualizationBasedSecurity, RequirePlatformSecurityFeatures o LsaCfgFlags.",
+      "why_it_matters": "Credential Guard aísla hashes NTLM y tickets Kerberos mediante seguridad basada en virtualización. Desactivarlo (ATT&CK T1685, debilitamiento de defensas) facilita el volcado de credenciales desde LSASS para movimiento lateral y escalamiento de privilegios.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique la clave, el valor (por ejemplo LsaCfgFlags=0 o EnableVirtualizationBasedSecurity=0) y si la operación agrega, modifica o elimina.",
+        "Identifique el usuario y el nivel de integridad; confirme si la cuenta pertenece a administradores de TI autorizados.",
+        "Analice ParentImage y la cadena de procesos: cmd.exe, un script, una herramienta de gestión o un proceso inusual como Office o un webshell.",
+        "Busque en el mismo host, +/- 15 minutos, otros cambios de registro de seguridad, desactivación de Defender, reinicios programados o acceso a LSASS.",
+        "Verifique si hubo un reinicio posterior al cambio, ya que la configuración de Credential Guard suele aplicarse al arrancar.",
+        "Consulte alertas previas del mismo host y usuario, y si hay ejecuciones similares en otros endpoints que indiquen una campaña.",
+        "Confirme con el equipo de TI si existe un ticket de cambio o una GPO que justifique la modificación."
+      ],
+      "false_positives": [
+        "Administradores que desactivan Credential Guard por incompatibilidad con software heredado, hipervisores de terceros o autenticación antigua, con cambio documentado.",
+        "Scripts de despliegue o imágenes base que configuran VBS durante el aprovisionamiento del equipo."
+      ],
+      "response_steps": [
+        "Si no hay cambio autorizado, aísle el endpoint de la red y preserve evidencia (registro, eventos, memoria si es posible).",
+        "Restaure los valores de registro originales y verifique con msinfo32 o Win32_DeviceGuard que Credential Guard y VBS estén activos.",
+        "Investigue posible robo de credenciales: rote contraseñas y revoque sesiones de las cuentas que iniciaron sesión en el host.",
+        "Aplique Credential Guard con bloqueo UEFI mediante GPO o MDM y restrinja el uso de reg.exe y PowerShell por cuentas no administrativas."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque desactivar Credential Guard rara vez es legítimo y precede directamente al robo de credenciales."
+    },
+    "en": {
+      "summary": "reg.exe or PowerShell ran a command line that adds, modifies or deletes Credential Guard or VBS registry values. This may be an attempt to disable credential protection on the endpoint.",
+      "what_it_detects": "reg.exe, powershell.exe or pwsh.exe processes whose CommandLine contains a write or delete operation (add, Set-ItemProperty, New-ItemProperty, si, delete, del, Remove-ItemProperty, rp), a \\Control\\DeviceGuard, \\Control\\LSA or DeviceGuard policy path, and EnableVirtualizationBasedSecurity, RequirePlatformSecurityFeatures or LsaCfgFlags.",
+      "why_it_matters": "Credential Guard uses virtualization-based security to isolate NTLM hashes and Kerberos tickets. Disabling it (ATT&CK T1685, defense impairment) makes LSASS credential dumping easier, enabling lateral movement and privilege escalation.",
+      "triage_steps": [
+        "Read the full CommandLine: note the key, the value (e.g. LsaCfgFlags=0 or EnableVirtualizationBasedSecurity=0) and whether it adds, modifies or deletes.",
+        "Identify the user and integrity level; confirm whether the account belongs to authorized IT administrators.",
+        "Review ParentImage and the process tree: cmd.exe, a script, a management agent, or something unusual like Office or a web server process.",
+        "On the same host within +/- 15 minutes, look for other security registry changes, Defender tampering, scheduled reboots or LSASS access.",
+        "Check whether the host rebooted after the change, since Credential Guard settings usually apply at boot.",
+        "Check earlier alerts for the same host and user, and similar command lines on other endpoints that suggest a campaign.",
+        "Confirm with IT whether a change ticket or GPO explains the modification."
+      ],
+      "false_positives": [
+        "Administrators disabling Credential Guard for compatibility with legacy software, third-party hypervisors or old authentication protocols, with a documented change.",
+        "Deployment scripts or base images configuring VBS during device provisioning."
+      ],
+      "response_steps": [
+        "If no authorized change exists, isolate the endpoint and preserve evidence (registry, event logs, memory if possible).",
+        "Restore the original registry values and verify with msinfo32 or Win32_DeviceGuard that Credential Guard and VBS are running.",
+        "Investigate credential theft: reset passwords and revoke sessions for accounts that logged on to the host.",
+        "Enforce Credential Guard with UEFI lock via GPO or MDM and restrict reg.exe and PowerShell use by non-admin accounts."
+      ],
+      "severity_rationale": "High fits because disabling Credential Guard is rarely legitimate and directly precedes credential theft."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe sets EnableVirtualizationBasedSecurity to 0 under the DeviceGuard key",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard\" /v EnableVirtualizationBasedSecurity /t REG_DWORD /d 0 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell sets LsaCfgFlags to 0 under the LSA key to disable Credential Guard",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa' -Name LsaCfgFlags -Value 0",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "reg.exe only queries the DeviceGuard value (read-only, no add/delete operation)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\soporte",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard\" /v EnableVirtualizationBasedSecurity",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell reads LsaCfgFlags with Get-ItemProperty during a compliance check",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\auditoria",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa' -Name LsaCfgFlags",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

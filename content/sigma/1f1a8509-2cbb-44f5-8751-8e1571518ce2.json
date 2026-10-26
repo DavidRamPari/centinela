@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "1f1a8509-2cbb-44f5-8751-8e1571518ce2",
+    "title": "Suspicious Splwow64 Without Params",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_splwow64_cli_anomaly.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_splwow64_cli_anomaly.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1202"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso splwow64.exe cuya línea de comandos termina en el nombre del ejecutable, sin parámetros. El host de controladores de impresión casi siempre recibe un argumento numérico, así que su ausencia sugiere una ejecución manual, suplantación o un proceso usado para inyección.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\splwow64.exe y CommandLine termina en 'splwow64.exe', es decir, el binario se lanzó sin ningún argumento.",
+      "why_it_matters": "Splwow64.exe es un binario firmado de Microsoft que hace de puente de impresión para aplicaciones de 32 bits. Un atacante puede lanzarlo vacío para inyectar código o esconder actividad dentro de un proceso confiable. Esto corresponde a ejecución indirecta de comandos (T1202) y evasión de defensas.",
+      "triage_steps": [
+        "Revise ParentImage y su línea de comandos. Lo normal es una aplicación de 32 bits que imprime, como Office o un lector PDF. Un shell, un script o un binario en un directorio de usuario es sospechoso.",
+        "Verifique que Image sea C:\\Windows\\splwow64.exe y valide el hash y la firma digital de Microsoft. Si está en otra ruta, se trata de suplantación.",
+        "Liste los procesos hijos de splwow64.exe. Este binario no debería lanzar cmd.exe, powershell.exe, rundll32.exe ni otros ejecutables.",
+        "Revise las conexiones de red del proceso y de su padre. Splwow64.exe no suele conectarse a direcciones externas.",
+        "Busque indicios de inyección: acceso a la memoria del proceso (Sysmon evento 8 o 10), DLL cargadas de rutas inusuales o hilos remotos.",
+        "Correlacione el mismo host en una ventana de +/- 15 minutos: descargas, documentos abiertos, ejecuciones de scripts y otras alertas.",
+        "Revise la actividad del usuario asociado y las alertas previas de ese usuario y de ese host."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Un administrador que lanza splwow64.exe a mano mientras diagnostica problemas de impresión.",
+        "Aplicaciones heredadas o herramientas de prueba de impresión que lo invocan sin argumentos. Confirme con el responsable antes de excluirlas."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa revisando el proceso padre, los procesos hijos, la red y las señales de inyección antes de actuar.",
+        "Si se confirma, aísle el endpoint desde el EDR y preserve un volcado de memoria del proceso para analizarlo.",
+        "Termine el proceso y el padre malicioso, y elimine los artefactos de persistencia identificados.",
+        "Restablezca las credenciales del usuario si hubo exposición, busque los mismos indicadores en otros hosts y restaure el equipo a un estado limpio."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque es muy poco común que splwow64.exe se ejecute legítimamente sin parámetros, y este patrón suele indicar abuso de un binario confiable para evadir defensas."
+    },
+    "en": {
+      "summary": "A splwow64.exe process started with a command line that ends with the executable name, so it has no parameters. The print driver host almost always gets a numeric argument, so a bare launch points to manual execution, masquerading or a process being used for injection.",
+      "what_it_detects": "Windows process creation events where Image ends with \\splwow64.exe and CommandLine ends with 'splwow64.exe', meaning the binary was launched with no arguments.",
+      "why_it_matters": "Splwow64.exe is a signed Microsoft binary that handles printing for 32-bit applications. Attackers may launch it without arguments to inject code into it or hide activity inside a trusted process. This maps to indirect command execution (T1202) and defense evasion.",
+      "triage_steps": [
+        "Review ParentImage and its command line. The normal parent is a 32-bit app that prints, such as Office or a PDF reader. A shell, a script host or a binary in a user directory is suspicious.",
+        "Confirm that Image is C:\\Windows\\splwow64.exe and check its hash and Microsoft signature. Any other path means masquerading.",
+        "List the child processes of splwow64.exe. It should not spawn cmd.exe, powershell.exe, rundll32.exe or other executables.",
+        "Check the network connections of the process and its parent. Splwow64.exe rarely talks to external addresses.",
+        "Look for signs of injection: process access events (Sysmon event 8 or 10), DLLs loaded from unusual paths, or remote threads.",
+        "Correlate activity on the same host within +/- 15 minutes: downloads, opened documents, script execution and other alerts.",
+        "Review the associated user's activity and any earlier alerts for that user and host."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "An administrator launching splwow64.exe by hand while troubleshooting printing.",
+        "Legacy applications or print-testing tools that start it without arguments. Confirm with the owner before you exclude them."
+      ],
+      "response_steps": [
+        "Before acting, confirm malicious activity by reviewing the parent, the child processes, network activity and injection indicators.",
+        "If confirmed, isolate the endpoint through EDR and capture a memory dump of the process for analysis.",
+        "Kill the process and its malicious parent, then remove any persistence you found.",
+        "Reset the user's credentials if they were exposed, hunt for the same indicators on other hosts, and restore the host to a clean state."
+      ],
+      "severity_rationale": "High fits because a legitimate parameterless splwow64.exe launch is very rare, and this pattern usually means a trusted binary is being abused to evade defenses."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "splwow64.exe launched with no arguments from a PowerShell parent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\splwow64.exe",
+          "CommandLine": "C:\\Windows\\splwow64.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Bare splwow64.exe invocation by name only, spawned from a binary in the user's temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\splwow64.exe",
+          "CommandLine": "splwow64.exe",
+          "ParentImage": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\update.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal print bridge launch by 32-bit Word with the usual numeric parameter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\splwow64.exe",
+          "CommandLine": "C:\\Windows\\splwow64.exe 12288",
+          "ParentImage": "C:\\Program Files (x86)\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Different binary whose command line merely mentions splwow64.exe; Image does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\where.exe",
+          "CommandLine": "where.exe splwow64.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

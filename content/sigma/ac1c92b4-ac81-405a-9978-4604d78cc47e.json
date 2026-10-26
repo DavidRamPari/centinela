@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "ac1c92b4-ac81-405a-9978-4604d78cc47e",
+    "title": "Potential Binary Proxy Execution Via VSDiagnostics.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_vsdiagnostics_execution_proxy.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_vsdiagnostics_execution_proxy.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó VSDiagnostics.exe, el recolector de diagnóstico de Visual Studio, con el comando \"start\" y la opción /launch: o -launch:. Esto inicia otro ejecutable bajo un binario firmado por Microsoft y puede usarse para ejecutar binarios arbitrarios a través de un proxy.",
+      "what_it_detects": "Creación de procesos en Windows donde Image termina en \\VSDiagnostics.exe u OriginalFileName es VSDiagnostics.exe, y CommandLine contiene \"start\" junto con \" /launch:\" o \" -launch:\". Por la coincidencia con OriginalFileName, también detecta copias renombradas.",
+      "why_it_matters": "Los atacantes abusan de binarios firmados y confiables para lanzar payloads y evadir controles de aplicaciones o detecciones basadas en el proceso padre (MITRE ATT&CK T1218, System Binary Proxy Execution). Lo que se ejecute así hereda la apariencia legítima de una herramienta de desarrollo.",
+      "triage_steps": [
+        "Lea CommandLine y extraiga la ruta del ejecutable indicado en /launch: o -launch:. Una ruta en carpetas de usuario, Temp, ProgramData o Public es sospechosa.",
+        "Compruebe que Image esté en una instalación de Visual Studio (...\\Team Tools\\DiagnosticsHub\\Collector\\). Si OriginalFileName coincide pero Image tiene otro nombre o ruta, escale.",
+        "Revise ParentImage y la línea de comandos del padre. Lo esperable es devenv.exe o una consola de desarrollador. Office, scripts o wscript/mshta indican abuso.",
+        "Obtenga el hash y la firma del binario lanzado y consúltelos en su plataforma de threat intelligence. Busque archivos creados recientemente en esa ruta.",
+        "Revise el árbol de procesos del binario lanzado: procesos hijos, conexiones de red y modificaciones de registro en el mismo host en una ventana de +/- 15 minutos.",
+        "Confirme si el usuario es desarrollador y si el host suele tener Visual Studio. Busque alertas anteriores para ese usuario y ese host."
+      ],
+      "false_positives": [
+        "Desarrolladores o equipos de QA que perfilan sus propias aplicaciones con VSDiagnostics start /launch: para analizar trazas y diagnósticos.",
+        "Pipelines de CI o scripts de pruebas de rendimiento que lanzan binarios compilados bajo el recolector de diagnóstico."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o con el responsable del equipo de desarrollo si la sesión de diagnóstico fue legítima antes de actuar.",
+        "Si el binario lanzado es desconocido o malicioso, aísle el endpoint y termine el proceso. Conserve el archivo y la memoria como evidencia.",
+        "Ponga el hash en cuarentena, bloquéelo en el EDR y búsquelo en otros hosts de la organización.",
+        "Revise si hay mecanismos de persistencia y credenciales comprometidas. Restablezca las credenciales del usuario si corresponde y restaure el host desde una imagen limpia si se confirma la intrusión."
+      ],
+      "severity_rationale": "Severidad media: la técnica es una vía real de ejecución por proxy, pero los desarrolladores usan este comando de forma legítima en equipos con Visual Studio."
+    },
+    "en": {
+      "summary": "VSDiagnostics.exe, the Visual Studio diagnostics collector, ran with the \"start\" command and a /launch: or -launch: option. This starts another executable under a Microsoft-signed binary and can be used to run arbitrary binaries by proxy.",
+      "what_it_detects": "Windows process creation where Image ends with \\VSDiagnostics.exe or OriginalFileName is VSDiagnostics.exe, and CommandLine contains \"start\" plus \" /launch:\" or \" -launch:\". The OriginalFileName match also catches renamed copies.",
+      "why_it_matters": "Attackers abuse trusted signed binaries to launch payloads and get past application control or parent-process detections (MITRE ATT&CK T1218, System Binary Proxy Execution). Anything launched this way looks like it came from a legitimate developer tool.",
+      "triage_steps": [
+        "Read CommandLine and extract the executable path given in /launch: or -launch:. A path in user folders, Temp, ProgramData or Public is suspicious.",
+        "Confirm that Image sits in a Visual Studio install (...\\Team Tools\\DiagnosticsHub\\Collector\\). If OriginalFileName matches but Image has another name or path, escalate.",
+        "Check ParentImage and the parent's command line. Expect devenv.exe or a developer console. Office, scripts or wscript/mshta point to abuse.",
+        "Get the hash and signature of the launched binary and look them up in your threat intelligence platform. Look for recently created files in that path.",
+        "Review the launched binary's process tree: child processes, network connections and registry changes on the same host within +/- 15 minutes.",
+        "Confirm whether the user is a developer and whether the host normally has Visual Studio. Look for earlier alerts on the same user and host."
+      ],
+      "false_positives": [
+        "Developers or QA staff profiling their own applications with VSDiagnostics start /launch: for tracing and diagnostics.",
+        "CI pipelines or performance-test scripts that launch built binaries under the diagnostics collector."
+      ],
+      "response_steps": [
+        "Check with the user or the development team owner that the diagnostics session was legitimate before you act.",
+        "If the launched binary is unknown or malicious, isolate the endpoint and kill the process. Keep the file and memory as evidence.",
+        "Quarantine the hash, block it in EDR and hunt for it on other hosts.",
+        "Check for persistence and compromised credentials. Reset the user's credentials if needed, and reimage the host from a clean image if the intrusion is confirmed."
+      ],
+      "severity_rationale": "Medium: this is a real proxy-execution path, but developers legitimately use the same command on Visual Studio machines."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "VSDiagnostics.exe from a Visual Studio install, started from cmd.exe, launches an unknown binary in C:\\Users\\Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\Team Tools\\DiagnosticsHub\\Collector\\VSDiagnostics.exe",
+          "OriginalFileName": "VSDiagnostics.exe",
+          "CommandLine": "\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\Team Tools\\DiagnosticsHub\\Collector\\VSDiagnostics.exe\" start 1 /launch:\"C:\\Users\\Public\\update.exe\" /loadConfig:\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\Team Tools\\DiagnosticsHub\\Collector\\AgentConfigs\\CpuUsageBase.json\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed copy of VSDiagnostics.exe in Temp, matched by OriginalFileName, using the dash form -launch:",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\diag.exe",
+          "OriginalFileName": "VSDiagnostics.exe",
+          "CommandLine": "diag.exe start 7 -launch:C:\\ProgramData\\svc\\payload.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile -WindowStyle Hidden",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate VSDiagnostics session that attaches to an existing process with /attach: and does not use /launch:",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\Team Tools\\DiagnosticsHub\\Collector\\VSDiagnostics.exe",
+          "OriginalFileName": "VSDiagnostics.exe",
+          "CommandLine": "VSDiagnostics.exe start 2 /attach:4120 /loadConfig:CpuUsageBase.json",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\Common7\\IDE\\devenv.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "VSDiagnostics stop command that writes a trace file, with no start and no launch argument",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\Team Tools\\DiagnosticsHub\\Collector\\VSDiagnostics.exe",
+          "OriginalFileName": "VSDiagnostics.exe",
+          "CommandLine": "VSDiagnostics.exe stop 2 /output:C:\\Traces\\session2.diagsession",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

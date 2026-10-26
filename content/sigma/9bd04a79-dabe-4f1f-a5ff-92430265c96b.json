@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "9bd04a79-dabe-4f1f-a5ff-92430265c96b",
+    "title": "Privilege Escalation via Named Pipe Impersonation",
+    "level": "high",
+    "status": "test",
+    "author": "Tim Rauch, Elastic (idea)",
+    "path": "windows/process_creation/proc_creation_win_susp_priv_escalation_via_named_pipe.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_priv_escalation_via_named_pipe.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó cmd.exe o PowerShell con una línea de comandos que hace echo y redirige la salida a un named pipe local (\\\\.\\pipe\\). Es el patrón clásico de escalamiento de privilegios por impersonación de named pipe, como el getsystem de Meterpreter.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\cmd.exe o \\powershell.exe (o donde OriginalFileName es Cmd.Exe o PowerShell.EXE) y CommandLine contiene 'echo', '>' y '\\\\.\\pipe\\'. Ojo: la descripción del YAML habla de copias a recursos compartidos ocultos, pero la lógica detecta escritura a named pipes.",
+      "why_it_matters": "Un atacante crea un named pipe y luego hace que un proceso privilegiado, casi siempre un servicio que corre como SYSTEM, se conecte y escriba en él. Así puede impersonar ese token y conseguir privilegios SYSTEM. La regla lo etiqueta como T1021.",
+      "triage_steps": [
+        "Revisa CommandLine: el texto del echo y el nombre del pipe suelen ser cadenas aleatorias e iguales. Eso es un indicador fuerte de una herramienta automatizada.",
+        "Revisa ParentImage y el usuario. Si el padre es services.exe y el usuario es NT AUTHORITY\\SYSTEM, lo más probable es que se haya creado un servicio para forzar la conexión al pipe.",
+        "Busca en el mismo host, ±15 minutos, eventos de instalación de servicios (System 7045, Security 4697) con un ImagePath que contenga ese mismo comando.",
+        "Si hay Sysmon, busca los eventos 17/18 del nombre del pipe para saber qué proceso lo creó. Ese proceso es el implante del atacante.",
+        "Revisa los procesos hijos y la actividad posterior del proceso que creó el pipe: nuevas shells como SYSTEM, volcado de LSASS, creación de cuentas.",
+        "Identifica la sesión de usuario que lanzó el proceso creador y revisa alertas anteriores del mismo host y del mismo usuario."
+      ],
+      "false_positives": [
+        "Herramientas internas o scripts de administración que se comunican por named pipes usando echo, aunque es poco común.",
+        "Ejercicios autorizados de pentesting o red team que usan getsystem o técnicas parecidas. Confírmalo con el equipo responsable."
+      ],
+      "response_steps": [
+        "Confirma la actividad maliciosa identificando el proceso que creó el pipe y el servicio asociado antes de actuar.",
+        "Aísla el endpoint de la red y termina el proceso creador del pipe y los procesos SYSTEM derivados.",
+        "Elimina el servicio malicioso si sigue registrado, y también los binarios o el persistence que hayas identificado. Conserva el hash y las muestras para análisis.",
+        "Restablece las credenciales de las cuentas usadas en el host, busca el mismo patrón en otros equipos y restaura el sistema si está comprometido."
+      ],
+      "severity_rationale": "Es nivel high porque este patrón casi nunca aparece en uso legítimo y suele indicar que el atacante ya ejecuta código en el host y está obteniendo privilegios SYSTEM."
+    },
+    "en": {
+      "summary": "cmd.exe or PowerShell ran a command line that echoes data and redirects it into a local named pipe (\\\\.\\pipe\\). This is the classic named pipe impersonation privilege escalation pattern, such as Meterpreter getsystem.",
+      "what_it_detects": "Process creation events where Image ends with \\cmd.exe or \\powershell.exe (or OriginalFileName is Cmd.Exe or PowerShell.EXE) and CommandLine contains 'echo', '>' and '\\\\.\\pipe\\'. Note: the YAML description mentions hidden share copies, but the logic detects writes to named pipes.",
+      "why_it_matters": "An attacker creates a named pipe and makes a privileged process, usually a service running as SYSTEM, connect and write to it. The attacker can then impersonate that token and gain SYSTEM. The rule tags this as T1021.",
+      "triage_steps": [
+        "Review CommandLine: the echoed text and the pipe name are often the same random string, which strongly points to automated tooling.",
+        "Check ParentImage and the user. A services.exe parent running as NT AUTHORITY\\SYSTEM suggests a service was created to force the pipe connection.",
+        "Search the same host, +/- 15 minutes, for service installs (System 7045, Security 4697) whose ImagePath contains this command.",
+        "If Sysmon is available, look up events 17/18 for the pipe name to find the process that created it. That process is the attacker's implant.",
+        "Review what the pipe-creating process did next and its child processes: new SYSTEM shells, LSASS access, account creation.",
+        "Identify the user session that launched the pipe creator and check earlier alerts for the same host and user."
+      ],
+      "false_positives": [
+        "Internal tools or admin scripts that talk to named pipes through echo, although this is uncommon.",
+        "Authorized penetration tests or red team exercises using getsystem or similar techniques. Confirm with the responsible team."
+      ],
+      "response_steps": [
+        "Before acting, confirm malicious activity by identifying the pipe-creating process and the related service.",
+        "Isolate the endpoint, then kill the pipe-creating process and any SYSTEM processes spawned from it.",
+        "Remove the malicious service if it is still registered, along with any binaries or persistence you identified. Preserve hashes and samples for analysis.",
+        "Reset credentials for accounts used on the host, hunt for the same pattern on other hosts, and rebuild or restore the system if it is compromised."
+      ],
+      "severity_rationale": "High fits because this pattern is rarely legitimate. It usually means the attacker already runs code on the host and is escalating to SYSTEM."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Service-spawned cmd.exe echoing into a random named pipe as SYSTEM (getsystem-style).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c echo qzkxwd > \\\\.\\pipe\\qzkxwd",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\services.exe",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "PowerShell echoing into a named pipe, matched by OriginalFileName despite a renamed binary.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "svchelper.exe -nop -c \"echo token > \\\\.\\pipe\\updsvc\"",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate cmd.exe echo redirected to a regular file, not a named pipe.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c echo backup done > C:\\Temp\\status.txt",
+          "ParentImage": "C:\\Windows\\System32\\taskeng.exe",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Non-shell test utility writing to a named pipe; selection_name does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Tools\\pipetest.exe",
+          "OriginalFileName": "pipetest.exe",
+          "CommandLine": "pipetest.exe echo hello > \\\\.\\pipe\\testpipe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

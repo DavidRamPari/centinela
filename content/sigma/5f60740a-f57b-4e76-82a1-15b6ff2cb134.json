@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "5f60740a-f57b-4e76-82a1-15b6ff2cb134",
+    "title": "Registry Modification Via Regini.EXE",
+    "level": "low",
+    "status": "test",
+    "author": "Eli Salem, Sander Wiebing, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_regini_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_regini_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1112"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó regini.exe, una utilidad nativa de Windows que importa cambios de registro y permisos desde archivos de texto. Puede ser administración legítima o un intento de persistencia o de debilitar defensas.",
+      "what_it_detects": "Creación de un proceso cuyo Image termina en \\regini.exe o cuyo OriginalFileName es REGINI.EXE, incluso si el binario fue renombrado. Se excluyen las líneas de comando con ':' seguido de un carácter distinto de espacio o '\\' (lectura desde Alternate Data Streams), que cubre la regla relacionada 77946e79.",
+      "why_it_matters": "Regini es un LOLBin que permite crear o modificar claves y cambiar ACL del registro sin usar reg.exe ni PowerShell. Un atacante puede usarlo para persistencia (claves Run, servicios) o para desactivar controles de seguridad (ATT&CK T1112, Modify Registry).",
+      "triage_steps": [
+        "Revise CommandLine e identifique el archivo de script (.ini/.txt) y el parámetro -m \\\\equipo si apunta a un host remoto.",
+        "Compare Image con OriginalFileName: un regini.exe fuera de C:\\Windows\\System32 o renombrado es altamente sospechoso.",
+        "Analice ParentImage y la línea de comando del padre: cmd, PowerShell, wscript, mshta o documentos de Office requieren mayor atención.",
+        "Recupere el archivo de script y su hash; revise qué claves y permisos modifica (Run, Services, Defender, políticas, Image File Execution Options).",
+        "Busque eventos de modificación de registro (Sysmon 12/13) en el mismo host +/- 15 minutos para confirmar los cambios aplicados.",
+        "Valide el usuario: si es una cuenta de servicio de despliegue o administrador conocido, confirme con el equipo de TI.",
+        "Revise alertas previas del mismo host y usuario, y ejecuciones de regini.exe en otros endpoints."
+      ],
+      "false_positives": [
+        "Modificación legítima de claves por administradores o scripts de configuración heredados.",
+        "Instaladores o herramientas de despliegue (SCCM, GPO de inicio) que aplican permisos de registro con regini.",
+        "Procedimientos de hardening que ajustan ACL del registro."
+      ],
+      "response_steps": [
+        "Verifique con el responsable del host o de TI si el cambio estaba planificado y documentado.",
+        "Si no está autorizado, aísle el endpoint y preserve el archivo de script, el binario y los eventos relacionados.",
+        "Revierta las claves y ACL modificadas tras exportar su estado actual como evidencia.",
+        "Elimine los mecanismos de persistencia hallados, restablezca credenciales comprometidas y busque la misma actividad en otros hosts."
+      ],
+      "severity_rationale": "El nivel bajo es adecuado porque regini es una herramienta administrativa legítima y la alerta solo indica su uso, no un cambio malicioso confirmado."
+    },
+    "en": {
+      "summary": "regini.exe, a native Windows utility that imports registry changes and permissions from text files, was executed. It may be legitimate administration or an attempt at persistence or defense impairment.",
+      "what_it_detects": "Process creation where Image ends with \\regini.exe or OriginalFileName is REGINI.EXE, catching renamed copies. Command lines containing ':' followed by a character other than a space or '\\' (Alternate Data Stream input) are excluded, as related rule 77946e79 covers them.",
+      "why_it_matters": "Regini is a LOLBin that creates or modifies keys and changes registry ACLs without reg.exe or PowerShell. Attackers can use it for persistence (Run keys, services) or to disable security controls (ATT&CK T1112, Modify Registry).",
+      "triage_steps": [
+        "Review CommandLine and identify the script file (.ini/.txt) and any -m \\\\machine parameter targeting a remote host.",
+        "Compare Image with OriginalFileName; a regini.exe outside C:\\Windows\\System32 or a renamed copy is highly suspicious.",
+        "Inspect ParentImage and its command line; cmd, PowerShell, wscript, mshta or Office parents deserve closer scrutiny.",
+        "Collect the script file and its hash; check which keys and permissions it changes (Run, Services, Defender, policies, Image File Execution Options).",
+        "Search registry modification events (Sysmon 12/13) on the same host within +/- 15 minutes to confirm applied changes.",
+        "Validate the user: if it is a known deployment account or admin, confirm with IT.",
+        "Check earlier alerts for the same host and user, and regini.exe executions on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate modification of keys by administrators or legacy configuration scripts.",
+        "Installers or deployment tools (SCCM, startup GPO scripts) applying registry permissions with regini.",
+        "Hardening procedures that adjust registry ACLs."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the change was planned and documented.",
+        "If unauthorized, isolate the endpoint and preserve the script file, binary and related events.",
+        "Export the current state as evidence, then revert the modified keys and ACLs.",
+        "Remove any persistence found, reset compromised credentials and hunt for the same activity on other hosts."
+      ],
+      "severity_rationale": "Low fits because regini is a legitimate admin tool and the alert only shows its use, not a confirmed malicious change."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "regini.exe launched from cmd importing a text file from a user-writable folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\regini.exe",
+          "OriginalFileName": "REGINI.EXE",
+          "CommandLine": "regini.exe C:\\Users\\Public\\keys.ini",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c regini.exe C:\\Users\\Public\\keys.ini",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "Renamed regini copy detected via OriginalFileName, targeting a remote machine",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svchelper.exe",
+          "OriginalFileName": "REGINI.EXE",
+          "CommandLine": "svchelper.exe -m \\\\WS-0142 settings.txt",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\ProgramData\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "regini.exe reading from an Alternate Data Stream; excluded by the filter (colon followed by a letter) and covered by the related rule",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\regini.exe",
+          "OriginalFileName": "REGINI.EXE",
+          "CommandLine": "regini.exe C:\\Users\\Public\\notes.txt:hidden.ini",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Registry import with reg.exe, a different binary that the selection does not cover",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe import C:\\Users\\Public\\keys.reg",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

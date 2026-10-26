@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "84f52741-8834-4a8c-a413-2eb2269aa6c8",
+    "title": "DllUnregisterServer Function Call Via Msiexec.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_msiexec_dll.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_msiexec_dll.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.007"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Msiexec.exe se ejecutó con la opción /z (o -z) sobre un archivo DLL, lo que carga la DLL y llama a su función exportada DllUnregisterServer. Es una técnica conocida para ejecutar código mediante un binario firmado de Windows.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\msiexec.exe (u OriginalFileName coincide) y CommandLine contiene ' -z ' o ' /z ' junto con '.dll'. Se excluye la llamada de SCCM/ConfigMgr a C:\\Windows\\CCM\\MsiHandler.dll.",
+      "why_it_matters": "Corresponde a ATT&CK T1218.007 (ejecución de proxy binario firmado: Msiexec). Un atacante puede ejecutar código arbitrario dentro de un proceso firmado por Microsoft, evadiendo controles de lista blanca y dificultando la detección.",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique la ruta de la DLL y si está en carpetas escribibles por el usuario (AppData, Temp, Public, Downloads) o en un recurso UNC/WebDAV.",
+        "Verifique ParentImage y la cadena de procesos padre: Office, navegadores, scripts (wscript, powershell, cmd) o tareas programadas son sospechosos.",
+        "Obtenga el hash de la DLL, revise firma digital, fecha de creación y reputación; envíela a sandbox si no es conocida.",
+        "Identifique el usuario y el host; confirme si el usuario suele administrar software o si el equipo es gestionado por SCCM u otra herramienta de despliegue.",
+        "Busque procesos hijos de msiexec.exe y conexiones de red salientes en el mismo host dentro de +/- 15 minutos.",
+        "Pivotee sobre el nombre o hash de la DLL en otros endpoints y revise alertas previas del mismo host o usuario."
+      ],
+      "false_positives": [
+        "Agentes de gestión de software (SCCM/ConfigMgr con rutas distintas a la excluida, otras herramientas de despliegue) que desregistran DLL con msiexec /z.",
+        "Desinstaladores legítimos o scripts de administradores que usan msiexec /z sobre DLL de aplicaciones instaladas en Program Files."
+      ],
+      "response_steps": [
+        "Valide con el dueño del equipo o el área de TI si la ejecución corresponde a una tarea de software autorizada.",
+        "Si no es legítima, aísle el endpoint desde el EDR y preserve la DLL, la memoria del proceso y los logs relevantes.",
+        "Bloquee el hash de la DLL y cualquier dominio o IP asociados; busque el mismo indicador en toda la flota.",
+        "Elimine la DLL y los mecanismos de persistencia encontrados tras confirmar su naturaleza maliciosa; restablezca credenciales del usuario afectado.",
+        "Documente las exclusiones legítimas confirmadas para ajustar la regla sin abrir brechas."
+      ],
+      "severity_rationale": "Nivel medio porque el uso de msiexec /z sobre DLL es poco común y permite ejecución de código por proxy, aunque existen usos administrativos legítimos que requieren contexto."
+    },
+    "en": {
+      "summary": "Msiexec.exe was run with the /z (or -z) switch against a DLL, which loads the DLL and calls its exported DllUnregisterServer function. This is a known way to run code through a signed Windows binary.",
+      "what_it_detects": "Process creation events where Image ends with \\msiexec.exe (or OriginalFileName matches) and CommandLine contains ' -z ' or ' /z ' plus '.dll'. The SCCM/ConfigMgr call to C:\\Windows\\CCM\\MsiHandler.dll is excluded.",
+      "why_it_matters": "Maps to ATT&CK T1218.007 (System Binary Proxy Execution: Msiexec). Attackers can run arbitrary code inside a Microsoft-signed process, bypassing application allowlisting and blending in with normal activity.",
+      "triage_steps": [
+        "Read the full CommandLine: note the DLL path and whether it sits in user-writable folders (AppData, Temp, Public, Downloads) or on a UNC/WebDAV share.",
+        "Check ParentImage and the process ancestry: Office, browsers, script hosts (wscript, powershell, cmd) or scheduled tasks are suspicious.",
+        "Collect the DLL hash, signature, creation time and reputation; detonate in a sandbox if unknown.",
+        "Identify the user and host; confirm whether the user administers software or the host is managed by SCCM or another deployment tool.",
+        "Look for msiexec.exe child processes and outbound network connections on the same host within +/- 15 minutes.",
+        "Pivot on the DLL name or hash across other endpoints and review earlier alerts for the same host or user."
+      ],
+      "false_positives": [
+        "Software management agents (SCCM/ConfigMgr using paths other than the excluded one, other deployment tools) unregistering DLLs with msiexec /z.",
+        "Legitimate uninstallers or admin scripts running msiexec /z on application DLLs under Program Files."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the execution matches an authorized software task.",
+        "If not legitimate, isolate the endpoint via EDR and preserve the DLL, process memory and relevant logs.",
+        "Block the DLL hash and any related domains or IPs; hunt for the same indicator fleet-wide.",
+        "After confirming it is malicious, remove the DLL and any persistence found; reset the affected user's credentials.",
+        "Document confirmed legitimate cases to tune the rule without creating blind spots."
+      ],
+      "severity_rationale": "Medium because msiexec /z on a DLL is uncommon and enables proxy code execution, yet legitimate administrative uses exist and context is needed."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Msiexec unregisters a DLL dropped in the Public folder, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\msiexec.exe",
+          "OriginalFileName": "msiexec.exe",
+          "CommandLine": "msiexec.exe /z C:\\Users\\Public\\update.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c msiexec.exe /z C:\\Users\\Public\\update.dll"
+        }
+      },
+      {
+        "description": "Dash variant of the switch with a DLL in AppData Temp",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\SysWOW64\\msiexec.exe",
+          "OriginalFileName": "msiexec.exe",
+          "CommandLine": "\"C:\\Windows\\SysWOW64\\msiexec.exe\" -z \"C:\\Users\\mrojas\\AppData\\Local\\Temp\\helper.dll\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "SCCM client calling MsiHandler.dll, excluded by the filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\msiexec.exe",
+          "OriginalFileName": "msiexec.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\MsiExec.exe\" /Z \"C:\\Windows\\CCM\\MsiHandler.dll\"",
+          "ParentImage": "C:\\Windows\\CCM\\CcmExec.exe"
+        }
+      },
+      {
+        "description": "Normal MSI package installation without the /z switch or a DLL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\msiexec.exe",
+          "OriginalFileName": "msiexec.exe",
+          "CommandLine": "msiexec.exe /i \"C:\\Installers\\reader-setup.msi\" /qn",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "93199800-b52a-4dec-b762-75212c196542",
+    "title": "PUA - RunXCmd Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_pua_runxcmd.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_pua_runxcmd.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1569.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso cuya CommandLine coincide con la sintaxis de RunXCmd (/account=system o /account=ti junto con /exec=). Esta herramienta lanza comandos como SYSTEM o TrustedInstaller.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuya CommandLine contiene ' /account=system ' o ' /account=ti ' y además '/exec='. Esa es la sintaxis de RunXCmd (RunX, de d7xtech), una utilidad gratuita que ejecuta programas con la cuenta LocalSystem o TrustedInstaller.",
+      "why_it_matters": "Ejecutar comandos como SYSTEM o TrustedInstaller da control total del equipo, incluso sobre archivos y claves del registro protegidos por Windows. Un atacante con privilegios de administrador puede usarlo para desactivar defensas o persistir. Corresponde a ejecución mediante servicios (ATT&CK T1569.002).",
+      "triage_steps": [
+        "Revise la CommandLine completa: identifique el binario o comando indicado en /exec= y sus argumentos, y determine si /account es system o ti.",
+        "Verifique Image, la ruta y el hash del ejecutable de RunXCmd. Una ubicación en Temp, Downloads, Public o ProgramData es más sospechosa.",
+        "Analice ParentImage y la cadena de procesos padre: ¿lo lanzó un administrador desde explorer.exe, o un script, cmd.exe o powershell.exe de origen remoto?",
+        "Identifique al usuario que inició el proceso y confirme con su responsable o con el equipo de TI si la ejecución estaba autorizada o tenía un ticket.",
+        "Revise los procesos hijo y la actividad del mismo host en +/- 15 minutos: creación de servicios, cambios de registro, detención de Defender o borrado de logs.",
+        "Busque ejecuciones de RunXCmd o del mismo hash en otros endpoints, y alertas previas para el mismo usuario y host."
+      ],
+      "false_positives": [
+        "Administradores que usan RunXCmd de forma legítima para modificar archivos o claves protegidas por TrustedInstaller.",
+        "Scripts de soporte técnico o de despliegue documentados que ejecutan tareas de mantenimiento como SYSTEM.",
+        "Pruebas autorizadas del equipo de seguridad o ejercicios de red team."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y su responsable si la ejecución fue autorizada. Si fue legítima, documéntela y considere una exclusión acotada por host, usuario y hash.",
+        "Si no está autorizada, aísle el endpoint desde el EDR y preserve la evidencia: árbol de procesos, binario, hash y logs relevantes.",
+        "Deshabilite o restablezca las credenciales de la cuenta implicada y revise de dónde obtuvo privilegios de administrador.",
+        "Revierta los cambios hechos por el comando: servicios, registro, defensas desactivadas o persistencia. Después, elimine el binario cuando la investigación lo confirme como malicioso.",
+        "Restaure el equipo a un estado conocido y aumente el monitoreo sobre el host y el usuario."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque la herramienta otorga ejecución como SYSTEM o TrustedInstaller y su uso legítimo es poco común en la mayoría de los entornos."
+    },
+    "en": {
+      "summary": "A process ran with a CommandLine that matches RunXCmd syntax: /account=system or /account=ti together with /exec=. This tool runs commands as SYSTEM or TrustedInstaller.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains ' /account=system ' or ' /account=ti ' as well as '/exec='. This is the syntax of RunXCmd (RunX by d7xtech), a free utility that launches programs as LocalSystem or TrustedInstaller.",
+      "why_it_matters": "Running commands as SYSTEM or TrustedInstaller gives full control of the host, including files and registry keys that Windows protects. An attacker with admin rights can use it to disable defenses or set up persistence. This maps to service execution (ATT&CK T1569.002).",
+      "triage_steps": [
+        "Read the full CommandLine: find the binary or command given in /exec= and its arguments, and check whether /account is system or ti.",
+        "Check Image, the path and the hash of the RunXCmd executable. It is more suspicious when it runs from Temp, Downloads, Public or ProgramData.",
+        "Review ParentImage and the parent chain. Did an admin start it from explorer.exe, or did a script, cmd.exe or powershell.exe with a remote origin start it?",
+        "Identify the user who started the process and ask their manager or IT whether the run was authorized or tied to a ticket.",
+        "Look at child processes and other activity on the same host within +/- 15 minutes: new services, registry changes, Defender being stopped or logs being cleared.",
+        "Search other endpoints for RunXCmd runs or the same hash, and look for earlier alerts on the same user and host."
+      ],
+      "false_positives": [
+        "Administrators who use RunXCmd legitimately to change files or registry keys that TrustedInstaller protects.",
+        "Documented support or deployment scripts that run maintenance tasks as SYSTEM.",
+        "Authorized security testing or red team exercises."
+      ],
+      "response_steps": [
+        "Ask the user and their manager whether the run was authorized. If it was legitimate, document it and consider a narrow exclusion by host, user and hash.",
+        "If it was not authorized, isolate the endpoint through EDR and keep the evidence: process tree, binary, hash and relevant logs.",
+        "Disable or reset the credentials of the account involved, and find out how it got admin rights.",
+        "Undo what the command changed: services, registry, disabled defenses or persistence. Remove the binary once the investigation confirms it is malicious.",
+        "Restore the host to a known-good state and watch the host and user more closely."
+      ],
+      "severity_rationale": "High fits because the tool grants SYSTEM or TrustedInstaller execution, and legitimate use is uncommon in most environments."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "RunXCmd started from a Public folder runs cmd.exe as SYSTEM",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\RunXCmd.exe",
+          "OriginalFileName": "RunXCmd.exe",
+          "CommandLine": "C:\\Users\\Public\\RunXCmd.exe /account=system /exec=C:\\Windows\\System32\\cmd.exe /args=\"/c whoami\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat",
+          "IntegrityLevel": "High",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      {
+        "description": "RunXCmd runs reg.exe as TrustedInstaller from PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\tools\\RunXCmd.exe",
+          "CommandLine": "\"C:\\ProgramData\\tools\\RunXCmd.exe\" /account=ti /exec=C:\\Windows\\System32\\reg.exe /args=\"query HKLM\\SOFTWARE\\Example\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "/account=system is the last argument with no trailing space, so the ' /account=system ' substring never appears",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Tools\\RunXCmd.exe",
+          "CommandLine": "C:\\Tools\\RunXCmd.exe /exec=notepad.exe /account=system",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "RunXCmd runs as the current user with /account=user, so neither account selection matches",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Tools\\RunXCmd.exe",
+          "CommandLine": "C:\\Tools\\RunXCmd.exe /account=user /exec=C:\\Windows\\System32\\notepad.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

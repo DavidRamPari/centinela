@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "1070db9a-3e5d-412e-8e7b-7183b616e1b3",
+    "title": "Persistence Via Sticky Key Backdoor",
+    "level": "critical",
+    "status": "test",
+    "author": "Sreeman",
+    "path": "windows/process_creation/proc_creation_win_cmd_sticky_keys_replace.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmd_sticky_keys_replace.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1546.008"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó un comando copy /y que sobrescribe sethc.exe (Sticky Keys) con cmd.exe. Esto instala un backdoor que abre una consola SYSTEM desde la pantalla de inicio de sesión sin autenticarse.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene 'copy ', '/y ' y la cadena literal 'C:\\windows\\system32\\cmd.exe C:\\windows\\system32\\sethc.exe', es decir, el reemplazo directo del binario de Sticky Keys por el intérprete de comandos.",
+      "why_it_matters": "Es persistencia y escalamiento de privilegios mediante Accessibility Features (T1546.008): al presionar Shift cinco veces en la pantalla de logon o por RDP, winlogon lanza cmd.exe como SYSTEM, sin credenciales válidas.",
+      "triage_steps": [
+        "Revise CommandLine, Image, ParentImage y User del evento: identifique quién ejecutó la copia y desde qué proceso padre (cmd, PowerShell, psexec, wmiprvse).",
+        "Busque en el mismo host, +/- 15 minutos, comandos takeown o icacls sobre sethc.exe y cambios de permisos previos, típicos de esta técnica.",
+        "Verifique el hash y la versión de C:\\Windows\\System32\\sethc.exe; si coincide con cmd.exe, el backdoor está activo.",
+        "Revise otros binarios de accesibilidad (utilman.exe, osk.exe, magnify.exe, narrator.exe, displayswitch.exe) y claves IFEO Debugger para sethc.exe.",
+        "Busque procesos cmd.exe o sethc.exe hijos de winlogon.exe y logons RDP (4624 tipo 10) cerca o después de la alerta.",
+        "Pivotee por el usuario y la IP de origen de la sesión: otros hosts con la misma actividad y alertas anteriores para esas entidades."
+      ],
+      "false_positives": [
+        "Muy poco probable; la regla indica 'Unlikely'.",
+        "Ejercicios autorizados de red team o pentest que prueban esta persistencia; confirme con el ticket o el responsable del ejercicio.",
+        "Procedimientos de recuperación de contraseña de administrador local mal documentados, ejecutados por soporte; aun así deben revertirse."
+      ],
+      "response_steps": [
+        "Confirme el reemplazo comparando el hash de sethc.exe con el de cmd.exe y con una referencia conocida.",
+        "Aísle el endpoint de la red si no hay una justificación autorizada y preserve evidencias (memoria, logs, archivo modificado).",
+        "Restaure sethc.exe original con sfc /scannow o desde una fuente confiable, y revierta permisos y otros binarios de accesibilidad alterados.",
+        "Restablezca credenciales de las cuentas usadas, habilite NLA en RDP y busque la misma técnica en el resto del parque.",
+        "Investigue el acceso inicial y documente el incidente antes de devolver el equipo a producción."
+      ],
+      "severity_rationale": "Es crítica porque el comando instala un acceso SYSTEM sin autenticación y casi no tiene usos legítimos."
+    },
+    "en": {
+      "summary": "A process ran a copy /y command that overwrites sethc.exe (Sticky Keys) with cmd.exe. This plants a backdoor that opens a SYSTEM console from the logon screen without authentication.",
+      "what_it_detects": "Process creation events whose CommandLine contains 'copy ', '/y ' and the literal string 'C:\\windows\\system32\\cmd.exe C:\\windows\\system32\\sethc.exe', meaning the Sticky Keys binary is directly replaced by the command interpreter.",
+      "why_it_matters": "This is persistence and privilege escalation through Accessibility Features (T1546.008): pressing Shift five times at the logon screen or over RDP makes winlogon launch cmd.exe as SYSTEM with no valid credentials.",
+      "triage_steps": [
+        "Review CommandLine, Image, ParentImage and User: identify who ran the copy and from which parent (cmd, PowerShell, psexec, wmiprvse).",
+        "On the same host within +/- 15 minutes, look for takeown or icacls against sethc.exe and earlier permission changes typical of this technique.",
+        "Check the hash and version of C:\\Windows\\System32\\sethc.exe; if it matches cmd.exe, the backdoor is live.",
+        "Check other accessibility binaries (utilman.exe, osk.exe, magnify.exe, narrator.exe, displayswitch.exe) and IFEO Debugger keys for sethc.exe.",
+        "Look for cmd.exe or sethc.exe spawned by winlogon.exe and RDP logons (4624 type 10) around or after the alert.",
+        "Pivot on the user and source IP of the session: other hosts with the same activity and prior alerts for those entities."
+      ],
+      "false_positives": [
+        "Very unlikely; the rule lists 'Unlikely'.",
+        "Authorized red team or penetration tests exercising this persistence; confirm with the ticket or exercise owner.",
+        "Poorly documented local admin password recovery done by support staff; it still must be reverted."
+      ],
+      "response_steps": [
+        "Confirm the replacement by comparing the sethc.exe hash with cmd.exe and a known-good reference.",
+        "Isolate the endpoint if there is no authorized justification and preserve evidence (memory, logs, modified file).",
+        "Restore the original sethc.exe with sfc /scannow or a trusted source, and revert permissions and any other altered accessibility binaries.",
+        "Reset credentials of involved accounts, enforce NLA on RDP and hunt for the same technique across the fleet.",
+        "Investigate initial access and document the incident before returning the host to production."
+      ],
+      "severity_rationale": "Critical because the command plants unauthenticated SYSTEM access and has almost no legitimate use."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe overwrites sethc.exe with cmd.exe using copy /y",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "cmd.exe /c copy /y C:\\windows\\system32\\cmd.exe C:\\windows\\system32\\sethc.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Uppercase variant launched remotely via WMI, still matches case-insensitively",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\adm.rojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "CommandLine": "CMD.EXE /Q /C COPY /Y C:\\WINDOWS\\SYSTEM32\\CMD.EXE C:\\WINDOWS\\SYSTEM32\\SETHC.EXE",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin backs up the original sethc.exe to a folder; cmd.exe is not the source",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "cmd.exe /c copy /y C:\\windows\\system32\\sethc.exe C:\\Backup\\sethc.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "cmd.exe copied to a temp folder, not over sethc.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mgomez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "cmd.exe /c copy /y C:\\windows\\system32\\cmd.exe C:\\Temp\\cmd_test.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:57:07+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "42b1a5b8-353f-4f10-b256-39de4467faff",
+    "title": "Harvesting Of Wifi Credentials Via Netsh.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Andreas Hunkeler (@Karneades), oscd.community",
+    "path": "windows/process_creation/proc_creation_win_netsh_wifi_credential_harvesting.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_netsh_wifi_credential_harvesting.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1040"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó netsh.exe con argumentos que muestran perfiles WLAN guardados con key=clear, lo que revela en texto plano las contraseñas Wi-Fi almacenadas en el equipo.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\netsh.exe u OriginalFileName es netsh.exe, y CommandLine contiene 'wlan', ' s', ' p', ' k' y '=clear', como en 'netsh wlan show profile name=X key=clear' o su forma abreviada 'wlan s p k=clear'.",
+      "why_it_matters": "Las claves Wi-Fi permiten a un atacante o malware (por ejemplo, variantes de AgentTesla según la referencia) acceder a redes inalámbricas y moverse hacia otros segmentos. La regla se asocia a ATT&CK T1040 (Network Sniffing) en las tácticas de descubrimiento y acceso a credenciales.",
+      "triage_steps": [
+        "Revise CommandLine: identifique qué perfiles se consultaron y si se usó name=* o un bucle sobre todos los perfiles.",
+        "Verifique Image y OriginalFileName; un netsh renombrado o fuera de C:\\Windows\\System32 es altamente sospechoso.",
+        "Analice ParentImage y ParentCommandLine: cmd.exe o powershell.exe lanzados por un binario desconocido, macro de Office o script en carpetas temporales indican malware.",
+        "Confirme el usuario y si es un técnico de soporte autorizado trabajando en ese equipo en ese horario.",
+        "Busque en el mismo host, +/- 15 minutos, 'netsh wlan show profiles', redirecciones a archivos (> .txt) y otros accesos a credenciales del navegador o correo.",
+        "Revise conexiones de red salientes del proceso padre (SMTP, FTP, HTTP, Telegram) que sugieran exfiltración.",
+        "Consulte alertas previas del mismo host y usuario, y busque el hash del proceso padre en otros endpoints."
+      ],
+      "false_positives": [
+        "Personal de soporte que recupera la contraseña Wi-Fi de un equipo para configurar otro dispositivo.",
+        "Scripts de inventario o migración que exportan perfiles WLAN de forma autorizada.",
+        "Usuarios que consultan la clave de su propia red doméstica en un portátil corporativo."
+      ],
+      "response_steps": [
+        "Valide con el usuario o con el área de soporte si la ejecución fue legítima y documentada.",
+        "Si no es legítima, aísle el endpoint y preserve evidencia (árbol de procesos, archivos de salida, memoria).",
+        "Elimine el binario o script malicioso tras identificarlo y busque persistencia asociada.",
+        "Rote las claves PSK de las redes Wi-Fi expuestas y revise credenciales adicionales que el malware pudo robar.",
+        "Busque el mismo indicador en toda la flota y restaure el equipo desde una imagen limpia si se confirma la infección."
+      ],
+      "severity_rationale": "Nivel medio: la exposición de claves Wi-Fi es grave, pero el comando también lo usan técnicos legítimos, por lo que se requiere contexto del proceso padre y del usuario."
+    },
+    "en": {
+      "summary": "netsh.exe ran with arguments that show saved WLAN profiles with key=clear, revealing stored Wi-Fi passwords in plain text.",
+      "what_it_detects": "Process creation where Image ends with \\netsh.exe or OriginalFileName is netsh.exe, and CommandLine contains 'wlan', ' s', ' p', ' k' and '=clear', such as 'netsh wlan show profile name=X key=clear' or the short form 'wlan s p k=clear'.",
+      "why_it_matters": "Wi-Fi keys let an attacker or malware (the reference describes an AgentTesla variant) join wireless networks and reach other segments. The rule maps to ATT&CK T1040 (Network Sniffing) under discovery and credential access.",
+      "triage_steps": [
+        "Read CommandLine: which profiles were queried, and was name=* or a loop over all profiles used?",
+        "Check Image and OriginalFileName; a renamed netsh or one outside C:\\Windows\\System32 is highly suspicious.",
+        "Review ParentImage and ParentCommandLine: cmd.exe or powershell.exe spawned by an unknown binary, Office macro or temp-folder script points to malware.",
+        "Confirm the user and whether an authorized support technician was working on that host at that time.",
+        "On the same host within +/- 15 minutes, look for 'netsh wlan show profiles', output redirection to files, and browser or mail credential access.",
+        "Check outbound connections from the parent process (SMTP, FTP, HTTP, Telegram) that suggest exfiltration.",
+        "Look for earlier alerts for the same host and user, and search the parent's hash across other endpoints."
+      ],
+      "false_positives": [
+        "Help desk staff recovering a Wi-Fi password from one machine to set up another device.",
+        "Authorized inventory or migration scripts exporting WLAN profiles.",
+        "Users viewing their own home network key on a corporate laptop."
+      ],
+      "response_steps": [
+        "Confirm with the user or help desk whether the execution was legitimate and documented.",
+        "If not, isolate the endpoint and preserve evidence (process tree, output files, memory).",
+        "Remove the malicious binary or script once identified and hunt for related persistence.",
+        "Rotate PSKs of exposed Wi-Fi networks and review other credentials the malware may have stolen.",
+        "Hunt for the same indicator fleet-wide and reimage the host if infection is confirmed."
+      ],
+      "severity_rationale": "Medium: exposing Wi-Fi keys is serious, but technicians also run this command, so parent process and user context are needed to decide."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe spawned by a dropped binary runs netsh to dump a Wi-Fi profile key in clear text",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh wlan show profile name=\"CorpWiFi\" key=clear",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c netsh wlan show profile name=\"CorpWiFi\" key=clear > C:\\Users\\jperez\\AppData\\Local\\Temp\\w.txt",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "Renamed netsh copy (matched via OriginalFileName) using abbreviated arguments",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0177.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\nt.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "nt.exe wlan s p name=\"GuestNet\" k=clear",
+          "ParentImage": "C:\\Users\\mrojas\\AppData\\Roaming\\updsvc.exe",
+          "ParentCommandLine": "\"C:\\Users\\mrojas\\AppData\\Roaming\\updsvc.exe\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "netsh lists WLAN profile names only, without key=clear",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh wlan show profiles",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "netsh showing wireless interface status, no profile key requested",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\soporte01",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh wlan show interfaces",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

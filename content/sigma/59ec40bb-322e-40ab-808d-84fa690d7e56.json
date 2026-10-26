@@ -1,0 +1,120 @@
+{
+  "rule": {
+    "id": "59ec40bb-322e-40ab-808d-84fa690d7e56",
+    "title": "Nginx Core Dump",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "web/product/nginx/web_nginx_core_dump.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/web/product/nginx/web_nginx_core_dump.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1499.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso worker de Nginx terminó por la señal 6 (SIGABRT) y generó un core dump. Puede deberse a un defecto de configuración o de un módulo, o a un intento de explotación que corrompe memoria.",
+      "what_it_detects": "Líneas del error log de Nginx con el texto literal 'exited on signal 6 (core dumped)', que el proceso master escribe cuando un worker aborta y el sistema guarda un volcado de memoria.",
+      "why_it_matters": "Un SIGABRT suele indicar que se detectó corrupción de memoria o que falló una aserción. Las caídas repetidas degradan el servicio (ATT&CK T1499.004, denegación de servicio por explotación de la aplicación) y pueden indicar que se está probando una vulnerabilidad de ejecución de código, como la falla del resolver de Nginx que cita la referencia.",
+      "triage_steps": [
+        "Revise la línea del error log: host, hora, PID del master y del worker. Cuente cuántas caídas ocurrieron en ese host en la última hora y en los últimos días.",
+        "Revise el access log del mismo host de 15 minutos antes a 15 minutos después de cada caída. Busque URIs muy largas, headers malformados, métodos raros o picos de tráfico.",
+        "Identifique las IP de origen que se repiten justo antes de cada caída y busque alertas anteriores de esas IP en el WAF, IDS u otros servidores.",
+        "Si nginx.conf usa la directiva 'resolver', revise las respuestas DNS de ese momento y si el servidor DNS configurado es confiable.",
+        "Revise los cambios recientes: actualizaciones del paquete, módulos de terceros (Lua, ModSecurity, etc.) y cambios en la configuración. Anote la salida de 'nginx -V'.",
+        "Busque el archivo core en working_directory, guárdelo y obtenga un backtrace con gdb para saber qué módulo o función falló.",
+        "Revise el host en busca de actividad posterior: procesos hijos inesperados del usuario de nginx, conexiones salientes o archivos nuevos en el webroot."
+      ],
+      "false_positives": [
+        "Errores graves de configuración o de un módulo dinámico o de terceros, sobre todo justo después de un despliegue.",
+        "Bugs conocidos de la versión de Nginx instalada o de las librerías de las que depende, como OpenSSL o PCRE.",
+        "Pruebas de carga o de fuzzing autorizadas contra el servidor."
+      ],
+      "response_steps": [
+        "Guarde el core dump, el error log y el access log con acceso restringido, porque el volcado puede contener llaves TLS, cookies o credenciales.",
+        "Si las caídas coinciden con tráfico de un mismo origen, confirme el patrón y bloquee esa IP de forma temporal en el WAF o el firewall.",
+        "Si la causa es un cambio reciente, revierta la configuración o desactive el módulo responsable después de validarlo en otro entorno.",
+        "Actualice Nginx y sus módulos a una versión corregida según los avisos del proveedor y luego reinicie el servicio.",
+        "Vigile que no haya más caídas ni actividad post-explotación en el host. Si sospecha que hubo ejecución de código, escale a respuesta a incidentes."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque un aborto con core dump indica corrupción de memoria que podría explotarse y que afecta la disponibilidad, aunque a veces sea solo un defecto de configuración."
+    },
+    "en": {
+      "summary": "An Nginx worker process was killed by signal 6 (SIGABRT) and left a core dump. The cause may be a configuration or module defect, or an exploitation attempt that corrupts memory.",
+      "what_it_detects": "Nginx error log lines that contain the literal text 'exited on signal 6 (core dumped)'. The master process writes this line when a worker aborts and the system saves a memory dump.",
+      "why_it_matters": "SIGABRT usually means memory corruption was detected or an assertion failed. Repeated crashes degrade the service (ATT&CK T1499.004, denial of service through application exploitation). They can also mean someone is probing a code-execution bug, such as the Nginx resolver flaw in the rule's reference.",
+      "triage_steps": [
+        "Read the error log line: host, time, master PID and worker PID. Count how many crashes the host had in the last hour and the last few days.",
+        "Check the same host's access log from 15 minutes before to 15 minutes after each crash. Look for very long URIs, malformed headers, unusual methods or traffic spikes.",
+        "Find source IPs that show up just before every crash. Look for earlier alerts on those IPs in the WAF, IDS or on other servers.",
+        "If nginx.conf uses the 'resolver' directive, review DNS responses from that time and check that the configured DNS server is trustworthy.",
+        "Check recent changes: package upgrades, third-party modules (Lua, ModSecurity, etc.) and config edits. Record the output of 'nginx -V'.",
+        "Find the core file in working_directory, keep a copy, and get a gdb backtrace to see which module or function failed.",
+        "Check the host for later activity: unexpected child processes of the nginx user, outbound connections or new files in the webroot."
+      ],
+      "false_positives": [
+        "Serious configuration errors or a broken dynamic or third-party module, especially right after a deployment.",
+        "Known bugs in the installed Nginx version or in libraries it uses, such as OpenSSL or PCRE.",
+        "Authorized load testing or fuzzing against the server."
+      ],
+      "response_steps": [
+        "Keep copies of the core dump, error log and access log with restricted access. The dump may contain TLS keys, cookies or credentials.",
+        "If crashes line up with traffic from one source, confirm the pattern, then block that IP temporarily at the WAF or firewall.",
+        "If a recent change caused it, roll back the config or disable the faulty module after testing in another environment.",
+        "Upgrade Nginx and its modules to a fixed version from the vendor advisories, then restart the service.",
+        "Watch for more crashes and for post-exploitation activity on the host. Escalate to incident response if you suspect code execution."
+      ],
+      "severity_rationale": "High fits because an abort with a core dump points to memory corruption that may be exploitable and that hurts availability, even though it is sometimes just a configuration defect."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Nginx master logs that a worker aborted with SIGABRT and dumped core",
+        "event": {
+          "message": "2024/03/14 02:17:43 [alert] 1021#1021: worker process 487 exited on signal 6 (core dumped)",
+          "host": "web-01.example.com",
+          "log_file": "/var/log/nginx/error.log",
+          "level": "alert"
+        }
+      },
+      {
+        "description": "Repeated worker abort with core dump on a second front-end server",
+        "event": {
+          "message": "2024/03/14 02:18:05 [alert] 977#977: worker process 5132 exited on signal 6 (core dumped)",
+          "host": "web-02.example.com",
+          "log_file": "/var/log/nginx/error.log",
+          "level": "alert"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Worker crashed with SIGSEGV (signal 11): a core dump, but not the signal the rule matches",
+        "event": {
+          "message": "2024/03/14 02:20:11 [alert] 1021#1021: worker process 4990 exited on signal 11 (core dumped)",
+          "host": "web-01.example.com",
+          "log_file": "/var/log/nginx/error.log",
+          "level": "alert"
+        }
+      },
+      {
+        "description": "Worker aborted with signal 6 but core dumps are disabled, so the full keyword is missing",
+        "event": {
+          "message": "2024/03/14 02:21:37 [alert] 1021#1021: worker process 5011 exited on signal 6",
+          "host": "web-01.example.com",
+          "log_file": "/var/log/nginx/error.log",
+          "level": "alert"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

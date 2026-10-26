@@ -1,0 +1,124 @@
+{
+  "rule": {
+    "id": "83809e84-4475-4b69-bc3e-4aad8568612f",
+    "title": "MSExchange Transport Agent Installation",
+    "level": "medium",
+    "status": "test",
+    "author": "Tobias Michalski (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_msexchange_transport_agent.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_msexchange_transport_agent.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1505.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "La línea de comandos de un proceso contenía Install-TransportAgent, el cmdlet del Exchange Management Shell que registra un nuevo DLL de agente de transporte en un servidor Exchange. Ese agente procesará todos los mensajes que pasen por el transporte.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene 'Install-TransportAgent'. Normalmente significa que powershell.exe o el Exchange Management Shell ejecutó el cmdlet con los parámetros -Name, -TransportAgentFactory y -AssemblyPath.",
+      "why_it_matters": "Un agente de transporte malicioso es persistencia en software de servidor (ATT&CK T1505.002). Se carga dentro del servicio de transporte de Exchange y puede leer, modificar, copiar o bloquear correos. Sobrevive a los reinicios y es fácil que pase inadvertido.",
+      "triage_steps": [
+        "Revise el CommandLine completo y anote -Name, -TransportAgentFactory y -AssemblyPath. Verifique si la ruta del DLL es una carpeta del fabricante o un directorio temporal, de usuario o accesible desde la web.",
+        "Identifique el usuario y el ParentImage. Confirme que la cuenta es administradora de Exchange y que el proceso padre es una consola administrativa esperada, no w3wp.exe ni una web shell.",
+        "Obtenga el hash, la firma y la fecha de creación del DLL de AssemblyPath. Valide su reputación y si lo firmó un fabricante conocido.",
+        "Busque tickets de cambio o despliegues de fabricantes, como antispam, DLP, archivado o disclaimers, que coincidan con el host y la hora.",
+        "Pivotee en el mismo host en +/- 15 minutos para buscar Enable-TransportAgent, reinicios de MSExchangeTransport, archivos nuevos y otra actividad de PowerShell.",
+        "Ejecute Get-TransportAgent en el servidor y compare los agentes habilitados y su prioridad con una línea base conocida.",
+        "Busque alertas previas para este host y este usuario, en especial de web shells, IIS o acceso a credenciales."
+      ],
+      "false_positives": [
+        "Instalación o actualización legítima de agentes de transporte por productos de antispam, antivirus, DLP, journaling, firmas o archivado, con un DLL firmado en la carpeta del fabricante.",
+        "Administradores de Exchange que prueban o vuelven a desplegar agentes propios durante un mantenimiento aprobado."
+      ],
+      "response_steps": [
+        "Antes de actuar, confirme con el responsable de Exchange o con el fabricante si la instalación estaba autorizada.",
+        "Si el agente no está autorizado, ejecute Disable-TransportAgent sobre él, reinicie el transporte y aísle el servidor según su plan de continuidad de correo.",
+        "Preserve el DLL y los logs. Después de recolectar la evidencia, ejecute Uninstall-TransportAgent y elimine el ensamblado.",
+        "Investigue cómo entró el atacante, por ejemplo mediante web shells o credenciales de administrador robadas. Restablezca las cuentas afectadas y revise los correos que pudieron ser interceptados o modificados."
+      ],
+      "severity_rationale": "La severidad media es adecuada porque los fabricantes legítimos usan este cmdlet con frecuencia, pero un agente no autorizado da al atacante persistencia sigilosa y acceso total al correo en un servidor crítico."
+    },
+    "en": {
+      "summary": "A process command line contained Install-TransportAgent, the Exchange Management Shell cmdlet that registers a new transport agent DLL on an Exchange server. That agent will process every message flowing through transport.",
+      "what_it_detects": "Process creation events where CommandLine contains 'Install-TransportAgent'. This usually means powershell.exe or the Exchange Management Shell ran the cmdlet with -Name, -TransportAgentFactory and -AssemblyPath parameters.",
+      "why_it_matters": "A malicious transport agent is server software persistence (ATT&CK T1505.002). It loads inside the Exchange transport service and can read, change, copy or block email. It survives reboots and is easy to miss.",
+      "triage_steps": [
+        "Read the full CommandLine and note -Name, -TransportAgentFactory and -AssemblyPath. Check whether the DLL path is a vendor install folder or a temp, user or web-accessible directory.",
+        "Identify the user and ParentImage. Confirm the account is an Exchange administrator and that the parent is an expected admin shell, not w3wp.exe or a web shell.",
+        "Get the hash, signature and creation time of the AssemblyPath DLL. Check its reputation and whether a known vendor signed it.",
+        "Look for change tickets or vendor deployments, such as antispam, DLP, archiving or disclaimer products, that match the host and time.",
+        "Pivot on the same host within +/- 15 minutes for Enable-TransportAgent, Restart-Service MSExchangeTransport, file drops and other PowerShell activity.",
+        "Run Get-TransportAgent on the server and compare enabled agents and their priority with a known baseline.",
+        "Search for earlier alerts for this host and user, especially web shell, IIS or credential access alerts."
+      ],
+      "false_positives": [
+        "Legitimate installation or upgrade of Exchange transport agents by antispam, antivirus, DLP, journaling, signature or archiving products, with a signed DLL in the vendor folder.",
+        "Exchange administrators testing or redeploying custom agents during approved maintenance."
+      ],
+      "response_steps": [
+        "Confirm with the Exchange owner or vendor whether the installation was authorized before you act.",
+        "If the agent is unauthorized, run Disable-TransportAgent on it, restart transport and isolate the server according to your mail continuity plan.",
+        "Preserve the DLL and logs, then run Uninstall-TransportAgent and remove the assembly after you have collected evidence.",
+        "Investigate how the attacker got in, such as web shells or stolen admin credentials. Reset the affected accounts and review mail that may have been intercepted or changed."
+      ],
+      "severity_rationale": "Medium fits because legitimate vendors use this cmdlet routinely, but an unauthorized agent gives the attacker stealthy persistence and full access to mail on a critical server."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell spawned by w3wp.exe installs a transport agent from a DLL in a temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "EXCH-01.andes.example.com",
+          "User": "ANDES\\svc-exch",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Add-PSSnapin Microsoft.Exchange.Management.PowerShell.SnapIn; Install-TransportAgent -Name 'MailHealth' -TransportAgentFactory 'MailHealth.AgentFactory' -AssemblyPath 'C:\\Windows\\Temp\\mh.dll'\""
+        }
+      },
+      {
+        "description": "Administrator installs a vendor antispam agent from the Exchange Management Shell; it matches and must be validated against change records",
+        "event": {
+          "EventID": 1,
+          "Computer": "EXCH-02.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command \"install-transportagent -Name 'ExampleAntiSpam' -TransportAgentFactory 'Example.AntiSpam.Factory' -AssemblyPath 'C:\\Program Files\\ExampleVendor\\AntiSpam\\Agent.dll'\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator lists the installed transport agents with Get-TransportAgent; no installation happens",
+        "event": {
+          "EventID": 1,
+          "Computer": "EXCH-01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command \"Get-TransportAgent | Format-Table Name,Enabled,Priority\""
+        }
+      },
+      {
+        "description": "Administrator enables an already installed agent; Enable-TransportAgent does not contain the Install-TransportAgent string",
+        "event": {
+          "EventID": 1,
+          "Computer": "EXCH-02.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command \"Enable-TransportAgent -Identity 'ExampleAntiSpam'\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

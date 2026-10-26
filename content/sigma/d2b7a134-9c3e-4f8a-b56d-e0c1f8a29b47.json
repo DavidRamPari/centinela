@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "d2b7a134-9c3e-4f8a-b56d-e0c1f8a29b47",
+    "title": "Suspicious Cross-User Process Spawn",
+    "level": "medium",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_cross_user_process_spawn.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_cross_user_process_spawn.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1055",
+      "T1134"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso de escritorio simple (notepad, calc, mspaint, wordpad o write) con un usuario distinto al de su proceso padre. Esto suele indicar una prueba de escalamiento de privilegios o un proceso sacrificial para inyección.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en notepad.exe, calc.exe, mspaint.exe, wordpad.exe o write.exe y el campo User es distinto de ParentUser. Se excluyen los eventos donde alguno de los dos campos está vacío, nulo o vale '-'.",
+      "why_it_matters": "Estos binarios casi siempre se ejecutan con el mismo usuario que los lanzó. Los exploits y las pruebas de concepto, como la que cita la regla, los abren como SYSTEM u otra cuenta para confirmar que el escalamiento funcionó. También se usan como procesos sacrificiales para inyectar código (T1055) o tras robar un token (T1134).",
+      "triage_steps": [
+        "Compare User y ParentUser: un padre de usuario estándar con un hijo NT AUTHORITY\\SYSTEM o una cuenta administrativa es la señal más fuerte.",
+        "Revise ParentImage y ParentCommandLine: runas.exe o explorer.exe con credenciales explícitas apunta a algo legítimo; un ejecutable desconocido en rutas de usuario o temporales es sospechoso.",
+        "Revise IntegrityLevel, LogonId y CommandLine del proceso hijo. Un notepad o calc sin argumentos, con integridad System, encaja con una prueba de escalamiento.",
+        "Busque eventos del mismo host en una ventana de +/- 15 minutos: binarios nuevos, cambios en el registro, servicios o tareas creadas y manipulación de hives.",
+        "Inspeccione los procesos hijos y la actividad de red del binario reportado. Un notepad que abre conexiones o crea hilos remotos indica inyección.",
+        "Calcule el hash del ejecutable padre y búsquelo en su inventario y en fuentes de reputación.",
+        "Revise si hubo alertas anteriores para el mismo usuario o host y confirme con el usuario si usó RunAs."
+      ],
+      "false_positives": [
+        "Uso de RunAs o \"Ejecutar como otro usuario\" para abrir uno de estos binarios con otra cuenta, por ejemplo para editar archivos protegidos.",
+        "Herramientas de soporte remoto o de administración que abren notepad con una cuenta de servicio o administrativa.",
+        "Scripts de despliegue o pruebas de QA que lanzan calc o notepad con otra identidad."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y con el equipo de TI si el cambio de usuario fue intencional. Si fue legítimo, documéntelo y ajuste la regla con exclusiones acotadas.",
+        "Si no se explica, aísle el endpoint y obtenga un volcado de memoria del proceso hijo y del padre antes de terminarlos.",
+        "Identifique y ponga en cuarentena el binario de escalamiento. Elimine la persistencia asociada solo después de documentarla.",
+        "Restablezca las credenciales de las cuentas involucradas, aplique los parches pendientes y revise otros hosts en busca del mismo hash padre."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque el patrón es poco común y casi siempre acompaña a pruebas de escalamiento, aunque el uso legítimo de RunAs produce el mismo evento."
+    },
+    "en": {
+      "summary": "A simple desktop binary (notepad, calc, mspaint, wordpad or write) started under a different user than its parent process. This often means a privilege-escalation check or a sacrificial process used for injection.",
+      "what_it_detects": "Windows process creation events where Image ends with notepad.exe, calc.exe, mspaint.exe, wordpad.exe or write.exe and User differs from ParentUser. Events where either field is null, empty or '-' are excluded.",
+      "why_it_matters": "These binaries normally run as the same user who launched them. Exploits and proof-of-concept tools, like the one the rule references, open them as SYSTEM or another account to confirm the escalation worked. They also serve as sacrificial processes for code injection (T1055) or after token theft (T1134).",
+      "triage_steps": [
+        "Compare User and ParentUser. A standard-user parent with a NT AUTHORITY\\SYSTEM or admin child is the strongest signal.",
+        "Check ParentImage and ParentCommandLine. runas.exe or explorer.exe with explicit credentials points to legitimate use; an unknown binary in user or temp paths is suspicious.",
+        "Review the child's IntegrityLevel, LogonId and CommandLine. An argument-less notepad or calc at System integrity fits an escalation check.",
+        "Pivot on the same host within +/- 15 minutes: new binaries, registry or hive changes, new services or scheduled tasks.",
+        "Inspect child processes and network activity of the flagged binary. Network connections or remote threads from notepad suggest injection.",
+        "Hash the parent executable and check it against your inventory and reputation sources.",
+        "Look for earlier alerts on the same user or host and ask the user whether they used RunAs."
+      ],
+      "false_positives": [
+        "RunAs or 'Run as different user' opening one of these binaries under another account, for example to edit protected files.",
+        "Remote support or admin tools launching notepad under a service or admin account.",
+        "Deployment scripts or QA tests starting calc or notepad under another identity."
+      ],
+      "response_steps": [
+        "Confirm with the user and IT whether the user switch was intended. If legitimate, document it and add a narrow exclusion.",
+        "If unexplained, isolate the endpoint and capture memory of the child and parent processes before terminating them.",
+        "Identify and quarantine the escalation binary. Remove related persistence only after you document it.",
+        "Reset credentials for the involved accounts, apply missing patches and hunt for the same parent hash on other hosts."
+      ],
+      "severity_rationale": "Medium fits because the pattern is uncommon and usually comes with escalation testing, but legitimate RunAs use produces the same event."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Unknown binary in the user's temp folder, running as a standard user, spawns notepad.exe as SYSTEM",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "CommandLine": "notepad.exe",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "IntegrityLevel": "System",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\lh.exe",
+          "ParentCommandLine": "\"C:\\Users\\jperez\\AppData\\Local\\Temp\\lh.exe\"",
+          "ParentUser": "ANDES\\jperez"
+        }
+      },
+      {
+        "description": "calc.exe started under an administrative account from a cmd.exe owned by a standard user",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "Image": "C:\\Windows\\System32\\calc.exe",
+          "CommandLine": "calc",
+          "User": "ANDES\\adm-mrojas",
+          "IntegrityLevel": "High",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\ProgramData\\upd\\svc.exe",
+          "ParentUser": "ANDES\\lgomez"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "User opens notepad.exe from Explorer under their own account (User equals ParentUser)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\notepad.exe\" C:\\Users\\jperez\\Documents\\notas.txt",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "Medium",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentUser": "ANDES\\jperez"
+        }
+      },
+      {
+        "description": "mspaint.exe event where ParentUser is recorded as '-', excluded by the optional empty-user filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "Image": "C:\\Windows\\System32\\mspaint.exe",
+          "CommandLine": "mspaint.exe",
+          "User": "ANDES\\csilva",
+          "IntegrityLevel": "Medium",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentUser": "-"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,141 @@
+{
+  "rule": {
+    "id": "45a594aa-1fbd-4972-a809-ff5a99dd81b8",
+    "title": "Run PowerShell Script from ADS",
+    "level": "high",
+    "status": "test",
+    "author": "Sergey Soldatov, Kaspersky Lab, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_powershell_run_script_from_ads.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_run_script_from_ads.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1564.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso de PowerShell lanzó otro PowerShell cuya línea de comandos lee un Alternate Data Stream (ADS) con Get-Content -Stream. Es una forma conocida de ejecutar scripts ocultos dentro de archivos NTFS.",
+      "what_it_detects": "Creación de procesos donde ParentImage e Image terminan en powershell.exe o pwsh.exe y el CommandLine contiene a la vez 'Get-Content' y '-Stream', lo que indica que se lee contenido de un flujo alternativo de datos.",
+      "why_it_matters": "Los ADS permiten guardar datos dentro de un archivo NTFS sin cambiar su tamaño visible ni su contenido principal. Un atacante puede esconder ahí un script y ejecutarlo con PowerShell, y así evadir la revisión de archivos (MITRE ATT&CK T1564.004, NTFS File Attributes).",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el archivo host, el nombre del stream y si la salida se canaliza a Invoke-Expression, iex o a otro intérprete.",
+        "Compruebe si el stream es Zone.Identifier u otro conocido; los nombres arbitrarios como 'payload' o 'svc' son más sospechosos.",
+        "Obtenga el contenido del stream en el endpoint (Get-Item -Stream * y Get-Content -Stream) desde una sesión forense, sin ejecutarlo, y calcule su hash.",
+        "Analice el árbol de procesos: el padre de ParentImage, la línea de comandos del PowerShell padre y los procesos hijos creados después.",
+        "Revise el registro de PowerShell (Script Block Logging, evento 4104) en el mismo host +/- 15 minutos para ver el código que se ejecutó realmente.",
+        "Busque conexiones de red, archivos creados y cambios de persistencia (tareas programadas, claves Run, servicios) en el mismo host +/- 15 minutos.",
+        "Valide el usuario: si se trata de una cuenta administrativa, si el horario es habitual y si hay alertas anteriores para ese usuario o host."
+      ],
+      "false_positives": [
+        "Scripts administrativos o de inventario que leen el stream Zone.Identifier para revisar el origen de archivos descargados.",
+        "Herramientas forenses o de auditoría, como Get-ADS, que enumeran y leen flujos alternativos.",
+        "Software legítimo que guarda metadatos en ADS y los lee mediante scripts de PowerShell anidados."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa revisando el contenido del stream y los eventos 4104; si es legítima, documéntela y ajuste una exclusión específica.",
+        "Si es maliciosa, aísle el endpoint y termine los procesos de PowerShell involucrados.",
+        "Preserve el archivo host con su ADS (copia forense) antes de eliminar el stream con Remove-Item -Stream.",
+        "Elimine los mecanismos de persistencia hallados y busque el mismo nombre de stream o hash en otros endpoints.",
+        "Restablezca las credenciales del usuario afectado si hubo exposición y vigile el host para detectar reincidencia."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque leer un ADS desde un PowerShell anidado es poco común en la operación normal y corresponde directamente a una técnica de ocultamiento para ejecutar código."
+    },
+    "en": {
+      "summary": "A PowerShell process spawned another PowerShell whose command line reads an NTFS Alternate Data Stream (ADS) with Get-Content -Stream. This is a known way to run scripts hidden inside files.",
+      "what_it_detects": "Process creation where ParentImage and Image end in powershell.exe or pwsh.exe and CommandLine contains both 'Get-Content' and '-Stream', meaning content is read from an alternate data stream.",
+      "why_it_matters": "ADS let data live inside an NTFS file without changing its visible size or main content. Attackers hide a script there and run it with PowerShell, slipping past file reviews (MITRE ATT&CK T1564.004, NTFS File Attributes).",
+      "triage_steps": [
+        "Read the full CommandLine: identify the host file, the stream name, and whether output is piped to Invoke-Expression, iex or another interpreter.",
+        "Check whether the stream is Zone.Identifier or another known one; arbitrary names such as 'payload' or 'svc' are more suspicious.",
+        "Retrieve the stream content from the endpoint (Get-Item -Stream *, Get-Content -Stream) in a forensic session without executing it, and hash it.",
+        "Walk the process tree: the parent of ParentImage, the parent PowerShell command line, and any child processes spawned afterwards.",
+        "Review PowerShell Script Block Logging (event 4104) on the same host +/- 15 minutes to see the code that actually ran.",
+        "Look for network connections, new files and persistence changes (scheduled tasks, Run keys, services) on the same host +/- 15 minutes.",
+        "Validate the user: admin account or not, normal working hours, and earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "Admin or inventory scripts reading the Zone.Identifier stream to check where downloaded files came from.",
+        "Forensic or audit tools, such as Get-ADS, that enumerate and read alternate streams.",
+        "Legitimate software that stores metadata in ADS and reads it through nested PowerShell scripts."
+      ],
+      "response_steps": [
+        "Confirm malicious intent by reviewing the stream content and 4104 events; if legitimate, document it and add a narrow exclusion.",
+        "If malicious, isolate the endpoint and terminate the involved PowerShell processes.",
+        "Preserve the host file and its ADS (forensic copy) before removing the stream with Remove-Item -Stream.",
+        "Remove any persistence found and hunt for the same stream name or hash on other endpoints.",
+        "Reset the affected user's credentials if exposed and monitor the host for recurrence."
+      ],
+      "severity_rationale": "High fits because reading an ADS from nested PowerShell is rare in normal operations and maps directly to a hiding technique used to execute code."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Nested PowerShell reads a script from a custom ADS and pipes it to Invoke-Expression",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-05-14 13:22:41.118",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile -WindowStyle Hidden",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -ep bypass -c \"Get-Content -Path C:\\ProgramData\\notes.txt -Stream svc -Raw | Invoke-Expression\"",
+          "IntegrityLevel": "Medium",
+          "ProcessId": 6812
+        }
+      },
+      {
+        "description": "pwsh spawned by pwsh reading an ADS on a user file",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-05-14 15:03:09.502",
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "CommandLine": "pwsh.exe -c \"iex (get-content C:\\Users\\mrojas\\Documents\\budget.xlsx -stream data | Out-String)\"",
+          "IntegrityLevel": "Medium",
+          "ProcessId": 4420
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Same ADS read but launched from cmd.exe, so ParentImage does not match",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-05-14 13:40:12.004",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -c \"Get-Content -Path C:\\Users\\jperez\\Downloads\\setup.msi -Stream Zone.Identifier\"",
+          "IntegrityLevel": "Medium",
+          "ProcessId": 7120
+        }
+      },
+      {
+        "description": "Nested PowerShell lists streams with Get-Item -Stream but never calls Get-Content",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-05-14 16:11:55.731",
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -c \"Get-Item -Path D:\\Shares\\Finance\\*.docx -Stream *\"",
+          "IntegrityLevel": "High",
+          "ProcessId": 3388
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

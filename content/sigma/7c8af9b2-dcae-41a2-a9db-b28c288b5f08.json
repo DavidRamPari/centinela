@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "7c8af9b2-dcae-41a2-a9db-b28c288b5f08",
+    "title": "Suspicious IIS URL GlobalRules Rewrite Via AppCmd",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_iis_appcmd_susp_rewrite_rule.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_iis_appcmd_susp_rewrite_rule.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó appcmd.exe para modificar la sección system.webServer/rewrite/globalRules de IIS y confirmar el cambio con commit. Así se puede crear una regla global de URL Rewrite que redirija tráfico hacia un webshell.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\appcmd.exe u OriginalFileName es appcmd.exe, y CommandLine contiene a la vez 'set', 'config', 'section:system.webServer/rewrite/globalRules' y 'commit:'.",
+      "why_it_matters": "Una regla global de rewrite aplica a todos los sitios del servidor y puede reenviar URLs de apariencia legítima a un webshell oculto. Así el atacante mantiene el acceso y evade la detección (táctica Stealth, abuso de componentes del servidor web).",
+      "triage_steps": [
+        "Revise el CommandLine completo: nombre de la regla, patrón (match url), tipo de acción (Rewrite/Redirect) y URL de destino.",
+        "Identifique ParentImage y el árbol de procesos. Un padre w3wp.exe, cmd.exe lanzado por w3wp.exe o powershell.exe remoto es muy sospechoso.",
+        "Valide el User que ejecutó appcmd y si es un administrador de IIS autorizado con una ventana de cambio aprobada.",
+        "Inspeccione applicationHost.config (sección globalRules) en el host y compárelo con un respaldo o con la línea base.",
+        "Busque en las rutas de destino de la regla archivos .aspx, .ashx o .asmx recientes en los directorios web.",
+        "Revise los logs de IIS (cs-uri-stem, c-ip, cs-user-agent) en busca de solicitudes a la URL reescrita después del cambio.",
+        "Pivotee en el mismo host +/- 15 minutos: otras ejecuciones de appcmd, creación de archivos, conexiones salientes y alertas previas."
+      ],
+      "false_positives": [
+        "Administradores que agregan reglas globales de URL Rewrite legítimas (redirección HTTPS, balanceo, ARR) con appcmd.",
+        "Scripts de despliegue o gestión de configuración (DSC, Ansible, pipelines CI/CD) que configuran IIS de forma automatizada."
+      ],
+      "response_steps": [
+        "Confirme con el equipo dueño del servidor si el cambio estaba planificado y documentado.",
+        "Si no está autorizado, respalde applicationHost.config como evidencia y elimine la regla maliciosa tras verificarla.",
+        "Aísle el servidor de la red si encuentra un webshell o actividad posterior a la explotación.",
+        "Elimine los webshells encontrados después de recolectar su hash y una copia para el análisis forense.",
+        "Rote las credenciales usadas, revise el vector de entrada inicial y aplique los parches pendientes de IIS y de las aplicaciones.",
+        "Monitoree la configuración de rewrite y agregue reglas de integridad de archivos para applicationHost.config."
+      ],
+      "severity_rationale": "Medium es adecuado porque el comando es una técnica conocida de acceso a webshells, pero también es una tarea administrativa legítima que requiere contexto para confirmarse."
+    },
+    "en": {
+      "summary": "appcmd.exe was run to modify the IIS system.webServer/rewrite/globalRules section and commit the change. This can create a server-wide URL Rewrite rule that routes traffic to a webshell.",
+      "what_it_detects": "Process creation where Image ends with \\appcmd.exe or OriginalFileName is appcmd.exe, and CommandLine contains all of 'set', 'config', 'section:system.webServer/rewrite/globalRules' and 'commit:'.",
+      "why_it_matters": "A global rewrite rule applies to every site on the server and can quietly forward innocent-looking URLs to a hidden webshell. That keeps the attacker's access alive and helps it avoid detection (Stealth tactic, abuse of web server components).",
+      "triage_steps": [
+        "Read the full CommandLine: rule name, match url pattern, action type (Rewrite/Redirect) and target URL.",
+        "Check ParentImage and the process tree. A w3wp.exe parent, cmd.exe spawned by w3wp.exe, or remote PowerShell is highly suspicious.",
+        "Check whether the User who ran appcmd is an authorized IIS administrator with an approved change window.",
+        "Inspect the globalRules section of applicationHost.config on the host and compare it with a backup or the baseline.",
+        "Look for recent .aspx, .ashx or .asmx files in web directories matching the rule's target paths.",
+        "Review IIS logs (cs-uri-stem, c-ip, cs-user-agent) for requests to the rewritten URL after the change.",
+        "Pivot on the same host +/- 15 minutes: other appcmd runs, file writes, outbound connections and earlier alerts."
+      ],
+      "false_positives": [
+        "Administrators adding legitimate global URL Rewrite rules (HTTPS redirects, ARR or load balancing) with appcmd.",
+        "Deployment or configuration management scripts (DSC, Ansible, CI/CD pipelines) that configure IIS automatically."
+      ],
+      "response_steps": [
+        "Confirm with the server owners whether the change was planned and documented.",
+        "If it was not authorized, back up applicationHost.config as evidence, then remove the malicious rule once you have verified it.",
+        "Isolate the server if you find a webshell or post-exploitation activity.",
+        "Remove any webshells you find, after recording their hashes and keeping a copy for forensics.",
+        "Rotate the credentials involved, find the initial access vector and apply pending IIS and application patches.",
+        "Monitor the rewrite configuration and add file integrity monitoring for applicationHost.config."
+      ],
+      "severity_rationale": "Medium fits because attackers use this command to reach webshells, but it is also a normal admin task, so you need context to confirm it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "appcmd launched by cmd.exe under w3wp.exe adds a global rewrite rule that sends a fake image URL to an .aspx file and commits it to apphost",
+        "event": {
+          "Computer": "WEB-IIS-02",
+          "User": "IIS APPPOOL\\DefaultAppPool",
+          "Image": "C:\\Windows\\System32\\inetsrv\\appcmd.exe",
+          "OriginalFileName": "appcmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\inetsrv\\appcmd.exe set config -section:system.webServer/rewrite/globalRules /+\"[name='static-cache',patternSyntax='Wildcard',stopProcessing='True']\" /commit:apphost"
+        }
+      },
+      {
+        "description": "Renamed appcmd binary caught through OriginalFileName, setting the rewrite action of a global rule",
+        "event": {
+          "Computer": "WEB-IIS-01",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\cfg.exe",
+          "OriginalFileName": "appcmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "cfg.exe set config -section:system.webServer/rewrite/globalRules /[name='static-cache'].action.type:\"Rewrite\" /[name='static-cache'].action.url:\"/images/logo.aspx\" /commit:apphost"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin only lists the global rewrite rules (no set or commit)",
+        "event": {
+          "Computer": "WEB-IIS-01",
+          "User": "ANDES\\admin.iis",
+          "Image": "C:\\Windows\\System32\\inetsrv\\appcmd.exe",
+          "OriginalFileName": "appcmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\inetsrv\\appcmd.exe list config -section:system.webServer/rewrite/globalRules"
+        }
+      },
+      {
+        "description": "appcmd sets a site-level rewrite rule (rewrite/rules, not globalRules)",
+        "event": {
+          "Computer": "WEB-IIS-01",
+          "User": "ANDES\\admin.iis",
+          "Image": "C:\\Windows\\System32\\inetsrv\\appcmd.exe",
+          "OriginalFileName": "appcmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\inetsrv\\appcmd.exe set config \"Default Web Site\" -section:system.webServer/rewrite/rules /+\"[name='https-redirect',stopProcessing='True']\" /commit:apphost"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

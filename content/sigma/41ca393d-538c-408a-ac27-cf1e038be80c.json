@@ -1,0 +1,139 @@
+{
+  "rule": {
+    "id": "41ca393d-538c-408a-ac27-cf1e038be80c",
+    "title": "Directory Removal Via Rmdir",
+    "level": "low",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_cmd_rmdir_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmd_rmdir_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1070.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó cmd.exe (o una copia renombrada) con el comando rmdir y los modificadores /s o /q, que eliminan un directorio de forma recursiva o silenciosa. Puede ser una limpieza legítima o un intento de borrar herramientas y rastros de una intrusión.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\cmd.exe u OriginalFileName es Cmd.Exe, y CommandLine contiene 'rmdir' junto con '/s' o '/q'. No cubre el alias 'rd' ni Remove-Item de PowerShell.",
+      "why_it_matters": "Los adversarios borran directorios de staging, herramientas y salidas de comandos para reducir su huella (MITRE ATT&CK T1070.004, eliminación de archivos). Una eliminación silenciosa y recursiva puede destruir evidencia forense útil.",
+      "triage_steps": [
+        "Lea CommandLine completo: identifique la ruta borrada (Temp, ProgramData, Users\\Public, AppData) y si usa /s /q juntos.",
+        "Revise ParentImage y la línea de comandos del padre: instalador, script de despliegue, IDE o algo inusual como un documento de Office, wscript o un servicio desconocido.",
+        "Compare Image con OriginalFileName: un cmd.exe renombrado o ubicado fuera de System32 es muy sospechoso.",
+        "Identifique al usuario y el host: verifique si es una cuenta de servicio, administrador o usuario estándar, y si la actividad es habitual para ese equipo.",
+        "Busque en el mismo host, +/- 15 minutos, creación de archivos en la ruta borrada, descargas, ejecuciones de herramientas o conexiones de red previas.",
+        "Revise alertas anteriores del mismo host y usuario, especialmente borrado de logs, de shadow copies o de otros archivos.",
+        "Si hay EDR, intente recuperar el listado o los hashes de los archivos que estaban en el directorio antes del borrado."
+      ],
+      "false_positives": [
+        "Instaladores y desinstaladores que limpian sus directorios temporales.",
+        "Scripts de administración, GPO o herramientas de gestión (SCCM, Intune) que eliminan carpetas antiguas.",
+        "Herramientas de desarrollo y scripts de build (npm, compiladores, pipelines de CI) que borran carpetas de salida.",
+        "Línea de comandos con rutas con barra normal, como 'C:/src', que coinciden con '/s' sin ser un modificador."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del equipo o del script si el borrado era esperado y documente la justificación.",
+        "Si es sospechoso, preserve evidencia: imagen de memoria, MFT, USN Journal y papelera antes de que se sobrescriban.",
+        "Aísle el endpoint desde el EDR si hay otros indicadores de intrusión, como herramientas ejecutadas o movimiento lateral.",
+        "Investigue el proceso padre y su origen; elimine la persistencia y los binarios maliciosos identificados.",
+        "Restablezca las credenciales de la cuenta involucrada si se confirma el compromiso y recupere los datos legítimos desde backup."
+      ],
+      "severity_rationale": "El nivel bajo es adecuado porque rmdir /s /q es muy común en tareas legítimas y solo gana relevancia junto a otro contexto sospechoso."
+    },
+    "en": {
+      "summary": "cmd.exe (or a renamed copy) ran rmdir with the /s or /q switches, deleting a directory recursively or quietly. This may be routine cleanup or an attempt to remove intrusion tools and traces.",
+      "what_it_detects": "Windows process creation events where Image ends with \\cmd.exe or OriginalFileName is Cmd.Exe, and CommandLine contains 'rmdir' plus '/s' or '/q'. The 'rd' alias and PowerShell Remove-Item are not covered.",
+      "why_it_matters": "Adversaries delete staging folders, tools and command output to shrink their footprint (MITRE ATT&CK T1070.004, File Deletion). Quiet recursive deletion can destroy useful forensic evidence.",
+      "triage_steps": [
+        "Read the full CommandLine: note the deleted path (Temp, ProgramData, Users\\Public, AppData) and whether /s and /q are combined.",
+        "Check ParentImage and its command line: installer, deployment script or IDE, versus unusual parents like Office, wscript or an unknown service.",
+        "Compare Image with OriginalFileName; a renamed cmd.exe or one outside System32 is highly suspicious.",
+        "Identify the user and host: service account, admin or standard user, and whether this activity is normal for that machine.",
+        "On the same host within +/- 15 minutes, look for file creation in the deleted path, downloads, tool execution or network connections.",
+        "Review earlier alerts for the same host and user, especially log clearing, shadow copy deletion or other file deletion.",
+        "If EDR telemetry exists, recover the file list or hashes of what lived in the directory before deletion."
+      ],
+      "false_positives": [
+        "Installers and uninstallers cleaning up their temporary directories.",
+        "Admin scripts, GPOs or management tools (SCCM, Intune) removing old folders.",
+        "Developer tools and build scripts (npm, compilers, CI pipelines) deleting output folders.",
+        "Command lines with forward-slash paths such as 'C:/src' that match '/s' without being a switch."
+      ],
+      "response_steps": [
+        "Confirm with the host or script owner whether the deletion was expected, and document it.",
+        "If suspicious, preserve evidence first: memory image, MFT, USN Journal and Recycle Bin before they are overwritten.",
+        "Isolate the endpoint via EDR if other intrusion indicators exist, such as tool execution or lateral movement.",
+        "Investigate the parent process and its origin; remove identified persistence and malicious binaries.",
+        "Reset credentials for the involved account if compromise is confirmed and restore legitimate data from backup."
+      ],
+      "severity_rationale": "Low fits because rmdir /s /q is very common in legitimate work and matters mainly alongside other suspicious context."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe spawned by wscript quietly and recursively deleting a staging folder in ProgramData",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c rmdir /s /q \"C:\\ProgramData\\upd_cache\"",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\cl.vbs",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "Renamed cmd.exe identified by OriginalFileName running rmdir with uppercase switches",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "svchelper.exe /c rmdir /S /Q C:\\Users\\Public\\tmp01",
+          "ParentImage": "C:\\Users\\Public\\agent.exe",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "cmd.exe removing an empty directory with rmdir but without /s or /q",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c rmdir C:\\Temp\\empty_folder",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CurrentDirectory": "C:\\Temp\\"
+        }
+      },
+      {
+        "description": "PowerShell using its rmdir alias; not cmd.exe so the image selection fails",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command rmdir C:\\build\\out -Recurse -Force",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CurrentDirectory": "C:\\build\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

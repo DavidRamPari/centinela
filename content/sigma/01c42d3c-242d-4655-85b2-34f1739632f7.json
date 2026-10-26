@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "01c42d3c-242d-4655-85b2-34f1739632f7",
+    "title": "Potentially Over Permissive Permissions Granted Using Dsacls.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_dsacls_abuse_permissions.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_dsacls_abuse_permissions.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó dsacls.exe con la opción /G para otorgar permisos amplios (por ejemplo GA, GW, WD o WP) sobre un objeto de Active Directory. Puede tratarse de administración legítima o de un atacante que deja permisos ocultos para escalar privilegios o mantener persistencia.",
+      "what_it_detects": "Detecta procesos cuyo Image termina en \\dsacls.exe o cuyo OriginalFileName es DSACLS.EXE, con ' /G ' en CommandLine y alguno de estos códigos: GR, GE, GW, GA, WP o WD. La coincidencia es por subcadena y no distingue mayúsculas, así que debe confirmar el permiso real.",
+      "why_it_matters": "Con dsacls se puede otorgar GenericAll (GA), GenericWrite (GW), WriteDACL (WD) o WriteProperty (WP) sobre usuarios, grupos, OU o AdminSDHolder. Así se habilitan la toma de cuentas, la modificación de grupos privilegiados y una persistencia difícil de ver. La regla lo asigna a ATT&CK T1218 (ejecución mediante binarios firmados del sistema).",
+      "triage_steps": [
+        "Revise CommandLine e identifique el DN del objeto, la cuenta que recibe permisos y el código exacto que se otorga (GA, GW, WD, WP, GR o GE).",
+        "Determine si el objeto es sensible: AdminSDHolder, la raíz del dominio, Domain Admins, OU de servidores o cuentas con privilegios.",
+        "Verifique el usuario que ejecutó el comando y el host. Confirme si son un administrador y una estación de administración autorizados, y si existe un ticket de cambio.",
+        "Analice ParentImage y el árbol de procesos: cmd.exe o powershell.exe lanzados por Office, un navegador o un servicio web resultan sospechosos.",
+        "En los controladores de dominio, busque el evento 5136 (cambio de nTSecurityDescriptor) sobre ese objeto para confirmar que el cambio se aplicó.",
+        "Revise el mismo host y el mismo usuario en +/- 15 minutos: reconocimiento de AD (BloodHound, nltest, net group), volcado de credenciales o cambios de contraseña.",
+        "Consulte alertas previas para la cuenta beneficiaria y si después agregó miembros a grupos o restableció contraseñas."
+      ],
+      "false_positives": [
+        "Administradores que delegan permisos sobre una OU, por ejemplo a mesa de ayuda o a cuentas de servicio, durante un cambio aprobado.",
+        "Scripts de aprovisionamiento o despliegue de aplicaciones (Exchange, soluciones de respaldo) que ajustan ACL de AD.",
+        "Coincidencias accidentales, porque códigos como GR o GE aparecen dentro de nombres de cuentas o de OU."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del cambio o con el administrador si la acción estaba autorizada. Documente la evidencia antes de actuar.",
+        "Si no está autorizada, exporte la ACL actual del objeto con dsacls y, tras validarlo, quite la ACE agregada con dsacls /R.",
+        "Deshabilite o restablezca la cuenta que recibió los permisos y la que ejecutó el comando si hay indicios de compromiso.",
+        "Aísle el endpoint de origen y busque herramientas o persistencia adicionales; revise otros objetos de AD con ACE similares.",
+        "Vigile AdminSDHolder y los grupos privilegiados, y restrinja quién puede ejecutar dsacls en estaciones que no son de administración."
+      ],
+      "severity_rationale": "El nivel medium es adecuado porque dsacls es una herramienta administrativa legítima, pero otorgar permisos amplios en AD puede conducir a la toma del dominio y requiere validación."
+    },
+    "en": {
+      "summary": "dsacls.exe was run with /G to grant broad rights (such as GA, GW, WD or WP) on an Active Directory object. This may be legitimate administration, or an attacker planting hidden permissions to escalate privileges or keep persistence.",
+      "what_it_detects": "Detects processes whose Image ends with \\dsacls.exe or whose OriginalFileName is DSACLS.EXE, with ' /G ' in CommandLine plus one of GR, GE, GW, GA, WP or WD. Matching is a case-insensitive substring, so confirm the actual right granted.",
+      "why_it_matters": "dsacls can grant GenericAll, GenericWrite, WriteDACL or WriteProperty on users, groups, OUs or AdminSDHolder. Those rights enable account takeover, changes to privileged groups and stealthy persistence. The rule maps this to ATT&CK T1218 (proxy execution through signed system binaries).",
+      "triage_steps": [
+        "Parse CommandLine: find the target object DN, the trustee receiving rights and the exact right code granted.",
+        "Decide whether the target is sensitive: AdminSDHolder, the domain root, Domain Admins, server OUs or privileged accounts.",
+        "Check the executing user and host. Confirm they are an authorized admin and admin workstation, and look for a matching change ticket.",
+        "Review ParentImage and the process tree. cmd.exe or powershell.exe spawned by Office, a browser or a web service is suspicious.",
+        "On domain controllers, look for event 5136 (nTSecurityDescriptor change) on that object to confirm the change was applied.",
+        "Pivot on the same host and user within +/- 15 minutes for AD reconnaissance (BloodHound, nltest, net group), credential dumping or password resets.",
+        "Check earlier alerts for the trustee account, and whether it later added group members or reset passwords."
+      ],
+      "false_positives": [
+        "Admins delegating OU rights to helpdesk or service accounts during an approved change.",
+        "Provisioning scripts or application deployments (Exchange, backup products) that adjust AD ACLs.",
+        "Incidental matches, because codes like GR or GE can appear inside account or OU names."
+      ],
+      "response_steps": [
+        "Confirm authorization with the change owner or admin, and preserve the evidence before acting.",
+        "If unauthorized, export the object's current ACL with dsacls. Once verified, remove the added ACE with dsacls /R.",
+        "Disable or reset the trustee account, and the executing account if compromise is indicated.",
+        "Isolate the source endpoint, hunt for more tooling or persistence, and audit other AD objects for similar ACEs.",
+        "Monitor AdminSDHolder and privileged groups, and restrict dsacls use to admin workstations."
+      ],
+      "severity_rationale": "Medium fits because dsacls is a legitimate admin tool, but granting broad AD rights can lead to domain compromise and needs validation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "dsacls grants GenericAll on AdminSDHolder to a regular user, launched from PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.local",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\dsacls.exe",
+          "OriginalFileName": "DSACLS.EXE",
+          "CommandLine": "dsacls.exe \"CN=AdminSDHolder,CN=System,DC=andes,DC=local\" /G \"ANDES\\jperez:GA\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed dsacls binary (identified by OriginalFileName) grants WriteProperty on the member attribute of a server OU",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.local",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\tool.exe",
+          "OriginalFileName": "DSACLS.EXE",
+          "CommandLine": "tool.exe \"OU=Servers,DC=andes,DC=local\" /I:T /G \"ANDES\\svc-backup:WP;member\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "dsacls run only to display the ACL of an OU (no /G grant)",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-01.andes.local",
+          "User": "ANDES\\admin.lopez",
+          "Image": "C:\\Windows\\System32\\dsacls.exe",
+          "OriginalFileName": "DSACLS.EXE",
+          "CommandLine": "dsacls.exe \"OU=Workstations,DC=andes,DC=local\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "dsacls grants only Read Property (RP), which is not in the over-permissive list",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-01.andes.local",
+          "User": "ANDES\\admin.lopez",
+          "Image": "C:\\Windows\\System32\\dsacls.exe",
+          "OriginalFileName": "DSACLS.EXE",
+          "CommandLine": "dsacls.exe \"OU=Workstations,DC=andes,DC=local\" /G \"ANDES\\helpdesk:RP\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

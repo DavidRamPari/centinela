@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "77946e79-97f1-45a2-84b4-f37b5c0d8682",
+    "title": "Suspicious Registry Modification From ADS Via Regini.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Eli Salem, Sander Wiebing, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_regini_ads.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_regini_ads.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1112"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó regini.exe con una línea de comandos que apunta a un alternate data stream (ADS), por ejemplo archivo.txt:oculto.ini. Esto suele indicar que alguien modifica el registro con un script oculto dentro de otro archivo.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\regini.exe u OriginalFileName es REGINI.EXE, y CommandLine contiene dos puntos seguidos de un carácter que no es espacio ni barra invertida (regex ':[^ \\\\]'). Ese patrón corresponde a la sintaxis archivo:stream de un ADS y no a una ruta de unidad como C:\\.",
+      "why_it_matters": "Regini.exe es un binario firmado de Windows que aplica cambios de registro desde un archivo de script. Si ese script se lee desde un ADS, el contenido queda oculto al listar directorios. Así se puede lograr persistencia o desactivar defensas mediante cambios de registro (ATT&CK T1112, Modify Registry) sin dejar un .ini visible.",
+      "triage_steps": [
+        "Revise CommandLine e identifique el archivo anfitrión y el nombre del stream. Confirme Image y OriginalFileName para detectar un binario renombrado.",
+        "Examine ParentImage y la cadena de procesos padre. Desconfíe de shells, scripts de Office, wscript, mshta o PowerShell que lancen regini.exe.",
+        "Obtenga el contenido del ADS con Get-Item -Stream * y Get-Content -Stream sobre el archivo anfitrión, y documente las claves y los valores que define.",
+        "Busque eventos de registro (Sysmon 12/13) del mismo host en una ventana de ±15 minutos, con foco en claves Run, Services, Winlogon, IFEO y políticas de Defender.",
+        "Identifique quién creó el stream (Sysmon 15, FileCreateStreamHash) y desde qué proceso. Si hay descarga previa, revise la conexión de red asociada.",
+        "Verifique el usuario de la ejecución, si tiene privilegios administrativos y si es habitual que use herramientas de administración en ese equipo.",
+        "Busque alertas previas del mismo host o usuario y otras ejecuciones de regini.exe con ADS en el entorno."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos. Es poco común que un script legítimo de administración guarde la configuración de regini en un ADS.",
+        "Herramientas internas de despliegue o empaquetado que usen streams por diseño. Valídelas con el equipo responsable antes de excluirlas."
+      ],
+      "response_steps": [
+        "Confirme la actividad con el dueño del equipo o del usuario. Si no hay justificación, trate el caso como incidente.",
+        "Aísle el endpoint si las claves modificadas implican persistencia o deshabilitan controles de seguridad.",
+        "Preserve el archivo anfitrión y su ADS (copie el stream y calcule el hash) antes de eliminar nada.",
+        "Revierta los cambios de registro identificados a partir de una línea base o un respaldo verificado. Luego elimine el stream malicioso.",
+        "Investigue el vector inicial, restablezca las credenciales comprometidas y busque el mismo artefacto en otros hosts."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque leer un script de regini desde un ADS casi no tiene uso legítimo y combina ocultamiento con modificación directa del registro."
+    },
+    "en": {
+      "summary": "regini.exe ran with a command line that points to an alternate data stream (ADS), such as file.txt:hidden.ini. This usually means someone is changing the registry with a script hidden inside another file.",
+      "what_it_detects": "Process creation where Image ends with \\regini.exe or OriginalFileName is REGINI.EXE, and CommandLine contains a colon followed by any character other than a space or backslash (regex ':[^ \\\\]'). That pattern matches the file:stream syntax of an ADS rather than a drive path such as C:\\.",
+      "why_it_matters": "Regini.exe is a signed Windows binary that applies registry changes from a script file. When it reads that script from an ADS, the content does not show up in directory listings. Attackers can use this for persistence or to turn off defenses through registry changes (ATT&CK T1112, Modify Registry) without leaving a visible .ini file.",
+      "triage_steps": [
+        "Read CommandLine and identify the host file and the stream name. Check Image against OriginalFileName to spot a renamed binary.",
+        "Review ParentImage and the parent process chain. Be suspicious of shells, Office, wscript, mshta or PowerShell launching regini.exe.",
+        "Pull the ADS content with Get-Item -Stream * and Get-Content -Stream on the host file, and record the keys and values it sets.",
+        "Search registry events (Sysmon 12/13) on the same host within ±15 minutes, focusing on Run, Services, Winlogon, IFEO and Defender policy keys.",
+        "Find out which process created the stream (Sysmon 15, FileCreateStreamHash). If a download came before it, check the related network connection.",
+        "Check the executing user, whether it has admin rights, and whether it normally uses admin tooling on this host.",
+        "Look for earlier alerts on the same host or user, and for other regini.exe ADS executions across the environment."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. Legitimate admin scripts rarely keep regini input in an ADS.",
+        "Internal deployment or packaging tools that use streams by design. Confirm with the owning team before you add an exclusion."
+      ],
+      "response_steps": [
+        "Confirm the activity with the host or user owner. If nobody can justify it, treat it as an incident.",
+        "Isolate the endpoint if the modified keys give persistence or disable security controls.",
+        "Preserve the host file and its ADS (copy the stream and hash it) before you delete anything.",
+        "Revert the identified registry changes from a verified baseline or backup, then remove the malicious stream.",
+        "Investigate the initial vector, reset any compromised credentials and hunt for the same artifact on other hosts."
+      ],
+      "severity_rationale": "High fits because reading regini input from an ADS has almost no legitimate use, and it pairs concealment with direct registry modification."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "regini.exe imports registry script from an ADS attached to a text file",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\regini.exe",
+          "OriginalFileName": "REGINI.EXE",
+          "CommandLine": "regini.exe C:\\Users\\Public\\notes.txt:keys.ini",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c regini.exe C:\\Users\\Public\\notes.txt:keys.ini"
+        }
+      },
+      {
+        "description": "Renamed regini binary (matched by OriginalFileName) reading a stream via relative path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\cfgtool.exe",
+          "OriginalFileName": "REGINI.EXE",
+          "CommandLine": "cfgtool.exe readme.log:settings.dat",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate regini.exe use with a normal .ini file on disk; the only colon is followed by a backslash",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\regini.exe",
+          "OriginalFileName": "REGINI.EXE",
+          "CommandLine": "regini.exe C:\\AdminScripts\\perms.ini",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "reg.exe importing from a stream-like path; not regini, so selection_img fails",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe import C:\\Users\\Public\\notes.txt:keys.reg",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "rule": {
+    "id": "df1f26d3-bea7-4700-9ea2-ad3e990cf90e",
+    "title": "Node Process Executions",
+    "level": "medium",
+    "status": "test",
+    "author": "Max Altgelt (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_node_adobe_creative_cloud_abuse.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_node_adobe_creative_cloud_abuse.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.007",
+      "T1127"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "El runtime de Node.js incluido en Adobe Creative Cloud Experience ejecutó algo distinto de los recursos JavaScript propios de Adobe. Puede indicar el uso de un binario firmado y confiable como proxy para ejecutar scripts maliciosos.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en '\\Adobe Creative Cloud Experience\\libs\\node.exe' y CommandLine no contiene 'Adobe Creative Cloud Experience\\js', la carpeta de los archivos JS legítimos de Creative Cloud.",
+      "why_it_matters": "Un atacante puede abusar de una utilidad de desarrollo firmada para ejecutar código sin ser detectado (T1127, Trusted Developer Utilities Proxy Execution) y ejecutar JavaScript (T1059.007) para descargar payloads, ejecutar comandos o persistir bajo un proceso de un proveedor confiable.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique la ruta del script o código inline (-e, --eval, -p) y si apunta a rutas escribibles como AppData, Temp o Downloads.",
+        "Obtenga el script referenciado, calcule su hash y revise su contenido: conexiones de red, uso de child_process, ofuscación o escritura de archivos.",
+        "Verifique ParentImage y su línea de comandos; se espera un actualizador o servicio de Adobe, no cmd.exe, powershell.exe, wscript.exe, Office o un navegador.",
+        "Liste los procesos hijos de node.exe y las conexiones de red del mismo host en una ventana de +/- 15 minutos.",
+        "Confirme el usuario y si Creative Cloud está instalado y se usa legítimamente en ese equipo.",
+        "Busque el mismo CommandLine o hash del script en otros endpoints y revise alertas previas del host y del usuario."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; una nueva versión de Creative Cloud podría cargar JS desde una ruta no cubierta por el filtro.",
+        "Un desarrollador o administrador que ejecuta intencionalmente un script con el node.exe incluido para pruebas o diagnóstico."
+      ],
+      "response_steps": [
+        "Valide con el usuario y el equipo de TI si la ejecución era esperada; preserve el script y el árbol de procesos como evidencia.",
+        "Si es malicioso, aísle el endpoint y finalice node.exe y sus procesos hijos.",
+        "Elimine los scripts maliciosos y la persistencia identificada (claves Run, tareas programadas, inicio); bloquee hashes y dominios de C2.",
+        "Restablezca credenciales del usuario si el script pudo acceder a ellas y reinstale o restaure el equipo si no se garantiza su integridad."
+      ],
+      "severity_rationale": "Nivel medio porque la ruta es inusual e indica posible ejecución por proxy, pero puede corresponder a actividad administrativa o del proveedor que requiere contexto."
+    },
+    "en": {
+      "summary": "The Node.js runtime bundled with Adobe Creative Cloud Experience ran something other than Adobe's own JavaScript resources. This can mean a trusted, signed binary is being used as a proxy to run attacker scripts.",
+      "what_it_detects": "Process creation events where Image ends with '\\Adobe Creative Cloud Experience\\libs\\node.exe' and CommandLine does not contain 'Adobe Creative Cloud Experience\\js', the folder that holds Creative Cloud's legitimate JS files.",
+      "why_it_matters": "Attackers can abuse a signed developer utility to run code without being noticed (T1127, Trusted Developer Utilities Proxy Execution). Here it runs JavaScript (T1059.007), which can download payloads, run commands or persist under a trusted vendor's process.",
+      "triage_steps": [
+        "Read the full CommandLine: find the script path or inline code (-e, --eval, -p) and note whether it points to user-writable folders like AppData, Temp or Downloads.",
+        "Collect the referenced script, hash it, and review its contents for network calls, child_process usage, obfuscation or file writes.",
+        "Check ParentImage and the parent command line. Adobe's own updater or service is expected; cmd.exe, powershell.exe, wscript.exe, Office or a browser are suspicious.",
+        "List child processes of node.exe and network connections from the same host within +/- 15 minutes.",
+        "Confirm the user and whether Creative Cloud is legitimately installed and used on this host.",
+        "Search for the same CommandLine or script hash on other endpoints, and check earlier alerts for this host and user."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. Possible causes: a new Creative Cloud version that loads JS from a path the filter misses.",
+        "A developer or admin deliberately running a script with the bundled node.exe for testing or troubleshooting."
+      ],
+      "response_steps": [
+        "Verify with the user and the IT team whether the execution was expected. Keep the script and its process tree as evidence.",
+        "If it looks malicious, isolate the endpoint and stop the node.exe process and any children.",
+        "Remove the malicious scripts and any persistence you find (Run keys, scheduled tasks, startup items). Block the hashes and any C2 domains.",
+        "Reset the user's credentials if the script could reach credential stores. Reimage or restore the host if you cannot confirm it is clean."
+      ],
+      "severity_rationale": "Medium fits because this path is unusual and points to proxy execution, but it may also be benign admin or vendor activity that needs context."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Bundled Adobe node.exe running a script from the user's Temp folder, spawned by PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Common Files\\Adobe\\Adobe Desktop Common\\Adobe Creative Cloud Experience\\libs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\Common Files\\Adobe\\Adobe Desktop Common\\Adobe Creative Cloud Experience\\libs\\node.exe\" C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.js",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden -c Start-Process node.exe"
+        }
+      },
+      {
+        "description": "Bundled node.exe evaluating inline JavaScript launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files (x86)\\Adobe\\Adobe Creative Cloud Experience\\libs\\node.exe",
+          "CommandLine": "node.exe -e \"require('child_process').exec('whoami')\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Creative Cloud execution of its own JS resources (excluded by filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Common Files\\Adobe\\Adobe Desktop Common\\Adobe Creative Cloud Experience\\libs\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\Common Files\\Adobe\\Adobe Desktop Common\\Adobe Creative Cloud Experience\\libs\\node.exe\" \"C:\\Program Files\\Common Files\\Adobe\\Adobe Desktop Common\\Adobe Creative Cloud Experience\\js\\main.js\"",
+          "ParentImage": "C:\\Program Files\\Adobe\\Adobe Creative Cloud\\ACC\\Creative Cloud.exe"
+        }
+      },
+      {
+        "description": "Standard Node.js installation running a developer script (Image path does not match)",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "node.exe C:\\Users\\lgomez\\projects\\app\\server.js",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

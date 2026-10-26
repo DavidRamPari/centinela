@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "cd219ff3-fa99-45d4-8380-a7d15116c6dc",
+    "title": "New User Created Via Net.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Endgame, JHasenbusch (adapted to Sigma for oscd.community)",
+    "path": "windows/process_creation/proc_creation_win_net_user_add.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_net_user_add.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1136.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó net.exe o net1.exe con una línea de comandos que contiene 'user' y 'add', lo que normalmente indica la creación de una cuenta local. Puede ser administración legítima o un atacante que crea una cuenta para mantener persistencia.",
+      "what_it_detects": "Eventos de creación de procesos en Windows en los que Image termina en \\net.exe o \\net1.exe (u OriginalFileName es net.exe/net1.exe) y CommandLine contiene a la vez 'user' y 'add', por ejemplo 'net user nombre clave /add'.",
+      "why_it_matters": "Crear cuentas locales es una forma sencilla de persistencia (MITRE ATT&CK T1136.001, Create Account: Local Account). Un atacante con privilegios puede crear un usuario oculto o de nombre engañoso y luego agregarlo a Administradores o a Usuarios de Escritorio remoto.",
+      "triage_steps": [
+        "Revise CommandLine: nombre de la cuenta creada, si incluye contraseña en texto claro, el modificador /domain y si el nombre imita cuentas de servicio o de soporte.",
+        "Identifique al usuario que ejecutó el proceso y valide si es administrador autorizado del host o si hay un ticket de cambio asociado.",
+        "Examine ParentImage y la cadena de procesos: cmd.exe o powershell.exe lanzados por Office, navegador, servicio web o herramienta de acceso remoto es sospechoso.",
+        "Tenga en cuenta que net.exe genera un net1.exe hijo; agrupe ambas alertas como un solo evento.",
+        "Busque en el mismo host, +/- 15 minutos, comandos 'net localgroup ... /add', cambios en RDP, reglas de firewall o herramientas de volcado de credenciales.",
+        "Correlacione con el evento de seguridad 4720 (cuenta creada) y 4732 (agregada a grupo local) para confirmar la creación real.",
+        "Revise inicios de sesión posteriores (4624) de la nueva cuenta y alertas previas para el mismo host o usuario."
+      ],
+      "false_positives": [
+        "Creación legítima de usuarios por administradores de TI o personal de soporte.",
+        "Scripts de aprovisionamiento, imágenes de equipos o herramientas de despliegue que crean cuentas locales.",
+        "Instaladores de software que crean cuentas de servicio locales.",
+        "Pruebas de seguridad autorizadas, por ejemplo Atomic Red Team."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host o el equipo de TI si la creación de la cuenta fue autorizada.",
+        "Si no está autorizada, deshabilite la cuenta (no la elimine aún) y preserve los registros para la investigación.",
+        "Aísle el endpoint si hay indicios de compromiso adicional, como ejecución desde procesos inusuales o movimiento lateral.",
+        "Identifique el acceso inicial, restablezca credenciales comprometidas y elimine otros mecanismos de persistencia.",
+        "Elimine la cuenta tras documentarla y revise otros hosts en busca de la misma cuenta o comando."
+      ],
+      "severity_rationale": "Nivel medio porque la creación de cuentas locales es habitual en administración, pero también es una técnica de persistencia directa que requiere validación."
+    },
+    "en": {
+      "summary": "net.exe or net1.exe ran with a command line containing both 'user' and 'add', which normally means a local account was created. This may be routine administration or an attacker creating an account for persistence.",
+      "what_it_detects": "Windows process creation events where Image ends with \\net.exe or \\net1.exe (or OriginalFileName is net.exe/net1.exe) and CommandLine contains both 'user' and 'add', e.g. 'net user name password /add'.",
+      "why_it_matters": "Creating local accounts is a simple persistence method (MITRE ATT&CK T1136.001, Create Account: Local Account). A privileged attacker can create a hidden or misleadingly named user and add it to Administrators or Remote Desktop Users.",
+      "triage_steps": [
+        "Read CommandLine: the account name, any cleartext password, the /domain switch, and whether the name mimics service or support accounts.",
+        "Identify the executing user and confirm they administer this host or that a change ticket exists.",
+        "Check ParentImage and the process tree: cmd.exe or powershell.exe spawned by Office, a browser, a web server or remote access tool is suspicious.",
+        "Remember net.exe spawns a child net1.exe; group both alerts as one event.",
+        "On the same host within +/- 15 minutes, look for 'net localgroup ... /add', RDP or firewall changes, or credential dumping tools.",
+        "Correlate with Security event 4720 (account created) and 4732 (added to local group) to confirm the account exists.",
+        "Review later logons (4624) by the new account and earlier alerts for the same host or user."
+      ],
+      "false_positives": [
+        "Legitimate user creation by IT administrators or help desk staff.",
+        "Provisioning scripts, imaging or deployment tools that create local accounts.",
+        "Software installers creating local service accounts.",
+        "Authorized security testing such as Atomic Red Team."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT team whether the account creation was authorized.",
+        "If unauthorized, disable the account (do not delete yet) and preserve logs for the investigation.",
+        "Isolate the endpoint if there are signs of wider compromise, such as unusual parent processes or lateral movement.",
+        "Find the initial access, reset compromised credentials and remove other persistence mechanisms.",
+        "Delete the account after documenting it and hunt other hosts for the same account or command."
+      ],
+      "severity_rationale": "Medium fits because local account creation is common in administration but is also a direct persistence technique that needs validation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe launched by a suspicious parent runs net.exe to create a local account with a password.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net user support_svc Winter2024! /add",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c net user support_svc Winter2024! /add"
+        }
+      },
+      {
+        "description": "Child net1.exe spawned by net.exe for the same user creation.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net1.exe",
+          "OriginalFileName": "net1.exe",
+          "CommandLine": "C:\\Windows\\system32\\net1 user support_svc Winter2024! /add",
+          "ParentImage": "C:\\Windows\\System32\\net.exe",
+          "ParentCommandLine": "net user support_svc Winter2024! /add"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "net.exe used only to query a user account; no 'add' in the command line.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net user jperez /domain",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "net.exe adds an existing account to a local group; contains 'add' but not 'user'.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net localgroup Administrators ANDES\\mlopez /add",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

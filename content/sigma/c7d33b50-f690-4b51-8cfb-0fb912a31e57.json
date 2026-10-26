@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "c7d33b50-f690-4b51-8cfb-0fb912a31e57",
+    "title": "HackTool - SharpDPAPI Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_sharp_dpapi_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_sharp_dpapi_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1134.001",
+      "T1134.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó SharpDPAPI, o un binario con su línea de comandos característica, en un endpoint Windows. Suele indicar intento de descifrar secretos protegidos por DPAPI (credenciales, vaults, certificados, claves maestras).",
+      "what_it_detects": "Creación de procesos cuyo Image termina en \\SharpDPAPI.exe u OriginalFileName es SharpDPAPI.exe, o cuyo CommandLine combina un comando de SharpDPAPI (masterkeys, credentials, vaults, rdg, keepass, certificates, blob, backupkey) con un GUID {…}: o flags como /pvk:, /password:, /mkfile:, /server:, /machine o /unprotect.",
+      "why_it_matters": "SharpDPAPI es un port en C# de funciones DPAPI de Mimikatz. Permite extraer contraseñas guardadas, claves RDP/KeePass y certificados, e incluso la clave de respaldo DPAPI del dominio. La regla lo etiqueta como manipulación de tokens (T1134.001/.003).",
+      "triage_steps": [
+        "Revise Image, OriginalFileName, CommandLine, usuario y hash; confirme si es SharpDPAPI o un binario renombrado (ruta inusual como C:\\ProgramData o C:\\Users\\Public).",
+        "Identifique el comando usado: backupkey o /server: implica contacto con un controlador de dominio; /pvk: indica que el atacante ya posee la clave de respaldo del dominio.",
+        "Analice ParentImage y la cadena de procesos: shells, PowerShell, rundll32 o agentes de C2 como padre aumentan la sospecha.",
+        "Pivote en el mismo host ±15 minutos: ejecución en memoria, acceso a LSASS, otras herramientas de GhostPack (Rubeus, Seatbelt), archivos .pvk o salidas de texto creadas.",
+        "Verifique si el usuario tiene privilegios administrativos o de dominio y busque inicios de sesión del mismo usuario en otros hosts.",
+        "Consulte alertas previas para el host y el usuario, y busque el mismo hash o CommandLine en el resto del parque."
+      ],
+      "false_positives": [
+        "Ejercicios autorizados de red team o pruebas de penetración con alcance documentado.",
+        "Investigaciones forenses o de respuesta a incidentes que descifran blobs DPAPI de forma controlada."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host o el equipo de red team si la ejecución estaba autorizada.",
+        "Si no lo estaba, aísle el endpoint, preserve el binario, la memoria y las salidas generadas.",
+        "Restablezca las credenciales de los usuarios afectados, credenciales guardadas, claves RDP/KeePass y revoque los certificados expuestos.",
+        "Si se usó backupkey o /pvk:, escale como compromiso de dominio; la rotación de la clave de respaldo DPAPI requiere un plan formal."
+      ],
+      "severity_rationale": "Nivel alto porque es una herramienta ofensiva conocida con escaso uso legítimo y cuyo éxito expone secretos de usuarios o del dominio."
+    },
+    "en": {
+      "summary": "SharpDPAPI, or a binary using its distinctive command line, ran on a Windows endpoint. This usually means an attempt to decrypt DPAPI-protected secrets such as credentials, vaults, certificates or masterkeys.",
+      "what_it_detects": "Process creation where Image ends with \\SharpDPAPI.exe or OriginalFileName is SharpDPAPI.exe, or where CommandLine pairs a SharpDPAPI command (masterkeys, credentials, vaults, rdg, keepass, certificates, blob, backupkey) with a {GUID}: or flags like /pvk:, /password:, /mkfile:, /server:, /machine or /unprotect.",
+      "why_it_matters": "SharpDPAPI is a C# port of Mimikatz DPAPI features. It can recover saved passwords, RDP/KeePass secrets and certificates, and even the domain DPAPI backup key. The rule tags it as access token manipulation (T1134.001/.003).",
+      "triage_steps": [
+        "Review Image, OriginalFileName, CommandLine, user and hash; determine whether it is SharpDPAPI or a renamed binary in an unusual path such as C:\\ProgramData or C:\\Users\\Public.",
+        "Identify the command: backupkey or /server: means a domain controller was contacted; /pvk: means the attacker already holds the domain backup key.",
+        "Inspect ParentImage and the process tree: shells, PowerShell, rundll32 or C2 agents as parent raise suspicion.",
+        "Pivot on the same host +/- 15 minutes: in-memory execution, LSASS access, other GhostPack tools (Rubeus, Seatbelt), new .pvk or text output files.",
+        "Check whether the user holds local admin or domain privileges, and look for logons by the same user on other hosts.",
+        "Search earlier alerts for the host and user, and hunt for the same hash or CommandLine across the fleet."
+      ],
+      "false_positives": [
+        "Authorized red team or penetration testing with documented scope.",
+        "Forensic or incident response work decrypting DPAPI blobs in a controlled way."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or red team whether the execution was authorized.",
+        "If not, isolate the endpoint and preserve the binary, memory and any output files.",
+        "Reset affected user passwords and saved credentials, rotate RDP/KeePass secrets and revoke exposed certificates.",
+        "If backupkey or /pvk: was used, escalate as a domain compromise; rotating the DPAPI backup key needs a formal plan."
+      ],
+      "severity_rationale": "High fits because this is a known offensive tool with little legitimate use, and success exposes user or domain secrets."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "SharpDPAPI executed under its original name from a public folder running triage",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\SharpDPAPI.exe",
+          "OriginalFileName": "SharpDPAPI.exe",
+          "CommandLine": "C:\\Users\\Public\\SharpDPAPI.exe triage",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\SharpDPAPI.exe triage"
+        }
+      },
+      {
+        "description": "Renamed binary without SharpDPAPI metadata decrypting credentials with a domain backup key",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svchelper.exe",
+          "OriginalFileName": "svchelper.exe",
+          "CommandLine": "C:\\ProgramData\\svchelper.exe credentials /pvk:C:\\ProgramData\\key.pvk",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate MSI install whose path contains 'vaults' but not as a space-delimited command, and no SharpDPAPI flags",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\msiexec.exe",
+          "OriginalFileName": "msiexec.exe",
+          "CommandLine": "C:\\Windows\\System32\\msiexec.exe /i C:\\Temp\\vaults-client.msi /quiet",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Backup utility using /target: and /machine flags but no SharpDPAPI command keyword",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Tools\\backup.exe",
+          "OriginalFileName": "backup.exe",
+          "CommandLine": "C:\\Tools\\backup.exe /target:D:\\Backups /machine",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "16c37b52-b141-42a5-a3ea-bbe098444397",
+    "title": "Suspect Svchost Activity",
+    "level": "high",
+    "status": "test",
+    "author": "David Burkett, @signalblur",
+    "path": "windows/process_creation/proc_creation_win_svchost_execution_with_no_cli_flags.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_svchost_execution_with_no_cli_flags.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1055"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso svchost.exe cuya línea de comandos termina en svchost.exe, sin el argumento -k habitual. Esto suele indicar que otro proceso lo lanzó para inyectarle código.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\svchost.exe y CommandLine termina en 'svchost.exe', es decir, sin argumentos. Excluye eventos cuyo ParentImage es rpcnet.exe o rpcnetp.exe, y eventos sin valor en CommandLine.",
+      "why_it_matters": "El svchost.exe legítimo lo inicia services.exe con '-k <grupo>'. Si aparece sin argumentos, lo más probable es que sea un proceso hueco usado para inyección de código (ATT&CK T1055). Así el malware se oculta tras un binario de confianza y puede heredar privilegios.",
+      "triage_steps": [
+        "Revise ParentImage y la línea de comandos del padre. En condiciones normales el padre es services.exe. Desconfíe de padres en rutas de usuario, Temp, ProgramData o de intérpretes como powershell.exe o rundll32.exe.",
+        "Confirme que Image sea exactamente C:\\Windows\\System32\\svchost.exe o SysWOW64. Calcule el hash y verifique la firma de Microsoft.",
+        "Revise el usuario y el nivel de integridad del proceso. Si svchost corre en el contexto de un usuario interactivo, es muy sospechoso.",
+        "Busque conexiones de red, consultas DNS y procesos hijos de ese svchost.exe en el mismo host, dentro de +/- 15 minutos.",
+        "Busque eventos de acceso a memoria o hilos remotos (Sysmon 8 y 10) desde el padre hacia el svchost.exe.",
+        "Revise si hubo alertas anteriores para el mismo host o usuario, y si el hash del padre aparece en otros endpoints."
+      ],
+      "false_positives": [
+        "Computrace/LoJack (rpcnet.exe, rpcnetp.exe) lanza svchost sin argumentos. La regla ya lo filtra, pero puede aparecer con otro nombre de padre.",
+        "Algún software antiguo de gestión o de seguridad que inicia svchost sin argumentos. Valídelo con el área de TI antes de excluirlo."
+      ],
+      "response_steps": [
+        "Verifique el padre y la actividad de red antes de actuar. Conserve un volcado de memoria del svchost.exe sospechoso y de su padre.",
+        "Si se confirma la inyección, aísle el endpoint con el EDR y bloquee el hash del binario padre.",
+        "Elimine el binario padre y su mecanismo de persistencia (servicios, tareas programadas, claves Run). Restablezca las credenciales del usuario afectado.",
+        "Busque el mismo hash del padre o el mismo patrón en toda la flota. Restaure el equipo desde una imagen confiable si hay dudas sobre su integridad."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque un svchost.exe sin argumentos casi nunca es legítimo y suele señalar inyección de código activa."
+    },
+    "en": {
+      "summary": "A svchost.exe process started with a command line that ends in svchost.exe, without the usual -k argument. This usually means another process launched it to inject code into it.",
+      "what_it_detects": "Windows process creation events where Image ends with \\svchost.exe and CommandLine ends with 'svchost.exe', meaning no arguments. Events whose ParentImage is rpcnet.exe or rpcnetp.exe are excluded, as are events with no CommandLine value.",
+      "why_it_matters": "services.exe starts legitimate svchost.exe with '-k <group>'. A svchost with no arguments is likely a hollow host for process injection (ATT&CK T1055). Malware uses it to hide behind a trusted binary and may inherit its privileges.",
+      "triage_steps": [
+        "Check ParentImage and the parent's command line. Normally the parent is services.exe. Be suspicious of parents in user profiles, Temp or ProgramData, and of interpreters such as powershell.exe or rundll32.exe.",
+        "Confirm Image is exactly C:\\Windows\\System32\\svchost.exe or the SysWOW64 copy. Hash it and verify the Microsoft signature.",
+        "Check the process user and integrity level. svchost running as an interactive user is highly suspicious.",
+        "On the same host within +/- 15 minutes, look for network connections, DNS queries and child processes of this svchost.exe.",
+        "Look for memory access or remote thread events (Sysmon 10 and 8) from the parent to the svchost.exe.",
+        "Check for earlier alerts on the same host or user, and whether the parent's hash appears on other endpoints."
+      ],
+      "false_positives": [
+        "Computrace/LoJack (rpcnet.exe, rpcnetp.exe) launches svchost without arguments. The rule already filters it, but it may show up under a renamed parent.",
+        "Some legacy management or security software starts svchost without arguments. Confirm with IT before adding an exclusion."
+      ],
+      "response_steps": [
+        "Check the parent and the network activity before acting. Capture a memory dump of the suspicious svchost.exe and its parent.",
+        "If injection is confirmed, isolate the endpoint with EDR and block the parent binary's hash.",
+        "Remove the parent binary and its persistence (services, scheduled tasks, Run keys). Reset the affected user's credentials.",
+        "Hunt fleet-wide for the parent's hash and the same pattern. Reimage the host if its integrity is in doubt."
+      ],
+      "severity_rationale": "High fits because svchost.exe without arguments is almost never legitimate and usually points to active code injection."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "svchost.exe spawned without arguments by an unsigned binary in the user's AppData folder.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "C:\\Windows\\System32\\svchost.exe",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\updater.exe",
+          "ParentCommandLine": "C:\\Users\\jperez\\AppData\\Local\\Temp\\updater.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Bare svchost.exe command line launched from rundll32.exe.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Windows\\SysWOW64\\svchost.exe",
+          "CommandLine": "svchost.exe",
+          "ParentImage": "C:\\Windows\\System32\\rundll32.exe",
+          "ParentCommandLine": "rundll32.exe C:\\ProgramData\\cache.dat,Start",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate service host started by services.exe with the -k argument.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "svchost.exe without arguments spawned by Computrace rpcnetp.exe, which the filter excludes.",
+        "event": {
+          "EventID": 1,
+          "Computer": "LT-0033.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "C:\\Windows\\System32\\svchost.exe",
+          "ParentImage": "C:\\Windows\\System32\\rpcnetp.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

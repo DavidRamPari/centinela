@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "d65aee4d-2292-4cea-b832-83accd6cfa43",
+    "title": "Arbitrary Binary Execution Using GUP Utility",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_gup_arbitrary_binary_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_gup_arbitrary_binary_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso gup.exe (el actualizador de Notepad++) que no está en la carpeta \\Notepad++\\updater\\ inició explorer.exe con una línea de comandos que no abre notepad++.exe. Puede ser abuso de GUP para lanzar binarios o comandos arbitrarios.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage termina en \\gup.exe e Image termina en \\explorer.exe. Se excluyen los casos en que CommandLine contiene \\Notepad++\\notepad++.exe, en que ParentImage está en \\Notepad++\\updater\\ o en que CommandLine es nulo.",
+      "why_it_matters": "GUP es un binario legítimo y firmado. Un atacante puede copiarlo a otra ruta y usarlo para que explorer.exe ejecute un payload, lo que oculta el origen real de la ejecución y evade controles basados en el proceso padre. La regla pertenece a la táctica Execution de ATT&CK.",
+      "triage_steps": [
+        "Revise ParentImage: confirme la ruta de gup.exe y si está fuera de Program Files. Obtenga su hash y su firma y compárelos con el GUP oficial de Notepad++.",
+        "Analice CommandLine de explorer.exe: identifique qué archivo, URL o comando recibe como argumento y desde qué ruta (Temp, Downloads, AppData, recursos compartidos).",
+        "Obtenga el hash del archivo referenciado en CommandLine y consulte su reputación, firma y fecha de creación en el endpoint.",
+        "Revise el proceso padre de gup.exe y su línea de comandos para saber quién lo lanzó (script, documento de Office, tarea programada).",
+        "Pivote en el mismo host +/- 15 minutos: procesos hijos de explorer.exe, conexiones de red, archivos escritos y cambios de registro o persistencia.",
+        "Busque gup.exe ejecutado desde rutas no estándar en otros hosts y con el mismo usuario, además de alertas previas para esa cuenta o equipo.",
+        "Verifique con el usuario o el equipo de TI si existe una instalación portable de Notepad++ que explique la ruta."
+      ],
+      "false_positives": [
+        "Instalaciones portables o personalizadas de Notepad++ cuyo GUP no reside en \\Notepad++\\updater\\ y abre explorer.exe al finalizar la actualización.",
+        "Otras aplicaciones que incluyen GUP como actualizador propio (WinGUp) y lanzan explorer.exe con rutas legítimas, aún no identificadas."
+      ],
+      "response_steps": [
+        "Verifique si el archivo ejecutado vía explorer.exe es legítimo; si no puede confirmarlo, escale el incidente y preserve los binarios y la telemetría.",
+        "Si se confirma actividad maliciosa, aísle el endpoint y termine los procesos relacionados tras documentar su árbol de procesos.",
+        "Ponga en cuarentena el gup.exe copiado y el payload, bloquee sus hashes y elimine la persistencia encontrada.",
+        "Revise y, si corresponde, restablezca las credenciales del usuario; busque los mismos indicadores en el resto del parque y restaure el equipo a un estado conocido."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque es un patrón de abuso poco común y fácil de distinguir, pero existen instalaciones legítimas no estándar de GUP que pueden generar alertas."
+    },
+    "en": {
+      "summary": "A gup.exe process (the Notepad++ updater) outside the \\Notepad++\\updater\\ folder launched explorer.exe with a command line that does not open notepad++.exe. This may be GUP abused to launch arbitrary binaries or commands.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\gup.exe and Image ends with \\explorer.exe. Excluded: CommandLine containing \\Notepad++\\notepad++.exe, ParentImage under \\Notepad++\\updater\\, or a null CommandLine.",
+      "why_it_matters": "GUP is a legitimate, signed binary. Attackers can copy it elsewhere and use it to make explorer.exe run a payload, hiding the real execution origin and evading parent-process based controls. The rule maps to the ATT&CK Execution tactic.",
+      "triage_steps": [
+        "Check ParentImage: confirm the gup.exe path and whether it is outside Program Files. Collect its hash and signature and compare with the official Notepad++ GUP.",
+        "Examine the explorer.exe CommandLine: identify which file, URL or command is passed and from which path (Temp, Downloads, AppData, network shares).",
+        "Hash the file referenced in CommandLine and check its reputation, signature and creation time on the endpoint.",
+        "Review gup.exe's own parent and command line to learn what launched it (script, Office document, scheduled task).",
+        "Pivot on the same host +/- 15 minutes: child processes of explorer.exe, network connections, files written, registry or persistence changes.",
+        "Hunt for gup.exe running from non-standard paths on other hosts and for the same user, and review earlier alerts for that account or host.",
+        "Ask the user or IT whether a portable Notepad++ install explains the path."
+      ],
+      "false_positives": [
+        "Portable or custom Notepad++ installs whose GUP is not under \\Notepad++\\updater\\ and opens explorer.exe after updating.",
+        "Other applications bundling GUP (WinGUp) as their own updater that launch explorer.exe with legitimate paths, not yet identified."
+      ],
+      "response_steps": [
+        "Verify whether the file run via explorer.exe is legitimate; if you cannot confirm it, escalate and preserve the binaries and telemetry.",
+        "If malicious activity is confirmed, isolate the endpoint and terminate related processes after documenting the process tree.",
+        "Quarantine the copied gup.exe and the payload, block their hashes and remove any persistence found.",
+        "Review and, if needed, reset the user's credentials; sweep the fleet for the same indicators and restore the host to a known-good state."
+      ],
+      "severity_rationale": "Medium fits because this abuse pattern is uncommon and distinctive, yet legitimate non-standard GUP installs can still trigger it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "GUP copied to a user Temp folder makes explorer.exe launch an unknown executable",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\upd\\gup.exe",
+          "ParentCommandLine": "C:\\Users\\jperez\\AppData\\Local\\Temp\\upd\\gup.exe -options",
+          "Image": "C:\\Windows\\explorer.exe",
+          "CommandLine": "C:\\Windows\\explorer.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\upd\\update_helper.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "GUP in a ProgramData folder launches explorer.exe pointing at a script on a network share",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\ProgramData\\npp\\GUP.exe",
+          "Image": "C:\\Windows\\explorer.exe",
+          "CommandLine": "\"C:\\Windows\\explorer.exe\" \\\\fileserver.example.com\\public\\setup.cmd",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Notepad++ update: GUP in the official updater folder reopens notepad++.exe via explorer.exe (excluded by both filters)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files\\Notepad++\\updater\\GUP.exe",
+          "Image": "C:\\Windows\\explorer.exe",
+          "CommandLine": "C:\\Windows\\explorer.exe \"C:\\Program Files\\Notepad++\\notepad++.exe\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "explorer.exe started by userinit.exe, not by gup.exe (selection not met)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\userinit.exe",
+          "Image": "C:\\Windows\\explorer.exe",
+          "CommandLine": "C:\\Windows\\Explorer.EXE",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

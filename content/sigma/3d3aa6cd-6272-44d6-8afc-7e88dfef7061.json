@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "3d3aa6cd-6272-44d6-8afc-7e88dfef7061",
+    "title": "Change Default File Association Via Assoc",
+    "level": "low",
+    "status": "test",
+    "author": "Timur Zinniatullin, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_cmd_assoc_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmd_assoc_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1546.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó cmd.exe, o un binario cuyo OriginalFileName es Cmd.Exe, con una línea de comandos que contiene «assoc». Esto puede consultar o cambiar el programa que abre una extensión de archivo.",
+      "what_it_detects": "Detecta la creación de procesos de cmd.exe, identificado por Image o por OriginalFileName aunque el archivo tenga otro nombre, cuyo CommandLine contiene «assoc». Este comando integrado lista, consulta o modifica las asociaciones de extensiones de archivo en el registro.",
+      "why_it_matters": "Un atacante puede apuntar una extensión común (.txt, .pdf, .hta) a un tipo de archivo cuyo handler ejecute su payload. Así logra persistencia, o elevación de privilegios si un usuario con más permisos abre el archivo. Corresponde a ATT&CK T1546.001: ejecución activada por eventos mediante cambios en la asociación de archivos.",
+      "triage_steps": [
+        "Revise CommandLine: «assoc .ext» o «assoc» sin argumentos solo consultan; «assoc .ext=tipo» modifica la asociación y requiere más atención.",
+        "Verifique si Image coincide con OriginalFileName. Un cmd.exe renombrado o fuera de System32 es sospechoso.",
+        "Analice ParentImage y la línea de comandos del padre: scripts, Office, mshta, wscript o powershell son más preocupantes que una consola interactiva del administrador.",
+        "Identifique al usuario y el host. Confirme si es personal de TI y si hay un ticket de cambio asociado.",
+        "En el mismo host, dentro de ±15 minutos, busque comandos «ftype» y cambios en HKCU\\Software\\Classes o HKLM\\Software\\Classes que definan el handler del tipo asignado.",
+        "Inspeccione el comando shell\\open\\command del tipo asignado y obtenga el hash del ejecutable al que apunta.",
+        "Revise procesos hijo posteriores lanzados por explorer.exe al abrir archivos de esa extensión, y alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "Administradores que consultan o corrigen asociaciones de archivos de forma manual o con scripts de soporte.",
+        "Instaladores de software o scripts de despliegue (GPO, SCCM/Intune) que registran extensiones con assoc.",
+        "Herramientas de inventario o diagnóstico que ejecutan «assoc» sin argumentos para listar asociaciones."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de TI si el cambio fue autorizado antes de actuar.",
+        "Si no fue autorizado, aísle el endpoint y conserve el registro afectado, el ejecutable handler y su hash.",
+        "Restaure la asociación original de la extensión con assoc/ftype o desde el registro, y elimine el payload tras analizarlo.",
+        "Busque el mismo CommandLine y el mismo hash en otros hosts, revise las credenciales del usuario y cámbielas si hay indicios de compromiso."
+      ],
+      "severity_rationale": "El nivel bajo es adecuado porque assoc se usa con frecuencia en administración legítima y muchas ejecuciones solo consultan; el contexto determina si se escala."
+    },
+    "en": {
+      "summary": "cmd.exe, or a binary whose OriginalFileName is Cmd.Exe, ran with a command line containing \"assoc\". This can query or change which program opens a file extension.",
+      "what_it_detects": "Process creation of cmd.exe, identified by Image or by OriginalFileName even when the file is renamed, where CommandLine contains \"assoc\". This built-in command lists, queries or changes file extension associations stored in the registry.",
+      "why_it_matters": "An attacker can point a common extension (.txt, .pdf, .hta) at a file type whose handler runs their payload. This gives them persistence, or privilege escalation when a more privileged user opens the file. This maps to ATT&CK T1546.001, Event Triggered Execution: Change Default File Association.",
+      "triage_steps": [
+        "Read CommandLine: \"assoc .ext\" or a bare \"assoc\" only queries; \"assoc .ext=type\" changes the association and needs closer review.",
+        "Check whether Image matches OriginalFileName. A renamed cmd.exe, or one outside System32, is suspicious.",
+        "Review ParentImage and the parent's command line. Scripts, Office, mshta, wscript or powershell are more worrying than an admin's interactive console.",
+        "Identify the user and host. Confirm whether the user is IT staff and whether a matching change ticket exists.",
+        "On the same host within +/- 15 minutes, look for \"ftype\" commands and changes under HKCU\\Software\\Classes or HKLM\\Software\\Classes that define the handler for the assigned type.",
+        "Inspect shell\\open\\command for the assigned type and hash the executable it points to.",
+        "Look for child processes that explorer.exe started when files with that extension were opened, and for earlier alerts on the same user or host."
+      ],
+      "false_positives": [
+        "Administrators querying or fixing file associations by hand or with support scripts.",
+        "Software installers or deployment scripts (GPO, SCCM/Intune) that register extensions with assoc.",
+        "Inventory or diagnostic tools that run a bare \"assoc\" to list associations."
+      ],
+      "response_steps": [
+        "Before acting, confirm with the user or IT whether the change was authorized.",
+        "If it was not authorized, isolate the endpoint and preserve the affected registry keys, the handler executable and its hash.",
+        "Restore the original association with assoc/ftype or in the registry, then remove the payload once you have analyzed it.",
+        "Hunt for the same CommandLine and hash on other hosts. Review the user's credentials and reset them if there are signs of compromise."
+      ],
+      "severity_rationale": "Low fits because admins use assoc often for legitimate work and many runs are read-only queries; context decides whether to escalate."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe launched by wscript reassigns the .txt extension to a custom file type",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "C:\\Windows\\System32\\cmd.exe /c assoc .txt=hellofile",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\setup.vbs",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed cmd.exe (matched by OriginalFileName) changes the .pdf association",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "svchelper.exe /c assoc .pdf=pdfviewerfile",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "cmd.exe runs ftype to query a handler without the assoc keyword",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.soporte",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "C:\\Windows\\System32\\cmd.exe /c ftype txtfile",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell queries the registry for associations; the image is not cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0305.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.txt\\UserChoice'\" # check assoc",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "2fdefcb3-dbda-401e-ae23-f0db027628bc",
+    "title": "Sticky Key Like Backdoor Execution",
+    "level": "critical",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), @twjackomo, Jonhnathan Ribeiro, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_cmd_sticky_key_like_backdoor_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmd_sticky_key_like_backdoor_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1546.008"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "winlogon.exe inició un intérprete o LOLBin (cmd, PowerShell, mshta, rundll32, etc.) cuya línea de comandos menciona una herramienta de accesibilidad de la pantalla de inicio de sesión. Esto suele indicar que alguien activó una puerta trasera tipo Sticky Keys.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage termina en \\winlogon.exe, Image es cmd.exe, cscript.exe, mshta.exe, powershell.exe, pwsh.exe, regsvr32.exe, rundll32.exe, wscript.exe o wt.exe, y CommandLine contiene sethc.exe, utilman.exe, osk.exe, Magnify.exe, Narrator.exe o DisplaySwitch.exe. Es lo que ocurre cuando se registra un debugger malicioso en Image File Execution Options para esas herramientas.",
+      "why_it_matters": "Es la técnica ATT&CK T1546.008 (Accessibility Features). Da una shell como SYSTEM desde la pantalla de inicio de sesión, local o por RDP, sin credenciales. Sirve tanto de persistencia como de escalamiento de privilegios.",
+      "triage_steps": [
+        "Revise CommandLine, Image, ParentImage, el usuario (normalmente SYSTEM) y el host. Confirme qué herramienta de accesibilidad aparece en el argumento.",
+        "Consulte HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\<herramienta>.exe y busque un valor Debugger que apunte a cmd.exe, PowerShell u otro binario.",
+        "Busque eventos de modificación de registro (Sysmon 13) sobre esas claves IFEO en el host e identifique el proceso y el usuario que las crearon y cuándo.",
+        "Liste los procesos hijos del shell lanzado por winlogon.exe en +/- 15 minutos: net user, net localgroup, whoami, reg, creación de cuentas o herramientas de volcado.",
+        "Correlacione con inicios de sesión RDP (4624 tipo 10, 4625, logs de TerminalServices) y anote la IP de origen. Revise si la sesión no llegó a autenticarse.",
+        "Compare el hash y la firma de sethc.exe, utilman.exe y las demás herramientas en System32 con los binarios originales de Microsoft para detectar reemplazos.",
+        "Busque alertas previas para el mismo host, la misma IP de origen y las mismas claves IFEO en otros endpoints."
+      ],
+      "false_positives": [
+        "Muy poco probable según la regla. Puede deberse a ejercicios autorizados de red team o pruebas de penetración documentados.",
+        "Procedimientos de recuperación de un administrador que usan este truco para restablecer contraseñas locales. Confírmelos con el responsable y con un ticket de cambio."
+      ],
+      "response_steps": [
+        "Valide con el dueño del sistema que no se trata de una prueba autorizada y escale como incidente crítico.",
+        "Aísle el endpoint de la red y restrinja el acceso RDP a ese host mientras investiga.",
+        "Tras documentar y respaldar la evidencia, elimine el valor Debugger de IFEO y restaure los binarios alterados con sfc /scannow o desde una fuente confiable.",
+        "Revise y desactive cuentas creadas o modificadas, y restablezca las credenciales locales y de dominio expuestas en el host.",
+        "Busque la misma clave IFEO o binarios reemplazados en toda la flota, y bloquee la IP de origen si es externa."
+      ],
+      "severity_rationale": "El nivel critical es adecuado porque esta relación de procesos casi nunca es legítima y da acceso como SYSTEM sin autenticación."
+    },
+    "en": {
+      "summary": "winlogon.exe launched a shell or LOLBin (cmd, PowerShell, mshta, rundll32, etc.) whose command line references a logon-screen accessibility tool. This usually means a Sticky Keys-style backdoor was triggered.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\winlogon.exe, Image is cmd.exe, cscript.exe, mshta.exe, powershell.exe, pwsh.exe, regsvr32.exe, rundll32.exe, wscript.exe or wt.exe, and CommandLine contains sethc.exe, utilman.exe, osk.exe, Magnify.exe, Narrator.exe or DisplaySwitch.exe. This is what happens when a malicious debugger is registered in Image File Execution Options for those tools.",
+      "why_it_matters": "This is ATT&CK T1546.008 (Accessibility Features). It gives a SYSTEM shell from the logon screen, locally or over RDP, with no credentials. It serves as both persistence and privilege escalation.",
+      "triage_steps": [
+        "Review CommandLine, Image, ParentImage, the user (usually SYSTEM) and the host. Note which accessibility tool appears in the argument.",
+        "Check HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\<tool>.exe for a Debugger value that points to cmd.exe, PowerShell or another binary.",
+        "Search registry modification events (Sysmon 13) for those IFEO keys on the host. Identify the process and user that created them, and when.",
+        "List child processes of the winlogon-spawned shell within +/- 15 minutes: net user, net localgroup, whoami, reg, account creation or credential dumping tools.",
+        "Correlate with RDP logons (4624 type 10, 4625, TerminalServices logs) and record the source IP. Check whether the session ever authenticated.",
+        "Compare the hash and signature of sethc.exe, utilman.exe and the other tools in System32 against genuine Microsoft binaries to spot replacements.",
+        "Look for earlier alerts on the same host and source IP, and for the same IFEO keys on other endpoints."
+      ],
+      "false_positives": [
+        "The rule rates false positives as unlikely. Possible causes are authorized, documented red team exercises or penetration tests.",
+        "An admin may use this trick to reset local passwords during recovery. Confirm with the owner and a change ticket."
+      ],
+      "response_steps": [
+        "Confirm with the system owner that this is not an authorized test, then escalate as a critical incident.",
+        "Isolate the endpoint from the network and restrict RDP access to it while you investigate.",
+        "Once evidence is documented and preserved, remove the IFEO Debugger value and restore any altered binaries with sfc /scannow or from a trusted source.",
+        "Review and disable accounts that were created or modified. Reset local and domain credentials exposed on the host.",
+        "Hunt the fleet for the same IFEO key or replaced binaries. Block the source IP if it is external."
+      ],
+      "severity_rationale": "Critical fits because this process relationship is almost never legitimate and gives unauthenticated SYSTEM access."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "IFEO debugger for sethc.exe set to cmd.exe; pressing Shift five times at the RDP logon screen spawns cmd.exe from winlogon.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "IntegrityLevel": "System",
+          "ParentImage": "C:\\Windows\\System32\\winlogon.exe",
+          "ParentCommandLine": "winlogon.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\system32\\cmd.exe C:\\Windows\\system32\\sethc.exe 211",
+          "ProcessId": 4412
+        }
+      },
+      {
+        "description": "PowerShell registered as debugger for utilman.exe, launched via the Ease of Access button at the logon screen",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "IntegrityLevel": "System",
+          "ParentImage": "C:\\Windows\\System32\\winlogon.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" C:\\Windows\\System32\\utilman.exe /debug",
+          "ProcessId": 5120
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Utility Manager started by winlogon.exe at the logon screen; Image is utilman.exe, not a shell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "IntegrityLevel": "System",
+          "ParentImage": "C:\\Windows\\System32\\winlogon.exe",
+          "Image": "C:\\Windows\\System32\\Utilman.exe",
+          "CommandLine": "utilman.exe /debug",
+          "ProcessId": 3988
+        }
+      },
+      {
+        "description": "User opens the on-screen keyboard from a cmd prompt in their desktop session; parent is explorer.exe, not winlogon.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0187.andes.example.com",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "Medium",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c start osk.exe",
+          "ProcessId": 7720
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}
