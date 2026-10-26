@@ -27,6 +27,28 @@ python tools/content-pack/content_pack.py collect       # write content/sigma/*.
 python tools/content-pack/content_pack.py retry         # resubmit failed rules, then collect again
 ```
 
+## Repair fixtures that Centinela's engine rejects
+
+Session S7 added `npm run content:validate`, which evaluates every fixture with Centinela's engine and writes `content/sigma-failures.json` (rule id, fixture kind and index, the event and the engine's reason, for example which selection or item failed). `repair` sends those fixtures back for correction:
+
+```bash
+npm run content:validate                                   # writes content/sigma-failures.json and docs/content-pack-report.md
+python tools/content-pack/content_pack.py repair --dry-run # inspect .work/repair-requests.jsonl and the estimate
+python tools/content-pack/content_pack.py repair           # one batch: one request per failing rule
+python tools/content-pack/content_pack.py status
+python tools/content-pack/content_pack.py collect          # writes the corrected fixtures into the same files
+npm run content:validate                                   # check them and refresh the failures file, then commit
+```
+
+- Each request carries the rule YAML, all of the rule's fixtures (marked `passed` or `REJECTED`) and the engine's reasons, and asks for replacements of the rejected fixtures only (tool `save_fixtures`). Playbooks and passing fixtures are never sent back or changed.
+- `collect` replaces a fixture only if the content file still holds the event the engine rejected, so files edited in the meantime are left alone. Each repaired file records the repair under `generated.repairs`.
+- The model may declare a fixture `unfixable` (no event can satisfy the rule as written); those, answers without the tool call, truncated answers and partial answers go to `.work/repair-failed.json` with the error and the answer's `stop_reason` (for example `refusal`).
+- Same safeguards as `submit`: `--max-cost` (default 20 USD for repairs), `--yes`, `--dry-run`, `--limit`, and rules waiting in an uncollected batch are skipped unless `--force`. Rules the engine does not support, rules whose content file is missing and rules already repaired since the last validation are skipped with a message.
+- For another content folder, pass the same folders to both tools: `npm run content:validate -- --rules ~/sigmahq/rules --content ~/sigma-playbooks/content` writes `~/sigma-playbooks/content-failures.json`; then `content_pack.py --rules-dir ~/sigmahq/rules --out ~/sigma-playbooks/content repair --failures ~/sigma-playbooks/content-failures.json`.
+- Unit tests (no API key needed): `python3 -m unittest discover -s tools/content-pack -v`.
+
+## Notes
+
 - Re-running is safe: rules that already have a file, or that are waiting in a batch you have not collected yet, are skipped (`--force` overrides both).
 - `submit` refuses to send a batch whose estimate is above `--max-cost` (default 120 USD).
 - `submit --dry-run` writes the requests to `tools/content-pack/.work/requests.jsonl` without calling the API.
