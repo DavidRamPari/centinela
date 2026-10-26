@@ -43,8 +43,8 @@ describe('pipeline orchestrator', () => {
     });
   });
 
-  it('the default pipeline (before S1) rejects with `unknown source`', async () => {
-    const summary = await createPipeline().ingest(['Oct 25 14:03:12 h sshd[1]: x'], ctx);
+  it('the default pipeline rejects sources without a parser with `unknown source`', async () => {
+    const summary = await createPipeline().ingest(['{"EventID":1}'], { ...ctx, source: 'sysmon' });
     expect(summary.rejections).toEqual([{ line: 1, reason: 'unknown source' }]);
   });
 
@@ -184,9 +184,9 @@ describe('pipeline orchestrator', () => {
     const pipeline = createPipeline({
       parsers: new Map([['linux_auth', fakeParser()]]),
     });
-    // Default event store (before S1) throws.
+    // The default event store without a pool throws.
     await expect(pipeline.ingest(['2026-10-21T03:00:00Z a login'], ctx)).rejects.toThrow(
-      'not implemented (S1)',
+      'no database pool configured',
     );
     await expect(pipeline.ingest(['garbage'], ctx)).resolves.toMatchObject({ rejected: 1 });
   });

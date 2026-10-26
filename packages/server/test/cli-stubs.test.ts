@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest';
 
 // CLI entry points that later sessions implement. Delete a row when its session replaces the stub.
 const stubs = [
-  { script: 'src/ingest/cli.ts', session: 'S1', command: 'npm run ingest' },
   { script: 'src/detection/cli/report.ts', session: 'S2', command: 'npm run rules:report' },
   { script: 'src/detection/cli/bench.ts', session: 'S2', command: 'npm run bench' },
 ];
