@@ -2,12 +2,7 @@
 import { ConfigError, loadConfig } from '../../config.js';
 import { loadDotEnv } from '../../env.js';
 import { runMigrations } from '../migrate.js';
-
-function redactUrl(databaseUrl: string): string {
-  const url = new URL(databaseUrl);
-  if (url.password !== '') url.password = '***';
-  return url.toString();
-}
+import { redactUrl } from '../url.js';
 
 try {
   loadDotEnv();

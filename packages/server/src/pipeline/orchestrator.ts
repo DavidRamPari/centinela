@@ -47,6 +47,11 @@ export interface OrchestratorOptions {
   /** Wall clock for `ingestedAt` (record keeping only; detection uses event time). */
   now?: () => Date;
   newId?: () => string;
+  /**
+   * Awaited before every run, before any line is read (for example, loading persisted rule
+   * flags into the detector). It must be cheap after its first success.
+   */
+  prepare?: () => Promise<void>;
 }
 
 interface PendingLine {
@@ -124,6 +129,7 @@ export function createOrchestrator(
     lines: Iterable<string> | AsyncIterable<string>,
     ctx: IngestContext,
   ): Promise<IngestSummary> {
+    await options.prepare?.();
     const started = performance.now();
     const summary: IngestSummary = {
       accepted: 0,
