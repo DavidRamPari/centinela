@@ -39,6 +39,8 @@ COPY --from=build /app/packages/server/dist packages/server/dist
 COPY packages/server/migrations packages/server/migrations
 COPY data/mitre-attack data/mitre-attack
 COPY rules rules
+# Content-pack playbooks (session S7); the server reads CONTENT_DIR/sigma at start-up.
+COPY content/sigma content/sigma
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
