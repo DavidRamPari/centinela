@@ -2,8 +2,15 @@
  * Typed API client. Every response is parsed with the shared zod schemas, so a contract
  * mismatch fails loudly instead of rendering bad data. Errors carry the server's
  * problem+json body when there is one.
+ *
+ * Session (S6): the browser sends the session cookie itself (same origin). State-changing
+ * requests repeat the CSRF cookie in the `X-CSRF-Token` header (double submit), and a `401`
+ * tells the listeners registered with `onUnauthorized` (the auth gate sends the analyst to
+ * the sign-in page).
  */
 import {
+  CSRF_COOKIE,
+  CSRF_HEADER,
   alertBulkResponseSchema,
   alertDetailResponseSchema,
   alertSchema,
@@ -32,10 +39,39 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly problem: Problem | undefined,
+    /** Seconds from a `Retry-After` header (rate limits, sign-in lockout). */
+    readonly retryAfterSeconds?: number,
   ) {
     super(problem?.detail ?? problem?.title ?? `Request failed with status ${status}`);
     this.name = 'ApiError';
   }
+}
+
+/** The value of a cookie readable by JavaScript, or undefined. */
+export function readCookie(name: string): string | undefined {
+  for (const part of document.cookie.split(';')) {
+    const separator = part.indexOf('=');
+    if (separator !== -1 && part.slice(0, separator).trim() === name) {
+      return part.slice(separator + 1).trim();
+    }
+  }
+  return undefined;
+}
+
+type UnauthorizedListener = () => void;
+const unauthorizedListeners = new Set<UnauthorizedListener>();
+
+/** Called on every `401` answer (session missing or expired); returns an unsubscribe function. */
+export function onUnauthorized(listener: UnauthorizedListener): () => void {
+  unauthorizedListeners.add(listener);
+  return () => {
+    unauthorizedListeners.delete(listener);
+  };
+}
+
+function retryAfter(res: Response): number | undefined {
+  const value = Number(res.headers.get('retry-after') ?? '');
+  return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
 export type QueryValue = string | number | boolean | readonly string[] | null | undefined;
@@ -77,6 +113,8 @@ export interface RequestOptions {
   json?: unknown;
   text?: string;
   signal?: AbortSignal;
+  /** Default true. False for the sign-in calls, whose `401` is an answer, not a lost session. */
+  notifyUnauthorized?: boolean;
 }
 
 export async function apiRequest<T extends z.ZodType>(
@@ -84,7 +122,10 @@ export async function apiRequest<T extends z.ZodType>(
   schema: T,
   options: RequestOptions = {},
 ): Promise<z.infer<T>> {
+  const method = options.method ?? 'GET';
   const headers: Record<string, string> = { Accept: 'application/json' };
+  const csrf = method === 'GET' ? undefined : readCookie(CSRF_COOKIE);
+  if (csrf) headers[CSRF_HEADER] = csrf;
   let body: string | undefined;
   if (options.json !== undefined) {
     headers['Content-Type'] = 'application/json';
@@ -94,7 +135,7 @@ export async function apiRequest<T extends z.ZodType>(
     body = options.text;
   }
   const res = await fetch(apiUrl(path, options.params), {
-    method: options.method ?? 'GET',
+    method,
     headers,
     body,
     credentials: 'same-origin',
@@ -102,15 +143,21 @@ export async function apiRequest<T extends z.ZodType>(
   });
   const data = await readJson(res);
   if (!res.ok) {
+    if (res.status === 401 && options.notifyUnauthorized !== false) {
+      for (const listener of unauthorizedListeners) listener();
+    }
     const problem = problemSchema.safeParse(data);
-    throw new ApiError(res.status, problem.success ? problem.data : undefined);
+    throw new ApiError(res.status, problem.success ? problem.data : undefined, retryAfter(res));
   }
   return schema.parse(data);
 }
 
 const enc = encodeURIComponent;
 
-/** One function per endpoint in ARCHITECTURE §9 (ingest from agents excluded: it needs a token). */
+/**
+ * One function per endpoint in ARCHITECTURE §9 (ingest from agents excluded: it needs a
+ * token). Sign-in, tokens and the audit log are in `features/auth/api.ts`.
+ */
 export const api = {
   health: (signal?: AbortSignal) =>
     // 503 still carries a health body; surface it instead of throwing.
