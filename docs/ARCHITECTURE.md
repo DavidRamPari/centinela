@@ -53,13 +53,14 @@ centinela/
   packages/
     shared/                    zod schemas + types shared by server, web and loggen
     server/
+      migrations/              SQL migrations (node-pg-migrate), applied by `npm run db:migrate`
       src/
         config.ts  logger.ts  app.ts  index.ts
         pipeline/              interfaces and orchestrator (S0, finalized in S4)
         parsers/               linux_auth, nginx/apache access, sysmon (S1, S5)
         ingest/                HTTP router and CLI (S1)
         detection/             loader, compiler, matcher, correlation, alerts (S2)
-        db/                    migrations, events-write (S1), queries and alert sink (S4)
+        db/                    migration runner, events-write (S1), queries and alert sink (S4)
         routes/                REST handlers (S0 stubs, S4 real)
         realtime/              SSE hub (S4)
         auth/  security/       (S6)
@@ -542,7 +543,7 @@ A staff member who mistypes a password twice and then logs in never reaches `cen
 
 ## 8. Storage (PostgreSQL 16)
 
-Migration `001` (S0):
+Migration `001` (S0, `packages/server/migrations/001_initial-schema.sql`):
 
 ```sql
 CREATE TABLE events (
@@ -615,7 +616,7 @@ S6 adds `admin_sessions`, `ingest_tokens` (hash, label, created/revoked timestam
 
 ## 9. HTTP API
 
-JSON over HTTP, all under `/api`. Request and response schemas live in `packages/shared/src/api.ts`. Errors use `application/problem+json`: `{ "type", "title", "status", "detail", "errors"? }`. List endpoints use keyset pagination: `limit` (default 50, max 200) and an opaque `cursor` (base64url of `ts|id`); responses are `{ "items": [...], "nextCursor": string | null }`. Times are ISO 8601; `from`/`to` default to the last 24 hours.
+JSON over HTTP, all under `/api`. Request and response schemas live in `packages/shared/src/api.ts`. Errors use `application/problem+json`: `{ "type", "title", "status", "detail", "errors"? }`. List endpoints use keyset pagination: `limit` (default 50, max 200) and an opaque `cursor` (base64url of `ts|id`); responses are `{ "items": [...], "nextCursor": string | null }`. Times are ISO 8601; `from`/`to` default to the last 24 hours. The `status` and `level` filters accept comma-separated lists (`level=high,critical`); boolean filters are `true`/`false`.
 
 | Method and path | Purpose | Main parameters | Response |
 | --- | --- | --- | --- |
