@@ -1,10 +1,14 @@
-/** Express application factory: security headers, request logging, `/api`, problem+json errors. */
+/**
+ * Express application factory: security headers, request logging, authentication, `/api`,
+ * problem+json errors.
+ */
 import express, { type Express } from 'express';
-import helmet from 'helmet';
 import { pinoHttp } from 'pino-http';
+import { createAuth } from './auth/index.js';
 import type { AppDeps } from './deps.js';
 import { createErrorHandler, notFoundHandler } from './http/errors.js';
 import { createApiRouter } from './routes/index.js';
+import { apiSecurityHeaders } from './security/headers.js';
 
 export function createApp(deps: AppDeps): Express {
   const app = express();
@@ -13,7 +17,7 @@ export function createApp(deps: AppDeps): Express {
   // Plain `key=value` parsing: no nested objects from attacker-shaped query strings.
   app.set('query parser', 'simple');
 
-  app.use(helmet());
+  app.use(apiSecurityHeaders());
   app.use(
     pinoHttp({
       logger: deps.logger,
@@ -21,7 +25,7 @@ export function createApp(deps: AppDeps): Express {
     }),
   );
 
-  app.use('/api', createApiRouter(deps));
+  app.use('/api', createApiRouter(deps, createAuth(deps)));
   app.use(notFoundHandler);
   app.use(createErrorHandler(deps.logger));
   return app;

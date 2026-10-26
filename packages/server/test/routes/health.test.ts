@@ -27,7 +27,7 @@ describe('GET /api/health', () => {
       connectionTimeoutMillis: 1_000,
     });
     try {
-      const { app } = createTestApp({ pool: unreachable });
+      const { app } = createTestApp({ pool: unreachable, signedIn: false });
       const res = await request(app).get('/api/health').expect(503);
       expect(res.body).toMatchObject({ status: 'degraded', db: 'down' });
     } finally {

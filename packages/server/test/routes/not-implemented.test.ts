@@ -1,8 +1,8 @@
 import { problemSchema } from '@centinela/shared';
-import pg from 'pg';
 import request from 'supertest';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp } from '../helpers/app.js';
+import { createTestDatabase, type TestDatabase } from '../helpers/db.js';
 
 // Every endpoint in ARCHITECTURE §9 except health and the two ingest endpoints.
 // A session that implements an endpoint deletes its row here.
@@ -12,16 +12,17 @@ const pending: Array<{ method: 'get' | 'post' | 'patch'; path: string; session: 
     path: '/api/rules/31545105-3444-4584-bebf-c466353230d2/playbook',
     session: 'S7',
   },
-  { method: 'post', path: '/api/auth/login', session: 'S6' },
-  { method: 'post', path: '/api/auth/logout', session: 'S6' },
-  { method: 'get', path: '/api/auth/me', session: 'S6' },
 ];
 
 describe('endpoints not implemented yet', () => {
-  // These routes never touch the database; the pool is never connected.
-  const pool = new pg.Pool({ connectionString: 'postgres://unused@127.0.0.1:1/unused' });
-  afterAll(() => pool.end());
-  const { app } = createTestApp({ pool });
+  // Signed in: since S6 every route behind the session guard needs a session row.
+  let db: TestDatabase;
+  let app: ReturnType<typeof createTestApp>['app'];
+  beforeAll(async () => {
+    db = await createTestDatabase();
+    ({ app } = createTestApp({ pool: db.pool }));
+  });
+  afterAll(() => db.cleanup());
 
   it.each(pending)(
     '$method $path answers 501 problem+json ($session)',

@@ -622,7 +622,7 @@ JSON over HTTP, all under `/api`. Request and response schemas live in `packages
 | --- | --- | --- | --- |
 | `GET /api/health` | liveness and database check | — | `{ status, db, version }` |
 | `POST /api/ingest` | ingest lines from agents and scripts | query `source`, `host`, `tz`; body `text/plain` lines or `application/x-ndjson`; `Authorization: Bearer <token>` | `IngestSummary` |
-| `POST /api/ingest/upload` | file upload from the dashboard | query `source`, `host`, `tz`; body `text/plain` (≤ 5 MB). No token: before S6 it is enabled only when `NODE_ENV` is not `production` (404 otherwise); S6 requires the dashboard session and CSRF | `IngestSummary` |
+| `POST /api/ingest/upload` | file upload from the dashboard | query `source`, `host`, `tz`; body `text/plain` (≤ 5 MB). No token: requires the dashboard session and the CSRF header (S6), in every environment | `IngestSummary` |
 | `GET /api/events` | search events | `from`, `to`, `source`, `host`, `user`, `ip`, `action`, `outcome`, `q` (full text), `cursor`, `limit` | page of `NormalizedEvent` |
 | `GET /api/events/:id` | one event | — | `NormalizedEvent` |
 | `GET /api/alerts` | list alerts | `status`, `level`, `ruleId`, `technique`, `host`, `ip`, `user`, `from`, `to`, `cursor`, `limit` | page of `Alert` |
@@ -636,7 +636,13 @@ JSON over HTTP, all under `/api`. Request and response schemas live in `packages
 | `GET /api/attack` | ATT&CK matrix data | `from`, `to` | `{ tactics: [{ id, shortname, name, techniques: [{ id, name, url, rules, alerts }] }] }` |
 | `GET /api/stream` | live changes (SSE) | — | events `alert.created`, `alert.updated`, `ping` |
 | `GET /api/rules/:id/playbook` | content pack (S7) | `lang` (`es`, `en`) | playbook object |
-| `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me` | session auth (S6) | — | — |
+| `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me` | session auth (S6) | login body `{ username, password }` | `SessionInfo` (`204` for logout) |
+| `GET /api/tokens` | ingest tokens (S6) | — | `{ items: IngestToken[] }` (newest 200, revoked included, never secrets) |
+| `POST /api/tokens` | create an ingest token (S6) | body `{ label }` | `201 { token: IngestToken, secret }` (secret shown once) |
+| `POST /api/tokens/:id/revoke` | revoke an ingest token (S6) | — | `IngestToken` |
+| `GET /api/audit` | audit log (S6) | `action`, `cursor`, `limit` | page of `AuditEntry` |
+
+Since S6 every endpoint except `GET /api/health`, `POST /api/ingest` (bearer token) and `POST /api/auth/login` requires the dashboard session (`401` without it); state-changing requests also need the `X-CSRF-Token` header (`403` without it). See `docs/SECURITY.md`.
 
 ## 10. Realtime
 

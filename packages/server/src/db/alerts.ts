@@ -3,7 +3,7 @@
  * are newest first by `(last_seen, id)`; the time filter applies to `last_seen` (S3-07).
  */
 import type { Alert, AlertStatus, Level, Page, Resolution } from '@centinela/shared';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { encodeCursor, type KeysetPosition } from './cursor.js';
 import type { TimeRange } from './events-read.js';
 import { ALERT_COLUMNS, alertFromRow, type AlertRow } from './rows.js';
@@ -107,9 +107,12 @@ function triageUpdate(params: SqlParams, idCondition: string, change: TriageChan
   };
 }
 
-/** Apply a triage change to one alert; the transition check and the update are one statement. */
+/**
+ * Apply a triage change to one alert; the transition check and the update are one statement.
+ * Pass a transaction client to commit the change together with its audit row (S6).
+ */
 export async function triageAlert(
-  pool: Pool,
+  pool: Pool | PoolClient,
   id: string,
   change: TriageChange,
   now: Date = new Date(),
@@ -134,7 +137,7 @@ export async function triageAlert(
  * allow the transition are skipped; the updated alerts are returned.
  */
 export async function triageAlerts(
-  pool: Pool,
+  pool: Pool | PoolClient,
   ids: readonly string[],
   change: TriageChange,
   now: Date = new Date(),
