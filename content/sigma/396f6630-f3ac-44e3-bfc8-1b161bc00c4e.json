@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "396f6630-f3ac-44e3-bfc8-1b161bc00c4e",
+    "title": "Suspicious Child Process Of Wermgr.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wermgr_susp_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wermgr_susp_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036",
+      "T1055"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "El administrador de Windows Error Reporting (wermgr.exe) inició un intérprete de comandos, un LOLBin o una herramienta de reconocimiento. Esto suele indicar inyección de código en wermgr.exe o un abuso de este proceso para escalar privilegios.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage termina en \\wermgr.exe e Image es cmd, PowerShell, pwsh, cscript, wscript, mshta, regsvr32, rundll32, net/net1, whoami, systeminfo, ipconfig, netstat o nslookup. Se excluye rundll32 cargando WerConCpl.dll con LaunchErcApp y -queuereporting o -responsepester, que es comportamiento legítimo de WER.",
+      "why_it_matters": "wermgr.exe es un binario firmado de Windows y por eso pasa desapercibido. El malware puede inyectarse en él (T1055, inyección en procesos) o esconderse detrás de su identidad (T1036, enmascaramiento) para ejecutar comandos, hacer reconocimiento o escalar privilegios a SYSTEM.",
+      "triage_steps": [
+        "Revise Image, CommandLine y el usuario del proceso hijo. Comandos como whoami, net group, systeminfo o PowerShell codificado indican actividad maliciosa.",
+        "Valide la ruta de ParentImage: wermgr.exe legítimo está en C:\\Windows\\System32 o SysWOW64. Otra ruta indica enmascaramiento; verifique firma y hash.",
+        "Revise el proceso padre de wermgr.exe y su línea de comandos. Lo normal es svchost.exe o una tarea programada de WER con -upload o -outqueue.",
+        "Busque en el mismo host, +/- 15 minutos, conexiones de red de wermgr.exe y del hijo, sobre todo a IPs externas o puertos poco comunes.",
+        "Revise los procesos nietos y los archivos creados o modificados por el hijo (DLL, scripts, tareas programadas, servicios).",
+        "Busque alertas previas en el host o del usuario: adjuntos maliciosos, macros, carga de DLL sospechosas o creación de directorios bajo C:\\Windows\\System32.",
+        "Revise si wermgr.exe se ejecuta en otros endpoints con hijos similares para estimar el alcance."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Herramientas de diagnóstico o soporte que lanzan scripts mediante WER. Confírmelo con el equipo responsable y con el hash de la herramienta.",
+        "Variantes legítimas de rundll32 con WerConCpl.dll que usan otros parámetros y no entran en el filtro."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa revisando la línea de comandos, el árbol de procesos y la telemetría de red antes de actuar.",
+        "Aísle el endpoint desde el EDR si se confirma la inyección o la ejecución de comandos maliciosos.",
+        "Capture la memoria de wermgr.exe y del proceso hijo antes de terminarlos, para el análisis forense.",
+        "Termine los procesos maliciosos, elimine la persistencia y los artefactos identificados, y bloquee los hashes y dominios relacionados.",
+        "Restablezca las credenciales usadas en el host y revise si hubo movimiento lateral antes de devolver el equipo a producción."
+      ],
+      "severity_rationale": "El nivel high es adecuado: wermgr.exe casi nunca lanza intérpretes ni herramientas de reconocimiento, y cuando lo hace suele indicar inyección o abuso para escalar privilegios."
+    },
+    "en": {
+      "summary": "The Windows Error Reporting manager (wermgr.exe) started a shell, a LOLBin or a reconnaissance tool. This usually points to code injected into wermgr.exe, or to wermgr.exe being abused for privilege escalation.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\wermgr.exe and Image is cmd, PowerShell, pwsh, cscript, wscript, mshta, regsvr32, rundll32, net/net1, whoami, systeminfo, ipconfig, netstat or nslookup. One case is excluded: rundll32 loading WerConCpl.dll with LaunchErcApp and -queuereporting or -responsepester, which is legitimate WER behavior.",
+      "why_it_matters": "wermgr.exe is a signed Windows binary, so it draws little attention. Malware can inject into it (T1055, process injection) or hide behind its identity (T1036, masquerading) to run commands, do reconnaissance or escalate to SYSTEM.",
+      "triage_steps": [
+        "Review the child's Image, CommandLine and user. Commands like whoami, net group, systeminfo or encoded PowerShell indicate malicious activity.",
+        "Check the ParentImage path. Legitimate wermgr.exe lives in C:\\Windows\\System32 or SysWOW64. Any other path suggests masquerading, so check the signature and hash.",
+        "Look at wermgr.exe's own parent and command line. Normally the parent is svchost.exe or a WER scheduled task using -upload or -outqueue.",
+        "On the same host within +/- 15 minutes, look for network connections from wermgr.exe and the child, especially to external IPs or unusual ports.",
+        "Review grandchild processes and any files the child created or changed, such as DLLs, scripts, scheduled tasks or services.",
+        "Look for earlier alerts on the host or user: malicious attachments, macros, suspicious DLL loads, or directories created under C:\\Windows\\System32.",
+        "Check other endpoints for wermgr.exe spawning similar children to gauge scope."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Diagnostic or support tools that launch scripts through WER. Confirm with the owning team and the tool's hash.",
+        "Legitimate rundll32 calls to WerConCpl.dll that use parameters the filter does not cover."
+      ],
+      "response_steps": [
+        "Before acting, confirm the activity is malicious using the command line, the process tree and network telemetry.",
+        "If injection or malicious command execution is confirmed, isolate the endpoint through the EDR.",
+        "Dump the memory of wermgr.exe and the child process before killing them, for forensics.",
+        "Kill the malicious processes, remove the persistence and artifacts you found, and block the related hashes and domains.",
+        "Reset credentials used on the host and check for lateral movement before the host goes back into production."
+      ],
+      "severity_rationale": "High fits because wermgr.exe almost never spawns interpreters or reconnaissance tools, and when it does, it usually means injection or privilege-escalation abuse."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "wermgr.exe spawns whoami.exe, a typical sign of reconnaissance from injected code",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\wermgr.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\wermgr.exe",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "CommandLine": "whoami /all",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "wermgr.exe spawns cmd.exe to run domain reconnaissance",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\SysWOW64\\wermgr.exe",
+          "ParentCommandLine": "C:\\Windows\\SysWOW64\\wermgr.exe",
+          "Image": "C:\\Windows\\SysWOW64\\cmd.exe",
+          "CommandLine": "cmd.exe /c net group \"domain admins\" /domain",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate WER behavior: rundll32 loads WerConCpl.dll with LaunchErcApp -queuereporting, so the filter excludes it",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\wermgr.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\wermgr.exe -queuereporting",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "C:\\Windows\\system32\\rundll32.exe C:\\Windows\\system32\\WerConCpl.dll, LaunchErcApp -queuereporting",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "wermgr.exe starts WerFault.exe, which is not on the suspicious child list",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\wermgr.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\wermgr.exe -upload",
+          "Image": "C:\\Windows\\System32\\WerFault.exe",
+          "CommandLine": "C:\\Windows\\system32\\WerFault.exe -u -p 4120 -s 512",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

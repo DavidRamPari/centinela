@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "2a4b3e61-9d22-4e4a-b60f-6e8f0cde6f25",
+    "title": "Potential Provisioning Registry Key Abuse For Binary Proxy Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), Swachchhanda Shrawan Poudel",
+    "path": "windows/process_creation/proc_creation_win_registry_provlaunch_provisioning_command.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_registry_provlaunch_provisioning_command.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso se ejecutó con una línea de comandos que hace referencia a la clave de registro SOFTWARE\\Microsoft\\Provisioning\\Commands\\. Esto suele indicar que alguien prepara o consulta comandos que Provlaunch.exe ejecutará de forma indirecta.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene 'SOFTWARE\\Microsoft\\Provisioning\\Commands\\'. Por lo general se trata de reg.exe o PowerShell creando subclaves con valores como 'altitude' y 'Commandline', que Provlaunch.exe lee y ejecuta después.",
+      "why_it_matters": "Provlaunch.exe es un binario de Windows firmado por Microsoft. Si alguien escribe un comando en esta clave y luego lanza 'provlaunch.exe <nombre>', ese binario confiable ejecuta el comando y oculta su verdadero origen. Es ejecución por proxy mediante binario del sistema (T1218), una técnica para evadir defensas.",
+      "triage_steps": [
+        "Revise el CommandLine completo: nombre de la subclave bajo Commands\\, valores escritos (altitude, Commandline) y el binario o script que se ejecutaría.",
+        "Identifique Image y ParentImage: reg.exe o powershell.exe lanzados desde Office, un navegador, wscript o un proceso desconocido son una señal fuerte.",
+        "Verifique el usuario y el nivel de integridad. Escribir en HKLM requiere privilegios de administrador, así que confirme si la cuenta debería tenerlos.",
+        "Busque ejecuciones de provlaunch.exe en el mismo host dentro de +/- 15 minutos y revise sus procesos hijos.",
+        "Consulte la clave en el endpoint (con EDR o reg query) para ver qué comandos persisten y cuándo se modificaron.",
+        "Correlacione con las reglas relacionadas de registro y CLI y con alertas previas del mismo host o usuario.",
+        "Obtenga el hash y la reputación del binario referenciado en el valor Commandline y revise su conexión a red."
+      ],
+      "false_positives": [
+        "La regla indica falsos positivos desconocidos. En la práctica, es raro ver uso legítimo desde la línea de comandos.",
+        "Paquetes de aprovisionamiento, imágenes OEM o herramientas MDM que configuran comandos de provisioning durante el despliegue de equipos.",
+        "Pruebas autorizadas de red team, validación de detecciones o investigación de administradores sobre LOLBAS."
+      ],
+      "response_steps": [
+        "Confirme la actividad con el dueño del equipo o el equipo de TI antes de actuar. Documente el CommandLine, el usuario y la cadena de procesos.",
+        "Si es maliciosa, aísle el endpoint con el EDR y preserve la clave de registro y los artefactos referenciados.",
+        "Respalde la subclave maliciosa bajo Provisioning\\Commands y luego elimínela. Elimine también los binarios o scripts asociados después de verificarlos.",
+        "Restablezca las credenciales de la cuenta implicada, busque la misma clave en otros hosts y recupere el equipo desde un estado limpio si hubo compromiso."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque esta clave casi nunca se modifica desde la línea de comandos y permite ejecutar código mediante un binario firmado de Microsoft."
+    },
+    "en": {
+      "summary": "A process ran with a command line that references the SOFTWARE\\Microsoft\\Provisioning\\Commands\\ registry key. This usually means someone is staging or querying commands for Provlaunch.exe to run indirectly.",
+      "what_it_detects": "Process creation events whose CommandLine contains 'SOFTWARE\\Microsoft\\Provisioning\\Commands\\'. These are typically reg.exe or PowerShell creating subkeys with values such as 'altitude' and 'Commandline', which Provlaunch.exe later reads and runs.",
+      "why_it_matters": "Provlaunch.exe is a Windows binary signed by Microsoft. If someone writes a command into this key and then runs 'provlaunch.exe <name>', the trusted binary runs that command and hides where it really came from. This is system binary proxy execution (T1218), a defense evasion technique.",
+      "triage_steps": [
+        "Read the full CommandLine: the subkey name under Commands\\, the values written (altitude, Commandline) and the binary or script that would run.",
+        "Check Image and ParentImage: reg.exe or powershell.exe started by Office, a browser, wscript or an unknown process is a strong signal.",
+        "Check the user and integrity level. Writing to HKLM needs admin rights, so confirm whether this account should have them.",
+        "Look for provlaunch.exe runs on the same host within +/- 15 minutes and review their child processes.",
+        "Query the key on the endpoint (with EDR or reg query) to see which commands remain and when they were last changed.",
+        "Correlate with the related registry and CLI rules and with earlier alerts for the same host or user.",
+        "Get the hash and reputation of the binary named in the Commandline value and review its network activity."
+      ],
+      "false_positives": [
+        "The rule lists false positives as unknown. In practice, legitimate command-line use is rare.",
+        "Provisioning packages, OEM imaging or MDM tools that set provisioning commands while devices are deployed.",
+        "Authorized red team exercises, detection validation or administrators researching LOLBAS."
+      ],
+      "response_steps": [
+        "Confirm the activity with the host owner or IT before acting. Record the CommandLine, user and process chain.",
+        "If it is malicious, isolate the endpoint through EDR and preserve the registry key and any referenced artifacts.",
+        "Back up the malicious subkey under Provisioning\\Commands, then delete it. Remove the related binaries or scripts after you verify them.",
+        "Reset the involved account's credentials, check other hosts for the same key, and restore the host to a clean state if it was compromised."
+      ],
+      "severity_rationale": "High fits because this key is almost never changed from the command line and lets code run through a Microsoft-signed binary."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe creates a provisioning command subkey with the altitude value, which is the setup step for Provlaunch proxy execution",
+        "event": {
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg.exe add \"HKLM\\SOFTWARE\\Microsoft\\Provisioning\\Commands\\LOLBin\\dummy1\" /v altitude /t REG_DWORD /d 0",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell sets the Commandline value under the provisioning commands key, written in lowercase to test case-insensitive matching",
+        "event": {
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -c Set-ItemProperty -Path 'HKLM:\\software\\microsoft\\provisioning\\commands\\LOLBin\\dummy1\\dummy2' -Name Commandline -Value 'C:\\Users\\Public\\update.exe'",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "reg.exe queries a different Provisioning subkey (Diagnostics), so the Commands\\ path does not appear",
+        "event": {
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg.exe query \"HKLM\\SOFTWARE\\Microsoft\\Provisioning\\Diagnostics\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\soporte",
+          "Computer": "WS-0207",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "provlaunch.exe runs with only the command name and no registry path, which this rule does not cover",
+        "event": {
+          "Image": "C:\\Windows\\System32\\provlaunch.exe",
+          "CommandLine": "provlaunch.exe LOLBin",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

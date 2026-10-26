@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "3c05e90d-7eba-4324-9972-5d7f711a60a8",
+    "title": "UAC Bypass Tools Using ComputerDefaults",
+    "level": "high",
+    "status": "test",
+    "author": "Christian Burkard (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_uac_bypass_computerdefaults.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_uac_bypass_computerdefaults.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1548.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "ComputerDefaults.exe se ejecutó con integridad High o System y lo lanzó un proceso padre que no está en System32 ni en Program Files. Este patrón coincide con herramientas como UACMe (método 59) que se usan para evadir el Control de Cuentas de Usuario (UAC).",
+      "what_it_detects": "Eventos de creación de procesos en los que Image es C:\\Windows\\System32\\ComputerDefaults.exe, IntegrityLevel es High o System (o el SID S-1-16-12288 / S-1-16-16384) y ParentImage no contiene ':\\Windows\\System32' ni ':\\Program Files'.",
+      "why_it_matters": "ComputerDefaults.exe se eleva automáticamente sin mostrar el aviso de UAC. Si un atacante secuestra la clave ms-settings en HKCU, logra que esta binaria ejecute su payload con privilegios altos (T1548.002, evasión de UAC) sin que el usuario lo note.",
+      "triage_steps": [
+        "Revise ParentImage: anote la ruta, el hash, la firma digital y la línea de comandos. Las rutas en Temp, AppData, Downloads o Public son muy sospechosas.",
+        "Identifique al usuario y al host. Confirme si el usuario es administrador local, porque la evasión de UAC requiere una cuenta del grupo de administradores.",
+        "Liste los procesos hijos de ComputerDefaults.exe. Un cmd.exe, powershell.exe o ejecutable desconocido con integridad High indica que el payload se ejecutó.",
+        "Busque cambios en HKCU\\Software\\Classes\\ms-settings\\Shell\\Open\\command, como el valor DelegateExecute o el valor por defecto, en el mismo host +/- 15 minutos.",
+        "Revise la actividad del host +/- 15 minutos: archivos que se descargaron, conexiones de red del proceso padre y procesos con alta integridad.",
+        "Busque alertas previas del mismo usuario, host o hash del padre, y compruebe si el binario padre aparece en otros endpoints."
+      ],
+      "false_positives": [
+        "El usuario abrió Programas predeterminados desde explorer.exe (C:\\Windows\\explorer.exe no está en el filtro). Confirme si hubo interacción manual y si no hay hijos anómalos.",
+        "Herramientas de despliegue o scripts administrativos instalados fuera de Program Files que configuran las aplicaciones predeterminadas.",
+        "Pruebas autorizadas de red team o validación de controles con UACMe."
+      ],
+      "response_steps": [
+        "Verifique la legitimidad con el usuario y con el equipo responsable del host antes de actuar.",
+        "Si confirma actividad maliciosa, aísle el endpoint y termine el proceso padre y los procesos hijos con integridad elevada.",
+        "Elimine la clave ms-settings secuestrada en HKCU y el binario malicioso. Conserve antes copias para el análisis forense.",
+        "Restablezca las credenciales del usuario, busque mecanismos de persistencia y considere configurar UAC en 'Notificar siempre' o quitar los derechos de administrador local."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque el patrón casi no tiene usos legítimos e indica una escalada de privilegios que ya se completó en el endpoint."
+    },
+    "en": {
+      "summary": "ComputerDefaults.exe ran at High or System integrity, and its parent process is not in System32 or Program Files. This pattern matches UAC bypass tools such as UACMe (method 59).",
+      "what_it_detects": "Process creation events where Image is C:\\Windows\\System32\\ComputerDefaults.exe, IntegrityLevel is High or System (or SID S-1-16-12288 / S-1-16-16384), and ParentImage does not contain ':\\Windows\\System32' or ':\\Program Files'.",
+      "why_it_matters": "ComputerDefaults.exe auto-elevates without a UAC prompt. An attacker who hijacks the HKCU ms-settings handler can make it run a payload with elevated privileges (T1548.002, Bypass User Account Control), and the user sees nothing.",
+      "triage_steps": [
+        "Inspect ParentImage: record its path, hash, signature and command line. Paths in Temp, AppData, Downloads or Public are highly suspicious.",
+        "Identify the user and host. Confirm whether the user is a local admin, because a UAC bypass needs an account in the Administrators group.",
+        "List the child processes of ComputerDefaults.exe. A cmd.exe, powershell.exe or unknown binary at High integrity means the payload executed.",
+        "Look for changes to HKCU\\Software\\Classes\\ms-settings\\Shell\\Open\\command (the DelegateExecute or default value) on the same host within +/- 15 minutes.",
+        "Review host activity within +/- 15 minutes: downloaded files, network connections from the parent process and other elevated processes.",
+        "Search for earlier alerts on the same user, host or parent hash, and check whether the parent binary exists on other endpoints."
+      ],
+      "false_positives": [
+        "A user opened Default Programs from explorer.exe. C:\\Windows\\explorer.exe is not in the filter, so check for manual interaction and make sure there are no unusual child processes.",
+        "Deployment tools or admin scripts installed outside Program Files that configure default applications.",
+        "Authorized red team or control-validation tests that use UACMe."
+      ],
+      "response_steps": [
+        "Check with the user and the host owner that the activity is legitimate before you act.",
+        "If the activity is malicious, isolate the endpoint and kill the parent process and any elevated child processes.",
+        "Remove the hijacked ms-settings key from HKCU and the malicious binary. Keep copies for forensics first.",
+        "Reset the user's credentials, hunt for persistence and consider setting UAC to Always notify or removing local admin rights."
+      ],
+      "severity_rationale": "High fits because this pattern has almost no legitimate use and shows a privilege escalation that has already succeeded on the endpoint."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "UACMe binary running from the user's Temp folder starts the auto-elevated ComputerDefaults.exe at High integrity",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\ComputerDefaults.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\ComputerDefaults.exe\"",
+          "IntegrityLevel": "High",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\akagi64.exe",
+          "ParentCommandLine": "akagi64.exe 59"
+        }
+      },
+      {
+        "description": "Unknown binary in C:\\Users\\Public starts ComputerDefaults.exe; integrity is logged as the High SID",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0207.andes.example.com",
+          "SubjectUserName": "mrojas",
+          "Image": "C:\\Windows\\System32\\ComputerDefaults.exe",
+          "CommandLine": "C:\\Windows\\System32\\ComputerDefaults.exe",
+          "IntegrityLevel": "S-1-16-12288",
+          "ParentImage": "C:\\Users\\Public\\update.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "ComputerDefaults.exe started by control.exe from System32, which the filter excludes",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\ComputerDefaults.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\ComputerDefaults.exe\"",
+          "IntegrityLevel": "High",
+          "ParentImage": "C:\\Windows\\System32\\control.exe"
+        }
+      },
+      {
+        "description": "ComputerDefaults.exe started from a Temp parent but at Medium integrity, so the selection does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0318.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\ComputerDefaults.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\ComputerDefaults.exe\"",
+          "IntegrityLevel": "Medium",
+          "ParentImage": "C:\\Users\\lgomez\\AppData\\Local\\Temp\\setup_helper.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

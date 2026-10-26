@@ -1,0 +1,125 @@
+{
+  "rule": {
+    "id": "bbc865e4-7fcd-45a6-8ff1-95ced28ec5b2",
+    "title": "NtdllPipe Like Activity Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_cmd_ntdllpipe_redirect.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmd_ntdllpipe_redirect.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó un comando que usa 'type' para volcar ntdll.dll a otro archivo o a un named pipe, una técnica que se vio en la prueba de concepto NtdllPipe. Lo normal es que esto busque conseguir una copia limpia de ntdll.dll para evadir al AV o EDR.",
+      "what_it_detects": "Eventos de creación de procesos en Windows con un CommandLine que contiene 'type' seguido de la ruta de ntdll.dll en System32, ya sea con %windir%, %systemroot% o C:\\Windows, o una redirección de ntdll.dll a \\\\.\\pipe\\.",
+      "why_it_matters": "Muchos EDR ponen hooks en ntdll.dll en modo usuario. Con una copia limpia leída a través de cmd y un pipe, el malware puede quitar esos hooks o llamar syscalls sin que lo vean. Así debilita las defensas antes de ejecutar el payload principal.",
+      "triage_steps": [
+        "Revise el CommandLine completo y anote el destino de la redirección, ya sea un archivo o un \\\\.\\pipe\\, y su nombre.",
+        "Identifique ParentImage y la cadena de procesos padres. Determine qué binario lanzó cmd.exe y si está firmado o en una ruta inusual como %TEMP% o AppData.",
+        "Busque en el mismo host, +/- 15 minutos, procesos hijos, carga de DLL sin firmar, creación de named pipes y conexiones de red del proceso padre.",
+        "Si el destino es un archivo, localícelo, calcule su hash y compruebe quién lo leyó después.",
+        "Verifique el usuario de la ejecución y si sus inicios de sesión recientes y su nivel de privilegio son normales.",
+        "Consulte alertas anteriores del mismo host y del mismo usuario, sobre todo de manipulación del EDR, inyección o credenciales."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Ejercicios de red team o pruebas de EDR autorizadas que reproducen NtdllPipe. Confirme con el equipo responsable y el ticket de la prueba.",
+        "Investigación de seguridad o análisis de malware en equipos de laboratorio dedicados."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del equipo o con el equipo de pruebas si la actividad estaba autorizada.",
+        "Si no lo estaba, aísle el endpoint desde la consola del EDR y conserve la memoria y los artefactos.",
+        "Compruebe el estado del agente EDR. Revise si sus hooks o su telemetría se vieron afectados después del evento.",
+        "Identifique y elimine el binario padre y la persistencia relacionada solo después de recolectar evidencia y hashes.",
+        "Restablezca las credenciales del usuario implicado y busque el mismo hash o la misma línea de comandos en toda la flota."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque leer ntdll.dll con type hacia un pipe o un archivo casi no tiene uso legítimo y suele indicar un intento activo de evadir el EDR."
+    },
+    "en": {
+      "summary": "A process ran a command that uses 'type' to dump ntdll.dll into another file or a named pipe, a technique seen in the NtdllPipe proof of concept. This is most likely an attempt to get a clean copy of ntdll.dll to evade AV/EDR.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains 'type' followed by the System32 path of ntdll.dll (through %windir%, %systemroot% or C:\\Windows), or a redirection of ntdll.dll into \\\\.\\pipe\\.",
+      "why_it_matters": "Many EDRs place user-mode hooks in ntdll.dll. A clean copy read through cmd and a pipe lets malware remove those hooks or call syscalls without being seen. This weakens defenses before the main payload runs.",
+      "triage_steps": [
+        "Review the full CommandLine and note the redirection target, either a file or a \\\\.\\pipe\\ name.",
+        "Identify ParentImage and the parent process chain. Determine what launched cmd.exe and whether it is signed or runs from an unusual path such as %TEMP% or AppData.",
+        "On the same host, within +/- 15 minutes, look for child processes, unsigned DLL loads, named pipe creation and network connections from the parent.",
+        "If the target is a file, find it, hash it and check which process read it afterwards.",
+        "Verify the executing user and whether their recent logons and privilege level are normal.",
+        "Check earlier alerts for the same host and user, especially EDR tampering, injection or credential access."
+      ],
+      "false_positives": [
+        "The rule documents no known false positives.",
+        "Authorized red team exercises or EDR tests that reproduce NtdllPipe. Confirm with the owning team and the test ticket.",
+        "Security research or malware analysis on dedicated lab machines."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or the testing team whether the activity was authorized.",
+        "If it was not, isolate the endpoint from the EDR console and preserve memory and artifacts.",
+        "Check the health of the EDR agent and whether its hooks or telemetry degraded after the event.",
+        "Remove the parent binary and related persistence only after collecting evidence and hashes.",
+        "Reset the involved user's credentials and hunt fleet-wide for the same hash or command line."
+      ],
+      "severity_rationale": "High fits because using type to read ntdll.dll into a pipe or file has almost no legitimate use and usually signals an active EDR evasion attempt."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe launched from a binary in AppData types ntdll.dll into a named pipe, NtdllPipe style.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c type %windir%\\system32\\ntdll.dll > \\\\.\\pipe\\ntdllpipe",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\updater.exe",
+          "ParentCommandLine": "\"C:\\Users\\jperez\\AppData\\Local\\Temp\\updater.exe\""
+        }
+      },
+      {
+        "description": "ntdll.dll typed with an absolute, mixed-case path into a file in a public folder.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd /c type C:\\Windows\\System32\\ntdll.dll > C:\\Users\\Public\\nt.dat",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "An administrator hashes ntdll.dll with certutil for integrity checks. The command has no type and no pipe redirection.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.soporte",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "CommandLine": "certutil -hashfile C:\\Windows\\System32\\ntdll.dll SHA256",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "type is used on a different System32 file (the hosts file), so the ntdll.dll path is never matched.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c type C:\\Windows\\System32\\drivers\\etc\\hosts",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

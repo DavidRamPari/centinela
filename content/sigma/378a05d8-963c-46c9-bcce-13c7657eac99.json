@@ -1,0 +1,125 @@
+{
+  "rule": {
+    "id": "378a05d8-963c-46c9-bcce-13c7657eac99",
+    "title": "Potentially Suspicious Electron Application CommandLine",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_electron_execution_proxy.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_electron_execution_proxy.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Una aplicación Electron o Chromium firmada (Teams, Slack, Discord, VS Code, Chrome, Edge, etc.) se inició con un parámetro que permite indicar qué ejecutable o prefijo de comando debe lanzar. Esto puede ser abuso para ejecutar código a través de un binario firmado (proxy execution).",
+      "what_it_detects": "Creación de procesos donde Image u OriginalFileName corresponde a una aplicación Electron o Chromium conocida y CommandLine contiene --browser-subprocess-path, --gpu-launcher, --renderer-cmd-prefix o --utility-cmd-prefix.",
+      "why_it_matters": "Estos switches de Chromium hacen que el binario firmado ejecute un comando o ejecutable arbitrario como subproceso. Un atacante puede usarlos para ejecutar payloads bajo un proceso de confianza y evadir controles de lista blanca (ATT&CK Execution, ejecución por proxy de binario firmado).",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique el valor del switch detectado y qué ejecutable o comando apunta (cmd.exe, powershell.exe, rutas en %TEMP%, %APPDATA% o C:\\Users\\Public).",
+        "Compare Image con OriginalFileName: un nombre distinto o una ruta fuera de la instalación habitual sugiere un binario renombrado o copiado.",
+        "Examine ParentImage y su línea de comandos: un lanzamiento desde explorer.exe es esperable; desde Office, wscript.exe, mshta.exe o un navegador con URI handler es sospechoso.",
+        "Liste los procesos hijo del proceso alertado y la actividad de red y archivos en el mismo host dentro de +/- 15 minutos.",
+        "Obtenga el hash y la firma del ejecutable referenciado en el switch y consúltelo en su plataforma de threat intelligence.",
+        "Verifique con el usuario si estaba depurando una aplicación Electron, y busque alertas previas para el mismo usuario y host."
+      ],
+      "false_positives": [
+        "Desarrolladores depurando aplicaciones Electron o Chromium con prefijos de comando (por ejemplo, un depurador en --renderer-cmd-prefix).",
+        "Herramientas de pruebas automatizadas o perfiles de rendimiento que lanzan Chrome o Edge con estos switches."
+      ],
+      "response_steps": [
+        "Confirme la legitimidad con el usuario y el equipo de desarrollo; si no hay justificación, trate el evento como incidente.",
+        "Aísle el endpoint y finalice el árbol de procesos malicioso tras preservar evidencia (memoria, ejecutable referenciado, accesos directos o claves modificadas).",
+        "Elimine el payload y cualquier persistencia asociada (accesos directos, claves Run, tareas programadas) que invoque la aplicación con el switch.",
+        "Restablezca credenciales del usuario si hubo ejecución confirmada y agregue el hash a la lista de bloqueo."
+      ],
+      "severity_rationale": "Nivel medio: los switches son poco comunes fuera de la depuración y permiten ejecución arbitraria, pero existen usos legítimos de desarrollo y la tasa de falsos positivos aún no está bien establecida."
+    },
+    "en": {
+      "summary": "A signed Electron or Chromium application (Teams, Slack, Discord, VS Code, Chrome, Edge, etc.) was started with a switch that tells it which executable or command prefix to launch. This may be abuse to proxy execution through a signed binary.",
+      "what_it_detects": "Process creation where Image or OriginalFileName matches a known Electron or Chromium app and CommandLine contains --browser-subprocess-path, --gpu-launcher, --renderer-cmd-prefix or --utility-cmd-prefix.",
+      "why_it_matters": "These Chromium switches make the trusted binary spawn an arbitrary command or executable as a subprocess. Attackers use this to run payloads under a trusted, signed parent and bypass application allowlisting (ATT&CK Execution, signed binary proxy execution).",
+      "triage_steps": [
+        "Read the full CommandLine: extract the value of the matched switch and what it points to (cmd.exe, powershell.exe, paths in %TEMP%, %APPDATA% or C:\\Users\\Public).",
+        "Compare Image with OriginalFileName: a mismatch or a path outside the normal install location suggests a renamed or copied binary.",
+        "Check ParentImage and its command line: explorer.exe is expected; Office apps, wscript.exe, mshta.exe or a browser URI handler are suspicious.",
+        "List child processes of the alerting process, plus network and file activity on the same host within +/- 15 minutes.",
+        "Get the hash and signature of the executable referenced by the switch and check it in threat intelligence.",
+        "Ask the user whether they were debugging an Electron app, and look for earlier alerts on the same user and host."
+      ],
+      "false_positives": [
+        "Developers debugging Electron or Chromium apps with command prefixes (for example a debugger in --renderer-cmd-prefix).",
+        "Automated test harnesses or performance profiling launching Chrome or Edge with these switches."
+      ],
+      "response_steps": [
+        "Confirm legitimacy with the user and development team; without a justification, handle it as an incident.",
+        "Isolate the endpoint and kill the malicious process tree after preserving evidence (memory, referenced executable, modified shortcuts or keys).",
+        "Remove the payload and any persistence (shortcuts, Run keys, scheduled tasks) that launches the app with the switch.",
+        "Reset the user's credentials if execution is confirmed and block the payload hash."
+      ],
+      "severity_rationale": "Medium: these switches are rare outside debugging and allow arbitrary execution, but legitimate developer use exists and the false-positive rate is not yet well known."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Teams.exe launched with --gpu-launcher pointing to cmd.exe to proxy command execution",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Microsoft\\Teams\\current\\Teams.exe",
+          "OriginalFileName": "Teams.exe",
+          "CommandLine": "\"C:\\Users\\jperez\\AppData\\Local\\Microsoft\\Teams\\current\\Teams.exe\" --disable-gpu-sandbox --gpu-launcher=\"C:\\Windows\\System32\\cmd.exe /c calc.exe &&\"",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\Downloads\\update.vbs"
+        }
+      },
+      {
+        "description": "Renamed msedge.exe (OriginalFileName match) using --browser-subprocess-path to run an executable from a public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\browser.exe",
+          "OriginalFileName": "msedge.exe",
+          "CommandLine": "C:\\Users\\Public\\browser.exe --browser-subprocess-path=C:\\Users\\Public\\helper.exe https://www.example.com/",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal Edge GPU child process with standard Chromium switches, none of the monitored ones",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+          "OriginalFileName": "msedge.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe\" --type=gpu-process --gpu-preferences=UAAAAAAAAADgAAAYAAAAAAAAAAAAAAAAAABgAAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA --mojo-platform-channel-handle=2040 /prefetch:2",
+          "ParentImage": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+        }
+      },
+      {
+        "description": "Non-Electron binary (node.exe) whose command line mentions --gpu-launcher; image does not match the list",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\nodejs\\node.exe",
+          "OriginalFileName": "node.exe",
+          "CommandLine": "\"C:\\Program Files\\nodejs\\node.exe\" scripts\\test-runner.js --gpu-launcher=gdb",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

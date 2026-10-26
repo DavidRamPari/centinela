@@ -1,0 +1,138 @@
+{
+  "rule": {
+    "id": "62510e69-616b-4078-b371-847da438cc03",
+    "title": "Share And Session Enumeration Using Net.EXE",
+    "level": "low",
+    "status": "stable",
+    "author": "Endgame, JHasenbusch (ported for oscd.community)",
+    "path": "windows/process_creation/proc_creation_win_net_view_share_and_sessions_enum.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_net_view_share_and_sessions_enum.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1018"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó net.exe o net1.exe con el argumento \"view\" sin una ruta UNC (\\\\host). Suele indicar que alguien enumeró los equipos, recursos compartidos o sesiones visibles en la red o el dominio.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo Image termina en \\net.exe o \\net1.exe (o con OriginalFileName net.exe/net1.exe) y cuyo CommandLine contiene \"view\". Se excluyen los comandos que incluyen \"\\\\\", es decir, las consultas dirigidas a un servidor concreto mediante ruta UNC.",
+      "why_it_matters": "Comandos como \"net view\" o \"net view /domain\" listan los equipos y recursos compartidos accesibles. Un atacante los usa para descubrir sistemas remotos (ATT&CK T1018, Remote System Discovery) antes de moverse lateralmente o buscar datos.",
+      "triage_steps": [
+        "Revise el CommandLine completo: \"net view\", \"/domain\", \"/all\" o \"/network\" indican enumeración amplia; anote el usuario y el host.",
+        "Examine ParentImage y la línea de comandos del padre: cmd.exe o powershell.exe lanzados por Office, navegadores, wscript o servicios web es sospechoso.",
+        "Si net1.exe tiene como padre net.exe, trate ambos eventos como una sola ejecución.",
+        "Busque en el mismo host, +/- 15 minutos, otros comandos de reconocimiento: whoami, nltest, net group, net user, ipconfig, arp, quser.",
+        "Compruebe si el usuario es administrador de TI o soporte y si la actividad ocurre en su horario y equipo habituales.",
+        "Pivote por el usuario y el host para ver alertas previas, conexiones SMB salientes nuevas o inicios de sesión remotos posteriores.",
+        "Verifique el hash y la ruta de net.exe: debe estar en C:\\Windows\\System32 o SysWOW64."
+      ],
+      "false_positives": [
+        "Uso legítimo de net.exe por administradores o personal de soporte para localizar equipos o recursos compartidos.",
+        "Scripts de inventario, inicio de sesión o mapeo de unidades que ejecutan \"net view\".",
+        "Herramientas de gestión o diagnóstico de red que invocan net.exe en segundo plano."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o su responsable si la ejecución fue intencional y documente la justificación.",
+        "Si no hay justificación y existen otros indicios de reconocimiento, aísle el endpoint desde el EDR tras validar el impacto operativo.",
+        "Restablezca las credenciales de la cuenta si se sospecha compromiso y revise sus inicios de sesión recientes.",
+        "Identifique y elimine el mecanismo que lanzó el comando (script, tarea programada, payload) tras recolectar evidencia.",
+        "Si es actividad legítima recurrente, cree una exclusión acotada por usuario, host y ParentImage."
+      ],
+      "severity_rationale": "Nivel bajo porque \"net view\" es un comando administrativo común; cobra relevancia solo cuando se combina con otro reconocimiento o un proceso padre anómalo."
+    },
+    "en": {
+      "summary": "net.exe or net1.exe ran with the \"view\" argument and no UNC path (\\\\host). This usually means someone listed the computers, shares or sessions visible on the network or domain.",
+      "what_it_detects": "Windows process creation events where Image ends with \\net.exe or \\net1.exe (or OriginalFileName is net.exe/net1.exe) and CommandLine contains \"view\". Commands containing \"\\\\\", meaning queries against a specific server by UNC path, are excluded.",
+      "why_it_matters": "Commands such as \"net view\" or \"net view /domain\" list reachable hosts and shares. Attackers use them to find remote systems (ATT&CK T1018, Remote System Discovery) before lateral movement or data collection.",
+      "triage_steps": [
+        "Read the full CommandLine: \"net view\", \"/domain\", \"/all\" or \"/network\" mean broad enumeration; record the user and host.",
+        "Check ParentImage and the parent command line: cmd.exe or powershell.exe spawned by Office, browsers, wscript or web services is suspicious.",
+        "If net1.exe's parent is net.exe, treat both events as one execution.",
+        "Search the same host +/- 15 minutes for other recon: whoami, nltest, net group, net user, ipconfig, arp, quser.",
+        "Confirm whether the user is IT or helpdesk staff working from their usual host and hours.",
+        "Pivot on user and host for earlier alerts, new outbound SMB connections or remote logons that follow.",
+        "Verify the net.exe path and hash: it should be in C:\\Windows\\System32 or SysWOW64."
+      ],
+      "false_positives": [
+        "Legitimate net.exe use by administrators or helpdesk staff to locate machines or shares.",
+        "Inventory, logon or drive-mapping scripts that run \"net view\".",
+        "Network management or diagnostic tools that call net.exe in the background."
+      ],
+      "response_steps": [
+        "Ask the user or their manager whether the command was intended and record the justification.",
+        "If unjustified and other recon is present, isolate the endpoint via EDR after checking operational impact.",
+        "Reset the account's credentials if compromise is suspected and review its recent logons.",
+        "After collecting evidence, find and remove whatever launched the command (script, scheduled task, payload).",
+        "For recurring legitimate activity, add a narrow exclusion by user, host and ParentImage."
+      ],
+      "severity_rationale": "Low, because \"net view\" is a common admin command that matters mainly alongside other recon or an unusual parent process."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Domain-wide host enumeration with net view /all /domain launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net view /all /domain",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c net view /all /domain",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "net1.exe spawned by net.exe enumerating the local network",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net1.exe",
+          "OriginalFileName": "net1.exe",
+          "CommandLine": "C:\\Windows\\system32\\net1 view",
+          "ParentImage": "C:\\Windows\\System32\\net.exe",
+          "ParentCommandLine": "net view",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "net view targeted at a specific file server via UNC path, excluded by the filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net view \\\\FS-01 /all",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "net.exe used to map a drive, no 'view' in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net use Z: /delete",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

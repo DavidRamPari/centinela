@@ -1,0 +1,138 @@
+{
+  "rule": {
+    "id": "4fe074b4-b833-4081-8f24-7dcfeca72b42",
+    "title": "Security Tools Keyword Lookup Via Findstr.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), frack113",
+    "path": "windows/process_creation/proc_creation_win_findstr_security_keyword_lookup.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_findstr_security_keyword_lookup.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1518.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó find.exe o findstr.exe con una línea de comandos que termina en una palabra clave de herramientas de seguridad (virus, defender, sentinel, kaspersky, sec, etc.). Suele indicar que alguien filtra la salida de tasklist, sc o wmic para saber qué antivirus o EDR hay en el equipo.",
+      "what_it_detects": "Eventos process_creation de Windows en los que Image termina en \\find.exe o \\findstr.exe (u OriginalFileName es FIND.EXE/FINDSTR.EXE) y CommandLine termina en una de las palabras clave, con o sin comilla de cierre.",
+      "why_it_matters": "Es descubrimiento de software de seguridad (T1518.001). Un atacante con acceso inicial revisa qué protecciones existen antes de desactivarlas, evadirlas o elegir qué herramientas desplegar. Suele ocurrir poco después de comprometer un servicio expuesto.",
+      "triage_steps": [
+        "Revise CommandLine completo y la palabra clave usada; anote host, usuario y hora del evento.",
+        "Identifique ParentImage y ParentCommandLine: un cmd.exe /c \"tasklist | findstr ...\" confirma el patrón de reconocimiento por pipe.",
+        "Suba por el árbol de procesos: ¿cmd.exe o powershell.exe lanzados por w3wp.exe, java.exe, sqlservr.exe o un servicio web? Eso sugiere explotación.",
+        "En el mismo host, busque en +/- 15 minutos whoami, net, nltest, systeminfo, ipconfig, sc query o wmic.",
+        "Compruebe si el usuario es una cuenta de servicio o de administrador y si suele ejecutar consolas de forma interactiva.",
+        "Busque alertas previas para el mismo host y usuario, y otros hosts con la misma CommandLine.",
+        "Revise si después hubo intentos de detener servicios de seguridad, cambios en exclusiones de Defender o descargas de herramientas."
+      ],
+      "false_positives": [
+        "Scripts de inventario o de soporte que verifican si el antivirus o el EDR está instalado o en ejecución.",
+        "Herramientas RMM o de gestión de endpoint que consultan servicios con sc query | findstr.",
+        "Administradores o desarrolladores que usan findstr de forma interactiva con palabras cortas como sec, mc o cb."
+      ],
+      "response_steps": [
+        "Valide con el dueño del equipo o el equipo de TI si la ejecución fue legítima o parte de un script conocido.",
+        "Si no hay justificación, aísle el endpoint desde el EDR y preserve la telemetría de procesos y red.",
+        "Identifique el vector de acceso (proceso padre, servicio explotado, sesión remota) y restablezca las credenciales de la cuenta implicada.",
+        "Busque persistencia y herramientas dejadas por el atacante, y verifique que las protecciones de seguridad sigan activas.",
+        "Documente los indicadores y, si se confirma un script legítimo, cree una exclusión acotada por ParentImage y CommandLine."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque es reconocimiento sin daño directo y puede tener usos administrativos, pero suele preceder a la evasión de defensas."
+    },
+    "en": {
+      "summary": "find.exe or findstr.exe ran with a command line ending in a security-tool keyword (virus, defender, sentinel, kaspersky, sec, etc.). This usually means someone is filtering tasklist, sc or wmic output to learn which antivirus or EDR is present.",
+      "what_it_detects": "Windows process_creation events where Image ends with \\find.exe or \\findstr.exe (or OriginalFileName is FIND.EXE/FINDSTR.EXE) and CommandLine ends with one of the listed keywords, with or without a trailing quote.",
+      "why_it_matters": "This is security software discovery (T1518.001). An intruder checks which protections exist before disabling or evading them or choosing which tools to deploy. It often follows soon after an exposed service is compromised.",
+      "triage_steps": [
+        "Read the full CommandLine and the matched keyword; note host, user and timestamp.",
+        "Identify ParentImage and ParentCommandLine: cmd.exe /c \"tasklist | findstr ...\" confirms piped reconnaissance.",
+        "Walk up the process tree: cmd.exe or powershell.exe spawned by w3wp.exe, java.exe, sqlservr.exe or a web service suggests exploitation.",
+        "On the same host within +/- 15 minutes, look for whoami, net, nltest, systeminfo, ipconfig, sc query or wmic.",
+        "Check whether the user is a service or admin account and whether it normally runs interactive shells.",
+        "Search earlier alerts for the same host and user, and other hosts with the same CommandLine.",
+        "Look for follow-up actions: stopping security services, Defender exclusion changes or tool downloads."
+      ],
+      "false_positives": [
+        "Inventory or support scripts checking whether antivirus or EDR is installed or running.",
+        "RMM or endpoint management tools querying services with sc query | findstr.",
+        "Admins or developers using findstr interactively with short words such as sec, mc or cb."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the execution was legitimate or part of a known script.",
+        "If unexplained, isolate the endpoint via EDR and preserve process and network telemetry.",
+        "Determine the access vector (parent process, exploited service, remote session) and reset credentials of the involved account.",
+        "Hunt for persistence and dropped tools, and verify security protections remain enabled.",
+        "Record indicators; for confirmed legitimate scripts, add a narrow exclusion scoped by ParentImage and CommandLine."
+      ],
+      "severity_rationale": "Medium fits because this is reconnaissance with no direct impact and some admin use, yet it commonly precedes defense evasion."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "findstr filtering tasklist output for 'virus', spawned by cmd.exe from a web server worker",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\svc-web",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "OriginalFileName": "FINDSTR.EXE",
+          "CommandLine": "findstr /i virus",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c tasklist | findstr /i virus",
+          "CurrentDirectory": "C:\\Windows\\system32\\"
+        }
+      },
+      {
+        "description": "findstr launched via cmd /c with quoted pipeline, trailing quote captured in CommandLine",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "OriginalFileName": "FINDSTR.EXE",
+          "CommandLine": "findstr  defender\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd /c \"sc query | findstr defender\"",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "findstr searching a log file for 'sec'; CommandLine ends with the file path, not the keyword",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "OriginalFileName": "FINDSTR.EXE",
+          "CommandLine": "findstr /i /c:\"sec\" C:\\Logs\\app.log",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Logs\\"
+        }
+      },
+      {
+        "description": "findstr filtering for 'security' - ends with ' security', which is not one of the listed endings",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\admin.mlopez",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "OriginalFileName": "FINDSTR.EXE",
+          "CommandLine": "findstr /i security",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Windows\\system32\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "0b80ade5-6997-4b1d-99a1-71701778ea61",
+    "title": "Imports Registry Key From an ADS",
+    "level": "high",
+    "status": "test",
+    "author": "Oddvar Moe, Sander Wiebing, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_regedit_import_keys_ads.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_regedit_import_keys_ads.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1112"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó regedit.exe para importar un archivo .reg que parece estar almacenado en un Alternate Data Stream (ADS) de NTFS. Es una técnica de LOLBAS para modificar el registro desde contenido oculto.",
+      "what_it_detects": "Creación de proceso de regedit.exe (por Image u OriginalFileName) cuyo CommandLine contiene ' /i ' o '.reg' y una ruta con dos puntos seguidos de un carácter que no es espacio ni barra invertida (por ejemplo archivo.txt:oculto.reg). Excluye exportaciones con -e, -a o -c.",
+      "why_it_matters": "Importar claves desde un ADS permite cambiar el registro (ATT&CK T1112, Modify Registry) para persistencia o para debilitar defensas, mientras el archivo .reg queda oculto en un stream que no aparece en un listado normal de directorio.",
+      "triage_steps": [
+        "Revise CommandLine e identifique el archivo anfitrión y el nombre del stream (texto después de los dos puntos).",
+        "Verifique Image, OriginalFileName y el hash para confirmar que es el regedit.exe legítimo de Windows.",
+        "Analice ParentImage y la línea de comandos del padre: scripts, Office, mshta o wscript como padre son muy sospechosos.",
+        "Obtenga el contenido del stream en el endpoint (Get-Item -Stream * y Get-Content -Stream) y revise las claves que importa.",
+        "Busque cambios de registro en el mismo host +/- 15 minutos: claves Run, servicios, Winlogon, IFEO y políticas de Defender.",
+        "Busque la creación del ADS (Sysmon evento 15) y el proceso que lo escribió; identifique origen por descarga o correo.",
+        "Pivote por el usuario y el host: otras ejecuciones de LOLBAS, conexiones de red y alertas previas."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; el uso de ADS con regedit es raro en entornos legítimos.",
+        "Scripts antiguos de despliegue o instaladores que guardan configuraciones en streams; valide con el equipo responsable.",
+        "Pruebas de red team o de simulación de adversarios autorizadas."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el dueño del sistema si la acción fue autorizada antes de actuar.",
+        "Si es malicioso, aísle el endpoint y preserve el archivo anfitrión con su ADS y los hives de registro afectados.",
+        "Revierta las claves importadas usando el contenido del stream como referencia, tras respaldar el registro.",
+        "Elimine el ADS y los artefactos relacionados, restablezca credenciales del usuario si hubo compromiso y busque el mismo patrón en otros hosts."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque importar registro desde un ADS casi no tiene uso legítimo y combina ocultamiento con modificación del registro para persistencia o evasión."
+    },
+    "en": {
+      "summary": "regedit.exe was run to import a .reg file that appears to be stored in an NTFS Alternate Data Stream (ADS). This LOLBAS technique modifies the registry from hidden content.",
+      "what_it_detects": "regedit.exe process creation (by Image or OriginalFileName) whose CommandLine contains ' /i ' or '.reg' plus a path with a colon followed by a non-space, non-backslash character (e.g. file.txt:hidden.reg). Exports using -e, -a or -c are excluded.",
+      "why_it_matters": "Importing keys from an ADS lets an attacker change the registry (ATT&CK T1112, Modify Registry) for persistence or defense impairment while the .reg file stays hidden from normal directory listings.",
+      "triage_steps": [
+        "Read CommandLine and identify the host file and stream name (text after the colon).",
+        "Check Image, OriginalFileName and hash to confirm it is the genuine Windows regedit.exe.",
+        "Review ParentImage and its command line; scripts, Office, mshta or wscript as parent are highly suspicious.",
+        "Retrieve the stream on the endpoint (Get-Item -Stream *, Get-Content -Stream) and review the keys it imports.",
+        "Look for registry changes on the same host +/- 15 minutes: Run keys, services, Winlogon, IFEO, Defender policies.",
+        "Find the ADS creation (Sysmon event 15) and the writing process; trace it to a download or email.",
+        "Pivot on user and host: other LOLBAS executions, network connections and earlier alerts."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; regedit with ADS is rare in legitimate use.",
+        "Legacy deployment scripts or installers storing settings in streams; validate with the owning team.",
+        "Authorized red team or adversary emulation exercises."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether the action was authorized before acting.",
+        "If malicious, isolate the endpoint and preserve the host file with its ADS and affected registry hives.",
+        "Back up the registry, then revert the imported keys using the stream content as reference.",
+        "Remove the ADS and related artifacts, reset user credentials if compromised and hunt for the pattern on other hosts."
+      ],
+      "severity_rationale": "High fits because importing registry data from an ADS has almost no legitimate use and combines hiding with registry changes for persistence or evasion."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Silent import of a .reg payload hidden in an ADS of a text file, launched from a script",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\regedit.exe",
+          "OriginalFileName": "REGEDIT.EXE",
+          "CommandLine": "regedit.exe /S C:\\Users\\Public\\notes.txt:hidden.reg",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\Public\\update.vbs"
+        }
+      },
+      {
+        "description": "Import using /i with a stream name without .reg extension",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\regedit.exe",
+          "OriginalFileName": "REGEDIT.EXE",
+          "CommandLine": "regedit.exe /i C:\\ProgramData\\app.log:cfgdata",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate silent import of a normal .reg file (only colon is the drive letter, followed by a backslash)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\regedit.exe",
+          "OriginalFileName": "REGEDIT.EXE",
+          "CommandLine": "regedit.exe /s C:\\Users\\jperez\\Desktop\\settings.reg",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Export of a key to an ADS with /e, excluded by the windash filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\regedit.exe",
+          "OriginalFileName": "REGEDIT.EXE",
+          "CommandLine": "regedit.exe /e C:\\Temp\\report.txt:backup.reg HKEY_CURRENT_USER\\Software\\ExampleApp",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

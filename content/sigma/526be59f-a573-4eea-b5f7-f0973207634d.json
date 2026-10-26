@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "526be59f-a573-4eea-b5f7-f0973207634d",
+    "title": "Process Creation Attempt via Wmic.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Michael Haag, Florian Roth (Nextron Systems), juju4, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_wmic_process_creation.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmic_process_creation.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1047"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó wmic.exe con los argumentos \"process call create\" para lanzar un proceso, en el equipo local o en uno remoto. La alerta se genera con el intento, sin importar si la creación tuvo éxito.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\wmic.exe u OriginalFileName es wmic.exe, y CommandLine contiene \"process\", \"call\" y \"create\". Por OriginalFileName también detecta copias renombradas del binario.",
+      "why_it_matters": "Con WMI (ATT&CK T1047, Windows Management Instrumentation) un atacante ejecuta comandos de forma indirecta. Así evita la relación padre-hijo habitual y puede moverse lateralmente con /node: usando credenciales robadas.",
+      "triage_steps": [
+        "Lea CommandLine completo: identifique el proceso solicitado después de \"create\" y verifique si aparecen /node:, /user: o /password:, que indican ejecución remota con credenciales.",
+        "Revise ParentImage y la cadena de procesos padre. Un wmic lanzado por Office, un navegador, mshta, wscript o PowerShell codificado es más sospechoso que uno lanzado desde consolas administrativas.",
+        "Compare Image con OriginalFileName. Si wmic.exe se ejecutó fuera de System32 o SysWOW64, o con otro nombre, trátelo como evasión.",
+        "Valide el User: si la cuenta suele administrar ese equipo, si tiene privilegios elevados y si ese horario es normal para ella.",
+        "En el host de destino, busque procesos hijos de WmiPrvSE.exe en un rango de +/- 15 minutos y revise qué ejecutaron y qué conexiones de red abrieron.",
+        "Pivotee por el mismo host y el mismo usuario en un rango de +/- 15 minutos en busca de descargas, archivos nuevos, persistencia o ejecuciones similares en otros equipos.",
+        "Revise si hubo alertas previas para el host, el usuario o el hash del payload lanzado."
+      ],
+      "false_positives": [
+        "Scripts de administración o despliegue de software que usan wmic process call create para lanzar instaladores o tareas en varios equipos.",
+        "Herramientas de inventario, RMM o soporte remoto que ejecutan comandos mediante WMI.",
+        "Administradores que hacen pruebas o tareas de respuesta a incidentes, o ejercicios autorizados de red team como Atomic Red Team T1047."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del equipo o el equipo de TI si la ejecución estaba autorizada y documente la justificación.",
+        "Si es maliciosa, aísle el host de origen y el de destino desde el EDR y conserve la evidencia: memoria, artefactos del proceso creado y logs.",
+        "Deshabilite o restablezca las credenciales usadas y revise dónde más se autenticaron.",
+        "Termine los procesos maliciosos, elimine el payload y la persistencia relacionada, y busque el mismo CommandLine o hash en todo el entorno.",
+        "Restaure los servicios y evalúe restringir WMI remoto y el uso de wmic a cuentas administrativas específicas."
+      ],
+      "severity_rationale": "El nivel medio se ajusta porque es una técnica común de ejecución y movimiento lateral, pero los administradores también la usan legítimamente y la regla no evalúa qué proceso se crea."
+    },
+    "en": {
+      "summary": "wmic.exe was run with \"process call create\" to start a process on the local host or on a remote one. The alert fires on the attempt, whether or not the process actually started.",
+      "what_it_detects": "Windows process creation events where Image ends with \\wmic.exe or OriginalFileName is wmic.exe, and CommandLine contains \"process\", \"call\" and \"create\". The OriginalFileName check also catches renamed copies.",
+      "why_it_matters": "With WMI (ATT&CK T1047, Windows Management Instrumentation) attackers run commands indirectly. This breaks the usual parent-child chain and, with /node: and stolen credentials, supports lateral movement.",
+      "triage_steps": [
+        "Read the full CommandLine: find the process requested after \"create\" and check for /node:, /user: or /password:, which mean remote execution with credentials.",
+        "Review ParentImage and the process ancestry. wmic launched by Office, a browser, mshta, wscript or encoded PowerShell is more suspicious than wmic launched from admin consoles.",
+        "Compare Image with OriginalFileName. Treat wmic.exe running outside System32 or SysWOW64, or under another name, as evasion.",
+        "Check the User: whether the account normally administers this host, whether it is privileged, and whether the timing is normal for it.",
+        "On the target host, look for children of WmiPrvSE.exe within +/- 15 minutes and review what they ran and which network connections they made.",
+        "Pivot on the same host and user within +/- 15 minutes for downloads, new files, persistence or similar executions on other machines.",
+        "Check for earlier alerts on the host, the user or the hash of the launched payload."
+      ],
+      "false_positives": [
+        "Admin or software deployment scripts that use wmic process call create to start installers or tasks across hosts.",
+        "Inventory, RMM or remote support tools that run commands through WMI.",
+        "Administrators testing or doing incident response, or authorized red team exercises such as Atomic Red Team T1047."
+      ],
+      "response_steps": [
+        "Ask the host owner or IT whether the execution was authorized and record the justification.",
+        "If it is malicious, isolate the source and target hosts through EDR and keep the evidence: memory, artifacts of the created process and logs.",
+        "Disable or reset the credentials used and check where else they authenticated.",
+        "Kill the malicious processes, remove the payload and any related persistence, and hunt for the same CommandLine or hash across the estate.",
+        "Restore services and consider limiting remote WMI and wmic use to specific admin accounts."
+      ],
+      "severity_rationale": "Medium fits because this is a common execution and lateral movement technique, but admins also use it legitimately, and the rule does not look at which process gets created."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Local wmic process call create launching PowerShell from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic process call create \"powershell.exe -NoProfile -File C:\\Users\\Public\\update.ps1\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed wmic binary (detected via OriginalFileName) creating a process on a remote host with /node",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "svchelper.exe /node:WS-0200 /user:ANDES\\admin.temp process call create \"cmd.exe /c whoami > C:\\Windows\\Temp\\o.txt\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "wmic used legitimately to query processes, without 'call create'",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic process where name='notepad.exe' get processid,commandline",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "PowerShell Invoke-WmiMethod process creation, not wmic.exe and no 'call' keyword",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList notepad.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

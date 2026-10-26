@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "a95b9b42-1308-4735-a1af-abb1c5e6f5ac",
+    "title": "Suspicious Service DACL Modification Via Set-Service Cmdlet",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_service_dacl_modification_set_service.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_service_dacl_modification_set_service.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1543.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "PowerShell 7 (pwsh.exe) ejecutó Set-Service con -SecurityDescriptorSddl para aplicar una DACL con entradas de denegación (D;;) a usuarios, administradores, SYSTEM o Everyone. Así se puede ocultar un servicio o impedir que se detenga o se elimine.",
+      "what_it_detects": "Procesos pwsh.exe (por Image u OriginalFileName pwsh.dll) cuyo CommandLine contiene 'Set-Service ', el parámetro -SecurityDescriptorSddl o su alias -sd, una ACE de denegación 'D;;' y un trustee IU, SU, BA, SY o WD.",
+      "why_it_matters": "Si se modifica el descriptor de seguridad de un servicio, un servicio malicioso puede quedar invisible para sc query o Get-Service, o volverse imposible de detener. Así se refuerza la persistencia mediante servicios de Windows (ATT&CK T1543.003).",
+      "triage_steps": [
+        "Revise el CommandLine completo: anote el nombre del servicio y decodifique la SDDL. Por ejemplo, D;;DCLCWPDTSD;;;BA niega a los administradores consultar, detener, pausar y eliminar el servicio.",
+        "Identifique el ParentImage y la cadena de procesos. Si pwsh.exe viene de un script, tarea programada, Office o una shell remota, aumenta la sospecha.",
+        "Valide el usuario y el nivel de integridad. Para cambiar la DACL de un servicio se necesitan privilegios administrativos; confirme si esa cuenta suele administrar el host.",
+        "En el endpoint, ejecute sc.exe sdshow <servicio> y revise el ImagePath en HKLM\\SYSTEM\\CurrentControlSet\\Services\\<servicio>. Compruebe la firma y el hash del binario.",
+        "Busque en el mismo host, 15 minutos antes y después, eventos 7045/4697 de creación de servicios, ejecuciones de sc.exe y escrituras de archivos en el directorio del binario.",
+        "Revise alertas anteriores del host y del usuario, y busque el mismo nombre de servicio o la misma SDDL en otros equipos."
+      ],
+      "false_positives": [
+        "Scripts de hardening que niegan a usuarios no administradores la detención de agentes de seguridad o servicios críticos.",
+        "Instaladores o herramientas de gestión que usan PowerShell 7 para fijar permisos de servicios propios; verifíquelo con el equipo dueño.",
+        "Ejercicios autorizados de red team o pruebas de detección."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del sistema si el cambio estaba autorizado. Respalde la SDDL actual con sc.exe sdshow antes de modificarla.",
+        "Si es malicioso, aísle el endpoint y preserve evidencia: binario del servicio, clave de registro, historial de PowerShell y logs.",
+        "Restaure una DACL conocida como válida con sc.exe sdset, ejecutándolo como SYSTEM si los administradores tienen acceso denegado. Luego detenga y elimine el servicio malicioso.",
+        "Revoque o restablezca las credenciales usadas y busque la misma técnica en el resto del parque."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque aplicar ACE de denegación a administradores o SYSTEM sobre un servicio casi no tiene usos legítimos y sirve para ocultar persistencia con privilegios elevados."
+    },
+    "en": {
+      "summary": "PowerShell 7 (pwsh.exe) ran Set-Service with -SecurityDescriptorSddl to apply a DACL with deny entries (D;;) for users, administrators, SYSTEM or Everyone. This can hide a service or stop anyone from stopping or deleting it.",
+      "what_it_detects": "pwsh.exe processes (by Image or OriginalFileName pwsh.dll) whose CommandLine contains 'Set-Service ', the -SecurityDescriptorSddl parameter or its -sd alias, a 'D;;' deny ACE, and an IU, SU, BA, SY or WD trustee.",
+      "why_it_matters": "Changing a service's security descriptor can hide a malicious service from sc query or Get-Service, or make it impossible to stop. This strengthens persistence through Windows services (ATT&CK T1543.003).",
+      "triage_steps": [
+        "Read the full CommandLine. Note the service name and decode the SDDL: for example, D;;DCLCWPDTSD;;;BA denies administrators the rights to query, stop, pause and delete it.",
+        "Identify ParentImage and the process chain. A script, scheduled task, Office app or remote shell spawning pwsh.exe raises suspicion.",
+        "Check the user and integrity level. Changing a service DACL needs admin rights, so confirm whether that account normally administers this host.",
+        "On the endpoint, run sc.exe sdshow <service> and check ImagePath under HKLM\\SYSTEM\\CurrentControlSet\\Services\\<service>. Verify the binary's signature and hash.",
+        "Search the same host within +/- 15 minutes for service creation events (7045/4697), sc.exe runs and file writes in the binary's folder.",
+        "Review earlier alerts for this host and user, and hunt for the same service name or SDDL on other machines."
+      ],
+      "false_positives": [
+        "Hardening scripts that stop non-admin users from stopping security agents or critical services.",
+        "Installers or management tools that use PowerShell 7 to set permissions on their own services; confirm with the owning team.",
+        "Authorized red team exercises or detection tests."
+      ],
+      "response_steps": [
+        "Confirm with the system owner whether the change was authorized. Back up the current SDDL with sc.exe sdshow before changing it.",
+        "If malicious, isolate the endpoint and preserve evidence: service binary, registry key, PowerShell history and logs.",
+        "Restore a known-good DACL with sc.exe sdset, running as SYSTEM if admins are denied. Then stop and remove the malicious service.",
+        "Revoke or reset the credentials used and hunt for the same technique across the fleet."
+      ],
+      "severity_rationale": "High fits because deny ACEs against administrators or SYSTEM on a service have almost no legitimate use and serve to hide privileged persistence."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "pwsh.exe hides a service by denying access to interactive users, service accounts and administrators via -SecurityDescriptorSddl",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NoProfile -Command \"Set-Service -Name UpdaterSvc -SecurityDescriptorSddl 'D:(D;;DCLCWPDTSD;;;IU)(D;;DCLCWPDTSD;;;SU)(D;;DCLCWPDTSD;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWRPWPDTLOCRRC;;;SY)'\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed PowerShell 7 binary (OriginalFileName pwsh.dll) uses the -sd alias to deny Everyone",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc-deploy",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "svchelper.exe -c \"Set-Service -Name WinTelemetryHost -sd 'D:(D;;DCLCWPDTSD;;;WD)(A;;CCLCSWRPWPDTLOCRRC;;;SY)'\"",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator sets an allow-only SDDL on a service with PowerShell 7; no deny ACE (D;;) is present",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\admin.mrojas",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -Command \"Set-Service -Name AppBackupSvc -SecurityDescriptorSddl 'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;IU)'\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Routine Set-Service startup-type change in PowerShell 7 without any SDDL parameter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.mrojas",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -Command \"Set-Service -Name Spooler -StartupType Disabled\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

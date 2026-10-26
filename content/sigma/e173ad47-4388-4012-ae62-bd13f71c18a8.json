@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "e173ad47-4388-4012-ae62-bd13f71c18a8",
+    "title": "Potential DLL Sideloading Via DeviceEnroller.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "@gott_cyber",
+    "path": "windows/process_creation/proc_creation_win_deviceenroller_dll_sideloading.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_deviceenroller_dll_sideloading.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1574.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó DeviceEnroller.exe con el parámetro /PhoneDeepLink, que intenta cargar ShellChromeAPI.dll, una DLL que no existe en Windows. Esto puede indicar un sideloading de una DLL maliciosa colocada por un atacante.",
+      "what_it_detects": "Creación de un proceso cuyo Image termina en \\deviceenroller.exe u OriginalFileName es deviceenroller.exe, con CommandLine que contiene /PhoneDeepLink.",
+      "why_it_matters": "DeviceEnroller.exe es un binario firmado de Microsoft. Si se copia a una carpeta con permisos de escritura junto a un ShellChromeAPI.dll falso, ejecuta código del atacante bajo un proceso confiable (secuestro del orden de búsqueda de DLL, T1574.001), lo que sirve para ejecución, persistencia y evasión.",
+      "triage_steps": [
+        "Revise Image: una ruta fuera de C:\\Windows\\System32 o SysWOW64 indica que el binario fue copiado y eleva mucho la sospecha.",
+        "Busque ShellChromeAPI.dll en el directorio de Image y en el directorio de trabajo; obtenga hash, firma, fecha de creación y el proceso que lo escribió.",
+        "Revise eventos de carga de imágenes (Sysmon 7) de este proceso para confirmar si se cargó ShellChromeAPI.dll y desde qué ruta.",
+        "Analice ParentImage y la línea de comandos del padre: cmd, PowerShell, scripts u Office como padre son sospechosos.",
+        "Revise procesos hijos, conexiones de red y cambios en el registro del mismo host en un rango de +/- 15 minutos.",
+        "Pivotee por el usuario y el host para buscar alertas previas, descargas recientes o copias de DeviceEnroller.exe en otros equipos."
+      ],
+      "false_positives": [
+        "La regla no indica falsos positivos conocidos; el uso legítimo de /PhoneDeepLink es poco común.",
+        "Pruebas de equipos red team o validaciones de detección autorizadas con este método.",
+        "Escenarios poco frecuentes de vinculación de teléfono iniciados por el sistema desde System32, sin ningún ShellChromeAPI.dll presente."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o el responsable del equipo si la ejecución estaba prevista o autorizada.",
+        "Si se confirma una DLL maliciosa, aísle el endpoint y conserve como evidencia la DLL, la copia de DeviceEnroller.exe y la memoria.",
+        "Termine el proceso, elimine los artefactos verificados y revise los mecanismos de persistencia asociados.",
+        "Busque el hash de la DLL en toda la flota, rote las credenciales del usuario si hubo ejecución y restaure el equipo cuando esté limpio."
+      ],
+      "severity_rationale": "La severidad media es adecuada porque el parámetro rara vez se usa de forma legítima, aunque confirmar actividad maliciosa requiere encontrar la DLL plantada."
+    },
+    "en": {
+      "summary": "DeviceEnroller.exe ran with the /PhoneDeepLink parameter, which makes it try to load ShellChromeAPI.dll, a DLL that does not exist in Windows. This may mean a malicious DLL was sideloaded.",
+      "what_it_detects": "Process creation where Image ends with \\deviceenroller.exe or OriginalFileName is deviceenroller.exe, and CommandLine contains /PhoneDeepLink.",
+      "why_it_matters": "DeviceEnroller.exe is a signed Microsoft binary. Copied to a writable folder next to a fake ShellChromeAPI.dll, it runs attacker code inside a trusted process (DLL search order hijacking, T1574.001). This gives execution, persistence and stealth.",
+      "triage_steps": [
+        "Check Image: a path outside C:\\Windows\\System32 or SysWOW64 means the binary was copied, which is highly suspicious.",
+        "Look for ShellChromeAPI.dll in the Image folder and working directory; collect its hash, signature, creation time and the process that wrote it.",
+        "Review image load events (Sysmon 7) for this process to confirm whether ShellChromeAPI.dll loaded and from which path.",
+        "Inspect ParentImage and the parent command line; cmd, PowerShell, script hosts or Office parents are suspicious.",
+        "Review child processes, network connections and registry changes on the same host within +/- 15 minutes.",
+        "Pivot on the user and host for earlier alerts, recent downloads, or copies of DeviceEnroller.exe on other machines."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; legitimate use of /PhoneDeepLink is rare.",
+        "Authorized red team exercises or detection validation tests using this technique.",
+        "Rare system-initiated phone linking from System32 with no ShellChromeAPI.dll present."
+      ],
+      "response_steps": [
+        "Confirm with the user or asset owner whether the execution was expected or authorized.",
+        "If a malicious DLL is confirmed, isolate the endpoint and preserve the DLL, the DeviceEnroller.exe copy and memory as evidence.",
+        "Kill the process, remove verified artifacts and check for related persistence.",
+        "Hunt for the DLL hash across the fleet, rotate the user's credentials if code ran, and restore the host once clean."
+      ],
+      "severity_rationale": "Medium fits because the parameter is rarely used legitimately, but confirming malice requires finding a planted DLL."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "DeviceEnroller.exe copied to a user-writable folder and launched with /PhoneDeepLink from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\Downloads\\DeviceEnroller.exe",
+          "OriginalFileName": "deviceenroller.exe",
+          "CommandLine": "DeviceEnroller.exe /PhoneDeepLink",
+          "CurrentDirectory": "C:\\Users\\Public\\Downloads\\",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start DeviceEnroller.exe /PhoneDeepLink",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed copy detected by OriginalFileName, run with /PhoneDeepLink and extra data",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\ProgramData\\Updater\\svcenroll.exe",
+          "OriginalFileName": "DeviceEnroller.exe",
+          "CommandLine": "\"C:\\ProgramData\\Updater\\svcenroll.exe\" /PhoneDeepLink 1",
+          "CurrentDirectory": "C:\\ProgramData\\Updater\\",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate MDM enrollment run of DeviceEnroller.exe from System32 without /PhoneDeepLink",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\DeviceEnroller.exe",
+          "OriginalFileName": "DeviceEnroller.exe",
+          "CommandLine": "C:\\Windows\\system32\\deviceenroller.exe /o \"5C2B4F1E-8A7D-4E3B-9C61-2F0A7D3E9B14\" /c /b",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Different binary whose command line mentions PhoneDeepLink but is not DeviceEnroller.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\rgomez",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "OriginalFileName": "NOTEPAD.EXE",
+          "CommandLine": "notepad.exe C:\\Users\\rgomez\\Documents\\notes_/PhoneDeepLink.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "ec570e53-4c76-45a9-804d-dc3f355ff7a7",
+    "title": "7Zip Compressing Dump Files",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_7zip_exfil_dmp_files.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_7zip_exfil_dmp_files.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1560.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó 7-Zip (7z.exe, 7za.exe, 7zr.exe o una copia renombrada) con una línea de comandos que hace referencia a un archivo .dmp, .dump o .hdmp. Puede indicar que se está preparando un volcado de memoria para exfiltrarlo.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde el binario se identifica como 7-Zip (por Description, terminación de Image u OriginalFileName) y el CommandLine contiene '.dmp', '.dump' o '.hdmp'.",
+      "why_it_matters": "Los volcados de memoria, sobre todo de LSASS, pueden contener credenciales. Comprimirlos (ATT&CK T1560.001, archivado mediante utilidad) suele ser el paso previo a sacarlos de la red y a robar credenciales.",
+      "triage_steps": [
+        "Revise el CommandLine completo: ruta y nombre del .dmp (p. ej. lsass.dmp), archivo de salida, uso de contraseña (-p) y carpetas como C:\\ProgramData, C:\\Users\\Public o Temp.",
+        "Compare Image con OriginalFileName: un 7-Zip renombrado o ubicado fuera de C:\\Program Files\\7-Zip es una señal de alto riesgo.",
+        "Analice ParentImage y el usuario: cmd.exe o powershell.exe lanzados por sesiones remotas, herramientas RMM o cuentas inusuales merecen escalamiento.",
+        "Busque en el mismo host, +/- 15 minutos, la creación del volcado: rundll32 con comsvcs.dll MiniDump, procdump, Task Manager o accesos a lsass.exe.",
+        "Verifique si el archivo comprimido resultante sigue en disco y si hubo conexiones de red salientes o transferencias (SMB, HTTP, rclone, curl) después de la compresión.",
+        "Revise alertas previas para el mismo host y usuario, y si el mismo hash de 7-Zip aparece en otros equipos."
+      ],
+      "false_positives": [
+        "Uso legítimo de 7-Zip para comprimir volcados de WER (C:\\ProgramData\\Microsoft\\Windows\\WER) o de aplicaciones y enviarlos a soporte técnico.",
+        "Líneas de comandos donde '.dmp' o '.dump' aparece por casualidad, como nombres de carpetas o respaldos de bases de datos (db.dump).",
+        "Scripts de mantenimiento o herramientas de diagnóstico del equipo de TI que archivan volcados de fallas en forma programada."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de TI si la compresión fue autorizada y de qué proceso proviene el volcado.",
+        "Si el volcado es de LSASS o no está justificado, aísle el endpoint y conserve el .dmp y el archivo comprimido como evidencia antes de cualquier borrado.",
+        "Restablezca las credenciales de las cuentas que hayan iniciado sesión en el host, priorizando cuentas privilegiadas, y revise movimientos laterales.",
+        "Bloquee los destinos de exfiltración identificados, elimine herramientas no autorizadas tras su análisis y documente el incidente."
+      ],
+      "severity_rationale": "El nivel medium es adecuado porque comprimir volcados es un paso sospechoso en una cadena de robo de credenciales, aunque también existen usos legítimos de diagnóstico."
+    },
+    "en": {
+      "summary": "7-Zip (7z.exe, 7za.exe, 7zr.exe or a renamed copy) ran with a command line referencing a .dmp, .dump or .hdmp file. This may mean a memory dump is being staged for exfiltration.",
+      "what_it_detects": "Windows process creation events where the binary is identified as 7-Zip (by Description, Image suffix or OriginalFileName) and CommandLine contains '.dmp', '.dump' or '.hdmp'.",
+      "why_it_matters": "Memory dumps, especially of LSASS, can contain credentials. Compressing them (ATT&CK T1560.001, archive via utility) is often the step before moving them off the network for credential theft.",
+      "triage_steps": [
+        "Read the full CommandLine: dump path and name (e.g. lsass.dmp), output archive, password use (-p), and staging folders like C:\\ProgramData, C:\\Users\\Public or Temp.",
+        "Compare Image with OriginalFileName: a renamed 7-Zip or one outside C:\\Program Files\\7-Zip is a strong warning sign.",
+        "Check ParentImage and the user: cmd.exe or powershell.exe from remote sessions, RMM tools or unusual accounts warrant escalation.",
+        "On the same host within +/- 15 minutes, look for dump creation: rundll32 comsvcs.dll MiniDump, procdump, Task Manager, or access to lsass.exe.",
+        "Check whether the resulting archive is still on disk and whether outbound transfers (SMB, HTTP, rclone, curl) followed the compression.",
+        "Review earlier alerts for the same host and user, and whether the same 7-Zip hash appears on other machines."
+      ],
+      "false_positives": [
+        "Legitimate 7-Zip compression of WER (C:\\ProgramData\\Microsoft\\Windows\\WER) or application crash dumps to send to support.",
+        "Command lines where '.dmp' or '.dump' appears by accident, such as folder names or database backups (db.dump).",
+        "IT maintenance scripts or diagnostic tools that archive crash dumps on a schedule."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT whether the compression was authorized and which process the dump came from.",
+        "If the dump is of LSASS or unjustified, isolate the endpoint and preserve the .dmp and archive as evidence before any deletion.",
+        "Reset credentials for accounts that logged on to the host, prioritizing privileged ones, and hunt for lateral movement.",
+        "Block identified exfiltration destinations, remove unauthorized tools after analysis, and document the incident."
+      ],
+      "severity_rationale": "Medium fits because compressing dumps is a suspicious step in a credential-theft chain, yet legitimate diagnostic uses also exist."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Portable 7za.exe in ProgramData compresses an LSASS dump into a password-protected archive.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\ProgramData\\7za.exe",
+          "OriginalFileName": "7za.exe",
+          "Description": "7-Zip Standalone Console",
+          "CommandLine": "7za.exe a -tzip -pInfected123 C:\\ProgramData\\out.zip C:\\ProgramData\\lsass.dmp",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\ProgramData\\run.bat",
+          "CurrentDirectory": "C:\\ProgramData\\"
+        }
+      },
+      {
+        "description": "Renamed 7-Zip binary (detected via OriginalFileName) archives a .hdmp file from Temp.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "7z.exe",
+          "Description": "7-Zip Console",
+          "CommandLine": "svchelper.exe a C:\\Users\\Public\\data.7z C:\\Windows\\Temp\\proc.hdmp",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate 7-Zip compressing log files; no dump extension in the command line.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\7-Zip\\7z.exe",
+          "OriginalFileName": "7z.exe",
+          "Description": "7-Zip Console",
+          "CommandLine": "\"C:\\Program Files\\7-Zip\\7z.exe\" a C:\\Backups\\logs.zip C:\\Logs\\*.log",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Dump file referenced by a non-7-Zip process (rundll32 comsvcs MiniDump), so selection_img does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "Description": "Windows host process (Rundll32)",
+          "CommandLine": "rundll32.exe C:\\Windows\\System32\\comsvcs.dll, MiniDump 624 C:\\ProgramData\\lsass.dmp full",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "90dcf730-1b71-4ae7-9ffc-6fcf62bd0132",
+    "title": "Suspicious ZipExec Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_hktl_zipexec.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_zipexec.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1202",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se detectó una línea de comandos que guarda o borra una credencial de Windows para la carpeta ZIP del shell (Microsoft_Windows_Shell_ZipFolder). Así trabaja ZipExec para abrir un ZIP protegido con contraseña y ejecutar su contenido.",
+      "what_it_detects": "Procesos cuyo CommandLine contiene '/generic:Microsoft_Windows_Shell_ZipFolder:filename=', '.zip', '/pass:' y '/user:' (alta de la credencial), o '/delete' con 'Microsoft_Windows_Shell_ZipFolder:filename=' y '.zip' (borrado de la credencial). En la práctica suele tratarse de cmdkey.exe lanzado desde un script.",
+      "why_it_matters": "ZipExec es una prueba de concepto que esconde un binario dentro de un ZIP cifrado. Un script registra la contraseña con cmdkey, ejecuta el binario mediante el shell de Windows y luego borra la credencial. Es ejecución indirecta de comandos (T1202) y proxy por binarios del sistema (T1218) para evadir controles.",
+      "triage_steps": [
+        "Revise el CommandLine completo: obtenga la ruta del .zip que sigue a 'filename=' y anote si el comando es de alta o de borrado.",
+        "Revise ParentImage y su línea de comandos. Un padre wscript.exe, cscript.exe o mshta.exe que ejecuta un .js o un .hta desde una carpeta del usuario es muy sospechoso.",
+        "Busque los dos eventos de la secuencia (alta y borrado) en el mismo host dentro de +/- 15 minutos.",
+        "Liste los procesos hijos de explorer.exe y del script en esa ventana para identificar el binario que se ejecutó desde el ZIP.",
+        "Obtenga el hash del .zip y del script. Verifique cómo llegaron al equipo (correo, descarga del navegador, USB) y consulte la reputación del hash.",
+        "Revise conexiones de red, persistencia y otras alertas del mismo usuario y host en las últimas 24 horas."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Ejercicios de red team o pruebas autorizadas con ZipExec.",
+        "Algún script interno que use cmdkey para abrir ZIP protegidos. Es poco común; confírmelo con el dueño del script."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y con el equipo de seguridad si había una prueba autorizada.",
+        "Si no la había, aísle el endpoint desde el EDR y conserve el .zip, el script y la memoria de los procesos involucrados.",
+        "Termine los procesos maliciosos. Elimine los artefactos y cualquier persistencia después de documentarlos.",
+        "Busque el hash y el nombre del ZIP en otros endpoints. Restablezca las credenciales del usuario si hay indicios de robo de credenciales."
+      ],
+      "severity_rationale": "Medium es adecuado: el patrón es muy específico de ZipExec, pero solo prueba que se intentó ejecutar algo; el impacto depende de lo que contenga el ZIP."
+    },
+    "en": {
+      "summary": "A command line stored or deleted a Windows credential for the shell ZIP folder handler (Microsoft_Windows_Shell_ZipFolder). ZipExec does this to open a password-protected ZIP and run what is inside.",
+      "what_it_detects": "Processes whose CommandLine contains '/generic:Microsoft_Windows_Shell_ZipFolder:filename=', '.zip', '/pass:' and '/user:' (credential added), or '/delete' with 'Microsoft_Windows_Shell_ZipFolder:filename=' and '.zip' (credential removed). This is usually cmdkey.exe launched by a script.",
+      "why_it_matters": "ZipExec is a proof-of-concept tool that hides a binary inside an encrypted ZIP. A script stores the password with cmdkey, runs the binary through the Windows shell, then deletes the credential. This is indirect command execution (T1202) and system binary proxy execution (T1218) used to evade defenses.",
+      "triage_steps": [
+        "Read the full CommandLine. Extract the .zip path that follows 'filename=' and note whether the command adds or deletes the credential.",
+        "Check ParentImage and its command line. A wscript.exe, cscript.exe or mshta.exe parent running a .js or .hta from a user folder is highly suspicious.",
+        "Look for both steps of the sequence (add and delete) on the same host within +/- 15 minutes.",
+        "List the child processes of explorer.exe and of the script in that window to find the binary launched from the ZIP.",
+        "Hash the .zip and the script. Find out how they reached the host (email, browser download, USB) and check the hash's reputation.",
+        "Review network connections, persistence and other alerts for the same user and host over the last 24 hours."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Authorized red team exercises or tests that use ZipExec.",
+        "An internal script that uses cmdkey to open protected ZIPs. This is rare; confirm it with the script owner."
+      ],
+      "response_steps": [
+        "Ask the user and the security team whether this was an authorized test.",
+        "If it was not, isolate the endpoint through EDR and keep copies of the .zip, the script and the process memory.",
+        "Kill the malicious processes. Document the artifacts and any persistence, then remove them.",
+        "Search other endpoints for the hash and ZIP name. Reset the user's credentials if you see signs of credential theft."
+      ],
+      "severity_rationale": "Medium fits: the pattern is highly specific to ZipExec, but it only proves an execution attempt, and the impact depends on what the ZIP contains."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmdkey launched by wscript.exe adds the ZipFolder credential for the encrypted ZIP (run selection)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmdkey.exe",
+          "OriginalFileName": "cmdkey.exe",
+          "CommandLine": "cmdkey /generic:Microsoft_Windows_Shell_ZipFolder:filename=C:\\Users\\jperez\\AppData\\Local\\Temp\\update.zip /pass:PlaceholderPass1 /user:\"\"",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\wscript.exe\" C:\\Users\\jperez\\Downloads\\invoice.js"
+        }
+      },
+      {
+        "description": "cmdkey deletes the ZipFolder credential after the payload runs (delete selection)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmdkey.exe",
+          "OriginalFileName": "cmdkey.exe",
+          "CommandLine": "cmdkey /delete:Microsoft_Windows_Shell_ZipFolder:filename=C:\\Users\\jperez\\AppData\\Local\\Temp\\update.zip",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\wscript.exe\" C:\\Users\\jperez\\Downloads\\invoice.js"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "An administrator stores an RDP credential with cmdkey; there is no ZipFolder target and no .zip",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\admin.ops",
+          "Image": "C:\\Windows\\System32\\cmdkey.exe",
+          "OriginalFileName": "cmdkey.exe",
+          "CommandLine": "cmdkey /generic:TERMSRV/srv-files01.example.com /user:ANDES\\admin.ops /pass:PlaceholderPass2",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "An administrator deletes a stored RDP credential; the command has /delete but no ZipFolder target and no .zip",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\admin.ops",
+          "Image": "C:\\Windows\\System32\\cmdkey.exe",
+          "OriginalFileName": "cmdkey.exe",
+          "CommandLine": "cmdkey /delete:TERMSRV/srv-files01.example.com",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

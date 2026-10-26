@@ -1,0 +1,124 @@
+{
+  "rule": {
+    "id": "f57f8d16-1f39-4dcb-a604-6c73d9b54b3d",
+    "title": "Sensitive File Access Via Volume Shadow Copy Backup",
+    "level": "high",
+    "status": "test",
+    "author": "Max Altgelt (Nextron Systems), Tobias Michalski (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_sensitive_file_access_shadowcopy.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_sensitive_file_access_shadowcopy.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1490"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó un comando que lee una ruta de Volume Shadow Copy (\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy) y que también incluye NTDS.dit, SYSTEM o SECURITY. Esto suele indicar un intento de robar hashes de credenciales desde una copia instantánea.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene la ruta de dispositivo GLOBALROOT de una shadow copy y además \\NTDS.dit, \\SYSTEM o \\SECURITY, por ejemplo un copy de NTDS.dit o de los hives del registro hacia un directorio temporal. \\SYSTEM también coincide con cualquier ruta \\Windows\\System32.",
+      "why_it_matters": "Las shadow copies permiten leer archivos que el sistema mantiene bloqueados. Con NTDS.dit y el hive SYSTEM, un atacante puede extraer los hashes de todo el dominio sin conexión. La regla está etiquetada como T1490 (Inhibit System Recovery), pero la conducta corresponde al volcado de credenciales (T1003).",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique el archivo de origen (NTDS.dit, SAM, SYSTEM, SECURITY u otro archivo de System32) y el destino de la copia.",
+        "Revise Image, ParentImage y User: cmd.exe o powershell.exe lanzados por wmiprvse.exe, psexesvc.exe o un shell web son señales de alto riesgo.",
+        "Confirme si el host es un controlador de dominio. Una copia de NTDS.dit desde un DC implica que todo el dominio puede estar comprometido.",
+        "Busque en el mismo host, entre 15 minutos antes y 15 minutos después, la creación previa de la copia (vssadmin create shadow, wmic shadowcopy, diskshadow, ntdsutil).",
+        "Verifique si el archivo de destino aún existe y si hubo compresión o transferencia saliente (SMB, HTTP, rclone) desde ese directorio.",
+        "Revise los inicios de sesión de la cuenta (eventos 4624 y 4672) y las alertas anteriores para el mismo usuario y host."
+      ],
+      "false_positives": [
+        "La regla indica que los falsos positivos son poco probables.",
+        "Pruebas autorizadas de red team o pentest que copian NTDS.dit o hives desde shadow copies.",
+        "Herramientas de backup o forense que copian archivos de \\Windows\\System32 desde una shadow copy, porque coinciden con \\SYSTEM."
+      ],
+      "response_steps": [
+        "Valide con el dueño del sistema si existe una actividad autorizada (pentest, backup, forense) y documente la evidencia.",
+        "Si no está autorizada, aísle el host y suspenda o deshabilite la cuenta usada mientras investiga.",
+        "Preserve los archivos copiados como evidencia y luego elimínelos del destino. Elimine también las shadow copies creadas por el atacante, después de documentarlas.",
+        "Si se expuso NTDS.dit, planifique el restablecimiento de las contraseñas privilegiadas y el doble restablecimiento de krbtgt. Si se expusieron los hives SAM o SECURITY, restablezca las cuentas locales y los secretos de servicio."
+      ],
+      "severity_rationale": "El nivel high es apropiado porque leer NTDS.dit o los hives del registro desde una shadow copy casi siempre forma parte de un robo de credenciales y rara vez es una tarea administrativa."
+    },
+    "en": {
+      "summary": "A process ran a command that reads a Volume Shadow Copy path (\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy) and also names NTDS.dit, SYSTEM or SECURITY. This usually means someone is trying to steal credential hashes from a snapshot.",
+      "what_it_detects": "Process creation events where CommandLine contains the GLOBALROOT shadow copy device path and also \\NTDS.dit, \\SYSTEM or \\SECURITY, such as copying NTDS.dit or registry hives to a temp folder. \\SYSTEM also matches any \\Windows\\System32 path.",
+      "why_it_matters": "Shadow copies let attackers read files that the OS keeps locked. With NTDS.dit and the SYSTEM hive, an attacker can extract every domain hash offline. The rule is tagged T1490 (Inhibit System Recovery), but the behavior matches credential dumping (T1003).",
+      "triage_steps": [
+        "Read the full CommandLine. Identify the source file (NTDS.dit, SAM, SYSTEM, SECURITY or another System32 file) and where it is being copied.",
+        "Check Image, ParentImage and User. cmd.exe or powershell.exe started by wmiprvse.exe, psexesvc.exe or a web shell is high risk.",
+        "Find out whether the host is a domain controller. If NTDS.dit was copied from a DC, assume the whole domain may be compromised.",
+        "Search the same host from 15 minutes before to 15 minutes after for how the snapshot was created (vssadmin create shadow, wmic shadowcopy, diskshadow, ntdsutil).",
+        "Check whether the destination file still exists and whether it was compressed or sent out of the network (SMB, HTTP, rclone).",
+        "Review the account's logons (events 4624 and 4672) and earlier alerts for the same user and host."
+      ],
+      "false_positives": [
+        "The rule says false positives are unlikely.",
+        "Authorized red team or penetration tests that copy NTDS.dit or registry hives from shadow copies.",
+        "Backup or forensic tools that copy \\Windows\\System32 files from a shadow copy, because those paths match \\SYSTEM."
+      ],
+      "response_steps": [
+        "Ask the system owner whether the activity was authorized (pentest, backup or forensics) and document the evidence.",
+        "If it was not authorized, isolate the host and suspend or disable the account involved while you investigate.",
+        "Keep the copied files as evidence, then remove them from the destination. After documenting them, also delete any shadow copies the attacker created.",
+        "If NTDS.dit was exposed, plan resets of privileged passwords and a double krbtgt reset. If SAM or SECURITY was exposed, reset local accounts and service secrets."
+      ],
+      "severity_rationale": "High fits because reading NTDS.dit or registry hives from a shadow copy is almost always part of credential theft and is rarely routine administration."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe copies NTDS.dit from a shadow copy on a domain controller into C:\\temp",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\adm-jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "CommandLine": "cmd.exe /c copy \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy1\\Windows\\NTDS\\NTDS.dit C:\\temp\\ntds.dit 2>&1"
+        }
+      },
+      {
+        "description": "Copying the SECURITY hive from a shadow copy into the Public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "cmd.exe /c copy \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy2\\Windows\\System32\\config\\SECURITY C:\\Users\\Public\\sec.hiv"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Backup agent copies a user document from a shadow copy. The command has no NTDS.dit, SYSTEM or SECURITY path.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Program Files\\ExampleBackup\\agent.exe",
+          "CommandLine": "cmd.exe /c copy \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy3\\Users\\jperez\\Documents\\report.docx D:\\backup\\report.docx"
+        }
+      },
+      {
+        "description": "reg save exports the SYSTEM hive directly. The command has no GLOBALROOT shadow copy path.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\adm-jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "reg save HKLM\\SYSTEM C:\\temp\\system.hiv"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

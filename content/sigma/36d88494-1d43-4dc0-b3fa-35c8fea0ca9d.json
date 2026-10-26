@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "36d88494-1d43-4dc0-b3fa-35c8fea0ca9d",
+    "title": "HackTool - CreateMiniDump Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_createminidump.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_createminidump.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "En este host se ejecutó un proceso llamado CreateMiniDump.exe, o un binario con el import hash de la herramienta CreateMiniDump. Esa herramienta sirve para volcar la memoria de LSASS y extraer credenciales fuera de línea.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\CreateMiniDump.exe o donde el campo Hashes contiene IMPHASH=4a07f944a83e8a7c2525efa35dd30e2f. La coincidencia por imphash también detecta copias renombradas.",
+      "why_it_matters": "CreateMiniDump llama a MiniDumpWriteDump sobre lsass.exe y escribe un archivo de volcado. El atacante saca ese archivo del equipo y lo procesa con herramientas como Mimikatz o pypykatz para obtener hashes, tickets Kerberos y, a veces, contraseñas en texto claro. Es la técnica OS Credential Dumping: LSASS Memory (T1003.001).",
+      "triage_steps": [
+        "Registre Image, CommandLine, User, IntegrityLevel y Hashes. Verifique si coincidió el nombre del archivo, el imphash o ambos. Si solo coincide el imphash, el binario fue renombrado.",
+        "Revise ParentImage y ParentCommandLine. Si el padre es cmd, PowerShell, una shell remota, PsExec o WMI, hay actividad manual del atacante.",
+        "Busque archivos .dmp nuevos en el host dentro de +/- 15 minutos, por ejemplo lsass.dmp o archivos en C:\\temp. Use los eventos de creación de archivos y la telemetría del EDR.",
+        "Confirme si el proceso abrió lsass.exe (Sysmon Event ID 10, ProcessAccess) y si el volcado se copió, comprimió o subió después.",
+        "Determine cómo llegó el binario: creación de archivos, descargas, escrituras por SMB o extracción de comprimidos del mismo usuario poco antes de la ejecución.",
+        "Busque el mismo valor de Hashes o el mismo nombre de archivo en todos los endpoints. Revise alertas previas del host y del usuario, como escalamiento de privilegios o movimiento lateral.",
+        "Revise los inicios de sesión posteriores del mismo usuario y la misma IP de origen en el entorno para detectar uso de credenciales robadas."
+      ],
+      "false_positives": [
+        "La regla no indica ninguno. El caso legítimo realista es un ejercicio autorizado de red team o pentest con esta herramienta. Confírmelo contra un ejercicio aprobado y su alcance.",
+        "Un programa interno no relacionado que se llame CreateMiniDump.exe. Verifique su firma, su hash y su propósito antes de cerrar la alerta."
+      ],
+      "response_steps": [
+        "Si no es una prueba autorizada, aísle el host con el EDR. Conserve el volcado y el binario como evidencia antes de eliminar nada.",
+        "Considere comprometidas todas las credenciales en caché del host. Restablezca las contraseñas de los usuarios con sesión y de las cuentas de servicio, y revoque sus sesiones y tickets Kerberos.",
+        "Si había sesiones de administradores de dominio u otras cuentas con privilegios similares, escale a respuesta a incidentes. Evalúe restablecer krbtgt dos veces según su runbook.",
+        "Elimine la herramienta y cualquier persistencia que encuentre. Active protecciones de LSASS como RunAsPPL o Credential Guard y bloquee el hash en toda la flota."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque la herramienta solo sirve para volcar credenciales de LSASS, no tiene un uso legítimo habitual y las credenciales robadas permiten un movimiento lateral rápido."
+    },
+    "en": {
+      "summary": "A process named CreateMiniDump.exe, or a binary with the import hash of the CreateMiniDump hack tool, started on this host. That tool exists to dump LSASS memory so credentials can be extracted offline.",
+      "what_it_detects": "Process creation events where Image ends with \\CreateMiniDump.exe, or where the Hashes field contains IMPHASH=4a07f944a83e8a7c2525efa35dd30e2f. The imphash match also catches copies that were renamed.",
+      "why_it_matters": "CreateMiniDump calls MiniDumpWriteDump against lsass.exe and writes a dump file. Attackers copy that file off the host and parse it with tools like Mimikatz or pypykatz to get hashes, Kerberos tickets and sometimes cleartext passwords. This is OS Credential Dumping: LSASS Memory (T1003.001).",
+      "triage_steps": [
+        "Record the Image path, CommandLine, User, IntegrityLevel and Hashes. Check whether the match came from the file name, the imphash, or both. An imphash-only match means the binary was renamed.",
+        "Review ParentImage and ParentCommandLine. A cmd, PowerShell, remote shell, PsExec or WMI parent points to hands-on-keyboard activity.",
+        "Look for new .dmp files on the host within +/- 15 minutes, for example lsass.dmp or files under C:\\temp. Check file creation events and EDR telemetry.",
+        "Check whether the process opened lsass.exe (Sysmon Event ID 10, ProcessAccess) and whether the dump file was later copied, compressed or uploaded.",
+        "Find out how the binary arrived: file creation, downloads, SMB writes or archive extraction under the same user shortly before execution.",
+        "Search all endpoints for the same Hashes value or file name. Pull earlier alerts for this host and user, such as privilege escalation or lateral movement.",
+        "Review logons by the same user and source IP across the environment after the alert for signs that stolen credentials are being used."
+      ],
+      "false_positives": [
+        "The rule lists none. Authorized red team or penetration testing with this tool is the realistic benign case. Confirm it against an approved engagement and its scope.",
+        "An unrelated internal program that happens to be named CreateMiniDump.exe. Verify its signature, hash and purpose before closing."
+      ],
+      "response_steps": [
+        "If the activity is not an authorized test, isolate the host with EDR. Keep the dump file and binary as evidence before you delete anything.",
+        "Treat every credential cached on the host as compromised. Reset passwords for logged-on users and service accounts, and revoke their sessions and Kerberos tickets.",
+        "If domain admin or similarly privileged accounts were logged on, escalate to incident response. Consider resetting krbtgt twice, following your runbook.",
+        "Remove the tool and any persistence you find. Enable LSASS protections such as RunAsPPL or Credential Guard, and block the hash across the fleet."
+      ],
+      "severity_rationale": "High fits because the tool's only purpose is to dump LSASS credentials, there is no common legitimate use, and stolen credentials enable fast lateral movement."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "CreateMiniDump.exe run from a temp folder via cmd by a domain user",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\CreateMiniDump.exe",
+          "CommandLine": "CreateMiniDump.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\jperez\\AppData\\Local\\Temp\\CreateMiniDump.exe",
+          "IntegrityLevel": "High",
+          "Hashes": "SHA256=2C1D0A7E4B3F5A6D8E9F0123456789ABCDEF0123456789ABCDEF0123456789AB,IMPHASH=4A07F944A83E8A7C2525EFA35DD30E2F"
+        }
+      },
+      {
+        "description": "Renamed copy of the tool detected only by its imphash",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\update\\svchelper.exe",
+          "CommandLine": "C:\\ProgramData\\update\\svchelper.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "System",
+          "Hashes": "MD5=0F1E2D3C4B5A69788796A5B4C3D2E1F0,SHA256=9A8B7C6D5E4F3A2B1C0D9E8F7A6B5C4D3E2F1A0B9C8D7E6F5A4B3C2D1E0F9A8B,IMPHASH=4A07F944A83E8A7C2525EFA35DD30E2F"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Developer test binary whose name only resembles the tool and has a different imphash",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\dev\\crashtools\\bin\\CreateMiniDumpTests.exe",
+          "CommandLine": "CreateMiniDumpTests.exe --run-all",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\Common7\\IDE\\devenv.exe",
+          "IntegrityLevel": "Medium",
+          "Hashes": "SHA256=11223344556677889900AABBCCDDEEFF11223344556677889900AABBCCDDEEFF,IMPHASH=B1C2D3E4F5A60718293A4B5C6D7E8F90"
+        }
+      },
+      {
+        "description": "Legitimate Windows Error Reporting process creating crash dumps",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\WerFault.exe",
+          "CommandLine": "C:\\Windows\\System32\\WerFault.exe -u -p 4412 -s 512",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "IntegrityLevel": "System",
+          "Hashes": "SHA256=AABBCCDDEEFF00112233445566778899AABBCCDDEEFF00112233445566778899,IMPHASH=7E3F1C2B9A8D4E5F60718293A4B5C6D7"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

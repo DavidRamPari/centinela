@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "21ff4ca9-f13a-41ad-b828-0077b2af2e40",
+    "title": "Deletion of Volume Shadow Copies via WMI with PowerShell",
+    "level": "high",
+    "status": "test",
+    "author": "Tim Rauch, Elastic (idea)",
+    "path": "windows/process_creation/proc_creation_win_powershell_shadowcopy_deletion.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_shadowcopy_deletion.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1490"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó código PowerShell que consulta la clase WMI/CIM Win32_ShadowCopy y elimina las instantáneas de volumen. Es un paso habitual previo al cifrado por ransomware y requiere atención inmediata.",
+      "what_it_detects": "Creación de procesos cuya CommandLine contiene a la vez un cmdlet de consulta (Get-WmiObject, gwmi, Get-CimInstance, gcim), la clase Win32_ShadowCopy y una acción de borrado (.Delete(), Remove-WmiObject, rwmi, Remove-CimInstance, rcim).",
+      "why_it_matters": "Borrar las Volume Shadow Copies impide restaurar archivos y versiones anteriores tras un cifrado (ATT&CK T1490, Inhibit System Recovery). Familias de ransomware como Sodinokibi/REvil usan esta técnica justo antes o durante el impacto.",
+      "triage_steps": [
+        "Revise la CommandLine completa: confirme la consulta a Win32_ShadowCopy y el método de borrado; decodifique cualquier -EncodedCommand asociado.",
+        "Identifique el usuario y su nivel de privilegios; borrar instantáneas exige permisos de administrador, así que valide cómo los obtuvo.",
+        "Analice ParentImage y la cadena de procesos: Office, wscript, mshta, servicios remotos (wmiprvse, psexesvc) o tareas programadas son sospechosos.",
+        "En el mismo host, +/- 15 minutos, busque vssadmin, wbadmin, bcdedit, detención de servicios de backup o antivirus y renombrado masivo de archivos.",
+        "Revise conexiones de red y logons remotos al host en esa ventana, en particular movimiento lateral desde otros equipos.",
+        "Busque la misma CommandLine o hash en otros endpoints y alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "Scripts de administración o mantenimiento que liberan espacio eliminando instantáneas antiguas, documentados y ejecutados por cuentas de servicio conocidas.",
+        "Software de backup o restauración que gestiona sus propias instantáneas mediante WMI.",
+        "Ejercicios de red team o pruebas con Atomic Red Team (T1490) autorizados."
+      ],
+      "response_steps": [
+        "Si no existe un cambio aprobado, aísle el endpoint de la red de inmediato para frenar cifrado y propagación.",
+        "Deshabilite o restablezca la cuenta usada y revise sus sesiones activas en otros sistemas.",
+        "Preserve evidencia (memoria, logs de PowerShell 4104, Sysmon) antes de terminar procesos o reiniciar.",
+        "Identifique y elimine el payload y la persistencia; busque los mismos indicadores en toda la flota.",
+        "Verifique la integridad de los backups fuera de línea y restaure desde copias limpias tras erradicar la amenaza."
+      ],
+      "severity_rationale": "Nivel alto porque la combinación de consulta y borrado de Win32_ShadowCopy casi nunca es legítima y suele anticipar un impacto destructivo de ransomware."
+    },
+    "en": {
+      "summary": "A process ran PowerShell code that queries the WMI/CIM class Win32_ShadowCopy and deletes volume shadow copies. This is a common ransomware pre-encryption step and needs immediate attention.",
+      "what_it_detects": "Process creation where CommandLine contains a query cmdlet (Get-WmiObject, gwmi, Get-CimInstance, gcim), the Win32_ShadowCopy class, and a delete action (.Delete(), Remove-WmiObject, rwmi, Remove-CimInstance, rcim).",
+      "why_it_matters": "Deleting Volume Shadow Copies prevents restoring files and previous versions after encryption (ATT&CK T1490, Inhibit System Recovery). Ransomware such as Sodinokibi/REvil uses it right before or during impact.",
+      "triage_steps": [
+        "Read the full CommandLine: confirm the Win32_ShadowCopy query and the delete method; decode any related -EncodedCommand.",
+        "Identify the user and privileges; deleting shadow copies needs admin rights, so check how they were obtained.",
+        "Review ParentImage and the process tree: Office, wscript, mshta, remote execution (wmiprvse, psexesvc) or scheduled tasks are suspicious.",
+        "On the same host within +/- 15 minutes, look for vssadmin, wbadmin, bcdedit, stopped backup or AV services, and mass file renames.",
+        "Check network connections and remote logons to the host in that window, especially lateral movement from other machines.",
+        "Search for the same CommandLine or hash on other endpoints and earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "Documented admin or maintenance scripts that free disk space by deleting old shadow copies, run by known service accounts.",
+        "Backup or restore software managing its own shadow copies through WMI.",
+        "Authorized red team exercises or Atomic Red Team T1490 tests."
+      ],
+      "response_steps": [
+        "Without an approved change, isolate the endpoint immediately to stop encryption and spread.",
+        "Disable or reset the account used and review its active sessions on other systems.",
+        "Preserve evidence (memory, PowerShell 4104 logs, Sysmon) before killing processes or rebooting.",
+        "Find and remove the payload and persistence; hunt for the same indicators across the fleet.",
+        "Verify offline backup integrity and restore from clean copies after eradication."
+      ],
+      "severity_rationale": "High because querying and deleting Win32_ShadowCopy together is rarely legitimate and usually precedes destructive ransomware impact."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell enumerates shadow copies with Get-WmiObject and calls .Delete() on each one",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -ExecutionPolicy Bypass -Command \"Get-WmiObject Win32_Shadowcopy | ForEach-Object {$_.Delete();}\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "CIM aliases gcim and rcim used to remove all Win32_ShadowCopy instances",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "CommandLine": "powershell -nop -w hidden -c \"gcim Win32_ShadowCopy | rcim\"",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Read-only inventory of shadow copies without any delete action",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-BKP02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -Command \"Get-WmiObject Win32_ShadowCopy | Select-Object ID, InstallDate, VolumeName\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell deletes a WMI object of another class, not Win32_ShadowCopy",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command \"Get-CimInstance Win32_UserProfile | Where-Object {$_.LocalPath -like '*tempuser*'} | Remove-CimInstance\"",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

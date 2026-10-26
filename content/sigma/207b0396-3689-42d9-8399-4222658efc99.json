@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "207b0396-3689-42d9-8399-4222658efc99",
+    "title": "Potential Privilege Escalation To LOCAL SYSTEM",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_sysinternals_susp_psexec_paexec_flags.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sysinternals_susp_psexec_paexec_flags.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1587.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso no identificado como PsExec o PAExec se ejecutó con flags del estilo -s o -i -s seguidos de cmd, powershell o pwsh. Esto suele indicar un intento de abrir una consola como LOCAL SYSTEM, a menudo con una herramienta renombrada.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene ' -s cmd', ' -s -i cmd', ' -i -s cmd' o sus equivalentes con powershell o pwsh, aceptando '/' u otros guiones como prefijo de la opción. Se excluyen las líneas que contienen 'paexec', 'PsExec' o 'accepteula', porque ya las cubre una regla relacionada.",
+      "why_it_matters": "Con -s se ejecuta como SYSTEM, la cuenta con más privilegios del equipo. Un PsExec/PAExec renombrado o una herramienta propia permite escalar privilegios o moverse lateralmente sin coincidir con las firmas. La regla lo asocia a ATT&CK T1587.001 (desarrollo de malware).",
+      "triage_steps": [
+        "Revise Image, Hashes y OriginalFileName. Si los metadatos o la firma corresponden a PsExec/PAExec bajo otro nombre, se trata de un binario renombrado.",
+        "Analice el CommandLine completo: un destino remoto (\\\\host), credenciales (-u/-p), -d, -r con nombre de servicio u otros argumentos para cmd/powershell.",
+        "Identifique ParentImage y User: ¿quién lanzó la herramienta, desde una sesión interactiva, un script o un proceso de Office/navegador?",
+        "Busque procesos hijos de cmd, powershell o pwsh que corran como NT AUTHORITY\\SYSTEM en el mismo host, con una ventana de +/- 15 minutos.",
+        "Si hay un destino remoto, revise en ese host la instalación de servicios (evento 7045), los inicios de sesión de tipo 3 y los named pipes nuevos.",
+        "Busque el mismo hash o nombre de binario en otros endpoints y revise alertas previas del usuario y del host."
+      ],
+      "false_positives": [
+        "Administradores que renombran PsExec/PAExec para sus tareas de soporte.",
+        "Software de terceros que incluye PsExec/PAExec renombrado para despliegues o mantenimiento.",
+        "Herramientas internas de automatización que imitan esta sintaxis; confirme con el equipo responsable y documente la excepción."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de TI si la ejecución estaba autorizada y si el binario es una herramienta aprobada.",
+        "Si no está justificada, aísle el endpoint y cualquier host remoto involucrado, y bloquee el hash del binario.",
+        "Restablezca las credenciales usadas y revise las cuentas con privilegios de administrador local o de dominio.",
+        "Elimine el binario, los servicios creados y la persistencia identificada, tras preservar evidencia.",
+        "Si es legítimo, agregue una exclusión precisa por ruta y hash, nunca solo por el nombre."
+      ],
+      "severity_rationale": "El nivel high es adecuado: abrir una consola como SYSTEM con una herramienta no identificada es un patrón típico de escalada de privilegios y movimiento lateral, con pocos usos legítimos."
+    },
+    "en": {
+      "summary": "A process not identified as PsExec or PAExec ran with -s or -i -s flags followed by cmd, powershell or pwsh. This usually means someone tried to open a LOCAL SYSTEM console, often with a renamed tool.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains ' -s cmd', ' -s -i cmd', ' -i -s cmd' or the powershell/pwsh equivalents, with '/' or other dashes allowed as option prefixes. Lines containing 'paexec', 'PsExec' or 'accepteula' are excluded because a related rule already covers them.",
+      "why_it_matters": "The -s flag runs the program as SYSTEM, the most privileged account on the machine. A renamed PsExec/PAExec or a custom tool can escalate privileges or move laterally without matching signatures. The rule maps this to ATT&CK T1587.001 (malware development).",
+      "triage_steps": [
+        "Check Image, Hashes and OriginalFileName. If the metadata or signer matches PsExec/PAExec under a different name, the binary has been renamed.",
+        "Read the full CommandLine for a remote target (\\\\host), credentials (-u/-p), -d, -r with a service name, or arguments passed to cmd/powershell.",
+        "Identify ParentImage and User: was it launched from an interactive session, a script, or an Office or browser process?",
+        "Look for cmd, powershell or pwsh children running as NT AUTHORITY\\SYSTEM on the same host within +/- 15 minutes.",
+        "If there is a remote target, check that host for service installs (event 7045), type 3 logons and new named pipes.",
+        "Search other endpoints for the same hash or binary name, and review earlier alerts for this user and host."
+      ],
+      "false_positives": [
+        "Admins who rename PsExec/PAExec for support work.",
+        "Third-party software that ships a renamed PsExec/PAExec for deployment or maintenance.",
+        "Internal automation tools that copy this syntax; confirm with the owning team and document an exception."
+      ],
+      "response_steps": [
+        "Ask the user or IT team whether the run was authorized and whether the binary is an approved tool.",
+        "If it is not justified, isolate the endpoint and any remote hosts involved, and block the binary hash.",
+        "Reset the credentials used and review accounts with local or domain admin rights.",
+        "Preserve evidence, then remove the binary, any services it created and any persistence you found.",
+        "If it is legitimate, add a narrow exclusion by path and hash, never by name alone."
+      ],
+      "severity_rationale": "High fits because an unidentified tool opening a SYSTEM console is a common privilege-escalation and lateral-movement pattern, with few legitimate uses."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Renamed tool in a public folder spawns a SYSTEM cmd shell using a dash flag",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\svch.exe",
+          "OriginalFileName": "svch.exe",
+          "CommandLine": "C:\\Users\\Public\\svch.exe -s cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\svch.exe -s cmd.exe"
+        }
+      },
+      {
+        "description": "Unknown binary targets a remote host with slash-style interactive SYSTEM flags and PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\tools\\rx.exe",
+          "CommandLine": "C:\\ProgramData\\tools\\rx.exe \\\\SRV-FILE01 /i /s powershell.exe -nop",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Named PsExec with -accepteula; the filter excludes it because the related PsExec rule covers it",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.soporte",
+          "Image": "C:\\Tools\\Sysinternals\\PsExec.exe",
+          "CommandLine": "PsExec.exe -accepteula -s cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Same unknown tool with -s, but it launches notepad instead of a console, so no selection string matches",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\ProgramData\\tools\\rx.exe",
+          "CommandLine": "C:\\ProgramData\\tools\\rx.exe -s -d notepad.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "d9047477-0359-48c9-b8c7-792cedcdc9c4",
+    "title": "PUA - NirCmd Execution As LOCAL SYSTEM",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_pua_nircmd_as_system.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_pua_nircmd_as_system.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1569.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso cuya línea de comandos contiene el comando ' runassystem ' de NirCmd, que lanza un programa con privilegios de LOCAL SYSTEM. Esto indica una posible escalada de privilegios o ejecución encubierta.",
+      "what_it_detects": "Eventos de creación de procesos en Windows en los que CommandLine contiene ' runassystem ' con un espacio antes y después. Esta es la sintaxis de NirCmd (nircmd.exe/nircmdc.exe) para ejecutar otro programa como SYSTEM. Detecta el uso aunque el binario esté renombrado.",
+      "why_it_matters": "NirCmd es una utilidad legítima de NirSoft, pero cuando un atacante ya tiene privilegios de administrador, runassystem le permite ejecutar payloads como SYSTEM, que tiene control total del endpoint. Se relaciona con ATT&CK T1569.002 (ejecución mediante servicios del sistema) y con un comportamiento similar a PsExec (S0029).",
+      "triage_steps": [
+        "Revise CommandLine y anote el programa que se lanza después de runassystem, por ejemplo cmd.exe, powershell.exe o un ejecutable en una ruta temporal o de usuario.",
+        "Valide Image y OriginalFileName: si un binario de NirCmd está renombrado o se encuentra en %TEMP%, C:\\Users\\Public o ProgramData, la sospecha es mayor.",
+        "Identifique el usuario que lo ejecutó y el ParentImage. Un padre como Office, un navegador, wscript o mshta es muy sospechoso.",
+        "Obtenga el hash del binario de NirCmd y del programa objetivo, y compárelos con su inventario de software y con fuentes de reputación.",
+        "En el mismo host, revise en un rango de +/- 15 minutos los procesos hijos que se ejecutan como SYSTEM, los servicios creados (evento 7045), las tareas programadas y las conexiones de red.",
+        "Busque ejecuciones de NirCmd con el mismo usuario o en otros hosts, y alertas previas para estas entidades.",
+        "Confirme con el equipo de TI si existe un ticket o un script de administración autorizado que use NirCmd."
+      ],
+      "false_positives": [
+        "Administradores que usan NirCmd en sus tareas de soporte para ejecutar herramientas como SYSTEM.",
+        "Scripts de despliegue o mantenimiento que incluyen NirCmd y que están documentados por TI.",
+        "Técnicos que hacen pruebas de diagnóstico en un laboratorio o en sus propios equipos."
+      ],
+      "response_steps": [
+        "Verifique con el propietario del activo y con TI si la ejecución estaba autorizada antes de tomar acciones.",
+        "Si no está autorizada, aísle el endpoint desde el EDR y preserve la memoria, los binarios y los registros relevantes.",
+        "Detenga los procesos SYSTEM que se derivan de la ejecución y elimine la persistencia que haya confirmado, como servicios, tareas o claves Run.",
+        "Restablezca las credenciales de la cuenta que lo ejecutó y revise si la cuenta administrativa está comprometida en otros hosts.",
+        "Restaure el host desde una imagen confiable si hay indicios de compromiso, y bloquee NirCmd con AppLocker o WDAC donde no se necesite."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque ejecutar código como SYSTEM con una herramienta PUA otorga control total del host y rara vez es legítimo fuera de la administración documentada."
+    },
+    "en": {
+      "summary": "A process command line contained NirCmd's ' runassystem ' command, which launches a program with LOCAL SYSTEM privileges. This may indicate privilege escalation or stealthy execution.",
+      "what_it_detects": "Windows process creation events where CommandLine contains ' runassystem ' with a space on both sides. This is the NirCmd (nircmd.exe/nircmdc.exe) syntax for running another program as SYSTEM. It matches even when the binary is renamed.",
+      "why_it_matters": "NirCmd is a legitimate NirSoft utility. However, an attacker who already has admin rights can use runassystem to run payloads as SYSTEM, which has full control of the endpoint. This maps to ATT&CK T1569.002 (System Services: Service Execution) and resembles PsExec (S0029) behavior.",
+      "triage_steps": [
+        "Read CommandLine and note the program launched after runassystem, such as cmd.exe, powershell.exe or an executable in a temp or user path.",
+        "Check Image and OriginalFileName. A renamed NirCmd binary, or one located in %TEMP%, C:\\Users\\Public or ProgramData, raises suspicion.",
+        "Identify the executing user and the ParentImage. A parent such as Office, a browser, wscript or mshta is highly suspicious.",
+        "Hash both the NirCmd binary and the target program, then compare them with your software inventory and reputation sources.",
+        "On the same host, review the +/- 15 minute window for SYSTEM child processes, new services (event 7045), scheduled tasks and network connections.",
+        "Search for NirCmd executions by the same user or on other hosts, and check earlier alerts for these entities.",
+        "Ask IT whether a ticket or an approved admin script that uses NirCmd explains the activity."
+      ],
+      "false_positives": [
+        "Administrators who use NirCmd during support work to run tools as SYSTEM.",
+        "Deployment or maintenance scripts that bundle NirCmd and are documented by IT.",
+        "Technicians running diagnostics in a lab or on their own workstations."
+      ],
+      "response_steps": [
+        "Before taking action, confirm with the asset owner and IT whether the execution was authorized.",
+        "If it was not authorized, isolate the endpoint through EDR and preserve memory, binaries and relevant logs.",
+        "Stop the SYSTEM processes spawned by the execution and remove any confirmed persistence, such as services, tasks or Run keys.",
+        "Reset the credentials of the executing account and check whether that admin account is compromised on other hosts.",
+        "If there are signs of compromise, rebuild the host from a trusted image. Block NirCmd with AppLocker or WDAC where it is not needed."
+      ],
+      "severity_rationale": "High fits because running code as SYSTEM through a PUA tool gives full host control and is rarely legitimate outside documented administration."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "NirCmd launched from a user's Downloads folder runs cmd.exe as SYSTEM",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\Downloads\\nircmd.exe",
+          "OriginalFileName": "NirCmd.exe",
+          "CommandLine": "nircmd.exe runassystem c:\\windows\\system32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed NirCmd binary in ProgramData runs a payload as SYSTEM",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\admin.rlopez",
+          "Image": "C:\\ProgramData\\svchelper.exe",
+          "OriginalFileName": "NirCmdc.exe",
+          "CommandLine": "\"C:\\ProgramData\\svchelper.exe\" runassystem \"C:\\ProgramData\\update.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate NirCmd use to set the system volume, with no runassystem command",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Tools\\nircmd.exe",
+          "OriginalFileName": "NirCmd.exe",
+          "CommandLine": "nircmd.exe setsysvolume 65535",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "NirCmd elevate command, which runs as admin but not as SYSTEM, so runassystem does not appear",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\mgomez",
+          "Image": "C:\\Tools\\nircmdc.exe",
+          "OriginalFileName": "NirCmdc.exe",
+          "CommandLine": "nircmdc.exe elevate C:\\Tools\\diag.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

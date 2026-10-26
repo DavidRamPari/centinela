@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "242301bc-f92f-4476-8718-78004a6efd9f",
+    "title": "DLL Loaded via CertOC.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Austin Songer @austinsonger",
+    "path": "windows/process_creation/proc_creation_win_certoc_load_dll.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_certoc_load_dll.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó CertOC.exe, utilidad de certificados firmada por Microsoft, con la opción -LoadDLL. Esa opción hace que el binario firmado cargue una DLL arbitraria, lo que permite ejecutar código mediante proxy.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\certoc.exe u OriginalFileName es CertOC.exe, y CommandLine contiene ' -LoadDLL ' (también detecta '/LoadDLL' y otras variantes de guion).",
+      "why_it_matters": "Corresponde a la ejecución mediante binarios de sistema como proxy (ATT&CK T1218). El atacante usa un binario firmado y de confianza para cargar una DLL maliciosa, lo que le ayuda a evadir las listas de aplicaciones permitidas y la detección.",
+      "triage_steps": [
+        "Revise CommandLine para identificar la ruta de la DLL. Las rutas con permiso de escritura para el usuario (Users, Temp, ProgramData, Public, recursos compartidos) son más sospechosas.",
+        "Verifique que Image esté en System32 y coincida con OriginalFileName. Si certoc.exe fue renombrado o copiado a una carpeta inusual, trátelo como hostil.",
+        "Analice ParentImage y la línea de comandos del proceso padre. Son señales de alerta Office, los intérpretes de scripts, cmd/powershell lanzados desde navegadores o las herramientas de ejecución remota.",
+        "Obtenga el hash, el firmante, la fecha de creación y el origen de la DLL. Consulte su reputación y averigüe cómo llegó al equipo (descarga, correo, copia por red).",
+        "Revise los procesos hijos, las conexiones de red y las escrituras de archivos de certoc.exe y sus descendientes en el mismo host, en una ventana de +/- 15 minutos.",
+        "Confirme si certoc.exe se usa habitualmente en este host (viene con Windows Server) y si el usuario administra la PKI.",
+        "Busque alertas previas del mismo host, del mismo usuario y del mismo hash de DLL, y verifique si esa DLL aparece en otros equipos."
+      ],
+      "false_positives": [
+        "La regla no indica ninguno. El uso de -LoadDLL en tareas de administración es muy poco frecuente.",
+        "Un administrador o ingeniero de PKI que prueba una DLL relacionada con certificados en Windows Server puede activarla.",
+        "Ejercicios autorizados de red team o purple team que reproducen técnicas LOLBAS."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del servidor si la ejecución estaba autorizada y si la DLL es conocida.",
+        "Si es maliciosa o no tiene explicación, aísle el endpoint y conserve una copia de la DLL y, si es posible, la memoria del proceso.",
+        "Bloquee el hash de la DLL. Busque persistencia, movimiento lateral y el mismo hash en otros equipos.",
+        "Elimine los artefactos maliciosos solo después de haberlos recolectado. Restablezca las credenciales expuestas y devuelva el equipo a un estado confiable."
+      ],
+      "severity_rationale": "Media es adecuada porque la opción casi no se usa con fines legítimos y permite ejecutar código arbitrario, pero el binario está firmado por Microsoft y hace falta contexto para confirmar la intención maliciosa."
+    },
+    "en": {
+      "summary": "CertOC.exe, a signed Windows certificate utility, ran with the -LoadDLL option. That option makes the Microsoft-signed binary load an arbitrary DLL, which can be used to run code by proxy.",
+      "what_it_detects": "Process creation events where Image ends with \\certoc.exe or OriginalFileName is CertOC.exe, and CommandLine contains ' -LoadDLL ' (also matching '/LoadDLL' and other dash variants).",
+      "why_it_matters": "This is System Binary Proxy Execution (ATT&CK T1218). Attackers use a trusted signed binary to load a malicious DLL, which helps them get past application allowlisting and evade detection.",
+      "triage_steps": [
+        "Read the CommandLine to find the DLL path. Treat user-writable paths (Users, Temp, ProgramData, Public, shares) as more suspicious.",
+        "Check whether Image is in System32 and matches OriginalFileName. If certoc.exe was renamed or copied to an unusual folder, treat it as hostile.",
+        "Review ParentImage and the parent command line. Office, script hosts, cmd/powershell spawned by browsers, or remote execution tools are red flags.",
+        "Get the DLL's hash, signer, creation time and origin. Look up its reputation and check how it reached the host (download, email, share copy).",
+        "Look at child processes, network connections and file writes from certoc.exe and its descendants on the same host within +/- 15 minutes.",
+        "Check whether certoc.exe normally runs on this host (it ships with Windows Server) and whether the user is a PKI administrator.",
+        "Search for earlier alerts for the same host, user and DLL hash, and look for the same DLL anywhere else in the environment."
+      ],
+      "false_positives": [
+        "The rule lists none. Use of -LoadDLL in administration is very rare.",
+        "An administrator or PKI engineer testing a certificate-related DLL on a Windows Server may trigger it.",
+        "Authorized red-team or purple-team exercises that replay LOLBAS techniques."
+      ],
+      "response_steps": [
+        "Confirm with the user or the server owner whether the run was authorized and whether the DLL is known.",
+        "If it is malicious or unexplained, isolate the endpoint and keep a copy of the DLL and the process memory if you can.",
+        "Block the DLL hash. Look for persistence, lateral movement and the same hash on other hosts.",
+        "Remove the malicious files only after you have collected them. Reset any exposed credentials and restore the host to a known-good state."
+      ],
+      "severity_rationale": "Medium fits because the option is rarely used legitimately and can run arbitrary code, but the binary is Microsoft-signed and you need context to confirm malicious intent."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "certoc.exe in System32 loads a DLL from the Public folder, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-PKI-02.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certoc.exe",
+          "OriginalFileName": "CertOC.exe",
+          "CommandLine": "certoc.exe -LoadDLL C:\\Users\\Public\\update.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c certoc.exe -LoadDLL C:\\Users\\Public\\update.dll",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      },
+      {
+        "description": "Renamed copy of CertOC (matched through OriginalFileName) uses the slash form /LoadDLL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\ProgramData\\svc\\certutil2.exe",
+          "OriginalFileName": "CertOC.exe",
+          "CommandLine": "\"C:\\ProgramData\\svc\\certutil2.exe\" /LoadDLL C:\\ProgramData\\svc\\helper.dll",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate certoc.exe certificate import without -LoadDLL",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-PKI-02.andes.example.com",
+          "User": "ANDES\\admin.pki",
+          "Image": "C:\\Windows\\System32\\certoc.exe",
+          "OriginalFileName": "CertOC.exe",
+          "CommandLine": "certoc.exe -ImportPFX -p ******** My C:\\certs\\web01.pfx",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Another binary (rundll32) whose command line mentions LoadDLL, so the image selection does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe C:\\Program Files\\Vendor\\tool.dll,Init -LoadDLL config",
+          "ParentImage": "C:\\Program Files\\Vendor\\launcher.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

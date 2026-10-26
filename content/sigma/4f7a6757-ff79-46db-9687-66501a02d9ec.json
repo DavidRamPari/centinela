@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "4f7a6757-ff79-46db-9687-66501a02d9ec",
+    "title": "Active Directory Structure Export Via Ldifde.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_ldifde_export.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_ldifde_export.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó ldifde.exe con la opción -f y sin la opción de importación -i, lo que indica una exportación de objetos de Active Directory a un archivo LDIF. Puede ser una tarea administrativa o reconocimiento del dominio previo a la exfiltración.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\ldifde.exe u OriginalFileName es ldifde.exe (detecta binarios renombrados), el CommandLine contiene '-f' (archivo de salida) y no contiene ' -i' (modo importación).",
+      "why_it_matters": "Una exportación LDIF puede contener usuarios, grupos, unidades organizativas y equipos de todo el dominio. Con ella un atacante mapea objetivos y cuentas privilegiadas, o se lleva la estructura del directorio. La regla está etiquetada con la táctica Exfiltration de ATT&CK.",
+      "triage_steps": [
+        "Revise el CommandLine: archivo de destino de -f, filtro -r, base -d, atributos -l y servidor -s. Un filtro amplio como (objectClass=*) o una ruta en Temp/Public es más sospechoso.",
+        "Compare Image con OriginalFileName; si ldifde.exe se ejecuta renombrado o fuera de System32, trátelo como altamente sospechoso.",
+        "Analice ParentImage y el árbol de procesos: cmd.exe o powershell.exe lanzados por webshells, Office o herramientas remotas (wmiprvse.exe, psexesvc.exe) son indicios de abuso.",
+        "Confirme si el usuario y el host corresponden a un administrador de AD o a un servidor de gestión autorizado y si hay un ticket de cambio.",
+        "Pivote en el mismo host +/- 15 minutos: compresión del archivo .ldf (7z, rar, Compress-Archive), copias a recursos compartidos o conexiones salientes.",
+        "Busque alertas previas del mismo usuario o host relacionadas con descubrimiento (nltest, net group, AdFind, consultas LDAP masivas)."
+      ],
+      "false_positives": [
+        "Administradores de AD que exportan objetos para auditorías, migraciones o respaldos de esquema.",
+        "Scripts programados de inventario o sincronización que usan ldifde para generar reportes.",
+        "Herramientas de terceros o consultores que documentan la estructura del dominio durante un proyecto autorizado."
+      ],
+      "response_steps": [
+        "Verifique con el usuario y su responsable si la exportación fue autorizada; documente la respuesta.",
+        "Si no fue autorizada, aísle el endpoint y deshabilite o restablezca la cuenta usada, revisando sus sesiones activas.",
+        "Localice y preserve el archivo LDIF exportado como evidencia, calcule su hash y determine si salió del host.",
+        "Busque persistencia y movimiento lateral desde el host y la cuenta; rote credenciales privilegiadas si hubo exposición.",
+        "Restrinja el uso de ldifde a hosts administrativos y ajuste la regla con exclusiones documentadas."
+      ],
+      "severity_rationale": "Nivel medio porque ldifde es una herramienta administrativa legítima, pero una exportación de AD fuera de contexto aporta reconocimiento valioso al atacante y requiere verificación."
+    },
+    "en": {
+      "summary": "ldifde.exe ran with the -f option and without the -i import switch, meaning Active Directory objects were exported to an LDIF file. This may be admin work or domain reconnaissance before exfiltration.",
+      "what_it_detects": "Process creation where Image ends with \\ldifde.exe or OriginalFileName is ldifde.exe (catches renamed copies), CommandLine contains '-f' (output file) and does not contain ' -i' (import mode).",
+      "why_it_matters": "An LDIF export can hold every user, group, OU and computer in the domain. Attackers use it to map targets and privileged accounts or to take the directory structure offsite. The rule is tagged with the ATT&CK Exfiltration tactic.",
+      "triage_steps": [
+        "Read the CommandLine: -f output path, -r filter, -d base DN, -l attributes, -s server. Broad filters like (objectClass=*) or output to Temp/Public are more suspicious.",
+        "Compare Image and OriginalFileName; a renamed ldifde or one running outside System32 is highly suspicious.",
+        "Check ParentImage and the process tree: shells spawned by webshells, Office, wmiprvse.exe or psexesvc.exe suggest abuse.",
+        "Confirm the user and host belong to an AD administrator or approved management server, and look for a change ticket.",
+        "Pivot on the same host +/- 15 minutes: archiving of the .ldf file, copies to shares, or outbound network connections.",
+        "Look for earlier alerts on the same user or host for discovery activity (nltest, net group, AdFind, bulk LDAP queries)."
+      ],
+      "false_positives": [
+        "AD administrators exporting objects for audits, migrations or schema backups.",
+        "Scheduled inventory or sync scripts that use ldifde to build reports.",
+        "Third-party tools or consultants documenting the domain during an authorized project."
+      ],
+      "response_steps": [
+        "Verify with the user and their manager whether the export was authorized; record the answer.",
+        "If unauthorized, isolate the endpoint and disable or reset the account used, reviewing its active sessions.",
+        "Locate and preserve the exported LDIF file, hash it, and determine whether it left the host.",
+        "Hunt for persistence and lateral movement from the host and account; rotate privileged credentials if exposed.",
+        "Limit ldifde to admin hosts and tune the rule with documented exclusions."
+      ],
+      "severity_rationale": "Medium because ldifde is a legitimate admin tool, but an out-of-context AD export gives attackers valuable reconnaissance and needs verification."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "ldifde exporting the whole domain to a public folder, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\ldifde.exe",
+          "OriginalFileName": "ldifde.exe",
+          "CommandLine": "ldifde.exe -f C:\\Users\\Public\\ad_export.ldf -d \"DC=andes,DC=example,DC=com\" -r \"(objectClass=*)\" -p subtree",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c ldifde.exe -f C:\\Users\\Public\\ad_export.ldf"
+        }
+      },
+      {
+        "description": "Renamed ldifde copy exporting organizational units, matched via OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\ld.exe",
+          "OriginalFileName": "ldifde.exe",
+          "CommandLine": "ld.exe -f C:\\ProgramData\\ou.txt -r \"(objectClass=organizationalUnit)\" -l name,description",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator importing an LDIF file with -i, excluded by the import filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\adm_mrodriguez",
+          "Image": "C:\\Windows\\System32\\ldifde.exe",
+          "OriginalFileName": "ldifde.exe",
+          "CommandLine": "ldifde.exe -i -f C:\\Admin\\new_users.ldf -k",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Different binary (csvde) exporting with -f, not ldifde",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\csvde.exe",
+          "OriginalFileName": "csvde.exe",
+          "CommandLine": "csvde.exe -f C:\\Users\\Public\\users.csv",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

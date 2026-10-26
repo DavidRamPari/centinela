@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "84b1ecf9-6eff-4004-bafb-bae5c0e251b2",
+    "title": "Potentially Suspicious GoogleUpdate Child Process",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_googleupdate_susp_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_googleupdate_susp_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "GoogleUpdate.exe inició un proceso hijo que no es un componente conocido de Google ni un instalador esperado. Puede indicar que un binario de GoogleUpdate legítimo o suplantado se usa para ejecutar código malicioso.",
+      "what_it_detects": "Eventos de creación de procesos cuyo ParentImage termina en \\GoogleUpdate.exe y cuyo Image no contiene \\Google, no termina en setup.exe, chrome_updater.exe ni chrome_installer.exe, y no está vacío.",
+      "why_it_matters": "El informe de NCSC sobre Goofy Guineapig describe malware que abusa de GoogleUpdate.exe para cargar código malicioso. Un proceso de confianza que lanza shells u otras herramientas sirve para ocultar actividad (stealth/evasión de defensas) y mantener persistencia.",
+      "triage_steps": [
+        "Revise ParentImage: ¿GoogleUpdate.exe está en Program Files (x86)\\Google\\Update o en una ruta inusual como Temp, AppData o ProgramData?",
+        "Verifique la firma y el hash del GoogleUpdate.exe padre y compárelos con versiones legítimas de Google.",
+        "Analice Image y CommandLine del hijo: cmd.exe, powershell.exe, rundll32.exe o binarios en rutas de usuario son muy sospechosos.",
+        "Busque DLL no firmadas o recientes (por ejemplo goopdate.dll) en el directorio del padre, lo que indica DLL side-loading.",
+        "Identifique el proceso abuelo y cómo llegó GoogleUpdate.exe al host: descarga, instalador falso o tarea programada.",
+        "Revise en el mismo host +/- 15 minutos conexiones de red, archivos creados y claves Run o tareas programadas nuevas.",
+        "Busque el mismo hash o ruta del padre en otros endpoints y alertas previas para el mismo usuario."
+      ],
+      "false_positives": [
+        "Versiones nuevas del actualizador de Google que lanzan componentes con nombres o rutas no incluidos en los filtros.",
+        "Instaladores empresariales de productos Google desplegados desde rutas personalizadas sin \\Google en la ruta.",
+        "Herramientas de seguridad o inventario que se inyectan o se ejecutan bajo el contexto del actualizador."
+      ],
+      "response_steps": [
+        "Confirme si el binario padre es legítimo y si el hijo corresponde a una actualización conocida antes de actuar.",
+        "Si es malicioso, aísle el endpoint y suspenda los procesos padre e hijo conservando memoria y archivos para análisis.",
+        "Elimine el GoogleUpdate.exe falso, las DLL cargadas y los mecanismos de persistencia identificados.",
+        "Bloquee los hashes e indicadores de red y búsquelos en toda la flota.",
+        "Restablezca credenciales del usuario afectado si hubo ejecución de comandos o robo de credenciales, y documente una línea base de hijos legítimos."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque GoogleUpdate.exe rara vez inicia procesos fuera de componentes Google, y ese patrón coincide con abuso documentado de binarios de confianza."
+    },
+    "en": {
+      "summary": "GoogleUpdate.exe started a child process that is not a known Google component or expected installer. This may mean a legitimate or fake GoogleUpdate binary is being used to run malicious code.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\GoogleUpdate.exe and Image does not contain \\Google, does not end with setup.exe, chrome_updater.exe or chrome_installer.exe, and is not empty.",
+      "why_it_matters": "The NCSC Goofy Guineapig report describes malware abusing GoogleUpdate.exe to load malicious code. A trusted process spawning shells or tools hides activity (stealth/defense evasion) and can support persistence.",
+      "triage_steps": [
+        "Check ParentImage: is GoogleUpdate.exe under Program Files (x86)\\Google\\Update, or in an unusual path such as Temp, AppData or ProgramData?",
+        "Verify the parent's signature and hash against legitimate Google releases.",
+        "Review the child Image and CommandLine: cmd.exe, powershell.exe, rundll32.exe or binaries in user paths are highly suspicious.",
+        "Look for unsigned or recently written DLLs (e.g. goopdate.dll) beside the parent, indicating DLL side-loading.",
+        "Identify the grandparent process and how GoogleUpdate.exe arrived: download, fake installer or scheduled task.",
+        "On the same host within +/- 15 minutes, review network connections, created files, new Run keys or scheduled tasks.",
+        "Hunt for the same parent hash or path on other endpoints and earlier alerts for the same user."
+      ],
+      "false_positives": [
+        "New Google updater versions launching components whose names or paths are not covered by the filters.",
+        "Enterprise deployments of Google products from custom paths without \\Google in the path.",
+        "Security or inventory tools that run under or inject into the updater context."
+      ],
+      "response_steps": [
+        "Confirm whether the parent binary is genuine and the child matches a known update before acting.",
+        "If malicious, isolate the endpoint and suspend parent and child processes, preserving memory and files for analysis.",
+        "Remove the fake GoogleUpdate.exe, loaded DLLs and any identified persistence.",
+        "Block hashes and network indicators and hunt for them fleet-wide.",
+        "Reset the user's credentials if commands ran or credentials may be exposed, and document a baseline of legitimate children."
+      ],
+      "severity_rationale": "High fits because GoogleUpdate.exe rarely spawns anything beyond Google components, and this pattern matches documented abuse of trusted binaries."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "GoogleUpdate.exe dropped in a user Temp folder spawns cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\FirefoxInstall\\GoogleUpdate.exe",
+          "ParentCommandLine": "\"C:\\Users\\jperez\\AppData\\Local\\Temp\\FirefoxInstall\\GoogleUpdate.exe\"",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami /all > %TEMP%\\info.txt",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "GoogleUpdate.exe in ProgramData launches rundll32.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\ProgramData\\Updater\\GoogleUpdate.exe",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe C:\\ProgramData\\Updater\\helper.dll,Start",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate updater launching GoogleCrashHandler.exe (Image contains \\Google)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Program Files (x86)\\Google\\Update\\GoogleUpdate.exe",
+          "Image": "C:\\Program Files (x86)\\Google\\Update\\1.3.36.312\\GoogleCrashHandler.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\Google\\Update\\1.3.36.312\\GoogleCrashHandler.exe\"",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Chrome update running setup.exe from a system temp folder (filtered by endswith setup.exe)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Program Files (x86)\\Google\\Update\\GoogleUpdate.exe",
+          "Image": "C:\\Windows\\SystemTemp\\CR_4A1B2.tmp\\setup.exe",
+          "CommandLine": "\"C:\\Windows\\SystemTemp\\CR_4A1B2.tmp\\setup.exe\" --install-archive=chrome.packed.7z --system-level",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

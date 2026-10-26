@@ -1,0 +1,123 @@
+{
+  "rule": {
+    "id": "16905e21-66ee-42fe-b256-1318ada2d770",
+    "title": "Start of NT Virtual DOS Machine",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_susp_16bit_application.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_16bit_application.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició ntvdm.exe (NT Virtual DOS Machine) o csrstub.exe en un host Windows. Esto indica que se ejecutó código de 16 bits o DOS, algo poco común en sistemas modernos.",
+      "what_it_detects": "Eventos de creación de procesos cuyo Image termina en \\ntvdm.exe o \\csrstub.exe. NTVDM ejecuta programas de Windows de 16 bits y DOS en Windows de 32 bits. csrstub.exe es un proceso stub asociado a ese subsistema.",
+      "why_it_matters": "Un atacante puede usar la ejecución heredada de 16 bits o DOS para correr código mediante un subsistema poco monitoreado y evadir controles modernos. La regla está etiquetada como stealth (evasión de defensas). Si un subsistema heredado aparece donde no se espera, hay que justificarlo.",
+      "triage_steps": [
+        "Revisar Image: confirmar que la ruta sea C:\\Windows\\System32 (o SysWOW64) y no una copia renombrada en carpetas escribibles por el usuario como Temp, AppData o Downloads.",
+        "Analizar CommandLine y ParentImage para identificar el programa de 16 bits o DOS ejecutado, junto con el usuario o proceso que lo inició.",
+        "Obtener el hash del archivo DOS o de 16 bits ejecutado y verificar su reputación y prevalencia en la flota.",
+        "Confirmar si el host es de 32 bits y si NTVDM está habilitado. En Windows de 64 bits, ntvdm.exe no debería existir de forma nativa.",
+        "Pivotar en el mismo host en +/- 15 minutos: procesos hijos, conexiones de red, escritura de archivos y nueva persistencia.",
+        "Buscar alertas previas del mismo host y usuario, y verificar si el host pertenece a un grupo conocido de aplicaciones heredadas."
+      ],
+      "false_positives": [
+        "Aplicaciones heredadas de negocio en DOS o de 16 bits, como software antiguo de contabilidad, industrial o de laboratorio.",
+        "Administradores o desarrolladores que prueban instaladores o utilidades antiguas en sistemas de 32 bits."
+      ],
+      "response_steps": [
+        "Confirmar con el dueño de la aplicación si el programa de 16 bits es esperado. Si lo es, documentarlo y ajustar la regla para ese host y ese proceso padre.",
+        "Si no tiene explicación o el binario está en una ruta inusual, aislar el host y recolectar el archivo ejecutado y el árbol de procesos.",
+        "Eliminar los archivos maliciosos y la persistencia que se encuentren, y restablecer las credenciales del usuario si se confirma un uso indebido.",
+        "Donde no se necesite, deshabilitar NTVDM con la política de grupo 'Impedir el acceso a aplicaciones de 16 bits'."
+      ],
+      "severity_rationale": "La severidad media es adecuada porque la ejecución heredada de 16 bits es inusual y puede ocultar actividad maliciosa, aunque también la genera software heredado legítimo."
+    },
+    "en": {
+      "summary": "A process named ntvdm.exe (NT Virtual DOS Machine) or csrstub.exe started on a Windows host. This means 16-bit or DOS code ran, which is rare on modern systems.",
+      "what_it_detects": "Process creation events where Image ends with \\ntvdm.exe or \\csrstub.exe. NTVDM runs 16-bit Windows and DOS programs on 32-bit Windows. csrstub.exe is a related stub process for that subsystem.",
+      "why_it_matters": "Attackers can use legacy 16-bit or DOS execution to run code through a rarely monitored subsystem and avoid modern controls. The rule is tagged as stealth (defense evasion). A legacy subsystem running where nobody expects it should be explained.",
+      "triage_steps": [
+        "Check Image: confirm the path is C:\\Windows\\System32 (or SysWOW64) and not a renamed copy in a user-writable folder such as Temp, AppData or Downloads.",
+        "Review CommandLine and ParentImage to find the 16-bit or DOS program that was launched, plus the user or process that started it.",
+        "Get the hash of the launched DOS/16-bit file and check reputation and prevalence across the fleet.",
+        "Confirm whether the host is 32-bit and whether NTVDM is enabled as a feature. On 64-bit Windows, ntvdm.exe should not exist natively.",
+        "Pivot on the same host within +/- 15 minutes: child processes, network connections, file writes and new persistence.",
+        "Look up earlier alerts for this host and user, and check if the host belongs to a known legacy-application group."
+      ],
+      "false_positives": [
+        "Legitimate legacy line-of-business DOS or 16-bit applications, such as old accounting, industrial or lab software.",
+        "Administrators or developers testing old installers or utilities on 32-bit systems."
+      ],
+      "response_steps": [
+        "Confirm with the application owner whether the 16-bit program is expected. If it is, document it and tune the rule for that host and parent.",
+        "If it is unexplained or the binary sits in an unusual path, isolate the host and collect the executed file and process tree.",
+        "Remove any malicious files and persistence you find, and reset the involved user's credentials if misuse is confirmed.",
+        "Where it is not needed, disable NTVDM through the 'Prevent access to 16-bit applications' Group Policy."
+      ],
+      "severity_rationale": "Medium fits because legacy 16-bit execution is unusual and can hide malicious activity, but legitimate legacy software still triggers it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "ntvdm.exe launched by cmd.exe to run a DOS program from a user's Downloads folder",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\ntvdm.exe",
+          "CommandLine": "C:\\Windows\\system32\\ntvdm.exe -i1",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\jperez\\Downloads\\setup16.com",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "csrstub.exe process creation on a 32-bit workstation",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\csrstub.exe",
+          "CommandLine": "C:\\Windows\\System32\\csrstub.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "A normal 32-bit console host process, not the NTVDM subsystem",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "The ntvdm name appears only in the command line, for example in a file listing, while Image is cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c dir C:\\Windows\\System32\\ntvdm.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

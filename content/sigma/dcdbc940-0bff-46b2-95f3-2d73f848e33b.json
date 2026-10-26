@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "dcdbc940-0bff-46b2-95f3-2d73f848e33b",
+    "title": "Suspicious Spool Service Child Process",
+    "level": "high",
+    "status": "test",
+    "author": "Justin C. (@endisphotic), @dreadphones (detection), Thomas Patzke (Sigma rule)",
+    "path": "windows/process_creation/proc_creation_win_spoolsv_susp_child_processes.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_spoolsv_susp_child_processes.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1068",
+      "T1203"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "El servicio de cola de impresión (spoolsv.exe), con integridad System, inició un proceso inusual como whoami, cmd, PowerShell, certutil o reg. Esto suele indicar que alguien explotó el spooler o cargó un driver malicioso para ejecutar código como SYSTEM.",
+      "what_it_detects": "Procesos hijos de spoolsv.exe con IntegrityLevel System (S-1-16-16384) cuando la Image es una herramienta de reconocimiento, descarga o administración. Se excluyen algunos usos esperados: net con 'start', cmd con '.spl', 'route add' o 'program files', netsh con reglas de firewall, PowerShell con '.spl' y rundll32 con argumentos.",
+      "why_it_matters": "spoolsv.exe se ejecuta como SYSTEM y acepta conexiones remotas por RPC. Si se explota (T1068) o se abusa de él para ejecución (T1203), el atacante obtiene control total del equipo y puede moverse lateralmente.",
+      "triage_steps": [
+        "Confirme que ParentImage es C:\\Windows\\System32\\spoolsv.exe y que IntegrityLevel es System. Revise Image, OriginalFileName y CommandLine del proceso hijo.",
+        "Reconstruya el árbol de procesos: identifique los procesos nietos del hijo y si se crearon shells, cuentas o servicios.",
+        "En el mismo host (+/- 15 min), busque DLL nuevas en C:\\Windows\\System32\\spool\\drivers\\ y DLL cargadas por spoolsv.exe que no estén firmadas.",
+        "Revise el registro PrintService/Admin y Operational para ver si se instalaron drivers o impresoras, y desde qué cuenta o IP de origen.",
+        "Busque conexiones de red del hijo (curl, certutil, bitsadmin) hacia dominios o IP externas y obtenga el hash de los archivos descargados.",
+        "Correlacione la actividad con conexiones SMB/RPC entrantes previas y con alertas anteriores del mismo host o la misma cuenta.",
+        "Busque el mismo patrón en otros servidores de impresión y controladores de dominio."
+      ],
+      "false_positives": [
+        "Drivers o software de gestión de impresión de terceros que ejecutan scripts auxiliares (reg, sc, cmd) desde el spooler.",
+        "Instaladores de drivers de impresora distribuidos por TI que lanzan utilidades del sistema durante la instalación."
+      ],
+      "response_steps": [
+        "Valide con el equipo de impresión o TI si el driver o el software involucrado es legítimo antes de actuar.",
+        "Si se confirma la actividad maliciosa, aísle el endpoint y preserve memoria, los DLL de spool\\drivers y los registros.",
+        "Detenga y deshabilite el servicio Spooler en los equipos que no lo necesiten, tras evaluar el impacto, y elimine los drivers maliciosos ya preservados.",
+        "Restablezca las credenciales expuestas, revise las cuentas, servicios y tareas creadas, aplique los parches del spooler y restrinja Point and Print."
+      ],
+      "severity_rationale": "Es alta porque spoolsv.exe, que corre como SYSTEM, casi nunca inicia estas herramientas de forma legítima, y un abuso implica control total del equipo."
+    },
+    "en": {
+      "summary": "The print spooler service (spoolsv.exe), running at System integrity, launched an unusual child process such as whoami, cmd, PowerShell, certutil or reg. This often means the spooler was exploited or a malicious driver was loaded to run code as SYSTEM.",
+      "what_it_detects": "Child processes of spoolsv.exe with IntegrityLevel System (S-1-16-16384) whose Image is a recon, download or admin tool. A few expected uses are excluded: net with 'start', cmd with '.spl', 'route add' or 'program files', netsh firewall rules, PowerShell with '.spl', and rundll32 with arguments.",
+      "why_it_matters": "spoolsv.exe runs as SYSTEM and accepts remote RPC connections. If it is exploited (T1068) or abused for execution (T1203), the attacker gets full control of the host and can move laterally.",
+      "triage_steps": [
+        "Confirm that ParentImage is C:\\Windows\\System32\\spoolsv.exe and IntegrityLevel is System. Review the child's Image, OriginalFileName and CommandLine.",
+        "Rebuild the process tree: find grandchildren of the child and check whether shells, accounts or services were created.",
+        "On the same host (+/- 15 min), look for new DLLs in C:\\Windows\\System32\\spool\\drivers\\ and unsigned DLLs loaded by spoolsv.exe.",
+        "Check the PrintService Admin and Operational logs for driver or printer installs, and note the account or source IP behind them.",
+        "Look for network connections from the child (curl, certutil, bitsadmin) to external domains or IPs, and hash any downloaded files.",
+        "Correlate with earlier inbound SMB/RPC connections and with prior alerts for the same host or account.",
+        "Hunt for the same pattern on other print servers and domain controllers."
+      ],
+      "false_positives": [
+        "Third-party print drivers or print management software that run helper scripts (reg, sc, cmd) from the spooler.",
+        "Printer driver installers pushed by IT that launch system utilities during setup."
+      ],
+      "response_steps": [
+        "Check with the print or IT team whether the driver or software involved is legitimate before acting.",
+        "If the activity is confirmed malicious, isolate the endpoint and preserve memory, the spool\\drivers DLLs and the logs.",
+        "Stop and disable the Spooler service on hosts that do not need it, after weighing the impact, then remove the malicious drivers you preserved.",
+        "Reset exposed credentials, review any accounts, services and tasks that were created, patch the spooler, and restrict Point and Print."
+      ],
+      "severity_rationale": "It is high because spoolsv.exe, which runs as SYSTEM, almost never launches these tools legitimately, and abuse means full control of the host."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "spoolsv.exe at System integrity spawns whoami.exe for privilege discovery",
+        "event": {
+          "EventID": 1,
+          "Computer": "PRN-SRV01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\spoolsv.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\spoolsv.exe",
+          "IntegrityLevel": "System",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "OriginalFileName": "whoami.exe",
+          "CommandLine": "whoami /priv"
+        }
+      },
+      {
+        "description": "spoolsv.exe spawns cmd.exe that adds a local user; the command line has no excluded string",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\spoolsv.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\spoolsv.exe",
+          "IntegrityLevel": "S-1-16-16384",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "C:\\Windows\\System32\\cmd.exe /c net user svc_print2 P@ssw0rd! /add"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "spoolsv.exe runs cmd.exe on a .spl spool file (excluded by the cmd filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "PRN-SRV01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\spoolsv.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\spoolsv.exe",
+          "IntegrityLevel": "System",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "C:\\Windows\\System32\\cmd.exe /c copy C:\\Windows\\System32\\spool\\PRINTERS\\00012.spl \\\\archive01.example.com\\prints\\"
+        }
+      },
+      {
+        "description": "spoolsv.exe runs net.exe start for a vendor print service (excluded by the net filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "PRN-SRV01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\spoolsv.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\spoolsv.exe",
+          "IntegrityLevel": "System",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net start VendorPrintMonitor"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

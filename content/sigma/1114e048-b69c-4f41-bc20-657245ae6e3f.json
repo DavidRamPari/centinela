@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "1114e048-b69c-4f41-bc20-657245ae6e3f",
+    "title": "User Discovery And Export Via Get-ADUser Cmdlet",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_user_discovery_get_aduser.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_user_discovery_get_aduser.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1033"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "PowerShell ejecutó Get-ADUser con -Filter * y envió el resultado a un archivo o a una selección de campos. Puede ser un inventario administrativo o el reconocimiento de cuentas del dominio por parte de un atacante.",
+      "what_it_detects": "Procesos powershell.exe o pwsh.exe (por Image u OriginalFileName) cuyo CommandLine contiene 'Get-ADUser ' y ' -Filter *', junto con ' > ', ' | Select ', Out-File, Set-Content o Add-Content.",
+      "why_it_matters": "Enumerar todos los usuarios de Active Directory y guardarlos en un archivo es un paso típico de descubrimiento (ATT&CK T1033, System Owner/User Discovery). El atacante lo usa para elegir cuentas privilegiadas, objetivos de phishing o movimiento lateral antes de desplegar ransomware.",
+      "triage_steps": [
+        "Revise el CommandLine completo: propiedades solicitadas (-Properties *), ruta y nombre del archivo de salida, y si hay codificación u ofuscación.",
+        "Identifique al usuario y el host: ¿es un administrador de AD trabajando desde un servidor de administración o un usuario estándar en una estación de trabajo?",
+        "Analice ParentImage y la cadena de procesos: cmd.exe, wmiprvse.exe, una tarea programada o un binario desconocido como padre aumentan la sospecha.",
+        "Ubique el archivo de salida (por ejemplo en C:\\Users\\Public, %TEMP% o ProgramData) y verifique si fue comprimido, copiado o exfiltrado.",
+        "Busque en el mismo host, +/- 15 minutos, otros comandos de descubrimiento: Get-ADComputer, Get-ADGroupMember, net group, nltest, AdFind.",
+        "Revise inicios de sesión recientes del usuario (eventos 4624/4648) y su origen, buscando accesos remotos inusuales.",
+        "Consulte alertas previas para el mismo usuario, host o hash del script."
+      ],
+      "false_positives": [
+        "Scripts administrativos legítimos de inventario o auditoría de cuentas que exportan usuarios a CSV o TXT.",
+        "Herramientas de IAM, sincronización o reportes de cumplimiento que ejecutan Get-ADUser de forma programada.",
+        "Personal de soporte o de AD ejecutando consultas manuales documentadas en un ticket."
+      ],
+      "response_steps": [
+        "Confirme con el dueño de la cuenta o el equipo de AD si la ejecución estaba autorizada; si es legítima, documente y considere una exclusión por host o usuario.",
+        "Si no está autorizada, aísle el endpoint y preserve el archivo de salida, el historial de PowerShell y los logs de Script Block (4104).",
+        "Restablezca las credenciales de la cuenta usada y revise cuentas privilegiadas expuestas en la exportación.",
+        "Busque la misma actividad en otros hosts y elimine la persistencia o herramientas encontradas antes de reconectar el equipo."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque el comando es común en administración legítima, pero en un contexto inesperado indica reconocimiento previo a ataques mayores."
+    },
+    "en": {
+      "summary": "PowerShell ran Get-ADUser with -Filter * and sent the result to a file or a field selection. This may be an admin inventory or an attacker enumerating domain accounts.",
+      "what_it_detects": "powershell.exe or pwsh.exe processes (by Image or OriginalFileName) whose CommandLine contains 'Get-ADUser ' and ' -Filter *', plus ' > ', ' | Select ', Out-File, Set-Content or Add-Content.",
+      "why_it_matters": "Dumping every Active Directory user to a file is a typical discovery step (ATT&CK T1033, System Owner/User Discovery). Attackers use it to pick privileged accounts, phishing targets or lateral movement paths before deploying ransomware.",
+      "triage_steps": [
+        "Read the full CommandLine: requested properties (-Properties *), output file path and name, and any encoding or obfuscation.",
+        "Identify the user and host: is this an AD admin on a management server, or a standard user on a workstation?",
+        "Review ParentImage and the process tree: cmd.exe, wmiprvse.exe, a scheduled task or an unknown binary as parent raises suspicion.",
+        "Locate the output file (for example C:\\Users\\Public, %TEMP%, ProgramData) and check whether it was archived, copied or exfiltrated.",
+        "Search the same host within +/- 15 minutes for other discovery: Get-ADComputer, Get-ADGroupMember, net group, nltest, AdFind.",
+        "Check the user's recent logons (4624/4648) and their source for unusual remote access.",
+        "Look for earlier alerts on the same user, host or script hash."
+      ],
+      "false_positives": [
+        "Legitimate admin inventory or account audit scripts exporting users to CSV or TXT.",
+        "IAM, sync or compliance reporting tools that run Get-ADUser on a schedule.",
+        "Support or AD staff running manual queries tied to a ticket."
+      ],
+      "response_steps": [
+        "Confirm with the account owner or AD team whether it was authorized; if legitimate, document it and consider a host or user exclusion.",
+        "If unauthorized, isolate the endpoint and preserve the output file, PowerShell history and Script Block logs (4104).",
+        "Reset the credentials of the account used and review privileged accounts exposed in the export.",
+        "Hunt for the same activity on other hosts and remove any persistence or tools found before reconnecting the host."
+      ],
+      "severity_rationale": "Medium fits because the command is common in legitimate administration, but in an unexpected context it signals reconnaissance ahead of larger attacks."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell dumps all AD users with selected fields redirected to a file in a public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoP -c \"Get-ADUser -Filter * -Properties * | Select Name,SamAccountName,LastLogonDate > C:\\Users\\Public\\u.txt\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat"
+        }
+      },
+      {
+        "description": "pwsh exports all AD users with Out-File",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "pwsh.exe -Command Get-ADUser -Filter * -Properties memberOf | Out-File C:\\ProgramData\\users.log",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin queries a single user by identity without -Filter *",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-01",
+          "User": "ANDES\\admin.mlopez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -c \"Get-ADUser jperez -Properties LastLogonDate | Select Name,LastLogonDate\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Get-ADUser -Filter * displayed on screen with Format-Table, no file output or Select",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-01",
+          "User": "ANDES\\admin.mlopez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -c \"Get-ADUser -Filter * -SearchBase 'OU=Ventas,DC=andes,DC=example,DC=com' | Format-Table Name\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

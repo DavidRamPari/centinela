@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "744a188b-0415-4792-896f-11ddb0588dbc",
+    "title": "Potential Process Injection Via Msra.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Alexander McDonald",
+    "path": "windows/process_creation/proc_creation_win_msra_process_injection.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_msra_process_injection.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1055"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Msra.exe (Asistencia remota de Windows), iniciado sin argumentos, generó un proceso hijo de discovery, shell o persistencia. Esto sugiere que se inyectó código en msra.exe y que ese código ahora ejecuta comandos.",
+      "what_it_detects": "Eventos de creación de procesos cuyo ParentImage termina en \\msra.exe, cuyo ParentCommandLine termina en msra.exe (o sea, sin argumentos) y cuyo Image es arp, cmd, net, netstat, nslookup, route, schtasks o whoami.",
+      "why_it_matters": "Corresponde a inyección de procesos (T1055). Un atacante oculta su código dentro de un binario firmado por Microsoft para evadir controles y lanzar desde ahí discovery y persistencia. Las referencias de la regla describen este patrón en Qakbot.",
+      "triage_steps": [
+        "Revise CommandLine del hijo: whoami /all, net group, arp -a o un schtasks /create indican reconocimiento o persistencia, no asistencia remota.",
+        "Confirme que ParentImage sea C:\\Windows\\System32\\msra.exe y obtenga el ProcessId, el usuario y la hora de inicio de msra.exe.",
+        "Busque el proceso que lanzó msra.exe. Un padre como explorer.exe sin sesión de asistencia, rundll32, regsvr32 o wscript es muy sospechoso.",
+        "Pivotee en el mismo host +/- 15 minutos: otros hijos de msra.exe, DLL o scripts recién escritos en %AppData%, %Temp% o ProgramData.",
+        "Revise las conexiones de red de msra.exe a IP o dominios externos que no sean la infraestructura de Asistencia remota.",
+        "Si hubo schtasks.exe, enumere las tareas programadas creadas y su acción.",
+        "Busque alertas previas del mismo usuario y host, sobre todo adjuntos de correo, macros o cargadores ejecutados poco antes."
+      ],
+      "false_positives": [
+        "Uso legítimo de Msra.exe por la mesa de ayuda, cuando el técnico abre una consola desde la sesión de asistencia y ejecuta comandos de diagnóstico.",
+        "Scripts de soporte o pruebas internas que inician msra.exe y ejecutan comandos de red para diagnosticar conectividad."
+      ],
+      "response_steps": [
+        "Confirme con la mesa de ayuda y con el usuario si había una sesión de asistencia remota autorizada en ese momento.",
+        "Si no la había, aísle el endpoint desde el EDR y conserve la memoria de msra.exe antes de terminar el proceso.",
+        "Elimine las tareas programadas, los archivos y las claves de persistencia que identifique, después de documentarlos y obtener su hash.",
+        "Restablezca las credenciales del usuario afectado, busque en el entorno los mismos indicadores y restaure el equipo a una imagen limpia si se confirma el compromiso."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque es raro que msra.exe sin argumentos lance herramientas de discovery o schtasks, y ese comportamiento coincide con inyección documentada en malware activo."
+    },
+    "en": {
+      "summary": "Msra.exe (Windows Remote Assistance), started without arguments, spawned a discovery, shell or persistence tool. This suggests code was injected into msra.exe and is now running commands.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\msra.exe, ParentCommandLine ends with msra.exe (no arguments) and Image is arp, cmd, net, netstat, nslookup, route, schtasks or whoami.",
+      "why_it_matters": "This is process injection (T1055). An attacker hides code inside a Microsoft-signed binary to evade defenses, then runs discovery and persistence from it. The rule's references describe this pattern in Qakbot.",
+      "triage_steps": [
+        "Read the child's CommandLine. whoami /all, net group, arp -a or schtasks /create point to reconnaissance or persistence, not remote assistance.",
+        "Confirm ParentImage is C:\\Windows\\System32\\msra.exe and get the ProcessId, user and start time of msra.exe.",
+        "Find what launched msra.exe. A parent such as explorer.exe with no assistance session, rundll32, regsvr32 or wscript is highly suspicious.",
+        "Pivot on the same host within +/- 15 minutes: other msra.exe children, and DLLs or scripts newly written to %AppData%, %Temp% or ProgramData.",
+        "Check msra.exe network connections to external IPs or domains that are not Remote Assistance infrastructure.",
+        "If schtasks.exe ran, list the scheduled tasks that were created and what each one runs.",
+        "Look for earlier alerts for the same user and host, especially email attachments, macros or loaders that ran shortly before."
+      ],
+      "false_positives": [
+        "Legitimate Msra.exe use by the helpdesk, when a technician opens a console from the assistance session and runs diagnostic commands.",
+        "Support scripts or internal testing that start msra.exe and run network commands to troubleshoot connectivity."
+      ],
+      "response_steps": [
+        "Check with the helpdesk and the user whether an authorized remote assistance session was running at that time.",
+        "If there was none, isolate the endpoint through EDR and capture msra.exe memory before you terminate the process.",
+        "Remove any scheduled tasks, files and persistence keys you find, after you document them and record their hashes.",
+        "Reset the affected user's credentials, hunt for the same indicators across the environment, and reimage the host if the compromise is confirmed."
+      ],
+      "severity_rationale": "High fits because msra.exe without arguments rarely spawns discovery tools or schtasks, and this behavior matches injection documented in active malware."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Injected msra.exe (no arguments) spawns whoami.exe for discovery",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\msra.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\msra.exe",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "CommandLine": "whoami /all",
+          "OriginalFileName": "whoami.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Injected msra.exe creates a scheduled task for persistence",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\msra.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\msra.exe",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "CommandLine": "schtasks.exe /Create /F /TN \"UpdateCheck\" /SC MINUTE /MO 30 /TR \"regsvr32.exe -s C:\\ProgramData\\upd.dll\"",
+          "OriginalFileName": "schtasks.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Helpdesk-initiated Remote Assistance with /offerRA arguments opens cmd.exe; ParentCommandLine does not end with msra.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0088.andes.example.com",
+          "User": "ANDES\\soporte01",
+          "ParentImage": "C:\\Windows\\System32\\msra.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\msra.exe /offerRA WS-0142",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "msra.exe without arguments launches a child that is not in the suspicious list",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\msra.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\msra.exe",
+          "Image": "C:\\Windows\\System32\\hh.exe",
+          "CommandLine": "\"C:\\Windows\\hh.exe\" C:\\Windows\\Help\\mui\\0409\\msra.chm",
+          "OriginalFileName": "HH.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

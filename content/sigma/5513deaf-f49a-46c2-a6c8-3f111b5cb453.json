@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "5513deaf-f49a-46c2-a6c8-3f111b5cb453",
+    "title": "SQL Injection Strings In URI",
+    "level": "high",
+    "status": "test",
+    "author": "Saw Win Naung, Nasreddine Bencherchali (Nextron Systems), Thurein Oo (Yoma Bank)",
+    "path": "web/webserver_generic/web_sql_injection_in_access_logs.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/web/webserver_generic/web_sql_injection_in_access_logs.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1190"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Una petición GET con respuesta distinta de 404 contiene en la URI cadenas típicas de inyección SQL (UNION SELECT, '1'='1, information_schema, sleep, etc.). Puede tratarse de reconocimiento, explotación activa o un escáner.",
+      "what_it_detects": "Registros de acceso de servidores web con cs-method = GET que incluyen alguna de las palabras clave de inyección SQL de la regla, en texto plano o codificadas en URL (por ejemplo UNION%20SELECT o %271%27%3D%271), excepto cuando sc-status es 404.",
+      "why_it_matters": "La inyección SQL en una aplicación expuesta (ATT&CK T1190, Exploit Public-Facing Application) puede permitir leer o modificar la base de datos, obtener credenciales y, en algunos casos, ejecutar comandos en el servidor como acceso inicial.",
+      "triage_steps": [
+        "Revise cs-uri-stem, cs-uri-query y la línea completa del log; identifique qué palabra clave coincidió y decodifique la URL para leer el payload real.",
+        "Evalúe sc-status y el tamaño de la respuesta: un 200 con tamaño anómalo o un 500 sugiere que la aplicación procesó la consulta.",
+        "Revise cs-user-agent: herramientas como sqlmap, curl o scripts genéricos indican automatización; compare con los escáneres internos autorizados.",
+        "Pivote por la IP de origen en +/- 15 minutos: volumen de peticiones, otros parámetros probados y rutas distintas atacadas.",
+        "Busque alertas previas para la misma IP, el mismo endpoint y el mismo host web.",
+        "Verifique si el parámetro afectado es un buscador o un recurso estático (JS/CSS) donde el texto podría ser legítimo.",
+        "Revise los logs de la base de datos y de la aplicación en la misma ventana: errores SQL, consultas lentas (sleep) o accesos a information_schema."
+      ],
+      "false_positives": [
+        "Archivos JavaScript o CSS cuyos nombres o parámetros contienen texto parecido a SQL.",
+        "Usuarios que escriben frases como 'order by' o 'select *' en cajas de búsqueda del sitio.",
+        "Escáneres de vulnerabilidades internos o pentests autorizados; confirme por IP, user agent y ventana programada."
+      ],
+      "response_steps": [
+        "Confirme si la actividad es autorizada (escáner o pentest) antes de escalar.",
+        "Si es maliciosa, bloquee la IP de origen en el WAF o firewall y active reglas WAF de inyección SQL para el endpoint.",
+        "Si hay indicios de explotación exitosa, escale a incidente, preserve logs web y de base de datos y revise qué datos pudieron exponerse.",
+        "Corrija el código vulnerable usando consultas parametrizadas y rote las credenciales de base de datos si pudieron filtrarse.",
+        "Monitoree la IP y el endpoint en los días siguientes para detectar reintentos."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque son patrones claros de inyección SQL contra un servicio expuesto y la respuesta no fue 404, aunque los escáneres y búsquedas generan falsos positivos."
+    },
+    "en": {
+      "summary": "A GET request that did not return 404 carries typical SQL injection strings in the URI (UNION SELECT, '1'='1, information_schema, sleep, etc.). It may be reconnaissance, active exploitation or a scanner.",
+      "what_it_detects": "Web server access log entries with cs-method = GET that contain any of the rule's SQL injection keywords, plain or URL-encoded (for example UNION%20SELECT or %271%27%3D%271), unless sc-status is 404.",
+      "why_it_matters": "SQL injection in an internet-facing application (ATT&CK T1190, Exploit Public-Facing Application) can expose or alter database contents, leak credentials and sometimes lead to command execution as initial access.",
+      "triage_steps": [
+        "Read cs-uri-stem, cs-uri-query and the full log line; identify which keyword matched and URL-decode the payload.",
+        "Check sc-status and response size: a 200 with unusual size or a 500 suggests the application processed the query.",
+        "Review cs-user-agent: sqlmap, curl or generic scripts indicate automation; compare with authorized internal scanners.",
+        "Pivot on the source IP within +/- 15 minutes: request volume, other parameters probed and other paths targeted.",
+        "Look for earlier alerts for the same IP, endpoint and web host.",
+        "Check whether the parameter is a search box or static resource (JS/CSS) where the text could be legitimate.",
+        "Review database and application logs in the same window: SQL errors, slow queries (sleep) or information_schema access."
+      ],
+      "false_positives": [
+        "JavaScript or CSS files whose names or parameters contain SQL-like text.",
+        "Users typing phrases such as 'order by' or 'select *' into site search boxes.",
+        "Internal vulnerability scanners or authorized pentests; confirm by IP, user agent and scheduled window."
+      ],
+      "response_steps": [
+        "Confirm whether the activity is authorized (scanner or pentest) before escalating.",
+        "If malicious, block the source IP at the WAF or firewall and enable SQL injection WAF rules for the endpoint.",
+        "If exploitation looks successful, open an incident, preserve web and database logs and assess what data may be exposed.",
+        "Fix the vulnerable code with parameterized queries and rotate database credentials if they may have leaked.",
+        "Monitor the IP and endpoint over the following days for retries."
+      ],
+      "severity_rationale": "High fits because these are clear SQL injection patterns against an exposed service with a non-404 response, though scanners and searches cause false positives."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "GET with URL-encoded UNION SELECT in the query string, server returned 200",
+        "event": {
+          "c-ip": "203.0.113.45",
+          "cs-method": "GET",
+          "cs-uri-stem": "/products.php",
+          "cs-uri-query": "id=1%20UNION%20SELECT%20NULL,NULL--",
+          "sc-status": 200,
+          "cs-user-agent": "sqlmap/1.7",
+          "cs-host": "shop.example.com",
+          "message": "203.0.113.45 - - [25/Oct/2024:14:03:12 +0000] \"GET /products.php?id=1%20UNION%20SELECT%20NULL,NULL-- HTTP/1.1\" 200 5123 \"-\" \"sqlmap/1.7\""
+        }
+      },
+      {
+        "description": "GET with encoded '1'='1 tautology, server returned 500",
+        "event": {
+          "c-ip": "198.51.100.23",
+          "cs-method": "GET",
+          "cs-uri-stem": "/login.php",
+          "cs-uri-query": "user=admin%27%20or%20%271%27%3D%271",
+          "sc-status": 500,
+          "cs-user-agent": "curl/8.4.0",
+          "cs-host": "portal.example.com",
+          "message": "198.51.100.23 - - [25/Oct/2024:14:05:40 +0000] \"GET /login.php?user=admin%27%20or%20%271%27%3D%271 HTTP/1.1\" 500 312 \"-\" \"curl/8.4.0\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Same UNION SELECT probe but the path does not exist (404), excluded by filter_main_status",
+        "event": {
+          "c-ip": "203.0.113.45",
+          "cs-method": "GET",
+          "cs-uri-stem": "/old/products.php",
+          "cs-uri-query": "id=1%20UNION%20SELECT%20NULL,NULL--",
+          "sc-status": 404,
+          "cs-user-agent": "sqlmap/1.7",
+          "cs-host": "shop.example.com",
+          "message": "203.0.113.45 - - [25/Oct/2024:14:03:15 +0000] \"GET /old/products.php?id=1%20UNION%20SELECT%20NULL,NULL-- HTTP/1.1\" 404 196 \"-\" \"sqlmap/1.7\""
+        }
+      },
+      {
+        "description": "Legitimate site search containing 'selection' which does not match '=select ' or other keywords",
+        "event": {
+          "c-ip": "192.0.2.77",
+          "cs-method": "GET",
+          "cs-uri-stem": "/search",
+          "cs-uri-query": "q=selection+of+shoes",
+          "sc-status": 200,
+          "cs-user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/131.0",
+          "cs-host": "shop.example.com",
+          "message": "192.0.2.77 - - [25/Oct/2024:14:10:02 +0000] \"GET /search?q=selection+of+shoes HTTP/1.1\" 200 8841 \"https://shop.example.com/\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/131.0\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

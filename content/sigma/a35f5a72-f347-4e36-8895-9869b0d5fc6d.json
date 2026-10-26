@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "a35f5a72-f347-4e36-8895-9869b0d5fc6d",
+    "title": "Suspicious Program Location Whitelisted In Firewall Via Netsh.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Sander Wiebing, Jonhnathan Ribeiro, Daniil Yugoslavskiy, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_netsh_fw_allow_program_in_susp_location.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_netsh_fw_allow_program_in_susp_location.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1686.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó netsh.exe para crear una excepción de firewall que permite tráfico a un programa ubicado en una ruta sospechosa (Temp, Public, Downloads, Recycle Bin, etc.). Es un patrón típico de malware que habilita su propia comunicación de red.",
+      "what_it_detects": "Eventos de creación de proceso donde Image termina en \\netsh.exe u OriginalFileName es netsh.exe, y CommandLine contiene 'firewall add allowedprogram' (sintaxis heredada) o 'advfirewall firewall add rule' con 'action=allow' y 'program=', y además la ruta del programa está en una ubicación sospechosa como :\\Users\\Public\\, :\\Windows\\Temp\\, \\Downloads\\ o %TEMP%.",
+      "why_it_matters": "Un atacante puede abrir el firewall para su binario y así recibir conexiones entrantes o comunicarse con su C2 sin bloqueo. Corresponde a ATT&CK T1686.003, que consiste en debilitar defensas modificando el firewall del sistema.",
+      "triage_steps": [
+        "Revise CommandLine completo: nombre de la regla, dirección (dir=in/out), puertos y ruta exacta indicada en program= o allowedprogram.",
+        "Obtenga el hash del ejecutable permitido, verifique firma digital, fecha de creación y reputación; confirme si el archivo aún existe en disco.",
+        "Analice ParentImage y la cadena de procesos: netsh lanzado por cmd, powershell, wscript o un binario en Temp es altamente sospechoso.",
+        "Identifique el usuario y si tiene privilegios administrativos; confirme con el dueño del equipo si esperaba este cambio.",
+        "Pivote en el mismo host +/- 15 minutos: descargas, creación de archivos en la ruta, tareas programadas, servicios nuevos y modificaciones de registro.",
+        "Busque conexiones de red del programa permitido y del host hacia IPs o dominios externos poco comunes.",
+        "Consulte alertas previas del mismo host, usuario y hash, y busque la misma línea de comando en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Instaladores mal empaquetados que ejecutan componentes desde %TEMP% y crean reglas de firewall durante la instalación.",
+        "Herramientas internas o scripts de soporte que copian ejecutables a C:\\Users\\Public y los habilitan en el firewall."
+      ],
+      "response_steps": [
+        "Verifique la legitimidad del binario y del cambio con el equipo de TI antes de actuar.",
+        "Si es malicioso, aísle el endpoint desde el EDR y preserve el ejecutable y la evidencia para análisis.",
+        "Elimine la regla de firewall creada (netsh advfirewall firewall delete rule name=...) tras documentarla, y retire el binario y su persistencia.",
+        "Restablezca credenciales del usuario implicado, bloquee hash e indicadores de red, y busque el mismo patrón en toda la flota."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque permitir en el firewall un programa ubicado en rutas temporales o públicas casi nunca es legítimo y sugiere malware activo."
+    },
+    "en": {
+      "summary": "netsh.exe was run to add a firewall exception allowing a program that lives in a suspicious path (Temp, Public, Downloads, Recycle Bin, etc.). This is a common malware pattern for enabling its own network access.",
+      "what_it_detects": "Process creation events where Image ends with \\netsh.exe or OriginalFileName is netsh.exe, CommandLine contains 'firewall add allowedprogram' (legacy syntax) or 'advfirewall firewall add rule' with 'action=allow' and 'program=', and the program path is in a suspicious location such as :\\Users\\Public\\, :\\Windows\\Temp\\, \\Downloads\\ or %TEMP%.",
+      "why_it_matters": "An attacker can open the firewall for their binary to accept inbound connections or reach C2 unhindered. This maps to ATT&CK T1686.003, impairing defenses by modifying the system firewall.",
+      "triage_steps": [
+        "Read the full CommandLine: rule name, direction (dir=in/out), ports and the exact path in program= or allowedprogram.",
+        "Hash the allowed executable, check signature, creation time and reputation; confirm whether the file still exists on disk.",
+        "Review ParentImage and the process tree: netsh spawned by cmd, powershell, wscript or a binary in Temp is highly suspicious.",
+        "Identify the user and whether they are an administrator; confirm with the device owner whether the change was expected.",
+        "Pivot on the same host +/- 15 minutes: downloads, file writes to that path, scheduled tasks, new services, registry changes.",
+        "Look for network connections from the allowed program and the host to unusual external IPs or domains.",
+        "Check earlier alerts for the same host, user and hash, and search other endpoints for the same command line."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Poorly packaged installers that run components from %TEMP% and add firewall rules during setup.",
+        "Internal tools or support scripts that copy executables to C:\\Users\\Public and allow them through the firewall."
+      ],
+      "response_steps": [
+        "Verify the binary and the change with IT before acting.",
+        "If malicious, isolate the endpoint via EDR and preserve the executable and evidence for analysis.",
+        "Document, then delete the firewall rule (netsh advfirewall firewall delete rule name=...), and remove the binary and its persistence.",
+        "Reset the involved user's credentials, block the hash and network indicators, and hunt for the pattern fleet-wide."
+      ],
+      "severity_rationale": "High fits because allowing a program from temporary or public folders through the firewall is rarely legitimate and points to active malware."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Modern advfirewall syntax allowing inbound traffic for a binary in C:\\Users\\Public",
+        "event": {
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh advfirewall firewall add rule name=\"Windows Update Helper\" dir=in action=allow program=\"C:\\Users\\Public\\svchost.exe\" enable=yes",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.andes.example.com"
+        }
+      },
+      {
+        "description": "Legacy firewall allowedprogram syntax for an executable in C:\\Windows\\Temp",
+        "event": {
+          "Image": "C:\\Windows\\SysWOW64\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh firewall add allowedprogram \"C:\\Windows\\Temp\\upd32.exe\" \"Update Service\" ENABLE",
+          "ParentImage": "C:\\Windows\\Temp\\dropper.exe",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Computer": "WS-0207.andes.example.com"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate allow rule for an application installed under Program Files (no suspicious path)",
+        "event": {
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh advfirewall firewall add rule name=\"Contoso Agent\" dir=in action=allow program=\"C:\\Program Files\\Contoso\\agent.exe\" enable=yes",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Computer": "WS-0142.andes.example.com"
+        }
+      },
+      {
+        "description": "Block rule (action=block) for a file in Downloads; does not whitelist the program",
+        "event": {
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh advfirewall firewall add rule name=\"Block tool\" dir=out action=block program=\"C:\\Users\\jperez\\Downloads\\tool.exe\" enable=yes",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\admin.soc",
+          "Computer": "WS-0142.andes.example.com"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

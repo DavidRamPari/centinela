@@ -1,0 +1,125 @@
+{
+  "rule": {
+    "id": "c73124a7-3e89-44a3-bdc1-25fe4df754b1",
+    "title": "Copy From VolumeShadowCopy Via Cmd.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Max Altgelt (Nextron Systems), Tobias Michalski (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_cmd_shadowcopy_access.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmd_shadowcopy_access.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1490"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó el comando interno \"copy\" de cmd.exe sobre una ruta \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy. Así suelen copiarse desde una instantánea de volumen (VSS) archivos bloqueados, como las colmenas SAM/SYSTEM o NTDS.dit.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene \"copy \" junto con la ruta de dispositivo \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy, es decir, una copia directa desde una shadow copy.",
+      "why_it_matters": "Copiar SAM, SYSTEM, SECURITY o NTDS.dit desde una shadow copy permite extraer hashes de credenciales sin conexión. La regla se etiqueta como T1490 (Inhibit System Recovery) porque abusa de las instantáneas de volumen, aunque en la práctica la actividad suele preceder al robo de credenciales.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el archivo de origen (SAM, SYSTEM, SECURITY, NTDS.dit) y la ruta de destino, sobre todo si es Temp, Public o un recurso compartido.",
+        "Verifique ParentImage y ParentCommandLine: un cmd.exe lanzado por PowerShell, wmiprvse.exe, un servicio remoto o una web shell es más sospechoso que un script de respaldo programado.",
+        "Identifique el usuario y si tiene privilegios administrativos; confirme con su responsable si la actividad estaba autorizada.",
+        "Busque en el mismo host, en un rango de +/- 15 minutos, la creación de la instantánea (vssadmin create shadow, wmic shadowcopy, diskshadow) y su eliminación posterior.",
+        "Revise si se crearon los archivos de destino y si luego se comprimieron, se movieron o se exfiltraron (actividad de red saliente, copia por SMB).",
+        "Si el host es un controlador de dominio y se copió NTDS.dit, trate el caso como un compromiso potencial del dominio.",
+        "Busque alertas anteriores del mismo usuario y host, y la misma línea de comandos en otros endpoints."
+      ],
+      "false_positives": [
+        "Scripts de respaldo legítimos que copian archivos bloqueados desde shadow copies mediante la línea de comandos.",
+        "Herramientas de administración o recuperación forense usadas por personal autorizado.",
+        "Ejercicios de pentest o red team aprobados."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del sistema o con el equipo de respaldos si la ejecución estaba planificada; si no lo estaba, escale como incidente.",
+        "Aísle el endpoint de la red y conserve los archivos copiados como evidencia antes de eliminarlos.",
+        "Restablezca las contraseñas de las cuentas locales expuestas; si se copió NTDS.dit, planifique el doble restablecimiento de KRBTGT y el cambio de credenciales privilegiadas.",
+        "Investigue el acceso inicial y el movimiento lateral asociado, elimine la persistencia y monitoree el uso de las credenciales comprometidas."
+      ],
+      "severity_rationale": "Un nivel alto es adecuado porque copiar desde una shadow copy por línea de comandos es poco habitual y suele indicar robo de credenciales con privilegios elevados."
+    },
+    "en": {
+      "summary": "The cmd.exe built-in \"copy\" command ran against a \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy path. Attackers use this to copy locked files from a Volume Shadow Copy, such as the SAM/SYSTEM hives or NTDS.dit.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains \"copy \" and the device path \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy, which means a file is being copied straight from a shadow copy.",
+      "why_it_matters": "With SAM, SYSTEM, SECURITY or NTDS.dit copied out of a shadow copy, credential hashes can be extracted offline. The rule is tagged T1490 (Inhibit System Recovery) because it abuses shadow copies, but the activity usually comes before credential theft.",
+      "triage_steps": [
+        "Read the full CommandLine. Identify the source file (SAM, SYSTEM, SECURITY, NTDS.dit) and the destination, especially Temp, Public or network shares.",
+        "Check ParentImage and ParentCommandLine. A cmd.exe started by PowerShell, wmiprvse.exe, a remote service or a web server is more suspicious than a scheduled backup script.",
+        "Identify the user and their privileges, then ask the user's manager or the system owner whether the activity was authorized.",
+        "On the same host within +/- 15 minutes, look for shadow copy creation (vssadmin create shadow, wmic shadowcopy, diskshadow) and any deletion afterwards.",
+        "Check whether the destination files exist and whether they were later archived, moved or exfiltrated over SMB or outbound traffic.",
+        "If the host is a domain controller and NTDS.dit was copied, treat it as a potential domain compromise.",
+        "Look for earlier alerts on the same user or host, and search for the same command line on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate backup scripts that copy locked files from shadow copies on the command line.",
+        "Admin or forensic recovery tooling run by authorized staff.",
+        "Approved penetration tests or red team exercises."
+      ],
+      "response_steps": [
+        "Ask the system owner or the backup team whether the run was planned. If it was not, escalate it as an incident.",
+        "Isolate the endpoint and keep the copied files as evidence before you remove them.",
+        "Reset passwords for exposed local accounts. If NTDS.dit was copied, plan a double KRBTGT reset and rotate privileged credentials.",
+        "Investigate the initial access and any lateral movement, remove persistence, and watch for use of the compromised credentials."
+      ],
+      "severity_rationale": "High fits because copying from a shadow copy on the command line is rare and usually means privileged credential theft."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe copies the SAM hive from a shadow copy to the Public folder",
+        "event": {
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c copy \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy1\\Windows\\System32\\config\\SAM C:\\Users\\Public\\sam.hiv",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.andes.example.com",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Copy of NTDS.dit from a shadow copy on a domain controller",
+        "event": {
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd /c copy \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy3\\Windows\\NTDS\\ntds.dit C:\\Windows\\Temp\\nt.dit",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "User": "ANDES\\svc-admin",
+          "Computer": "DC-01.andes.example.com",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Backup script copies a file from a regular local path, with no shadow copy device path",
+        "event": {
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c copy C:\\Data\\reports\\q3.xlsx \\\\fs-01.andes.example.com\\backup\\q3.xlsx",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "User": "ANDES\\svc-backup",
+          "Computer": "WS-0142.andes.example.com"
+        }
+      },
+      {
+        "description": "Shadow copy mounted with mklink, without the copy command",
+        "event": {
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c mklink /d C:\\vss \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy2\\",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "User": "ANDES\\mrodriguez",
+          "Computer": "WS-0203.andes.example.com"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

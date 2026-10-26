@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "835e75bf-4bfd-47a4-b8a6-b766cac8bcb7",
+    "title": "Uncommon Child Process Of Setres.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "@gott_cyber, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_setres_uncommon_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_setres_uncommon_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1202",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Setres.exe, la herramienta de Windows Server para cambiar la resolución de pantalla, inició un proceso cuyo nombre contiene \"choice\" fuera de System32 o SysWOW64. Esto suele indicar que se abusó de Setres para ejecutar un binario arbitrario.",
+      "what_it_detects": "Eventos de creación de procesos en los que ParentImage termina en \\setres.exe e Image contiene \\choice, excluyendo los choice.exe legítimos en C:\\Windows\\System32 y C:\\Windows\\SysWOW64.",
+      "why_it_matters": "Setres busca y ejecuta \"choice\" desde el directorio de trabajo actual. Un atacante puede colocar allí su propio archivo para que un binario firmado de Microsoft lo ejecute y así evadir controles. Esto corresponde a System Binary Proxy Execution (T1218) e Indirect Command Execution (T1202).",
+      "triage_steps": [
+        "Revise Image: ruta completa, extensión, hash, firma digital y fecha de creación del archivo \"choice\" ejecutado.",
+        "Revise el CommandLine de setres.exe y su directorio de trabajo; confirme si el archivo choice está en esa misma carpeta.",
+        "Identifique al padre de setres.exe (cmd, powershell, script, tarea programada) y al usuario que lo ejecutó.",
+        "Enumere los procesos hijos del binario choice y su actividad de red, archivos y registro en el mismo host dentro de +/- 15 minutos.",
+        "Busque el hash y el nombre del archivo en otros endpoints y en las fuentes de threat intelligence disponibles.",
+        "Busque alertas previas del mismo host y usuario, sobre todo descargas o escritura de ejecutables en carpetas temporales o de usuario."
+      ],
+      "false_positives": [
+        "La regla lo considera poco probable; podría verse un script administrativo que copia una herramienta interna llamada choice a una carpeta local y llama a setres desde allí.",
+        "Pruebas autorizadas de red team o validación de detecciones basadas en LOLBAS."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del servidor y el usuario si la ejecución estaba autorizada antes de actuar.",
+        "Si no está justificada, aísle el endpoint y suspenda la sesión o las credenciales del usuario involucrado.",
+        "Conserve el binario choice y los artefactos relacionados para análisis; luego elimínelos y quite cualquier mecanismo de persistencia.",
+        "Busque el mismo hash o patrón en toda la flota, restablezca credenciales expuestas y documente los hallazgos."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque setres casi nunca se usa de forma legítima con un choice fuera de las rutas del sistema, así que la señal tiene pocos falsos positivos y muestra una técnica de evasión."
+    },
+    "en": {
+      "summary": "Setres.exe, the Windows Server screen-resolution tool, started a process whose name contains \"choice\" from outside System32 or SysWOW64. This usually means Setres was abused to run an arbitrary binary.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\setres.exe and Image contains \\choice, excluding the legitimate choice.exe in C:\\Windows\\System32 and C:\\Windows\\SysWOW64.",
+      "why_it_matters": "Setres looks for \"choice\" in the current working directory and runs it. An attacker can drop a file there so that a Microsoft-signed binary launches it and gets past controls. This maps to System Binary Proxy Execution (T1218) and Indirect Command Execution (T1202).",
+      "triage_steps": [
+        "Inspect Image: full path, extension, hash, digital signature and file creation time of the executed \"choice\" file.",
+        "Review the setres.exe CommandLine and working directory; check whether the choice file sits in that same folder.",
+        "Identify the parent of setres.exe (cmd, PowerShell, script, scheduled task) and the user who ran it.",
+        "List child processes of the choice binary and its network, file and registry activity on the same host within +/- 15 minutes.",
+        "Look up the hash and file name on other endpoints and in available threat intelligence sources.",
+        "Look for earlier alerts on the same host and user, especially downloads or executables written to temp or user folders."
+      ],
+      "false_positives": [
+        "The rule rates this unlikely. One possible cause is an admin script that copies an internal tool named choice to a local folder and calls setres from there.",
+        "Authorized red team exercises or LOLBAS detection validation tests."
+      ],
+      "response_steps": [
+        "Before acting, check with the server owner and the user whether the execution was authorized.",
+        "If it is not justified, isolate the endpoint and suspend the involved user's session or credentials.",
+        "Keep the choice binary and related artifacts for analysis. Then remove them and any persistence mechanisms.",
+        "Hunt for the same hash or pattern across the fleet, reset exposed credentials and document findings."
+      ],
+      "severity_rationale": "High fits because setres is almost never used legitimately with a choice binary outside system paths, so false positives are rare and the alert shows a defense-evasion technique."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "setres.exe launched from a user folder runs an attacker-dropped choice.exe in that same folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\setres.exe",
+          "ParentCommandLine": "setres.exe -h 1024 -v 768",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\work\\choice.exe",
+          "CommandLine": "choice /T 15 /N /D Y /C YN",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\work\\"
+        }
+      },
+      {
+        "description": "setres.exe runs a choice.cmd script placed in C:\\ProgramData",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\mgomez",
+          "ParentImage": "C:\\Windows\\System32\\setres.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\setres.exe -h 800 -v 600",
+          "Image": "C:\\ProgramData\\cache\\choice.cmd",
+          "CommandLine": "C:\\ProgramData\\cache\\choice.cmd",
+          "CurrentDirectory": "C:\\ProgramData\\cache\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "setres.exe calls the legitimate choice.exe from System32 (excluded by the filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\admin.srv",
+          "ParentImage": "C:\\Windows\\System32\\setres.exe",
+          "ParentCommandLine": "setres.exe -h 1280 -v 1024",
+          "Image": "C:\\Windows\\System32\\choice.exe",
+          "CommandLine": "choice /T 15 /N /D Y /C YN",
+          "CurrentDirectory": "C:\\Windows\\System32\\"
+        }
+      },
+      {
+        "description": "A non-system choice.exe started by cmd.exe instead of setres.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c install.bat",
+          "Image": "C:\\Tools\\choice.exe",
+          "CommandLine": "choice /C YN",
+          "CurrentDirectory": "C:\\Tools\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

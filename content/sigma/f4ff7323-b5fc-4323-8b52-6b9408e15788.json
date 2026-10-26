@@ -1,0 +1,124 @@
+{
+  "rule": {
+    "id": "f4ff7323-b5fc-4323-8b52-6b9408e15788",
+    "title": "Potential PowerShell Console History Access Attempt via History File",
+    "level": "medium",
+    "status": "experimental",
+    "author": "Luc Génaux",
+    "path": "windows/process_creation/proc_creation_win_powershell_console_history_file_access.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_console_history_file_access.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1552.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso se ejecutó con una línea de comandos que hace referencia al archivo de historial de PowerShell (ConsoleHost_history.txt) o a su ruta mediante (Get-PSReadLineOption).HistorySavePath. Puede ser un intento de leer comandos previos en busca de credenciales.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene 'ConsoleHost_history.txt' o '(Get-PSReadLineOption).HistorySavePath', por ejemplo type, Get-Content, copy o findstr sobre el historial de PSReadLine.",
+      "why_it_matters": "PSReadLine guarda en texto plano los comandos escritos en la consola, que pueden incluir contraseñas, tokens o rutas internas. Leerlo corresponde a T1552.001 (credenciales en archivos) y también sirve para reconocimiento.",
+      "triage_steps": [
+        "Revise el CommandLine completo: qué acción realiza (lectura, copia, búsqueda de 'password', compresión o envío) y de qué perfil de usuario es el historial.",
+        "Compare el usuario que ejecuta el proceso con el dueño del historial; leer el historial de otro usuario o de un administrador es más sospechoso.",
+        "Analice ParentImage y el árbol de procesos: un shell interactivo del propio usuario es menos preocupante que w3wp.exe, wmiprvse.exe, Office o un binario desconocido.",
+        "Busque en el mismo host, +/- 15 minutos, otros comandos de descubrimiento o acceso a credenciales (whoami, net user, cmdkey, mimikatz, acceso a LSASS).",
+        "Revise si hubo creación de archivos o conexiones de red salientes tras la lectura que indiquen exfiltración del contenido.",
+        "Consulte alertas previas para el mismo usuario y host, y verifique inicios de sesión recientes (tipo y origen) de esa cuenta.",
+        "Si es posible, revise el historial para identificar qué secretos pudieron quedar expuestos."
+      ],
+      "false_positives": [
+        "Un usuario o administrador que revisa su propio historial de comandos para recordar algo que ejecutó.",
+        "Scripts de limpieza o hardening que borran o rotan ConsoleHost_history.txt.",
+        "Herramientas forenses, de respuesta a incidentes o de cumplimiento que recolectan el historial de PowerShell."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del equipo si la actividad fue legítima antes de actuar.",
+        "Si es maliciosa, aísle el endpoint y preserve el historial, la memoria y los logs relevantes como evidencia.",
+        "Rote todas las credenciales, tokens o claves que aparezcan en el historial expuesto y revise su uso reciente.",
+        "Identifique y elimine el mecanismo de acceso inicial y la persistencia del atacante.",
+        "Promueva evitar secretos en la línea de comandos y evalúe políticas de PSReadLine para no guardar comandos sensibles."
+      ],
+      "severity_rationale": "Media porque el acceso puede ser legítimo y frecuente en administradores, pero en manos de un atacante expone credenciales en texto plano."
+    },
+    "en": {
+      "summary": "A process ran with a command line referencing the PowerShell history file (ConsoleHost_history.txt) or its path via (Get-PSReadLineOption).HistorySavePath. This may be an attempt to read past commands for credentials.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains 'ConsoleHost_history.txt' or '(Get-PSReadLineOption).HistorySavePath', such as type, Get-Content, copy or findstr against the PSReadLine history.",
+      "why_it_matters": "PSReadLine stores typed console commands in plaintext, which may include passwords, tokens or internal paths. Reading it maps to T1552.001 (Credentials In Files) and also supports reconnaissance.",
+      "triage_steps": [
+        "Read the full CommandLine: what action is performed (read, copy, search for 'password', archive or upload) and which user profile owns the history file.",
+        "Compare the executing user with the history file owner; reading another user's or an admin's history is more suspicious.",
+        "Check ParentImage and the process tree: the user's own interactive shell is less concerning than w3wp.exe, wmiprvse.exe, Office or an unknown binary.",
+        "Search the same host within +/- 15 minutes for other discovery or credential access activity (whoami, net user, cmdkey, mimikatz, LSASS access).",
+        "Look for file creation or outbound network connections after the read that suggest exfiltration of the contents.",
+        "Review earlier alerts for the same user and host, and check the account's recent logons (type and source).",
+        "If possible, review the history file to determine which secrets may be exposed."
+      ],
+      "false_positives": [
+        "A user or admin reviewing their own command history to recall something they ran.",
+        "Cleanup or hardening scripts that delete or rotate ConsoleHost_history.txt.",
+        "Forensic, incident response or compliance tools that collect PowerShell history."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether the activity was legitimate before acting.",
+        "If malicious, isolate the endpoint and preserve the history file, memory and relevant logs as evidence.",
+        "Rotate any credentials, tokens or keys found in the exposed history and review their recent use.",
+        "Identify and remove the attacker's initial access vector and persistence.",
+        "Discourage secrets on the command line and consider PSReadLine settings that avoid saving sensitive commands."
+      ],
+      "severity_rationale": "Medium because access can be legitimate and common for admins, but in attacker hands it exposes plaintext credentials."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe reads another user's PSReadLine history file with type, launched from a web server worker",
+        "event": {
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c type C:\\Users\\jperez\\AppData\\Roaming\\Microsoft\\Windows\\PowerShell\\PSReadLine\\ConsoleHost_history.txt",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+          "User": "IIS APPPOOL\\DefaultAppPool",
+          "Computer": "WS-0142.andes.example.com"
+        }
+      },
+      {
+        "description": "PowerShell searches the history path for passwords using Get-PSReadLineOption",
+        "event": {
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -c \"Get-Content (Get-PSReadLineOption).HistorySavePath | Select-String password\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.andes.example.com"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "PowerShell lists PSReadLine options without referencing the history save path or file",
+        "event": {
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -c \"Get-PSReadLineOption | Select-Object EditMode,HistorySaveStyle\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.andes.example.com"
+        }
+      },
+      {
+        "description": "Notepad opens an unrelated text file in the PSReadLine folder",
+        "event": {
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "CommandLine": "notepad.exe C:\\Users\\jperez\\AppData\\Roaming\\Microsoft\\Windows\\PowerShell\\PSReadLine\\notes.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.andes.example.com"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

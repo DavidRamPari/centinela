@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "da2738f2-fadb-4394-afa7-0a0674885afa",
+    "title": "Sdclt Child Processes",
+    "level": "medium",
+    "status": "test",
+    "author": "Roberto Rodriguez (Cyb3rWard0g), OTR (Open Threat Research)",
+    "path": "windows/process_creation/proc_creation_win_sdclt_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sdclt_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1548.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "sdclt.exe (Copias de seguridad y restauración de Windows) creó un proceso hijo. Como sdclt se eleva automáticamente, un hijo inesperado puede indicar un bypass de UAC.",
+      "what_it_detects": "Cualquier evento de creación de procesos en Windows cuyo ParentImage termine en \\sdclt.exe, sin importar cuál sea el proceso hijo.",
+      "why_it_matters": "sdclt.exe se eleva automáticamente sin mostrar el aviso de UAC. Un atacante puede secuestrar claves de registro en HKCU, como App Paths\\control.exe, Folder\\shell\\open\\command o IsolatedCommand, para ejecutar código con integridad alta (T1548.002, bypass de UAC).",
+      "triage_steps": [
+        "Revise Image y CommandLine del hijo. cmd.exe, powershell.exe, rundll32.exe, mshta.exe o binarios en rutas de usuario son altamente sospechosos.",
+        "Confirme que ParentImage sea C:\\Windows\\System32\\sdclt.exe y revise la línea de comandos del padre, por ejemplo /kickoffelev.",
+        "Verifique el IntegrityLevel del hijo. Si es High mientras el usuario trabaja con sesión no elevada, el escenario apunta a un bypass de UAC.",
+        "Busque cambios de registro en el mismo host dentro de +/- 15 minutos: HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\control.exe, HKCU\\Software\\Classes\\Folder\\shell\\open\\command y la clave IsolatedCommand.",
+        "Identifique quién lanzó sdclt.exe (el abuelo del hijo). Un padre como script, Office o proceso desconocido refuerza la sospecha.",
+        "Revise los procesos que creó el hijo, sus conexiones de red y los archivos que escribió. Calcule hashes y consulte su reputación.",
+        "Busque alertas anteriores del mismo usuario y host, sobre todo accesos iniciales o ejecución de payloads."
+      ],
+      "false_positives": [
+        "Un usuario configura o restaura copias de seguridad desde el Panel de control y sdclt abre control.exe o una instancia elevada de sdclt.exe.",
+        "Pruebas autorizadas de red team o validación de detecciones que reproducen el bypass de UAC con sdclt."
+      ],
+      "response_steps": [
+        "Valide con el usuario si estaba usando Copias de seguridad de Windows. Si el hijo es un shell o un intérprete, trate el caso como incidente.",
+        "Si se confirma actividad maliciosa, aísle el endpoint y suspenda o restablezca las credenciales de la cuenta afectada.",
+        "Después de documentar la evidencia, elimine las claves de registro secuestradas en HKCU y los payloads asociados.",
+        "Busque los mismos indicadores en otros hosts, establezca UAC en 'Notificar siempre' y quite los privilegios de administrador local que no sean necesarios."
+      ],
+      "severity_rationale": "La severidad media es adecuada porque la regla es genérica: un hijo de sdclt es poco común y puede indicar escalamiento de privilegios, pero requiere revisar qué proceso se creó."
+    },
+    "en": {
+      "summary": "sdclt.exe (Windows Backup and Restore) spawned a child process. Because sdclt auto-elevates, an unexpected child may indicate a UAC bypass.",
+      "what_it_detects": "Any Windows process creation event whose ParentImage ends with \\sdclt.exe, whatever the child process is.",
+      "why_it_matters": "sdclt.exe auto-elevates without showing a UAC prompt. Attackers can hijack HKCU registry keys such as App Paths\\control.exe, Folder\\shell\\open\\command or IsolatedCommand to run code at high integrity (T1548.002, Bypass User Account Control).",
+      "triage_steps": [
+        "Check the child's Image and CommandLine. cmd.exe, powershell.exe, rundll32.exe, mshta.exe or binaries in user-writable paths are highly suspicious.",
+        "Confirm ParentImage is C:\\Windows\\System32\\sdclt.exe and review the parent's command line, for example /kickoffelev.",
+        "Check the child's IntegrityLevel. High integrity while the user's session is not elevated points to a UAC bypass.",
+        "On the same host within +/- 15 minutes, look for registry changes to HKCU App Paths\\control.exe, Classes\\Folder\\shell\\open\\command or the IsolatedCommand value.",
+        "Identify what launched sdclt.exe (the child's grandparent). A script host, Office or an unknown process adds to the suspicion.",
+        "Review the child's own child processes, network connections and written files. Hash the binaries and check their reputation.",
+        "Look for earlier alerts on the same user and host, especially initial access or payload execution."
+      ],
+      "false_positives": [
+        "A user configures or restores backups from Control Panel, and sdclt opens control.exe or an elevated sdclt.exe instance.",
+        "Authorized red team exercises or detection validation that reproduce the sdclt UAC bypass."
+      ],
+      "response_steps": [
+        "Ask the user whether they were using Windows Backup. If the child is a shell or an interpreter, treat the alert as an incident.",
+        "If malicious activity is confirmed, isolate the endpoint and disable or reset the affected account.",
+        "After you document the evidence, remove the hijacked HKCU registry keys and any related payloads.",
+        "Hunt for the same indicators on other hosts, set UAC to 'Always notify' and remove local admin rights that are not needed."
+      ],
+      "severity_rationale": "Medium fits because the rule is generic: sdclt rarely spawns children and a child can mean privilege escalation, but the analyst must check which process was created."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sdclt.exe spawns an elevated cmd.exe through a hijacked App Paths\\control.exe key (UAC bypass)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\cmd.exe\" /c C:\\Users\\jperez\\AppData\\Local\\Temp\\update.bat",
+          "IntegrityLevel": "High",
+          "ParentImage": "C:\\Windows\\System32\\sdclt.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\sdclt.exe\""
+        }
+      },
+      {
+        "description": "sdclt.exe launched with /kickoffelev spawns PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -File C:\\Users\\Public\\run.ps1",
+          "IntegrityLevel": "High",
+          "ParentImage": "C:\\Windows\\SysWOW64\\SDCLT.EXE",
+          "ParentCommandLine": "sdclt.exe /kickoffelev"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "A user opens Backup and Restore from Explorer; sdclt.exe is the child, not the parent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sdclt.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\sdclt.exe\" /configure",
+          "IntegrityLevel": "Medium",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      },
+      {
+        "description": "Parent with a similar but different name (sdcltsvc.exe) does not end with \\sdclt.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\rgomez",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "IntegrityLevel": "Medium",
+          "ParentImage": "C:\\Program Files\\ExampleBackup\\sdcltsvc.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\ExampleBackup\\sdcltsvc.exe\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

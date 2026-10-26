@@ -1,0 +1,139 @@
+{
+  "rule": {
+    "id": "b17ea6f7-6e90-447e-a799-e6c0a493d6ce",
+    "title": "Shadow Copies Creation Using Operating Systems Utilities",
+    "level": "medium",
+    "status": "test",
+    "author": "Teymur Kheirkhabarov, Daniil Yugoslavskiy, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_susp_shadow_copies_creation.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_shadow_copies_creation.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003",
+      "T1003.002",
+      "T1003.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó una instantánea de volumen (Volume Shadow Copy) con vssadmin, wmic o PowerShell. Los atacantes la usan para copiar NTDS.dit, SAM o SYSTEM sin bloqueos y extraer credenciales.",
+      "what_it_detects": "Creación de procesos de powershell.exe, pwsh.exe, wmic.exe o vssadmin.exe (por Image u OriginalFileName) cuyo CommandLine contiene a la vez 'shadow' y 'create', por ejemplo 'vssadmin create shadow' o 'wmic shadowcopy call create'.",
+      "why_it_matters": "Una shadow copy permite leer archivos bloqueados por el sistema, como NTDS.dit en un controlador de dominio o las colmenas SAM y SYSTEM. Corresponde a OS Credential Dumping (T1003.002 SAM, T1003.003 NTDS) y puede comprometer todo el dominio.",
+      "triage_steps": [
+        "Revise CommandLine completo: volumen objetivo (/for=C:, Volume='C:\\'), y si el host es un controlador de dominio o un servidor con datos sensibles.",
+        "Identifique el usuario y ParentImage: ¿cmd.exe, una sesión RDP, psexec, wmiprvse.exe o un agente de backup conocido?",
+        "Busque en el mismo host, +/- 15 minutos, comandos que copien desde \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy, o usen ntdsutil, esentutl, reg save o copy.",
+        "Verifique creación de archivos ntds.dit, SAM, SYSTEM o SECURITY en rutas inusuales (Temp, ProgramData, recursos compartidos) y archivos comprimidos posteriores.",
+        "Revise inicios de sesión del usuario y su IP de origen: logon remoto (tipo 3 o 10) desde estaciones no administrativas es sospechoso.",
+        "Consulte alertas previas del mismo usuario o host: reconocimiento, movimiento lateral o eliminación de shadow copies (vssadmin delete).",
+        "Confirme con el equipo de backup o el ticket de cambio si la operación estaba planificada."
+      ],
+      "false_positives": [
+        "Administradores que crean shadow copies manualmente para respaldos o restauraciones puntuales.",
+        "Scripts de backup o software de respaldo que invocan vssadmin, wmic o PowerShell para crear instantáneas.",
+        "Herramientas de despliegue o mantenimiento que crean un punto de restauración antes de cambios."
+      ],
+      "response_steps": [
+        "Valide con el dueño del sistema y el usuario si la acción fue legítima; documente la evidencia.",
+        "Si no está autorizada, aísle el endpoint y deshabilite o restablezca la cuenta involucrada.",
+        "Localice y preserve copias de NTDS.dit, SAM o SYSTEM extraídas; luego elimínelas y retire la shadow copy creada tras recolectar evidencia.",
+        "Si se expuso NTDS.dit, planifique el restablecimiento de credenciales privilegiadas y doble rotación de la cuenta KRBTGT.",
+        "Busque uso posterior de las credenciales (pass-the-hash, nuevos inicios de sesión) en todo el dominio."
+      ],
+      "severity_rationale": "Media porque la creación de shadow copies es común en backups legítimos, pero en controladores de dominio o por usuarios inesperados suele preceder al robo de credenciales."
+    },
+    "en": {
+      "summary": "A Volume Shadow Copy was created with vssadmin, wmic or PowerShell. Attackers do this to copy locked files such as NTDS.dit, SAM or SYSTEM and extract credentials.",
+      "what_it_detects": "Process creation of powershell.exe, pwsh.exe, wmic.exe or vssadmin.exe (by Image or OriginalFileName) whose CommandLine contains both 'shadow' and 'create', e.g. 'vssadmin create shadow' or 'wmic shadowcopy call create'.",
+      "why_it_matters": "A shadow copy lets an attacker read files the OS keeps locked, like NTDS.dit on a domain controller or the SAM and SYSTEM hives. This is OS Credential Dumping (T1003.002 SAM, T1003.003 NTDS) and can lead to full domain compromise.",
+      "triage_steps": [
+        "Read the full CommandLine: target volume (/for=C:, Volume='C:\\') and whether the host is a domain controller or sensitive server.",
+        "Identify the user and ParentImage: cmd.exe, an RDP session, psexec, wmiprvse.exe, or a known backup agent?",
+        "On the same host within +/- 15 minutes, look for copies from \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy, or ntdsutil, esentutl, reg save, copy.",
+        "Check for ntds.dit, SAM, SYSTEM or SECURITY files written to unusual paths (Temp, ProgramData, shares) and later archives.",
+        "Review the user's logons and source IP: remote logons (type 3 or 10) from non-admin workstations are suspicious.",
+        "Check earlier alerts for the same user or host: discovery, lateral movement, or shadow copy deletion (vssadmin delete).",
+        "Confirm with the backup team or a change ticket whether the operation was planned."
+      ],
+      "false_positives": [
+        "Administrators manually creating shadow copies for backup or one-off restores.",
+        "Backup scripts or software calling vssadmin, wmic or PowerShell to create snapshots.",
+        "Deployment or maintenance tools creating a restore point before changes."
+      ],
+      "response_steps": [
+        "Validate with the system owner and user whether the action was legitimate; record the evidence.",
+        "If unauthorized, isolate the endpoint and disable or reset the involved account.",
+        "Find and preserve extracted NTDS.dit, SAM or SYSTEM copies; after evidence collection, remove them and the created shadow copy.",
+        "If NTDS.dit was exposed, plan privileged credential resets and a double KRBTGT rotation.",
+        "Hunt domain-wide for follow-on credential use (pass-the-hash, new logons)."
+      ],
+      "severity_rationale": "Medium because shadow copy creation is common in legitimate backups, but on domain controllers or by unexpected users it often precedes credential theft."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "vssadmin creating a shadow copy of C: on a domain controller from an interactive cmd session",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\vssadmin.exe",
+          "OriginalFileName": "VSSADMIN.EXE",
+          "CommandLine": "vssadmin.exe create shadow /for=C:",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\cmd.exe\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "WMIC shadowcopy call create launched from PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-03.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic shadowcopy call create Volume='C:\\'",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "vssadmin listing existing shadow copies (no 'create' in CommandLine)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.lgomez",
+          "Image": "C:\\Windows\\System32\\vssadmin.exe",
+          "OriginalFileName": "VSSADMIN.EXE",
+          "CommandLine": "vssadmin.exe list shadows",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Shadow copy created via diskshadow.exe, a binary not covered by the image selection",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-BKP-01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\diskshadow.exe",
+          "OriginalFileName": "diskshadow.exe",
+          "CommandLine": "diskshadow.exe /s C:\\Scripts\\create_shadow.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

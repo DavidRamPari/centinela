@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "631b22a4-70f4-4e2f-9ea8-42f84d9df6d8",
+    "title": "Suspicious AddinUtil.EXE CommandLine Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), Michael McKinley (@McKinleyMike), Tony Latteri (@TheLatteri)",
+    "path": "windows/process_creation/proc_creation_win_addinutil_suspicious_cmdline.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_addinutil_suspicious_cmdline.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó AddInUtil.exe, la utilidad de .NET Framework que actualiza la caché de complementos, con -AddInRoot o -PipelineRoot apuntando a carpetas escribibles por el usuario (Temp, Desktop, Downloads, Users\\Public). Esto puede indicar que se está cargando un archivo AddIns.Store malicioso.",
+      "what_it_detects": "Procesos AddInUtil.exe (por Image u OriginalFileName) cuyo CommandLine incluye -AddInRoot: o -PipelineRoot: con rutas en Temp, Desktop, Downloads, Users\\Public o Windows\\Temp, o que usan la ruta relativa '.' mientras CurrentDirectory está en una de esas carpetas.",
+      "why_it_matters": "AddInUtil.exe es un binario firmado de Microsoft. Un atacante puede usarlo para procesar un AddIns.Store manipulado y ejecutar código bajo un proceso legítimo, lo que evade controles. Corresponde a ATT&CK T1218, System Binary Proxy Execution.",
+      "triage_steps": [
+        "Revise el CommandLine completo y anote las rutas de -AddInRoot y -PipelineRoot. Si usa '.', resuélvalas con CurrentDirectory.",
+        "Confirme que Image es la copia legítima de C:\\Windows\\Microsoft.NET\\Framework*\\ y compare el hash y la firma; una copia renombrada o reubicada es más sospechosa.",
+        "Examine ParentImage y la cadena de procesos padre: cmd, PowerShell, wscript, mshta u Office lanzando AddInUtil son señales fuertes.",
+        "Busque en esas carpetas el archivo AddIns.Store y otros archivos recientes; obtenga hashes y revise quién los creó y cuándo.",
+        "Revise los procesos hijos, cargas de DLL y conexiones de red de AddInUtil.exe en el mismo host +/- 15 minutos.",
+        "Pivote por usuario y host: descargas recientes, adjuntos de correo, otras alertas LOLBin o de ejecución desde Temp.",
+        "Busque el mismo CommandLine o el mismo hash de AddIns.Store en otros endpoints de la flota."
+      ],
+      "false_positives": [
+        "La regla no lista falsos positivos conocidos; el uso legítimo normalmente apunta a Program Files o a directorios de la aplicación.",
+        "Desarrolladores o instaladores que prueban pipelines de complementos .NET desde Desktop, Downloads o una carpeta temporal.",
+        "Pruebas autorizadas de red team o validación de detecciones con AddInUtil."
+      ],
+      "response_steps": [
+        "Valide con el usuario y el dueño del equipo si existe un motivo legítimo; documente la evidencia antes de actuar.",
+        "Si se confirma actividad maliciosa, aísle el endpoint y termine AddInUtil.exe y sus procesos hijos.",
+        "Preserve y luego elimine el AddIns.Store y los archivos relacionados; bloquee sus hashes en el EDR.",
+        "Revise persistencia, credenciales del usuario y movimiento lateral; restablezca contraseñas si hubo ejecución de código.",
+        "Considere restringir AddInUtil.exe con WDAC o AppLocker donde no sea necesario."
+      ],
+      "severity_rationale": "Nivel alto porque el uso legítimo de AddInUtil con rutas temporales o de perfil de usuario es muy raro y este patrón coincide con la ejecución por proxy de un payload."
+    },
+    "en": {
+      "summary": "AddInUtil.exe, the .NET Framework add-in cache utility, ran with -AddInRoot or -PipelineRoot pointing to user-writable folders (Temp, Desktop, Downloads, Users\\Public). This may mean a malicious AddIns.Store file is being loaded.",
+      "what_it_detects": "AddInUtil.exe processes (matched by Image or OriginalFileName) whose CommandLine has -AddInRoot: or -PipelineRoot: with paths in Temp, Desktop, Downloads, Users\\Public or Windows\\Temp, or that use the relative path '.' while CurrentDirectory is one of those folders.",
+      "why_it_matters": "AddInUtil.exe is a signed Microsoft binary. Attackers can use it to process a crafted AddIns.Store and run code under a trusted process, which evades controls. This maps to ATT&CK T1218, System Binary Proxy Execution.",
+      "triage_steps": [
+        "Read the full CommandLine and note the -AddInRoot and -PipelineRoot paths. If it uses '.', resolve them with CurrentDirectory.",
+        "Confirm Image is the genuine copy under C:\\Windows\\Microsoft.NET\\Framework*\\ and check its hash and signature. A renamed or relocated copy is more suspicious.",
+        "Check ParentImage and the parent chain. cmd, PowerShell, wscript, mshta or Office launching AddInUtil are strong signals.",
+        "Look in those folders for AddIns.Store and other recent files. Hash them and find out who created them and when.",
+        "Review child processes, DLL loads and network connections from AddInUtil.exe on the same host within +/- 15 minutes.",
+        "Pivot on user and host: recent downloads, email attachments, other LOLBin alerts or alerts for execution from Temp.",
+        "Hunt for the same CommandLine or the same AddIns.Store hash on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. Legitimate use usually points to Program Files or application directories.",
+        "Developers or installers testing .NET add-in pipelines from Desktop, Downloads or a temp folder.",
+        "Authorized red team exercises or detection validation that uses AddInUtil."
+      ],
+      "response_steps": [
+        "Check with the user and the host owner whether there is a legitimate reason. Record the evidence before acting.",
+        "If it is confirmed malicious, isolate the endpoint and kill AddInUtil.exe and its child processes.",
+        "Preserve, then remove AddIns.Store and related files. Block their hashes in EDR.",
+        "Look for persistence, compromised user credentials and lateral movement. Reset passwords if code ran.",
+        "Consider blocking AddInUtil.exe with WDAC or AppLocker on hosts that do not need it."
+      ],
+      "severity_rationale": "High fits because legitimate AddInUtil use with temp or user-profile paths is very rare, and this pattern matches proxy execution of a payload."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "AddInUtil.exe launched from PowerShell with AddInRoot and PipelineRoot in the user's Temp folder (selection_susp_1_flags and selection_susp_1_paths).",
+        "event": {
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\AddInUtil.exe",
+          "OriginalFileName": "AddInUtil.exe",
+          "CommandLine": "\"C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\AddInUtil.exe\" -AddInRoot:C:\\Users\\jperez\\AppData\\Local\\Temp\\cache -PipelineRoot:C:\\Users\\jperez\\AppData\\Local\\Temp\\cache",
+          "CurrentDirectory": "C:\\Users\\jperez\\",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile -WindowStyle Hidden"
+        }
+      },
+      {
+        "description": "AddInUtil.exe run with a relative AddInRoot '.' while the current directory is C:\\Users\\Public\\ (selection_susp_2).",
+        "event": {
+          "Computer": "WS-0188.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\AddInUtil.exe",
+          "OriginalFileName": "AddInUtil.exe",
+          "CommandLine": "AddInUtil.exe -AddInRoot:.",
+          "CurrentDirectory": "C:\\Users\\Public\\",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c cd C:\\Users\\Public && AddInUtil.exe -AddInRoot:."
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate AddInUtil.exe run by an installer with add-in and pipeline roots under Program Files; no suspicious path.",
+        "event": {
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\AddInUtil.exe",
+          "OriginalFileName": "AddInUtil.exe",
+          "CommandLine": "\"C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\AddInUtil.exe\" -AddInRoot:\"C:\\Program Files\\Contoso\\AddIns\" -PipelineRoot:\"C:\\Program Files\\Contoso\\Pipeline\"",
+          "CurrentDirectory": "C:\\Program Files\\Contoso\\",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\msiexec.exe /V"
+        }
+      },
+      {
+        "description": "AddInUtil.exe with relative PipelineRoot '.' but the current directory is an application folder under Program Files, so selection_susp_2 does not match.",
+        "event": {
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\AddInUtil.exe",
+          "OriginalFileName": "AddInUtil.exe",
+          "CommandLine": "AddInUtil.exe -PipelineRoot:.",
+          "CurrentDirectory": "C:\\Program Files\\Contoso\\Pipeline\\",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c rebuild_cache.cmd"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

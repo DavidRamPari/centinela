@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "c443012c-7928-43bf-ac20-7eda5efe61ad",
+    "title": "Suspicious Uninstall of Windows Defender Feature via PowerShell",
+    "level": "high",
+    "status": "experimental",
+    "author": "yxinmiracle",
+    "path": "windows/process_creation/proc_creation_win_powershell_uninstall_defender_feature.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_uninstall_defender_feature.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó PowerShell con Uninstall-WindowsFeature o Remove-WindowsFeature apuntando a una característica de Windows Defender. Esto puede desactivar o quitar el antivirus integrado en un servidor Windows.",
+      "what_it_detects": "Procesos powershell.exe, pwsh.exe o powershell_ise.exe (por Image u OriginalFileName) cuyo CommandLine contiene Uninstall-WindowsFeature o Remove-WindowsFeature junto con el texto Windows-Defender, por ejemplo Windows-Defender o Windows-Defender-GUI.",
+      "why_it_matters": "Quitar Defender elimina la protección antimalware del equipo. Es una técnica de debilitamiento de defensas (ATT&CK T1685) que suele preceder al despliegue de ransomware u otras herramientas en todo el dominio.",
+      "triage_steps": [
+        "Revise el CommandLine completo: qué característica se elimina (Windows-Defender o solo la GUI), si incluye -Restart o -Remove y si llega codificado o desde un script.",
+        "Identifique ParentImage y la cadena de procesos: wsmprovhost.exe, WmiPrvSE.exe, PSEXESVC.exe o cmd.exe lanzado por un servicio indican ejecución remota.",
+        "Valide el usuario: si es administrador autorizado, si suele gestionar este servidor y si existe un ticket de cambio para reemplazar Defender.",
+        "Revise los inicios de sesión (4624/4648) del usuario en el host durante ±15 minutos y anote la IP de origen y el tipo de logon.",
+        "Busque otros intentos de evasión en el mismo host durante ±15 minutos: Set-MpPreference, Add-MpPreference para exclusiones, servicios detenidos, borrado de logs o vssadmin.",
+        "Busque el mismo CommandLine en otros hosts y con la misma cuenta; una ejecución masiva sugiere preparación de ransomware.",
+        "Confirme el estado de Defender con Get-WindowsFeature Windows-Defender* y revise el log Microsoft-Windows-Windows Defender/Operational."
+      ],
+      "false_positives": [
+        "Administradores que retiran Defender en servidores para instalar otra solución EDR o antivirus, con un cambio aprobado.",
+        "Scripts de construcción de imágenes, DSC, SCCM o plantillas de hardening que quitan Windows-Defender-GUI en servidores Server Core.",
+        "Laboratorios o pruebas de automatización documentados."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del servidor o el equipo de cambios si la acción estaba autorizada antes de actuar.",
+        "Si no está autorizada, aísle el endpoint desde el EDR y deshabilite o restablezca las credenciales de la cuenta usada.",
+        "Reinstale la característica con Install-WindowsFeature Windows-Defender, reinicie de forma controlada y verifique firmas y protección en tiempo real.",
+        "Busque y elimine persistencia, herramientas de acceso remoto y payloads; revise otros hosts afectados y escale a respuesta a incidentes."
+      ],
+      "severity_rationale": "Nivel alto porque eliminar el antivirus integrado rara vez ocurre fuera de un cambio planificado y es un precursor frecuente de ransomware."
+    },
+    "en": {
+      "summary": "PowerShell ran Uninstall-WindowsFeature or Remove-WindowsFeature against a Windows Defender feature. This can disable or remove the built-in antivirus on a Windows Server host.",
+      "what_it_detects": "powershell.exe, pwsh.exe or powershell_ise.exe processes (by Image or OriginalFileName) whose CommandLine contains Uninstall-WindowsFeature or Remove-WindowsFeature together with the string Windows-Defender, such as Windows-Defender or Windows-Defender-GUI.",
+      "why_it_matters": "Removing Defender strips anti-malware protection from the host. It is a defense impairment technique (ATT&CK T1685) commonly seen before ransomware or other tooling is pushed across a domain.",
+      "triage_steps": [
+        "Read the full CommandLine: which feature is removed (Windows-Defender or only the GUI), whether -Restart or -Remove is used, and whether it is encoded or script-driven.",
+        "Identify ParentImage and the process tree: wsmprovhost.exe, WmiPrvSE.exe, PSEXESVC.exe or service-spawned cmd.exe indicate remote execution.",
+        "Validate the user: authorized admin, normally manages this server, and an existing change ticket for replacing Defender.",
+        "Review logons (4624/4648) for that user on the host within +/- 15 minutes; note source IP and logon type.",
+        "Look for other evasion on the same host within +/- 15 minutes: Set-MpPreference, exclusions via Add-MpPreference, stopped services, log clearing, vssadmin.",
+        "Search for the same CommandLine on other hosts and for the same account; mass execution suggests ransomware staging.",
+        "Confirm Defender state with Get-WindowsFeature Windows-Defender* and review the Windows Defender/Operational log."
+      ],
+      "false_positives": [
+        "Admins removing Defender on servers to deploy another EDR or antivirus under an approved change.",
+        "Image build scripts, DSC, SCCM or hardening baselines removing Windows-Defender-GUI on Server Core hosts.",
+        "Documented lab or automation testing."
+      ],
+      "response_steps": [
+        "Confirm with the server owner or change team whether the action was authorized before acting.",
+        "If unauthorized, isolate the endpoint via EDR and disable or reset the credentials of the account used.",
+        "Reinstall with Install-WindowsFeature Windows-Defender, reboot in a controlled way, and verify signatures and real-time protection.",
+        "Hunt for persistence, remote access tools and payloads; check other affected hosts and escalate to incident response."
+      ],
+      "severity_rationale": "High because removing the built-in antivirus rarely happens outside planned changes and is a frequent ransomware precursor."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Windows PowerShell spawned via PS remoting uninstalls the Windows-Defender feature with restart",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\svc-backup",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -ExecutionPolicy Bypass -Command \"Uninstall-WindowsFeature -Name Windows-Defender -Restart\"",
+          "ParentImage": "C:\\Windows\\System32\\wsmprovhost.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell 7 removes the Defender GUI feature with the legacy Remove-WindowsFeature cmdlet",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "pwsh.exe -NoProfile -Command Remove-WindowsFeature Windows-Defender-GUI",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin uninstalls an unrelated feature (Telnet client); no Windows-Defender string",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -Command \"Uninstall-WindowsFeature -Name Telnet-Client\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Inventory script only queries Defender feature state with Get-WindowsFeature",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\svc-inventory",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Get-WindowsFeature -Name Windows-Defender*\"",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

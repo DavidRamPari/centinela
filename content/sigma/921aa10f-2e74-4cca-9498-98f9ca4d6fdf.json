@@ -1,0 +1,125 @@
+{
+  "rule": {
+    "id": "921aa10f-2e74-4cca-9498-98f9ca4d6fdf",
+    "title": "Registry Modification Attempt Via VBScript",
+    "level": "medium",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_vbscript_registry_modification.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_vbscript_registry_modification.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.005",
+      "T1112"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un proceso cuya línea de comandos crea en línea un objeto Wscript.Shell y llama a su método RegWrite, que escribe en el registro sin usar reg.exe, regedit ni PowerShell.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene las tres cadenas 'CreateObject', 'Wscript.shell' y '.RegWrite'. Suele tratarse de VBScript en línea ejecutado mediante un LOLBIN como mshta.exe (vbscript:Execute), o de un script que cmd.exe escribe en disco y luego ejecuta.",
+      "why_it_matters": "Escribir en claves Run u otros puntos de autoarranque le da persistencia al atacante (T1112, Modify Registry). Ejecutar VBScript en línea (T1059.005) evita las herramientas de registro que los defensores suelen monitorear, y también sirve para debilitar configuraciones de seguridad.",
+      "triage_steps": [
+        "Lea el CommandLine y extraiga la ruta de registro, el nombre del valor, los datos y el tipo que recibe RegWrite. Anote si apunta a Run/RunOnce, Winlogon, IFEO, servicios o políticas de seguridad.",
+        "Revise Image y ParentImage. Es sospechoso un mshta.exe, cmd.exe, wscript.exe o cscript.exe lanzado por Office, un navegador, explorer.exe desde un acceso directo o una tarea programada.",
+        "Confirme que la escritura ocurrió: busque eventos de modificación de registro (Sysmon EID 13) sobre esa clave en el mismo host, +/- 15 minutos.",
+        "Analice el binario o script al que apunta el valor. Obtenga su hash, firma, ruta (AppData, Temp, ProgramData) y fecha de creación, y verifique su reputación.",
+        "Pivotee por el usuario: inicios de sesión recientes, adjuntos o descargas abiertos justo antes de la alerta y alertas previas de ese usuario o host.",
+        "Busque procesos hijos, conexiones de red y escrituras de archivos del mismo árbol de procesos, en especial conexiones salientes de mshta.exe.",
+        "Busque el mismo patrón de CommandLine o el mismo nombre de valor de registro en otros hosts del entorno."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos. Un RegWrite legítimo en línea desde la línea de comandos es poco común.",
+        "Scripts de inicio de sesión antiguos, instaladores o herramientas de soporte que configuran el registro con Wscript.Shell en un comando de una línea. Confírmelo con el responsable y con los registros de cambios."
+      ],
+      "response_steps": [
+        "Valide el cambio de registro y el payload al que apunta con el dueño del equipo o con TI antes de actuar.",
+        "Si es malicioso, aísle el endpoint y conserve como evidencia la clave de registro afectada, el archivo del payload y el árbol de procesos.",
+        "Elimine el valor de registro malicioso y ponga el payload en cuarentena. Luego busque otras formas de persistencia, como tareas programadas, servicios y entradas de la carpeta de inicio.",
+        "Restablezca las credenciales del usuario si pudieron verse comprometidas, bloquee el hash y los dominios relacionados, y use los indicadores para hacer hunting en toda la flota."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque un RegWrite en línea rara vez es legítimo y apunta a persistencia o evasión, pero por sí solo no prueba que la escritura tuviera éxito ni que el payload sea malicioso."
+    },
+    "en": {
+      "summary": "A process was started with a command line that builds a Wscript.Shell object inline and calls its RegWrite method, which writes to the registry without reg.exe, regedit or PowerShell.",
+      "what_it_detects": "Process creation events whose CommandLine contains all three strings 'CreateObject', 'Wscript.shell' and '.RegWrite'. This usually means inline VBScript run through a LOLBIN such as mshta.exe (vbscript:Execute), or a script written out by cmd.exe and then run.",
+      "why_it_matters": "Writing to Run keys or other autostart locations gives an attacker persistence (T1112, Modify Registry). Running VBScript inline (T1059.005) avoids the registry tools that defenders tend to monitor, and it can also be used to weaken security settings.",
+      "triage_steps": [
+        "Read CommandLine and pull out the registry path, value name, data and type passed to RegWrite. Note whether it targets Run/RunOnce, Winlogon, IFEO, services or security policy keys.",
+        "Check Image and ParentImage. mshta.exe, cmd.exe, wscript.exe or cscript.exe launched by Office, a browser, explorer.exe from a shortcut, or a scheduled task is suspicious.",
+        "Confirm the write happened: look for registry set events (Sysmon EID 13) for that key on the same host within +/- 15 minutes.",
+        "Look at the binary or script the value points to. Get its hash, signature, path (AppData, Temp, ProgramData) and creation time, then check reputation.",
+        "Pivot on the user: recent logons, email attachments or downloads opened just before the alert, and any earlier alerts for this user or host.",
+        "Look for child processes, network connections and file writes from the same process tree, especially outbound connections from mshta.exe.",
+        "Search the environment for the same CommandLine pattern or registry value name on other hosts."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. Legitimate inline RegWrite from a command line is rare.",
+        "Old login scripts, installers or helpdesk tools that set registry values through Wscript.Shell from a one-line command. Confirm with the owner and the change records."
+      ],
+      "response_steps": [
+        "Check the registry change and its target payload with the host owner or IT before you act.",
+        "If it is malicious, isolate the endpoint and save the affected registry key, the payload file and the process tree as evidence.",
+        "Remove the malicious registry value and quarantine the payload. Then look for other persistence such as scheduled tasks, services and startup folder entries.",
+        "Reset the user's credentials if they may be compromised, block the payload hash and any related domains, and add the indicators to hunts across the fleet."
+      ],
+      "severity_rationale": "Medium fits because inline RegWrite is rarely legitimate and points to persistence or defense evasion, but on its own it does not prove the write succeeded or that the payload is malicious."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "mshta.exe runs inline VBScript that adds a Run key value pointing to a payload in AppData.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\mshta.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "mshta.exe vbscript:Execute(\"CreateObject(\"\"Wscript.Shell\"\").RegWrite \"\"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\Updater\"\", \"\"C:\\Users\\jperez\\AppData\\Roaming\\upd.exe\"\", \"\"REG_SZ\"\":close\")"
+        }
+      },
+      {
+        "description": "cmd.exe writes a one-line VBS file that uses a Wscript.Shell object variable to call RegWrite, then runs it with cscript.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "cmd.exe /c echo Set s=CreateObject(\"Wscript.Shell\"):s.RegWrite \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce\\svc\",\"C:\\ProgramData\\svc.vbs\",\"REG_SZ\" > %TEMP%\\r.vbs && cscript //nologo %TEMP%\\r.vbs"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "mshta.exe uses Wscript.Shell inline but only calls .Run, not RegWrite.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\mshta.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "mshta.exe vbscript:Execute(\"CreateObject(\"\"Wscript.Shell\"\").Run \"\"notepad.exe\"\":close\")"
+        }
+      },
+      {
+        "description": "A legitimate logon script run by wscript.exe from a file. The RegWrite calls are inside the file, so they do not appear in CommandLine.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0305.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\wscript.exe",
+          "ParentImage": "C:\\Windows\\System32\\userinit.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\WScript.exe\" \"\\\\andes.example.com\\NETLOGON\\set_printers.vbs\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

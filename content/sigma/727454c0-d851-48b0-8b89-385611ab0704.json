@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "727454c0-d851-48b0-8b89-385611ab0704",
+    "title": "Lolbin Unregmp2.exe Use As Proxy",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_lolbin_unregmp2.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_unregmp2.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó unregmp2.exe, la utilidad de configuración de Windows Media Player, con la opción /HideWMP. Un atacante puede abusar de este LOLBin para lanzar un wmpnscfg.exe falso desde una carpeta que controla.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\unregmp2.exe u OriginalFileName es unregmp2.exe, y CommandLine contiene ' /HideWMP' (con cualquier variante de guion, como -HideWMP).",
+      "why_it_matters": "Con /HideWMP, unregmp2.exe ejecuta wmpnscfg.exe desde una ruta que arma con la variable de entorno ProgramW6432. Si el atacante redirige esa variable, un binario confiable de Microsoft ejecuta su payload (T1218, ejecución mediante binarios del sistema como proxy).",
+      "triage_steps": [
+        "Revise Image, OriginalFileName y el hash: ¿unregmp2.exe está en System32/SysWOW64 y firmado por Microsoft, o es una copia o un binario renombrado?",
+        "Analice ParentImage y su CommandLine. Scripts, aplicaciones de Office, cmd o powershell son más sospechosos que Explorer o componentes de instalación de Windows.",
+        "Liste los procesos hijos de unregmp2.exe. Un wmpnscfg.exe fuera de C:\\Program Files\\Windows Media Player es un fuerte indicio de actividad maliciosa.",
+        "Busque si se redefinió ProgramW6432: set/setx en líneas de comando o escrituras en HKCU\\Environment o en la clave Environment del sistema, en el mismo host +/- 15 minutos.",
+        "Revise los archivos creados en el host cerca de la alerta, sobre todo wmpnscfg.exe en carpetas escribibles por el usuario. Obtenga hashes y verifique su reputación.",
+        "Pivotee por usuario y host: inicios de sesión, alertas previas y conexiones de red del proceso hijo."
+      ],
+      "false_positives": [
+        "Configuración de acceso a programas y valores predeterminados, o cambios de programas predeterminados, que pueden invocar el comando registrado para ocultar Windows Media Player.",
+        "Scripts de imagen OEM, aprovisionamiento o hardening que ocultan Windows Media Player durante el despliegue."
+      ],
+      "response_steps": [
+        "Si el wmpnscfg.exe hijo o ProgramW6432 apuntan a una ruta no estándar, aísle el endpoint y conserve los archivos sospechosos para análisis.",
+        "Elimine la redefinición de ProgramW6432 y el binario malicioso solo después de recolectar evidencia, y busque persistencia relacionada.",
+        "Bloquee el hash del payload en toda la flota y busque la misma línea de comando y ruta de archivo en otros equipos.",
+        "Si se confirma actividad posterior, restablezca las credenciales del usuario afectado y restaure el host a un estado confiable."
+      ],
+      "severity_rationale": "Medium es adecuado porque /HideWMP tiene usos legítimos poco frecuentes, y por sí solo apenas sugiere ejecución por proxy hasta que se confirme un hijo o una variable maliciosa."
+    },
+    "en": {
+      "summary": "unregmp2.exe, the Windows Media Player setup utility, was started with the /HideWMP option. Attackers can abuse this LOLBin to proxy-launch a fake wmpnscfg.exe from a folder they control.",
+      "what_it_detects": "Process creation where Image ends with \\unregmp2.exe or OriginalFileName is unregmp2.exe, and CommandLine contains ' /HideWMP' (any dash variant, such as -HideWMP).",
+      "why_it_matters": "With /HideWMP, unregmp2.exe launches wmpnscfg.exe from a path built from the ProgramW6432 environment variable. If an attacker points that variable to their own folder, a trusted Microsoft binary runs their payload (T1218, System Binary Proxy Execution).",
+      "triage_steps": [
+        "Check Image, OriginalFileName and the hash: is unregmp2.exe in System32/SysWOW64 and Microsoft-signed, or a renamed or copied binary?",
+        "Review ParentImage and its CommandLine. Scripts, Office apps, cmd or powershell are more suspicious than Explorer or Windows setup components.",
+        "List child processes of unregmp2.exe. Any wmpnscfg.exe outside C:\\Program Files\\Windows Media Player is a strong sign of malicious activity.",
+        "Look for ProgramW6432 being redefined: set/setx in command lines, or registry writes to HKCU\\Environment or the system Environment key on the same host within +/- 15 minutes.",
+        "Inspect files written on the host around the alert, especially wmpnscfg.exe in user-writable folders. Get hashes and check reputation.",
+        "Pivot on the user and host: logons, earlier alerts, network connections opened by the child process."
+      ],
+      "false_positives": [
+        "Set program access and computer defaults, or default-programs changes, which can call the registered hide command for Windows Media Player.",
+        "OEM imaging, provisioning or hardening scripts that hide Windows Media Player during deployment."
+      ],
+      "response_steps": [
+        "If the child wmpnscfg.exe or ProgramW6432 points to a non-standard path, isolate the endpoint and keep the suspicious files for analysis.",
+        "Remove the rogue ProgramW6432 override and the malicious binary only after collecting evidence, and look for related persistence.",
+        "Block the payload hash across the fleet and hunt for the same command line and file path on other hosts.",
+        "Reset credentials for the affected user if follow-on activity is confirmed. Restore the host to a known-good state."
+      ],
+      "severity_rationale": "Medium fits because /HideWMP has rare legitimate uses, but alone it only suggests proxy execution until a rogue child process or variable is confirmed."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "System unregmp2.exe launched from cmd.exe with /HideWMP after ProgramW6432 was redefined",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-06-10 14:03:12.411",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\unregmp2.exe",
+          "OriginalFileName": "unregmp2.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\unregmp2.exe\" /HideWMP",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c set ProgramW6432=C:\\Users\\jperez\\AppData\\Local\\Temp\\wmp && unregmp2.exe /HideWMP",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "Renamed copy of unregmp2.exe identified by OriginalFileName, using the hyphen variant -HideWMP",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-06-10 15:21:47.009",
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\mediasetup.exe",
+          "OriginalFileName": "unregmp2.exe",
+          "CommandLine": "C:\\Users\\Public\\mediasetup.exe -HideWMP",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "unregmp2.exe run with /ShowWMP when restoring Windows Media Player shortcuts; the /HideWMP option is missing",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-06-10 09:12:05.300",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\unregmp2.exe",
+          "OriginalFileName": "unregmp2.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\unregmp2.exe\" /ShowWMP",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Legitimate wmpnscfg.exe started from the standard Windows Media Player folder; the Image is not unregmp2.exe",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-06-10 09:12:06.118",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Windows Media Player\\wmpnscfg.exe",
+          "OriginalFileName": "WMPNSCFG.EXE",
+          "CommandLine": "\"C:\\Program Files\\Windows Media Player\\wmpnscfg.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\unregmp2.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

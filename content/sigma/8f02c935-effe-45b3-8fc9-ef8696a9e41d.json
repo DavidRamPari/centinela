@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "8f02c935-effe-45b3-8fc9-ef8696a9e41d",
+    "title": "Non-privileged Usage of Reg or Powershell",
+    "level": "high",
+    "status": "test",
+    "author": "Teymur Kheirkhabarov (idea), Ryan Plas (rule), oscd.community",
+    "path": "windows/process_creation/proc_creation_win_susp_non_priv_reg_or_ps.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_non_priv_reg_or_ps.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1112"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso con nivel de integridad Medium (usuario sin privilegios) ejecutó reg add o PowerShell para modificar ImagePath, FailureCommand o ServiceDLL de un servicio en HKLM\\SYSTEM\\...ControlSet\\Services. Puede ser un intento de escalamiento de privilegios mediante permisos débiles en el registro de un servicio.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene 'reg ' y 'add', o 'powershell', 'set-itemproperty', ' sp ' o 'new-itemproperty'; que además hace referencia a ControlSet y Services junto con ImagePath, FailureCommand o ServiceDLL; y cuyo IntegrityLevel es Medium o S-1-16-8192.",
+      "why_it_matters": "Si la ACL de la clave de un servicio permite escritura a usuarios comunes, el atacante cambia el binario, la DLL o el comando de falla y obtiene ejecución como SYSTEM al reiniciar el servicio. Corresponde a ATT&CK T1112 (Modify Registry), con fines de persistencia y escalamiento.",
+      "triage_steps": [
+        "Revise CommandLine: identifique el servicio, el valor modificado (ImagePath, FailureCommand, ServiceDLL) y la ruta del nuevo binario o DLL.",
+        "Confirme el usuario y el IntegrityLevel; verifique si la cuenta debería tener acceso a esa clave de servicio.",
+        "Analice ParentImage y el árbol de procesos: cmd, PowerShell, scripts o documentos de Office como origen son sospechosos.",
+        "Consulte el valor actual de la clave en el endpoint y compárelo con el valor legítimo del servicio en otros equipos.",
+        "Obtenga el hash y la firma del binario o DLL referenciado; desconfíe de rutas en Users, Temp, ProgramData o Public.",
+        "Pivotee en el mismo host +/- 15 minutos: sc start/stop, reinicios del servicio, eventos 7045/7040 y nuevos procesos hijos de services.exe.",
+        "Revise las ACL de la clave del servicio (por ejemplo con accesschk o Get-Acl) para confirmar permisos débiles.",
+        "Busque alertas previas del mismo usuario o host y uso del mismo comando en otros equipos."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Instaladores o herramientas de software que se ejecutan sin elevación y ajustan sus propios servicios con permisos delegados.",
+        "Scripts de administración o pruebas de penetración autorizadas ejecutados en contexto de usuario estándar."
+      ],
+      "response_steps": [
+        "Valide con el dueño del equipo y TI si el cambio fue autorizado antes de actuar.",
+        "Si es malicioso, aísle el endpoint y evite reiniciar el servicio afectado hasta restaurar el valor original.",
+        "Restaure ImagePath, FailureCommand o ServiceDLL al valor legítimo y ponga en cuarentena el binario o DLL introducido.",
+        "Corrija las ACL de la clave del servicio para impedir escritura a usuarios no privilegiados.",
+        "Restablezca las credenciales del usuario implicado y busque el mismo cambio en otros equipos."
+      ],
+      "severity_rationale": "Es alta porque un usuario sin privilegios que logra modificar la configuración de un servicio suele obtener ejecución como SYSTEM, y este comportamiento rara vez es legítimo."
+    },
+    "en": {
+      "summary": "A Medium-integrity (non-privileged) process ran reg add or PowerShell to change a service's ImagePath, FailureCommand or ServiceDLL under HKLM\\SYSTEM\\...ControlSet\\Services. This may be a privilege escalation attempt that abuses weak service registry permissions.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains 'reg ' and 'add', or 'powershell', 'set-itemproperty', ' sp ' or 'new-itemproperty'; also references ControlSet and Services plus ImagePath, FailureCommand or ServiceDLL; and whose IntegrityLevel is Medium or S-1-16-8192.",
+      "why_it_matters": "If a service key's ACL lets standard users write to it, an attacker can swap the binary, DLL or failure command and run code as SYSTEM when the service restarts. This maps to ATT&CK T1112 (Modify Registry) for persistence and escalation.",
+      "triage_steps": [
+        "Read CommandLine: identify the service, the value changed (ImagePath, FailureCommand, ServiceDLL) and the new binary or DLL path.",
+        "Confirm the user and IntegrityLevel; check whether this account should be able to write to that service key.",
+        "Review ParentImage and the process tree; cmd, PowerShell, scripts or Office documents as the origin are suspicious.",
+        "Query the current key value on the endpoint and compare it with the legitimate value on other hosts.",
+        "Get the hash and signature of the referenced binary or DLL; distrust paths under Users, Temp, ProgramData or Public.",
+        "Pivot on the same host +/- 15 minutes: sc start/stop, service restarts, events 7045/7040 and new children of services.exe.",
+        "Check the service key ACL (for example accesschk or Get-Acl) to confirm weak permissions.",
+        "Look for earlier alerts for the same user or host and the same command on other machines."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Software installers or tools running unelevated that adjust their own services through delegated permissions.",
+        "Admin scripts or authorized penetration tests run in a standard user context."
+      ],
+      "response_steps": [
+        "Check with the host owner and IT whether the change was authorized before acting.",
+        "If malicious, isolate the endpoint and avoid restarting the affected service until the original value is restored.",
+        "Restore ImagePath, FailureCommand or ServiceDLL to the legitimate value and quarantine the introduced binary or DLL.",
+        "Fix the service key ACL so non-privileged users cannot write to it.",
+        "Reset the involved user's credentials and hunt for the same change on other hosts."
+      ],
+      "severity_rationale": "High fits because a non-privileged user who can modify service configuration usually gains SYSTEM execution, and this behavior is rarely legitimate."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Standard user runs reg add to point a service ImagePath to a binary in C:\\Users\\Public at Medium integrity",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "reg add HKLM\\SYSTEM\\CurrentControlSet\\Services\\VulnSvc /v ImagePath /t REG_EXPAND_SZ /d C:\\Users\\Public\\svc.exe /f",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "PowerShell Set-ItemProperty sets a service FailureCommand, integrity level recorded as SID S-1-16-8192",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -NoProfile Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\UpdSvc' -Name FailureCommand -Value 'C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.exe'",
+          "IntegrityLevel": "S-1-16-8192"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Elevated administrator changes a service ImagePath with reg add at High integrity, so selection_data does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\admin.ti",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "reg add HKLM\\SYSTEM\\CurrentControlSet\\Services\\VulnSvc /v ImagePath /t REG_EXPAND_SZ /d \"C:\\Program Files\\Vendor\\svc.exe\" /f",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Standard user only reads a service ImagePath with reg query; no add or PowerShell keywords",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "reg query HKLM\\SYSTEM\\CurrentControlSet\\Services\\Spooler /v ImagePath",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

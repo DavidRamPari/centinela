@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "c0514f28-fdae-42df-b886-06e2b2bc5b37",
+    "title": "Service Startup Type Change Via Wmic.EXE",
+    "level": "medium",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wmic_service_startup_change.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmic_service_startup_change.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1047",
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se usó WMIC para cambiar el tipo de inicio de un servicio de Windows a Disabled o Manual. Los atacantes lo hacen para que servicios de seguridad, respaldo o recuperación no vuelvan a iniciarse.",
+      "what_it_detects": "Creación de procesos de WMIC.exe (por Image u OriginalFileName, lo que incluye copias renombradas) cuyo CommandLine contiene ' service ', 'ChangeStartMode' y además 'Manual' o 'Disabled'.",
+      "why_it_matters": "Deshabilitar antivirus, EDR, VSS o agentes de backup debilita las defensas y la recuperación antes de un ransomware. Usa Windows Management Instrumentation (T1047) para afectar las defensas (T1685). La referencia de la regla describe intrusiones de Qilin con esta técnica.",
+      "triage_steps": [
+        "Revise el CommandLine: identifique el servicio afectado, el nuevo modo y si hay un destino remoto /node:. Priorice servicios de seguridad, VSS, backup o registro.",
+        "Compare Image con OriginalFileName. Un WMIC renombrado o ubicado fuera de System32\\wbem es un fuerte indicio de uso malicioso.",
+        "Analice ParentImage y su línea de comandos. Revise con especial cuidado cmd.exe o PowerShell lanzados por scripts, psexec, shells remotas o aplicaciones Office.",
+        "Identifique al usuario y la sesión. Confirme que la cuenta administra habitualmente este equipo y que existe un ticket de cambio.",
+        "Busque en el mismo host, +/- 15 minutos: otros ChangeStartMode o sc config, servicios detenidos, borrado con vssadmin/wbadmin, cambios en Defender o renombrado masivo de archivos.",
+        "Si se usó /node:, busque en el equipo remoto el evento 7040 (cambio de tipo de inicio) y revise si hubo movimiento lateral desde el origen.",
+        "Busque alertas previas del mismo usuario, host y proceso padre para saber si forma parte de una campaña más amplia."
+      ],
+      "false_positives": [
+        "Administradores o scripts de despliegue que ponen servicios en Manual o Disabled de forma legítima durante hardening o mantenimiento.",
+        "Instaladores, desinstaladores o herramientas de gestión (SCCM, agentes RMM) que usan WMIC para reconfigurar sus propios servicios.",
+        "Scripts de optimización de imágenes base o VDI que deshabilitan servicios innecesarios."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del sistema o con el registro de cambios si la modificación estaba autorizada.",
+        "Si no estaba autorizada, aísle el endpoint y deshabilite o restablezca la cuenta involucrada, sobre todo si se afectaron servicios de seguridad o backup.",
+        "Restaure el tipo de inicio original de los servicios afectados, reinícielos y compruebe que el EDR y los respaldos vuelven a funcionar.",
+        "Recolecte el script o binario padre, busque la misma línea de comandos en toda la flota y escale el caso como posible incidente previo a un ransomware."
+      ],
+      "severity_rationale": "Medium es adecuado porque es un indicio frecuente de evasión de defensas previa a un ransomware, pero los administradores también lo usan de forma legítima, así que el contexto define la gravedad."
+    },
+    "en": {
+      "summary": "WMIC was used to set a Windows service's startup type to Disabled or Manual. Attackers do this to stop security, backup or recovery services from starting again.",
+      "what_it_detects": "Process creation of WMIC.exe (matched by Image or OriginalFileName, so renamed copies are caught) whose CommandLine contains ' service ', 'ChangeStartMode' and either 'Manual' or 'Disabled'.",
+      "why_it_matters": "Disabling services such as antivirus, EDR, VSS or backup agents weakens defenses and recovery before ransomware runs. It uses Windows Management Instrumentation (T1047) to impair defenses (T1685). The rule's reference covers Qilin ransomware intrusions that used this method.",
+      "triage_steps": [
+        "Read CommandLine: find the targeted service name, the new mode and any /node: remote target. Treat security, VSS, backup or logging services as high priority.",
+        "Check whether Image matches OriginalFileName. A renamed WMIC binary or one outside System32\\wbem points strongly to malicious use.",
+        "Review ParentImage and the parent command line. cmd.exe or PowerShell run by scripts, psexec, remote shells or Office apps deserves extra scrutiny.",
+        "Identify the user and logon session. Confirm the account normally administers this host and that a change ticket exists.",
+        "Pivot on the same host for +/- 15 minutes: more ChangeStartMode or sc config calls, service stops, vssadmin/wbadmin deletions, Defender tampering, mass file renames.",
+        "If /node: was used, look at the remote host for event 7040 (start type changed) and check the source host for lateral movement.",
+        "Search for earlier alerts on the same user, host and parent process to find out if this is part of a wider campaign."
+      ],
+      "false_positives": [
+        "Administrators or deployment scripts legitimately setting services to Manual or Disabled during hardening or maintenance.",
+        "Software installers, uninstallers or management tools (SCCM, RMM agents) that call WMIC to reconfigure their own services.",
+        "Golden image or VDI optimization scripts that disable unneeded services."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or change records whether the change was authorized.",
+        "If unauthorized, isolate the host and disable or reset the account involved, especially if security or backup services were targeted.",
+        "Restore the original startup type of affected services and restart them. Verify that EDR and backups work again.",
+        "Collect the parent script or binary, hunt for the same command line across the fleet, and escalate as a possible pre-ransomware incident."
+      ],
+      "severity_rationale": "Medium fits because the command is a common sign of defense impairment before ransomware, but administrators also use it legitimately, so context decides how serious it is."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WMIC disables the Windows Defender service from a cmd.exe launched by a batch script",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic service where name=\"WinDefend\" call ChangeStartMode Disabled",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat"
+        }
+      },
+      {
+        "description": "Renamed WMIC binary (matched by OriginalFileName) sets the VSS service to Manual",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "svchelper.exe service where name='VSS' call ChangeStartMode Manual",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator uses WMIC to set the Print Spooler back to Automatic, so neither Manual nor Disabled appears",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.rgomez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic service where name=\"Spooler\" call ChangeStartMode Automatic",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Service disabled with sc.exe instead of WMIC, so the image selection does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0187.andes.example.com",
+          "User": "ANDES\\admin.rgomez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe config WinDefend start= disabled",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

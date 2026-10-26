@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "9a132afa-654e-11eb-ae93-0242ac130002",
+    "title": "PUA - AdFind Suspicious Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Janantha Marasinghe (https://github.com/blueteam0ps), FPT.EagleEye Team, omkar72, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_pua_adfind_susp_usage.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_pua_adfind_susp_usage.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1018",
+      "T1069.002",
+      "T1087.002",
+      "T1482"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso cuya línea de comandos contiene parámetros típicos de AdFind usados para enumerar Active Directory: dominios, trusts, controladores de dominio, subredes, GPO o cuentas privilegiadas.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde CommandLine contiene cadenas como trustdmp, dclist, domainlist, objectcategory=, name=\"Domain Admins\", gpodmp, subnetdmp o computers_pwdnotreqd. La regla no revisa Image, así que también detecta binarios renombrados.",
+      "why_it_matters": "AdFind es una herramienta gratuita de consultas LDAP que se usa mucho en el reconocimiento previo al movimiento lateral y al ransomware. Corresponde a descubrimiento de cuentas de dominio, grupos, sistemas remotos y trusts (T1087.002, T1069.002, T1018, T1482).",
+      "triage_steps": [
+        "Revise CommandLine e identifique qué se enumera (trusts, DC, admins, subredes) y si la salida se redirige a archivos .txt o .csv.",
+        "Verifique Image, OriginalFileName y el hash: identifique binarios renombrados o ubicados en rutas inusuales como C:\\Users\\Public, %TEMP% o ProgramData.",
+        "Analice ParentImage y la cadena de procesos: cmd.exe lanzado por un .bat, PowerShell, rundll32 o un implante remoto es sospechoso.",
+        "Confirme si el usuario y el host pertenecen al equipo de administración de AD y si existe un ticket o una tarea programada documentada.",
+        "Revise el mismo host +/- 15 minutos: otros comandos de descubrimiento (nltest, net group, whoami), compresión de archivos de salida o conexiones salientes.",
+        "Busque ejecuciones de AdFind o alertas previas del mismo usuario o hash en otros endpoints del dominio."
+      ],
+      "false_positives": [
+        "Administradores de AD que usan AdFind para auditorías, inventario o resolución de problemas.",
+        "Scripts de evaluación de seguridad o pentests autorizados con alcance documentado.",
+        "Otras herramientas cuya línea de comandos contenga por coincidencia cadenas como objectcategory= o adinfo."
+      ],
+      "response_steps": [
+        "Valide con el usuario y el responsable del host si la ejecución estaba autorizada antes de actuar.",
+        "Si no está autorizada, aísle el endpoint y conserve el binario, los archivos de salida y la memoria para análisis forense.",
+        "Restablezca las credenciales de la cuenta implicada y revise inicios de sesión recientes y uso de cuentas privilegiadas.",
+        "Busque persistencia, herramientas de movimiento lateral e indicios de ransomware en los hosts relacionados; elimine los artefactos confirmados.",
+        "Si el uso es legítimo, documéntelo y agregue una exclusión acotada por usuario, host y ruta."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque estos parámetros de AdFind casi siempre aparecen en el reconocimiento de AD previo a ataques graves y su uso administrativo legítimo es poco común."
+    },
+    "en": {
+      "summary": "A process ran with a command line containing AdFind parameters commonly used to enumerate Active Directory domains, trusts, domain controllers, subnets, GPOs or privileged accounts.",
+      "what_it_detects": "Windows process creation events where CommandLine contains strings such as trustdmp, -sc dclist, domainlist, objectcategory=, name=\"Domain Admins\", gpodmp, subnetdmp or computers_pwdnotreqd. Image is not checked, so renamed binaries also match.",
+      "why_it_matters": "AdFind is a free LDAP query tool heavily used for reconnaissance before lateral movement and ransomware. This maps to domain account, group, remote system and trust discovery (T1087.002, T1069.002, T1018, T1482).",
+      "triage_steps": [
+        "Read CommandLine: identify what is enumerated (trusts, DCs, admins, subnets) and whether output is redirected to .txt or .csv files.",
+        "Check Image, OriginalFileName and hash for renamed binaries or unusual paths such as C:\\Users\\Public, %TEMP% or ProgramData.",
+        "Review ParentImage and the process tree; cmd.exe from a .bat, PowerShell, rundll32 or a remote implant is suspicious.",
+        "Confirm whether the user and host belong to the AD admin team and whether a ticket or documented task exists.",
+        "Pivot on the same host +/- 15 minutes: other discovery (nltest, net group, whoami), archiving of output files, outbound connections.",
+        "Search for AdFind runs or earlier alerts for the same user or hash on other endpoints."
+      ],
+      "false_positives": [
+        "AD administrators using AdFind for audits, inventory or troubleshooting.",
+        "Authorized security assessments or penetration tests with documented scope.",
+        "Other tools whose command line coincidentally contains strings like objectcategory= or adinfo."
+      ],
+      "response_steps": [
+        "Confirm with the user and host owner whether the run was authorized before acting.",
+        "If unauthorized, isolate the endpoint and preserve the binary, output files and memory for forensics.",
+        "Reset the involved account's credentials and review recent logons and privileged account use.",
+        "Hunt for persistence, lateral movement tools and ransomware precursors on related hosts; remove confirmed artifacts.",
+        "If legitimate, document it and add a narrow exclusion by user, host and path."
+      ],
+      "severity_rationale": "High fits because these AdFind flags are strongly associated with AD reconnaissance preceding serious intrusions, and legitimate admin use is uncommon."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "AdFind dropped in C:\\Users\\Public enumerating all computer objects via objectcategory= and writing to a file, launched from a batch script.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\adfind.exe",
+          "OriginalFileName": "AdFind.exe",
+          "CommandLine": "adfind.exe -f \"(objectcategory=computer)\" > ad_computers.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\adf.bat",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      },
+      {
+        "description": "Renamed AdFind binary dumping domain trusts from the global catalog.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svc.exe",
+          "OriginalFileName": "AdFind.exe",
+          "CommandLine": "C:\\ProgramData\\svc.exe -gcb -sc trustdmp",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\ProgramData\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator using AdFind to look up a single user's mail attribute; no listed flag appears.",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Tools\\AdFind\\adfind.exe",
+          "OriginalFileName": "AdFind.exe",
+          "CommandLine": "adfind.exe -b dc=andes,dc=example,dc=com -f samaccountname=jperez mail",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "nltest listing domain controllers; contains 'dclist' but not the '-sc dclist' AdFind syntax.",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\nltest.exe",
+          "OriginalFileName": "nltestrk.exe",
+          "CommandLine": "nltest.exe /dclist:andes.example.com",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

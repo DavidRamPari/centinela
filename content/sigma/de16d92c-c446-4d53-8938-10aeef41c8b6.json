@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "de16d92c-c446-4d53-8938-10aeef41c8b6",
+    "title": "Computer Password Change Via Ksetup.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_ksetup_password_change_computer.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_ksetup_password_change_computer.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó ksetup.exe con la opción /setcomputerpassword, que fija la contraseña de la cuenta de equipo del dominio o del host principal. Así se puede asignar una contraseña conocida a la identidad Kerberos del equipo.",
+      "what_it_detects": "Creación de un proceso donde Image termina en \\ksetup.exe u OriginalFileName es ksetup.exe, y CommandLine contiene ' /setcomputerpassword ' seguido de un argumento, normalmente la nueva contraseña en texto claro.",
+      "why_it_matters": "Si un atacante fija una contraseña conocida en la cuenta de equipo, puede autenticarse como ese equipo, solicitar o forjar tickets Kerberos para sus servicios y mantener persistencia. La regla lo clasifica como ejecución mediante una herramienta nativa de Windows. Además, la contraseña queda expuesta en CommandLine.",
+      "triage_steps": [
+        "Revise CommandLine completo: anote la contraseña usada y si hay otros parámetros de ksetup en la misma sesión, como /setrealm, /addkdc o /mapuser.",
+        "Identifique el usuario que lo ejecutó y su nivel de privilegios; confirme si es un administrador autorizado para configurar Kerberos en ese host.",
+        "Analice ParentImage y el árbol de procesos: cmd.exe o powershell.exe interactivos, scripts, herramientas de administración remota o procesos inusuales como Office o rundll32.",
+        "Valide si el equipo forma parte de un realm Kerberos que no es Windows (MIT) o de un cambio documentado; consulte con el área responsable y el ticket de cambio.",
+        "Busque en el mismo host, +/- 15 minutos, otras ejecuciones de ksetup, nltest, klist o herramientas de tickets como Rubeus o mimikatz.",
+        "En los controladores de dominio, revise eventos 4742 (cambio de cuenta de equipo), 4768/4769 relacionados con la cuenta de equipo y logons 4624 de esa cuenta desde IP de origen inesperadas.",
+        "Revise alertas previas del mismo usuario y del mismo host para detectar acceso inicial o movimiento lateral."
+      ],
+      "false_positives": [
+        "Administradores que configuran interoperabilidad con un realm Kerberos MIT o un KDC no Windows, siguiendo la documentación de Microsoft.",
+        "Scripts de aprovisionamiento o laboratorios de pruebas de Kerberos ejecutados por equipos de infraestructura con cambio aprobado."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y el responsable del host si la ejecución fue autorizada; conserve CommandLine, árbol de procesos y eventos del controlador de dominio.",
+        "Si no fue autorizada, aísle el endpoint y deshabilite o reinicie las credenciales de la cuenta que ejecutó ksetup.",
+        "Restablezca la contraseña de la cuenta de equipo (por ejemplo, Reset-ComputerMachinePassword o Test-ComputerSecureChannel -Repair) y verifique el canal seguro.",
+        "Busque tickets o logons emitidos con la cuenta de equipo después del cambio y revoque sesiones sospechosas; investigue movimiento lateral asociado.",
+        "Revise y corrija la configuración de ksetup (ksetup /dumpstate) y documente los hallazgos para ajustar la detección."
+      ],
+      "severity_rationale": "Medium es adecuado porque es una acción administrativa poco común y legítima en algunos entornos, pero con impacto potencial en la identidad del equipo que requiere verificación."
+    },
+    "en": {
+      "summary": "ksetup.exe was run with /setcomputerpassword, which sets the password of the computer's domain account or host principal. This can give someone a known password for the machine's Kerberos identity.",
+      "what_it_detects": "Process creation where Image ends with \\ksetup.exe or OriginalFileName is ksetup.exe, and CommandLine contains ' /setcomputerpassword ' followed by an argument, usually the new password in cleartext.",
+      "why_it_matters": "An attacker who sets a known machine account password can authenticate as that computer, request or forge Kerberos tickets for its services, and persist. The rule tags this as execution of a native Windows tool. The password is also exposed in CommandLine.",
+      "triage_steps": [
+        "Read the full CommandLine: note the password supplied and any other ksetup options in the same session, such as /setrealm, /addkdc or /mapuser.",
+        "Identify the executing user and their privileges; confirm they are authorized to configure Kerberos on this host.",
+        "Review ParentImage and the process tree: interactive cmd.exe or powershell.exe, scripts, remote admin tools, or unusual parents like Office or rundll32.",
+        "Check whether the host is joined to a non-Windows (MIT) Kerberos realm or covered by a documented change ticket.",
+        "Pivot on the same host within +/- 15 minutes for other ksetup, nltest, klist or ticket tooling such as Rubeus or mimikatz.",
+        "On domain controllers, check 4742 (computer account changed), 4768/4769 for the computer account, and 4624 logons by that account from unexpected source IPs.",
+        "Look for earlier alerts on the same user and host indicating initial access or lateral movement."
+      ],
+      "false_positives": [
+        "Administrators configuring interoperability with an MIT Kerberos realm or non-Windows KDC, following Microsoft documentation.",
+        "Provisioning scripts or Kerberos test labs run by infrastructure teams under an approved change."
+      ],
+      "response_steps": [
+        "Confirm with the user and host owner whether the run was authorized; preserve CommandLine, process tree and domain controller events.",
+        "If unauthorized, isolate the endpoint and disable or reset credentials of the account that ran ksetup.",
+        "Reset the computer account password (for example Reset-ComputerMachinePassword or Test-ComputerSecureChannel -Repair) and verify the secure channel.",
+        "Hunt for tickets or logons using the computer account after the change, revoke suspicious sessions, and investigate related lateral movement.",
+        "Review and correct ksetup configuration (ksetup /dumpstate) and document findings to tune the detection."
+      ],
+      "severity_rationale": "Medium fits because this is a rare admin action that is legitimate in some environments but can compromise the machine identity, so it needs verification."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "ksetup.exe run from an interactive cmd.exe setting a known computer account password",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\ksetup.exe",
+          "OriginalFileName": "ksetup.exe",
+          "CommandLine": "ksetup.exe /setcomputerpassword Placeholder123!",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\cmd.exe\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed ksetup binary identified via OriginalFileName, launched from PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\adm.rgomez",
+          "Image": "C:\\Users\\Public\\ks.exe",
+          "OriginalFileName": "ksetup.exe",
+          "CommandLine": "C:\\Users\\Public\\ks.exe /setcomputerpassword ExamplePass2023",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate ksetup usage to dump Kerberos configuration, no /setcomputerpassword",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\adm.rgomez",
+          "Image": "C:\\Windows\\System32\\ksetup.exe",
+          "OriginalFileName": "ksetup.exe",
+          "CommandLine": "ksetup.exe /dumpstate",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "ksetup configuring an MIT realm with /setrealm only",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\adm.rgomez",
+          "Image": "C:\\Windows\\System32\\ksetup.exe",
+          "OriginalFileName": "ksetup.exe",
+          "CommandLine": "ksetup.exe /setrealm EXAMPLE.ORG",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

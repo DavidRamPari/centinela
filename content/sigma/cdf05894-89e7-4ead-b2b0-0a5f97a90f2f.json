@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "cdf05894-89e7-4ead-b2b0-0a5f97a90f2f",
+    "title": "Potential Encoded PowerShell Patterns In CommandLine",
+    "level": "low",
+    "status": "test",
+    "author": "Teymur Kheirkhabarov (idea), Vasiliy Burov (rule), oscd.community, Tim Shelton",
+    "path": "windows/process_creation/proc_creation_win_powershell_encoding_patterns.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_encoding_patterns.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó PowerShell (powershell.exe o pwsh.exe) con una línea de comandos que combina métodos de conversión o ensamblado de cadenas que suelen usarse para ocultar código. Puede tratarse de ofuscación maliciosa o de un script administrativo que manipula texto.",
+      "what_it_detects": "Eventos de creación de procesos donde Image u OriginalFileName corresponde a PowerShell y CommandLine contiene una conversión numérica (ToInt, ToByte, ToDecimal, ToUint, ToSingle, ToSByte) junto con ToChar/ToString/String, o bien las combinaciones 'char' + 'join' o 'split' + 'join'.",
+      "why_it_matters": "Los atacantes reconstruyen comandos a partir de códigos de caracteres, bytes o fragmentos para evadir firmas y revisiones (T1027, archivos o información ofuscados) antes de ejecutarlos con PowerShell (T1059.001).",
+      "triage_steps": [
+        "Lea el CommandLine completo y decodifique manualmente los valores numéricos o fragmentos para obtener el texto real que se reconstruye.",
+        "Verifique si el resultado se pasa a Invoke-Expression, iex, ScriptBlock o a una descarga (DownloadString, Invoke-WebRequest).",
+        "Revise ParentImage: Office, navegadores, wscript, mshta o servicios web como padre aumentan mucho la sospecha.",
+        "Identifique el usuario y el host; confirme si es un administrador o una cuenta de servicio con scripts conocidos.",
+        "Busque en el mismo host, +/- 15 minutos, procesos hijo, conexiones de red, archivos creados y tareas programadas.",
+        "Consulte los registros de PowerShell Script Block (4104) para ver el código desofuscado ejecutado.",
+        "Revise alertas previas del mismo host, usuario o con el mismo patrón de CommandLine en otros endpoints."
+      ],
+      "false_positives": [
+        "Scripts administrativos o de inventario que convierten valores hexadecimales, bytes o fechas con [Convert] y ToString.",
+        "Herramientas de gestión o despliegue de software que generan comandos PowerShell con -join o -split para procesar texto.",
+        "Desarrolladores o analistas probando conversiones de caracteres en la consola."
+      ],
+      "response_steps": [
+        "Si el texto decodificado es malicioso, aísle el endpoint y preserve memoria, logs de PowerShell y artefactos relevantes.",
+        "Bloquee dominios, IP o hashes obtenidos de la decodificación y búsquelos en el resto del entorno.",
+        "Elimine la persistencia identificada (tareas, servicios, claves Run) tras confirmarla, y restablezca credenciales del usuario si hubo compromiso.",
+        "Si es legítimo, documente el script y su ruta, y cree una exclusión acotada por host, usuario y CommandLine."
+      ],
+      "severity_rationale": "Nivel bajo porque los patrones son amplios y aparecen en scripts legítimos; la gravedad real depende de lo que reconstruye el comando y su contexto."
+    },
+    "en": {
+      "summary": "PowerShell (powershell.exe or pwsh.exe) ran with a command line combining character or string conversion methods commonly used to hide code. It may be malicious obfuscation or an admin script handling text.",
+      "what_it_detects": "Process creation events where Image or OriginalFileName is PowerShell and CommandLine contains a numeric conversion (ToInt, ToByte, ToDecimal, ToUint, ToSingle, ToSByte) plus ToChar/ToString/String, or the pairs 'char' + 'join' or 'split' + 'join'.",
+      "why_it_matters": "Attackers rebuild commands from character codes, bytes or fragments to evade signatures and review (T1027, obfuscated files or information) before running them through PowerShell (T1059.001).",
+      "triage_steps": [
+        "Read the full CommandLine and manually decode the numeric values or fragments to recover the reconstructed text.",
+        "Check whether the result is passed to Invoke-Expression, iex, a ScriptBlock or a download call (DownloadString, Invoke-WebRequest).",
+        "Review ParentImage: Office, browsers, wscript, mshta or web server processes as parent sharply raise suspicion.",
+        "Identify the user and host; confirm whether it is an admin or service account with known scripts.",
+        "On the same host, +/- 15 minutes, look for child processes, network connections, new files and scheduled tasks.",
+        "Check PowerShell Script Block logs (4104) for the deobfuscated code that actually ran.",
+        "Look for earlier alerts on the same host or user, and the same CommandLine pattern on other endpoints."
+      ],
+      "false_positives": [
+        "Admin or inventory scripts converting hex values, bytes or dates with [Convert] and ToString.",
+        "Management or software deployment tools generating PowerShell commands that use -join or -split to process text.",
+        "Developers or analysts testing character conversions in the console."
+      ],
+      "response_steps": [
+        "If the decoded text is malicious, isolate the endpoint and preserve memory, PowerShell logs and relevant artifacts.",
+        "Block domains, IPs or hashes recovered from decoding and hunt for them across the environment.",
+        "Remove confirmed persistence (tasks, services, Run keys) and reset the user's credentials if compromise is confirmed.",
+        "If legitimate, document the script and its path and add a narrow exclusion by host, user and CommandLine."
+      ],
+      "severity_rationale": "Low because the patterns are broad and common in legitimate scripts; real severity depends on what the command reconstructs and its context."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "powershell.exe rebuilding a string from character codes with [char] and -join (gen_1 branch)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -NoP -C \"$s=(72,101,108,108,111 | ForEach-Object {[char]$_}) -join ''; Write-Output $s\""
+        }
+      },
+      {
+        "description": "pwsh.exe using [Convert]::ToByte together with ToString (selection_to_1 and selection_to_2)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "pwsh.exe -NoProfile -Command \"$b=[Convert]::ToByte('7F',16); $b.ToString()\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "powershell.exe formatting a date with ToString only; no numeric conversion, char/join or split/join",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -NoP -C \"(Get-Date).ToString('yyyy-MM-dd')\""
+        }
+      },
+      {
+        "description": "node.exe using fromCharCode and join; matching strings but the image is not PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\nodejs\\node.exe",
+          "OriginalFileName": "node.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "node.exe -e \"console.log([72,105].map(c=>String.fromCharCode(c)).join(''))\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

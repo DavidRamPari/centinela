@@ -1,0 +1,138 @@
+{
+  "rule": {
+    "id": "a58353df-af43-4753-bad0-cd83ef35eef5",
+    "title": "Suspicious Usage Of Active Directory Diagnostic Tool (ntdsutil.exe)",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_ntdsutil_susp_usage.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_ntdsutil_susp_usage.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó ntdsutil.exe con argumentos para montar un snapshot de Active Directory o activar la instancia NTDS, pasos habituales antes de copiar NTDS.dit. Puede ser administración legítima o un intento de robo de credenciales del dominio.",
+      "what_it_detects": "Creación de procesos de ntdsutil.exe (por Image u OriginalFileName) cuyo CommandLine contiene 'snapshot' y 'mount ', o las formas abreviadas de 'activate instance ntds' (por ejemplo 'ac i ntds'), que se usan con 'ifm create full'.",
+      "why_it_matters": "Con NTDS.dit y la clave SYSTEM, un atacante puede extraer offline los hashes de todas las cuentas del dominio, incluida krbtgt (T1003.003, volcado de credenciales NTDS). Eso permite moverse lateralmente y persistir en todo el dominio.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique 'ifm create full' o 'snapshot mount', la ruta de salida y si los comandos usan formas abreviadas, frecuentes en uso malicioso.",
+        "Confirme que el host es un controlador de dominio y que el usuario pertenece a un grupo de administración autorizado, como Domain Admins o el equipo de respaldo.",
+        "Analice ParentImage y la cadena de procesos: cmd.exe, powershell.exe, wmiprvse.exe o un agente remoto inusual aumentan la sospecha.",
+        "En el mismo host, dentro de +/- 15 minutos, busque dsamain.exe, vssadmin, reg save HKLM\\SYSTEM o archivos ntds.dit creados en rutas temporales.",
+        "Busque compresión (7z, rar, Compress-Archive) o copias del directorio de salida hacia recursos compartidos, servidores web o destinos externos.",
+        "Revise los inicios de sesión del usuario en el DC (eventos 4624/4672) y si vienen de una IP de origen o estación inesperada.",
+        "Verifique alertas previas para el mismo usuario y host, y si existe un ticket de cambio o una ventana de mantenimiento."
+      ],
+      "false_positives": [
+        "Restauración legítima de snapshots de AD por administradores durante una recuperación.",
+        "Creación de medios IFM para promover un nuevo controlador de dominio.",
+        "Tareas programadas de respaldo o auditoría de AD documentadas."
+      ],
+      "response_steps": [
+        "Valide con el administrador y el ticket de cambio; si no hay justificación, escale como incidente de credenciales de dominio.",
+        "Aísle el DC de la red solo si confirma actividad maliciosa, coordinando con el equipo de AD para no afectar la replicación.",
+        "Ubique y asegure los archivos IFM o snapshot generados para preservar evidencia; elimínelos solo después de recolectarla.",
+        "Si hubo exfiltración, restablezca krbtgt dos veces y las cuentas privilegiadas, y revoque las sesiones activas.",
+        "Investigue el acceso inicial a la cuenta usada y refuerce el monitoreo de ntdsutil y del acceso a NTDS.dit."
+      ],
+      "severity_rationale": "Nivel medio porque estas acciones tienen usos administrativos legítimos, pero en manos de un atacante comprometen todas las credenciales del dominio."
+    },
+    "en": {
+      "summary": "ntdsutil.exe ran with arguments that mount an Active Directory snapshot or activate the NTDS instance, both common steps before copying NTDS.dit. It may be legitimate administration or an attempt to steal domain credentials.",
+      "what_it_detects": "ntdsutil.exe process creation (by Image or OriginalFileName) where CommandLine contains 'snapshot' and 'mount ', or short forms of 'activate instance ntds' (for example 'ac i ntds'), which are used with 'ifm create full'.",
+      "why_it_matters": "With NTDS.dit and the SYSTEM hive, an attacker can extract every domain account hash offline, including krbtgt (T1003.003, NTDS credential dumping). That enables domain-wide lateral movement and persistence.",
+      "triage_steps": [
+        "Read the full CommandLine: look for 'ifm create full' or 'snapshot mount', the output path, and abbreviated commands, which are common in malicious use.",
+        "Confirm the host is a domain controller and the user is in an authorized admin group, such as Domain Admins or the backup team.",
+        "Check ParentImage and the process chain: cmd.exe, powershell.exe, wmiprvse.exe or an unusual remote agent raise suspicion.",
+        "On the same host within +/- 15 minutes, look for dsamain.exe, vssadmin, reg save HKLM\\SYSTEM, or ntds.dit files written to temp paths.",
+        "Look for compression (7z, rar, Compress-Archive) or copies of the output folder to shares, web servers or external destinations.",
+        "Review the user's logons to the DC (events 4624/4672) and whether they came from an unexpected source IP or workstation.",
+        "Check earlier alerts for the same user and host, and whether a change ticket or maintenance window exists."
+      ],
+      "false_positives": [
+        "Legitimate AD snapshot restores by administrators during recovery.",
+        "Creating IFM media to promote a new domain controller.",
+        "Documented scheduled AD backup or audit tasks."
+      ],
+      "response_steps": [
+        "Validate with the administrator and change ticket; without justification, escalate as a domain credential incident.",
+        "Isolate the DC only after confirming malicious activity, coordinating with the AD team to avoid breaking replication.",
+        "Locate and secure the generated IFM or snapshot files as evidence; delete them only after collection.",
+        "If exfiltration occurred, reset krbtgt twice and privileged accounts, and revoke active sessions.",
+        "Investigate how the account was compromised and tighten monitoring of ntdsutil and NTDS.dit access."
+      ],
+      "severity_rationale": "Medium because these actions have legitimate admin uses, but in an attacker's hands they expose every credential in the domain."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "ntdsutil mounts an AD snapshot from a command prompt on a domain controller",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\ntdsutil.exe",
+          "OriginalFileName": "ntdsutil.exe",
+          "CommandLine": "ntdsutil snapshot \"mount c2b3e2c6-1ffb-4625-ba8e-3503c27a9fcb\" quit quit",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "ntdsutil activates the NTDS instance with short form and creates IFM media in a temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-02.andes.example.com",
+          "User": "ANDES\\svc-backup",
+          "Image": "C:\\Windows\\System32\\ntdsutil.exe",
+          "OriginalFileName": "ntdsutil.exe",
+          "CommandLine": "ntdsutil \"ac i ntds\" \"ifm\" \"create full C:\\Windows\\Temp\\data\" q q",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "ntdsutil only lists snapshots, without mounting or activating an instance",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\ntdsutil.exe",
+          "OriginalFileName": "ntdsutil.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\ntdsutil.exe\" snapshot \"list all\" quit quit",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "ntdsutil used for metadata cleanup of a decommissioned DC",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\ntdsutil.exe",
+          "OriginalFileName": "ntdsutil.exe",
+          "CommandLine": "ntdsutil \"metadata cleanup\" \"remove selected server DC-OLD\" q q",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

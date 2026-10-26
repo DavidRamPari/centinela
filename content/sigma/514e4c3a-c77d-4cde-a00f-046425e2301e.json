@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "514e4c3a-c77d-4cde-a00f-046425e2301e",
+    "title": "Abuse of Service Permissions to Hide Services Via Set-Service",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_hide_services_via_set_service.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_hide_services_via_set_service.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1574.011"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó PowerShell 7 (pwsh.exe) con Set-Service y un SecurityDescriptor SDDL que niega permisos (DCLCWPDTSD) sobre un servicio. Es una técnica conocida para ocultar un servicio de sc.exe, Get-Service y otras herramientas.",
+      "what_it_detects": "Procesos de creación cuyo Image termina en \\pwsh.exe u OriginalFileName es pwsh.dll, con un CommandLine que contiene 'Set-Service ', la cadena de permisos de denegación 'DCLCWPDTSD' y el parámetro -SecurityDescriptorSddl o su alias -sd.",
+      "why_it_matters": "Un atacante con privilegios puede aplicar ACE de denegación a usuarios interactivos, de servicio y administradores para que un servicio malicioso no pueda listarse, detenerse ni eliminarse. Así obtiene persistencia oculta. Corresponde a T1574.011 (abuso de permisos del registro de servicios).",
+      "triage_steps": [
+        "Extraiga del CommandLine el nombre del servicio (-Name) y el SDDL completo. Confirme si hay ACE de denegación (D;;DCLCWPDTSD) para IU, SU o BA.",
+        "Revise ParentImage y el árbol de procesos: ¿pwsh.exe se lanzó desde explorer, una consola de administración, una tarea programada, WMI o un proceso inusual?",
+        "Identifique el usuario y su nivel de privilegios. Confirme si es un administrador autorizado y si había un cambio aprobado.",
+        "Consulte HKLM\\SYSTEM\\CurrentControlSet\\Services\\<nombre> para revisar ImagePath, Start y la subclave Security. El registro sigue mostrando el servicio aunque sc.exe no lo liste.",
+        "Busque los eventos 7045/4697 (instalación de servicio) y la actividad de sc.exe, New-Service o del registro en el mismo host +/- 15 minutos.",
+        "Obtenga el hash y la firma del binario de ImagePath, y revise sus conexiones de red y alertas previas del host y del usuario."
+      ],
+      "false_positives": [
+        "Uso intencional y poco frecuente de servicios ocultos por parte de productos de seguridad o agentes de protección contra manipulación.",
+        "Pruebas de red team, laboratorios o ejercicios de detección autorizados que reproducen la técnica."
+      ],
+      "response_steps": [
+        "Verifique con el responsable del host o del cambio si la modificación fue autorizada antes de actuar.",
+        "Si no fue autorizada, aísle el endpoint y preserve las evidencias: CommandLine, clave del registro del servicio y binario de ImagePath.",
+        "Restaure un SDDL por defecto con sc.exe sdset ejecutado como administrador o SYSTEM, luego detenga, deshabilite y elimine el servicio malicioso.",
+        "Revise y restablezca las credenciales del usuario implicado, y busque la misma cadena SDDL en otros hosts.",
+        "Supervise el host tras la recuperación para detectar si la persistencia reaparece."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque ocultar servicios requiere privilegios elevados y casi nunca tiene un uso legítimo, de modo que indica persistencia deliberada y sigilosa."
+    },
+    "en": {
+      "summary": "PowerShell 7 (pwsh.exe) ran Set-Service with an SDDL security descriptor that denies rights (DCLCWPDTSD) on a service. This is a known way to hide a service from sc.exe, Get-Service and similar tools.",
+      "what_it_detects": "Process creation events where Image ends with \\pwsh.exe or OriginalFileName is pwsh.dll, and CommandLine contains 'Set-Service ', the deny rights string 'DCLCWPDTSD', and -SecurityDescriptorSddl or its -sd alias.",
+      "why_it_matters": "A privileged attacker can add deny ACEs for interactive users, service accounts and administrators, so nobody can list, stop or delete a malicious service. This gives hidden persistence. It maps to T1574.011 (Services Registry Permissions Weakness).",
+      "triage_steps": [
+        "Get the service name (-Name) and the full SDDL from CommandLine. Check for deny ACEs (D;;DCLCWPDTSD) targeting IU, SU or BA.",
+        "Review ParentImage and the process tree. Was pwsh.exe started from an admin console, a scheduled task, WMI or an unusual process?",
+        "Identify the user and their privileges. Check whether they are an authorized admin and whether an approved change exists.",
+        "Inspect HKLM\\SYSTEM\\CurrentControlSet\\Services\\<name> for ImagePath, Start and the Security subkey. The registry still shows the service even when sc.exe does not.",
+        "Look for events 7045/4697 (service install) and for sc.exe, New-Service or registry activity on the same host within +/- 15 minutes.",
+        "Get the hash and signature of the ImagePath binary. Review its network connections and earlier alerts for the host and the user."
+      ],
+      "false_positives": [
+        "Rare intended use of hidden services, for example by security products or tamper-protection agents.",
+        "Authorized red team tests, labs or detection exercises that reproduce the technique."
+      ],
+      "response_steps": [
+        "Before acting, check with the host or change owner whether the modification was authorized.",
+        "If it was not authorized, isolate the endpoint and preserve evidence: CommandLine, the service registry key and the ImagePath binary.",
+        "As administrator or SYSTEM, restore a default SDDL with sc.exe sdset. Then stop, disable and remove the malicious service.",
+        "Reset the involved user's credentials and hunt for the same SDDL string on other hosts.",
+        "After recovery, monitor the host in case the persistence comes back."
+      ],
+      "severity_rationale": "High fits because hiding a service needs elevated privileges and almost never has a legitimate use, so it signals deliberate, stealthy persistence."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "pwsh.exe hides a service with -SecurityDescriptorSddl and deny ACEs for IU, SU and BA",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NoProfile -Command \"Set-Service -Name UpdSvcHost -SecurityDescriptorSddl 'D:(D;;DCLCWPDTSD;;;IU)(D;;DCLCWPDTSD;;;SU)(D;;DCLCWPDTSD;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)'\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed pwsh binary (OriginalFileName pwsh.dll) uses the -sd alias",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Users\\Public\\winhelper.exe",
+          "OriginalFileName": "pwsh.dll",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "CommandLine": "winhelper.exe -c \"Set-Service -Name SyncAgent -sd 'D:(D;;DCLCWPDTSD;;;BA)(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)'\"",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin applies a standard SDDL without the DCLCWPDTSD deny rights",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.rgomez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -Command \"Set-Service -Name Spooler -SecurityDescriptorSddl 'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;IU)'\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Routine Set-Service startup type change in pwsh.exe without a security descriptor",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\admin.rgomez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -Command \"Set-Service -Name wuauserv -StartupType Manual\"",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

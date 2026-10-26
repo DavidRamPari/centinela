@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "21d856f9-9281-4ded-9377-51a1a6e2a432",
+    "title": "Potential Persistence Via Logon Scripts - CommandLine",
+    "level": "high",
+    "status": "test",
+    "author": "Tom Ueltschi (@c_APT_ure)",
+    "path": "windows/process_creation/proc_creation_win_registry_logon_script.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_registry_logon_script.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1037.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso cuya línea de comandos menciona el valor de registro UserInitMprLogonScript. Puede indicar que se está configurando un script de inicio de sesión para lograr persistencia.",
+      "what_it_detects": "Cualquier creación de proceso en Windows cuyo CommandLine contenga 'UserInitMprLogonScript', normalmente reg.exe o PowerShell escribiendo en HKCU\\Environment. Este valor se ejecuta cada vez que el usuario inicia sesión.",
+      "why_it_matters": "Un atacante puede apuntar UserInitMprLogonScript a un script o binario propio para que se ejecute en cada inicio de sesión sin privilegios de administrador (ATT&CK T1037.001, Logon Script: Windows). Esto otorga persistencia y puede ejecutarse antes que algunas defensas del usuario.",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique la operación (add, query, delete, Set-ItemProperty) y la ruta o comando asignado como dato del valor.",
+        "Revise el archivo referenciado: ubicación (Temp, AppData, Public), hash, firma, fecha de creación y reputación.",
+        "Analice ParentImage y el árbol de procesos: Office, navegadores, wscript, mshta o cmd lanzado desde un documento elevan la sospecha.",
+        "Confirme el usuario y el host; valide si es un administrador o herramienta de gestión conocida que suele modificar scripts de inicio.",
+        "Consulte el registro HKCU\\Environment\\UserInitMprLogonScript del usuario afectado (eventos Sysmon 13 o EDR) para ver el valor actual.",
+        "Pivote en el mismo host +/- 15 minutos: descargas, creación de archivos, conexiones de red y otras técnicas de persistencia.",
+        "Busque alertas previas para el mismo usuario, host o hash del script y el mismo CommandLine en otros endpoints."
+      ],
+      "false_positives": [
+        "Administradores o herramientas de terceros que agregan scripts de inicio de sesión legítimos desde la línea de comandos.",
+        "Scripts de inventario o auditoría que solo consultan el valor con reg query.",
+        "Software de gestión de escritorio o instaladores que configuran mapeo de unidades al iniciar sesión."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o el equipo de TI si el cambio estaba autorizado antes de actuar.",
+        "Si es malicioso, aísle el endpoint y preserve el script referenciado y la evidencia del registro.",
+        "Elimine el valor UserInitMprLogonScript malicioso y el archivo asociado tras documentarlos y obtener el hash.",
+        "Restablezca credenciales del usuario si hubo ejecución de payload y busque el mismo indicador en toda la flota.",
+        "Monitoree el host para detectar reinstalación de la persistencia tras la limpieza."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque modificar este valor por línea de comandos es poco común en operación normal y otorga persistencia directa en cada inicio de sesión."
+    },
+    "en": {
+      "summary": "A process ran with a command line referencing the UserInitMprLogonScript registry value. This may indicate a logon script being configured for persistence.",
+      "what_it_detects": "Any Windows process creation whose CommandLine contains 'UserInitMprLogonScript', typically reg.exe or PowerShell writing to HKCU\\Environment. That value is executed every time the user logs on.",
+      "why_it_matters": "An attacker can point UserInitMprLogonScript to their own script or binary so it runs at every logon without admin rights (ATT&CK T1037.001, Logon Script: Windows), giving persistence and possibly privilege escalation.",
+      "triage_steps": [
+        "Read the full CommandLine: identify the operation (add, query, delete, Set-ItemProperty) and the path or command set as the value data.",
+        "Inspect the referenced file: location (Temp, AppData, Public), hash, signature, creation time and reputation.",
+        "Review ParentImage and the process tree: Office, browsers, wscript, mshta or document-spawned cmd raise suspicion.",
+        "Confirm user and host; check whether this is a known admin or management tool that sets logon scripts.",
+        "Check the current HKCU\\Environment\\UserInitMprLogonScript value for that user (Sysmon event 13 or EDR registry data).",
+        "Pivot on the same host +/- 15 minutes: downloads, file writes, network connections and other persistence techniques.",
+        "Look for earlier alerts for the same user, host or script hash, and the same CommandLine on other endpoints."
+      ],
+      "false_positives": [
+        "Administrators or third-party tools legitimately adding logon scripts via the command line.",
+        "Inventory or audit scripts that only query the value with reg query.",
+        "Desktop management software or installers configuring drive mappings at logon."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT whether the change was authorized before acting.",
+        "If malicious, isolate the endpoint and preserve the referenced script and registry evidence.",
+        "Remove the malicious UserInitMprLogonScript value and file after documenting them and recording the hash.",
+        "Reset the user's credentials if a payload ran and hunt for the same indicator fleet-wide.",
+        "Monitor the host for re-creation of the persistence after cleanup."
+      ],
+      "severity_rationale": "High fits because setting this value from the command line is rare in normal operations and gives direct persistence at every logon."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe launched from cmd sets UserInitMprLogonScript to a batch file in a public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg add HKCU\\Environment /v UserInitMprLogonScript /t REG_SZ /d \"C:\\Users\\Public\\update.bat\" /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\jperez\\AppData\\Local\\Temp\\setup.cmd"
+        }
+      },
+      {
+        "description": "PowerShell Set-ItemProperty writes the logon script value",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoP Set-ItemProperty -Path 'HKCU:\\Environment' -Name 'UserInitMprLogonScript' -Value 'C:\\Users\\mrojas\\AppData\\Roaming\\svc.exe'",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "reg.exe modifying a different value under HKCU\\Environment",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg add HKCU\\Environment /v JAVA_HOME /t REG_SZ /d \"C:\\Program Files\\Java\\jdk-17\" /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Domain logon script executed via Group Policy without referencing the registry value",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\lgarcia",
+          "Image": "C:\\Windows\\System32\\gpscript.exe",
+          "CommandLine": "gpscript.exe /Logon",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "d3c3861d-c504-4c77-ba55-224ba82d0118",
+    "title": "New Network Trace Capture Started Via Netsh.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Kutepov Anton, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_netsh_packet_capture.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_netsh_packet_capture.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1040"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó netsh.exe con los argumentos 'trace' y 'start', lo que inicia una captura de red integrada en Windows. Puede ser diagnóstico legítimo o un intento de interceptar tráfico y credenciales.",
+      "what_it_detects": "Creación de un proceso cuyo Image termina en \\netsh.exe o cuyo OriginalFileName es netsh.exe, con un CommandLine que contiene 'trace' y 'start' (por ejemplo, 'netsh trace start capture=yes tracefile=...'). Por la coincidencia en OriginalFileName también detecta copias renombradas del binario.",
+      "why_it_matters": "Netsh trace permite capturar paquetes sin instalar herramientas adicionales (ATT&CK T1040, Network Sniffing). Un atacante puede usarlo para obtener credenciales en texto claro, hashes de autenticación o información de la red interna, y guardar el archivo .etl para exfiltrarlo.",
+      "triage_steps": [
+        "Revise el CommandLine completo: capture=yes, tracefile (ruta y nombre), persistent=yes, maxsize, filtros IPv4.Address o Protocol, y escenarios como NetConnection.",
+        "Compare Image con OriginalFileName: si netsh.exe se ejecuta desde una ruta distinta de System32 o SysWOW64, o con otro nombre, trate el evento como sospechoso.",
+        "Identifique el usuario y el ParentImage: un shell lanzado por Office, un navegador, un servicio web o una herramienta de acceso remoto es poco habitual para diagnóstico.",
+        "Confirme si existe un ticket, ventana de cambio o caso de soporte que justifique la captura en ese host y con ese usuario.",
+        "Busque en el mismo host, +/- 15 minutos, 'netsh trace stop', la creación del archivo .etl o .cab y accesos posteriores a esos archivos.",
+        "Revise actividad posterior: compresión, copia a recursos compartidos, subida a servicios externos o conversión del .etl con etl2pcapng u otras herramientas.",
+        "Consulte alertas previas para el mismo host y usuario (descubrimiento, volcado de credenciales, movimiento lateral) y si el comando se repite en otros endpoints."
+      ],
+      "false_positives": [
+        "Administradores o personal de soporte que capturan tráfico para diagnosticar problemas de red, VPN, Wi-Fi o rendimiento.",
+        "Herramientas de diagnóstico de Microsoft o del fabricante que recopilan trazas de red de forma automatizada.",
+        "Scripts de soporte o de recolección de logs usados por mesa de ayuda, con rutas y usuarios conocidos."
+      ],
+      "response_steps": [
+        "Valide con el dueño del host o el usuario si la captura estaba autorizada; documente la justificación si es legítima.",
+        "Si no está autorizada, detenga la captura con 'netsh trace stop' y preserve el archivo .etl como evidencia, calculando su hash.",
+        "Aísle el endpoint si hay indicios de exfiltración o de otras actividades maliciosas y revise la cuenta implicada.",
+        "Restablezca credenciales que pudieron transitar en texto claro o autenticarse desde el host durante la captura.",
+        "Elimine artefactos y persistencia tras la investigación y considere restringir netsh trace a grupos administrativos aprobados."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque netsh trace es una herramienta administrativa común, pero su uso no autorizado expone credenciales y tráfico sensible."
+    },
+    "en": {
+      "summary": "netsh.exe was run with the 'trace' and 'start' arguments, starting a built-in Windows network capture. It may be legitimate troubleshooting or an attempt to intercept traffic and credentials.",
+      "what_it_detects": "Process creation where Image ends with \\netsh.exe or OriginalFileName is netsh.exe, and CommandLine contains both 'trace' and 'start' (e.g. 'netsh trace start capture=yes tracefile=...'). The OriginalFileName match also catches renamed copies.",
+      "why_it_matters": "netsh trace captures packets without installing extra tools (ATT&CK T1040, Network Sniffing). Attackers can harvest cleartext credentials, authentication hashes or internal network details and save the .etl file for exfiltration.",
+      "triage_steps": [
+        "Read the full CommandLine: capture=yes, tracefile path and name, persistent=yes, maxsize, IPv4.Address or Protocol filters, and scenarios such as NetConnection.",
+        "Compare Image with OriginalFileName: netsh.exe outside System32 or SysWOW64, or under another name, is suspicious.",
+        "Identify the user and ParentImage: a shell spawned by Office, a browser, a web service or a remote access tool is unusual for troubleshooting.",
+        "Check for a ticket, change window or support case that justifies a capture on this host by this user.",
+        "On the same host within +/- 15 minutes, look for 'netsh trace stop', creation of the .etl or .cab file, and later access to it.",
+        "Look for follow-up activity: compression, copying to shares, uploads to external services, or conversion of the .etl with etl2pcapng or similar.",
+        "Review earlier alerts for the same host and user (discovery, credential dumping, lateral movement) and whether the command appears on other endpoints."
+      ],
+      "false_positives": [
+        "Administrators or support staff capturing traffic to troubleshoot network, VPN, Wi-Fi or performance issues.",
+        "Microsoft or vendor diagnostic tools that collect network traces automatically.",
+        "Helpdesk support or log collection scripts running from known paths and accounts."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or user whether the capture was authorized; document the justification if legitimate.",
+        "If unauthorized, stop the capture with 'netsh trace stop' and preserve the .etl file as evidence, recording its hash.",
+        "Isolate the endpoint if there are signs of exfiltration or other malicious activity, and review the account involved.",
+        "Reset credentials that may have crossed the network in cleartext or authenticated from the host during the capture.",
+        "After investigation, remove artifacts and persistence, and consider restricting netsh trace to approved admin groups."
+      ],
+      "severity_rationale": "Medium fits because netsh trace is a common admin tool, but unauthorized use exposes credentials and sensitive traffic."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "netsh.exe from System32 starting a persistent packet capture to a public folder",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh trace start capture=yes persistent=yes maxsize=512 tracefile=C:\\Users\\Public\\diag.etl",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat"
+        }
+      },
+      {
+        "description": "Renamed netsh copy detected via OriginalFileName, capturing traffic to a specific IP",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\Intel\\nwt.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "nwt.exe trace start capture=yes IPv4.Address=192.0.2.15 tracefile=C:\\ProgramData\\Intel\\t.etl",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "netsh stopping an existing trace: contains 'trace' but not 'start'",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh trace stop",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "netsh used for firewall configuration, no trace arguments",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0188.andes.example.com",
+          "User": "ANDES\\admin.lrojas",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh advfirewall show allprofiles state",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

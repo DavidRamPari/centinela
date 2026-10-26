@@ -1,0 +1,125 @@
+{
+  "rule": {
+    "id": "0b4ae027-2a2d-4b93-8c7e-962caaba5b2a",
+    "title": "Time Travel Debugging Utility Usage",
+    "level": "high",
+    "status": "test",
+    "author": "Ensar Şamil, @sblmsrsn, @oscd_initiative",
+    "path": "windows/process_creation/proc_creation_win_lolbin_tttracer_mod_load.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_tttracer_mod_load.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.001",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso fue creado con tttracer.exe (Time Travel Debugging) como proceso padre. Esto puede indicar ejecución de código mediante un binario firmado de Microsoft o el volcado de memoria de procesos como lsass.exe.",
+      "what_it_detects": "Eventos de creación de procesos cuyo ParentImage termina en \\tttracer.exe, es decir, cualquier proceso hijo iniciado por la utilidad Time Travel Debugging de Windows.",
+      "why_it_matters": "tttracer.exe es un LOLBin firmado. Permite lanzar procesos arbitrarios por proxy, lo que sirve para evadir controles (T1218), y adjuntarse a lsass.exe para capturar su memoria y robar credenciales (T1003.001).",
+      "triage_steps": [
+        "Revise Image y CommandLine del proceso hijo. Confirme si es un binario conocido de desarrollo o algo inusual como cmd.exe, powershell.exe o un ejecutable en carpetas temporales.",
+        "Revise el CommandLine del padre tttracer.exe. Busque opciones -attach o -dumpFull, un PID que corresponda a lsass.exe y la ruta de salida del archivo .run o .out.",
+        "Identifique al usuario y el host. Verifique si el usuario es desarrollador o tester y si el equipo tiene herramientas de depuración instaladas de forma legítima.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, archivos .run/.out creados, accesos a lsass.exe y conexiones de red salientes.",
+        "Obtenga el hash del proceso hijo y del ejecutable que se trazó, y consulte su reputación en sus fuentes de inteligencia.",
+        "Revise el proceso abuelo, es decir, quién lanzó tttracer.exe, y si existen alertas previas para el mismo usuario o host."
+      ],
+      "false_positives": [
+        "Desarrolladores o testers que usan Time Travel Debugging para analizar fallas de sus aplicaciones.",
+        "Equipos de soporte que capturan trazas de diagnóstico a pedido de un proveedor."
+      ],
+      "response_steps": [
+        "Valide con el usuario y su responsable si la depuración fue autorizada y qué proceso se trazó.",
+        "Si se trazó lsass.exe o el hijo es sospechoso, aísle el endpoint y preserve los archivos de traza como evidencia.",
+        "Restablezca las credenciales de las cuentas con sesión en el host si se confirma un volcado de lsass.",
+        "Elimine los artefactos maliciosos después de preservarlos y restrinja tttracer.exe con AppLocker o WDAC en equipos que no sean de desarrollo."
+      ],
+      "severity_rationale": "Es nivel alto porque el uso de tttracer.exe es poco común fuera de entornos de desarrollo y puede llevar directamente a robo de credenciales o a ejecución evasiva."
+    },
+    "en": {
+      "summary": "A process was spawned by tttracer.exe, the Windows Time Travel Debugging utility. This may mean proxied code execution through a signed Microsoft binary or a memory dump of a process such as lsass.exe.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\tttracer.exe, meaning any child process launched by the Time Travel Debugging utility.",
+      "why_it_matters": "tttracer.exe is a signed LOLBin. It can launch arbitrary processes by proxy to evade controls (T1218), and it can attach to lsass.exe to capture its memory and steal credentials (T1003.001).",
+      "triage_steps": [
+        "Inspect the child's Image and CommandLine. Is it a known development binary, or something unusual like cmd.exe, powershell.exe or an executable in a temp folder?",
+        "Inspect the parent tttracer.exe command line for -attach or -dumpFull options, a PID belonging to lsass.exe, and the output path of .run or .out files.",
+        "Identify the user and host. Confirm whether the user is a developer or tester and whether debugging tools are legitimately deployed on the host.",
+        "On the same host within +/- 15 minutes, look for new .run/.out files, access to lsass.exe and outbound network connections.",
+        "Get the hashes of the child and of the traced executable, then check their reputation in your threat intel sources.",
+        "Check the grandparent process (whatever launched tttracer.exe) and any earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "Developers or testers using Time Travel Debugging to investigate application crashes.",
+        "Support staff capturing diagnostic traces at a vendor's request."
+      ],
+      "response_steps": [
+        "Ask the user and their manager whether the debugging was authorized and which process was traced.",
+        "If lsass.exe was traced or the child is suspicious, isolate the endpoint and preserve the trace files as evidence.",
+        "If an lsass dump is confirmed, reset credentials for every account with a session on the host.",
+        "After preserving evidence, remove the malicious artifacts and block tttracer.exe with AppLocker or WDAC on non-development hosts."
+      ],
+      "severity_rationale": "High fits because tttracer.exe is rarely used outside development environments, and its abuse leads directly to credential theft or evasive execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "tttracer.exe used to proxy-launch a PowerShell process from a temp folder",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\tttracer.exe",
+          "ParentCommandLine": "tttracer.exe -out C:\\Users\\jperez\\AppData\\Local\\Temp C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -nop",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop"
+        }
+      },
+      {
+        "description": "tttracer.exe launching an unknown executable from a user profile",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Windows\\System32\\TTTracer.exe",
+          "ParentCommandLine": "TTTracer.exe C:\\Users\\Public\\update.exe",
+          "Image": "C:\\Users\\Public\\update.exe",
+          "CommandLine": "C:\\Users\\Public\\update.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "tttracer.exe itself launched by cmd.exe; the parent is not tttracer.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Image": "C:\\Windows\\System32\\tttracer.exe",
+          "CommandLine": "tttracer.exe -attach 4521 -out C:\\traces"
+        }
+      },
+      {
+        "description": "Process launched by a similarly named binary that does not end with \\tttracer.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "ParentImage": "C:\\Tools\\tttracer_helper.exe",
+          "Image": "C:\\Tools\\myapp.exe",
+          "CommandLine": "C:\\Tools\\myapp.exe --test"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

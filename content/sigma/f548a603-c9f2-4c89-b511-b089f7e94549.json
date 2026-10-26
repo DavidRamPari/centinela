@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "f548a603-c9f2-4c89-b511-b089f7e94549",
+    "title": "Potential Persistence Via Microsoft Compatibility Appraiser",
+    "level": "medium",
+    "status": "test",
+    "author": "Sreeman",
+    "path": "windows/process_creation/proc_creation_win_schtasks_persistence_windows_telemetry.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_schtasks_persistence_windows_telemetry.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1053.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó manualmente con schtasks.exe la tarea \"Microsoft Compatibility Appraiser\". Puede ser un intento de activar persistencia guardada en la clave de registro AppCompatFlags\\TelemetryController.",
+      "what_it_detects": "Procesos schtasks.exe (por Image u OriginalFileName) cuyo CommandLine contiene 'run ' y la ruta '\\Application Experience\\Microsoft Compatibility Appraiser'; es decir, el inicio a demanda de la tarea de telemetría de compatibilidad.",
+      "why_it_matters": "La tarea ejecuta CompatTelRunner.exe como SYSTEM, que lanza los valores Command definidos en las subclaves de TelemetryController. Un atacante con permisos de administrador puede registrar ahí un payload y dispararlo (T1053.005, tarea programada) para persistir o escalar privilegios.",
+      "triage_steps": [
+        "Revise el CommandLine completo, el usuario, el ParentImage y la línea de comandos del proceso padre. Un origen como cmd, PowerShell, wscript o un binario desconocido aumenta la sospecha.",
+        "Inspeccione HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\TelemetryController en busca de subclaves no estándar con un valor Command que apunte a scripts o binarios inusuales.",
+        "Busque eventos de modificación del registro (registry_set) sobre TelemetryController en el mismo host dentro de +/- 15 minutos, o antes, y anote el proceso que los realizó.",
+        "Identifique procesos hijos de CompatTelRunner.exe después de la ejecución: un cmd.exe, powershell.exe o un ejecutable fuera de System32 indica abuso.",
+        "Verifique el hash y la firma de cualquier binario referenciado en Command y búsquelo en su inteligencia de amenazas.",
+        "Pivote por el mismo usuario y el mismo host: inicios de sesión recientes, alertas previas, conexiones de red salientes y otras ejecuciones de schtasks."
+      ],
+      "false_positives": [
+        "Administradores o soporte técnico que fuerzan la tarea para diagnosticar telemetría o la evaluación de compatibilidad.",
+        "Scripts de preparación para actualizaciones de Windows, o herramientas de gestión como SCCM o Intune, que lanzan la evaluación de compatibilidad a demanda."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de TI si la ejecución estaba autorizada y documentada.",
+        "Si la subclave de TelemetryController es maliciosa, aísle el endpoint y exporte la clave y los binarios referenciados como evidencia antes de cambiarlos.",
+        "Elimine la subclave maliciosa y el payload solo después de verificarlos. Termine los procesos hijos sospechosos y revise otras formas de persistencia.",
+        "Restablezca las credenciales de las cuentas administrativas usadas y busque el mismo indicador en otros hosts."
+      ],
+      "severity_rationale": "Medium es adecuado porque ejecutar la tarea manualmente es poco común y permite ejecutar código como SYSTEM, aunque por sí solo no confirma que haya una clave maliciosa."
+    },
+    "en": {
+      "summary": "schtasks.exe was used to start the \"Microsoft Compatibility Appraiser\" task manually. This may be an attempt to trigger persistence stored in the AppCompatFlags\\TelemetryController registry key.",
+      "what_it_detects": "schtasks.exe processes (matched by Image or OriginalFileName) whose CommandLine contains 'run ' and the path '\\Application Experience\\Microsoft Compatibility Appraiser', meaning an on-demand run of the compatibility telemetry task.",
+      "why_it_matters": "The task runs CompatTelRunner.exe as SYSTEM, and CompatTelRunner.exe executes the Command values under the TelemetryController subkeys. An attacker with admin rights can plant a payload there and trigger it (T1053.005, scheduled task) to persist or escalate privileges.",
+      "triage_steps": [
+        "Check the full CommandLine, the user, the ParentImage and the parent's command line. A parent such as cmd, PowerShell, wscript or an unknown binary raises suspicion.",
+        "Inspect HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\AppCompatFlags\\TelemetryController for non-standard subkeys whose Command value points to unusual scripts or binaries.",
+        "Search for registry_set events on TelemetryController on the same host within +/- 15 minutes, or earlier, and note which process made the change.",
+        "Look for child processes of CompatTelRunner.exe after the run. A cmd.exe, a powershell.exe or an executable outside System32 indicates abuse.",
+        "Check the hash and signature of any binary referenced in Command and look it up in threat intelligence.",
+        "Pivot on the same user and host: recent logons, earlier alerts, outbound network connections and other schtasks executions."
+      ],
+      "false_positives": [
+        "Administrators or support staff forcing the task to troubleshoot telemetry or the compatibility assessment.",
+        "Windows upgrade-readiness scripts, or management tools such as SCCM or Intune, that run the compatibility appraisal on demand."
+      ],
+      "response_steps": [
+        "Confirm with the user or the IT team whether the run was authorized and documented.",
+        "If a TelemetryController subkey is malicious, isolate the endpoint and export the key and the referenced binaries as evidence before changing anything.",
+        "Remove the malicious subkey and payload only after verifying them. Kill suspicious child processes and look for other persistence.",
+        "Reset the credentials of the admin accounts involved and hunt for the same indicator on other hosts."
+      ],
+      "severity_rationale": "Medium fits because running this task manually is uncommon and allows code to run as SYSTEM, but on its own it does not prove that a malicious key exists."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell spawns schtasks to run the Compatibility Appraiser task on demand",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks.exe /run /tn \"\\Microsoft\\Windows\\Application Experience\\Microsoft Compatibility Appraiser\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed schtasks binary identified by OriginalFileName, launched from cmd",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\admin.local",
+          "Image": "C:\\Users\\Public\\st.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "st.exe /Run /TN \"\\Microsoft\\Windows\\Application Experience\\Microsoft Compatibility Appraiser\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin only queries the task status (no 'run ' in the command line)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\soporte",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks.exe /query /tn \"\\Microsoft\\Windows\\Application Experience\\Microsoft Compatibility Appraiser\" /v",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Scheduled task host starts CompatTelRunner normally (image is not schtasks)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\CompatTelRunner.exe",
+          "OriginalFileName": "CompatTelRunner.exe",
+          "CommandLine": "C:\\Windows\\system32\\compattelrunner.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

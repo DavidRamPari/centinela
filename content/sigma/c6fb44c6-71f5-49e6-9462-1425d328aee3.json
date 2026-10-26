@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "c6fb44c6-71f5-49e6-9462-1425d328aee3",
+    "title": "Powershell Base64 Encoded MpPreference Cmdlet",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_base64_mppreference.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_base64_mppreference.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso se ejecutó con una línea de comandos que contiene en Base64 (UTF-16LE o ASCII) los cmdlets Add-MpPreference o Set-MpPreference. Es muy probable que alguien intente modificar o desactivar Microsoft Defender ocultando el comando.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine incluye 'Add-MpPreference ' o 'Set-MpPreference ' codificados en Base64 en cualquier offset, típico de powershell.exe -EncodedCommand o de FromBase64String con iex.",
+      "why_it_matters": "Set/Add-MpPreference permite agregar exclusiones, desactivar la protección en tiempo real o el escaneo. Codificarlo busca evadir revisiones. Corresponde a deterioro de defensas (ATT&CK T1685; las pruebas referenciadas son de T1562.001) y suele preceder a la ejecución de malware.",
+      "triage_steps": [
+        "Decodifique el payload Base64 del CommandLine (UTF-16LE para -EncodedCommand) y anote los parámetros: -ExclusionPath, -ExclusionProcess, -DisableRealtimeMonitoring, etc.",
+        "Revise ParentImage y la cadena de procesos: Office, wscript, mshta, cmd o un servicio desconocido como padre es altamente sospechoso.",
+        "Confirme el usuario y si tiene privilegios administrativos; verifique si la cuenta suele administrar endpoints.",
+        "Consulte el estado actual de Defender en el host (Get-MpPreference) y compare exclusiones y configuraciones con la línea base.",
+        "Busque en el mismo host, +/- 15 minutos, creación de archivos o procesos en las rutas excluidas y conexiones de red salientes.",
+        "Revise eventos de Defender (5001, 5007) y alertas previas del mismo host o usuario.",
+        "Verifique si el mismo hash o patrón de comando aparece en otros endpoints."
+      ],
+      "false_positives": [
+        "Scripts de administración o despliegue (SCCM, Intune, RMM) que configuran Defender mediante comandos codificados.",
+        "Instaladores de software de seguridad o backup que agregan exclusiones propias.",
+        "Ejercicios de red team o pruebas con Atomic Red Team autorizados."
+      ],
+      "response_steps": [
+        "Valide con el dueño del sistema o el equipo de TI si el cambio estaba autorizado y documentado.",
+        "Si no lo estaba, aísle el endpoint desde el EDR y preserve evidencia (memoria, logs de PowerShell, prefetch).",
+        "Revierta las exclusiones o configuraciones modificadas y ejecute un escaneo completo de Defender.",
+        "Analice y elimine los artefactos encontrados en las rutas excluidas; restablezca credenciales de la cuenta implicada si hay compromiso.",
+        "Habilite Tamper Protection y registre en lista blanca únicamente los scripts de administración legítimos."
+      ],
+      "severity_rationale": "Nivel alto porque ocultar en Base64 un cambio de configuración de Defender rara vez es legítimo y suele anticipar la ejecución de malware."
+    },
+    "en": {
+      "summary": "A process ran with a command line containing a Base64-encoded (UTF-16LE or ASCII) Add-MpPreference or Set-MpPreference cmdlet. Someone is likely trying to change or disable Microsoft Defender while hiding the command.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains 'Add-MpPreference ' or 'Set-MpPreference ' Base64-encoded at any offset, typical of powershell.exe -EncodedCommand or FromBase64String piped to iex.",
+      "why_it_matters": "Set/Add-MpPreference can add exclusions or turn off real-time protection and scanning. Encoding hides intent from reviewers. This is defense impairment (ATT&CK T1685; referenced Atomic tests are T1562.001) and often precedes malware execution.",
+      "triage_steps": [
+        "Decode the Base64 payload in CommandLine (UTF-16LE for -EncodedCommand) and note parameters such as -ExclusionPath, -ExclusionProcess or -DisableRealtimeMonitoring.",
+        "Review ParentImage and the process tree; Office apps, wscript, mshta, cmd or an unknown service as parent is highly suspicious.",
+        "Identify the user and whether it is an administrator that normally manages endpoints.",
+        "Check current Defender settings on the host (Get-MpPreference) and compare exclusions against baseline.",
+        "Pivot on the same host +/- 15 minutes: file writes or process launches in excluded paths and outbound network connections.",
+        "Review Defender events 5001 and 5007 and earlier alerts for the same host or user.",
+        "Search other endpoints for the same command pattern or parent hash."
+      ],
+      "false_positives": [
+        "Management or deployment scripts (SCCM, Intune, RMM) configuring Defender with encoded commands.",
+        "Security or backup software installers adding their own exclusions.",
+        "Authorized red team exercises or Atomic Red Team tests."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or IT whether the change was authorized and documented.",
+        "If not, isolate the endpoint via EDR and preserve evidence (memory, PowerShell logs, prefetch).",
+        "Revert the modified exclusions or settings and run a full Defender scan.",
+        "Analyze and remove artifacts in excluded paths; reset credentials of the involved account if compromise is confirmed.",
+        "Enable Tamper Protection and allowlist only verified administrative scripts."
+      ],
+      "severity_rationale": "High fits because hiding a Defender configuration change in Base64 is rarely legitimate and usually precedes malware execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "powershell.exe launched from winword.exe with -EncodedCommand containing UTF-16LE 'Set-MpPreference -DisableRealtimeMonitoring 1'",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -NoProfile -WindowStyle Hidden -EncodedCommand UwBlAHQALQBNAHAAUAByAGUAZgBlAHIAZQBuAGMAZQAgAC0ARABpAHMAYQBiAGwAZQBSAGUAYQBsAHQAaQBtAGUATQBvAG4AaQB0AG8AcgBpAG4AZwAgADEA",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "ASCII Base64 of 'Set-MpPreference -DisableRealtimeMonitoring 1' decoded with FromBase64String and passed to iex",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -NoP -C \"iex([Text.Encoding]::ASCII.GetString([Convert]::FromBase64String('U2V0LU1wUHJlZmVyZW5jZSAtRGlzYWJsZVJlYWx0aW1lTW9uaXRvcmluZyAx')))\"",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator runs Set-MpPreference in plain text (not Base64) to change signature update interval",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-MGMT-01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command \"Set-MpPreference -SignatureUpdateInterval 4\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Encoded PowerShell command that only runs Get-Date, no MpPreference cmdlet",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -NoProfile -EncodedCommand RwBlAHQALQBEAGEAdABlAA==",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:57:07+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

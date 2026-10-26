@@ -1,0 +1,121 @@
+{
+  "rule": {
+    "id": "9ec9fb1b-e059-4489-9642-f270c207923d",
+    "title": "Hiding User Account Via SpecialAccounts Registry Key - CommandLine",
+    "level": "medium",
+    "status": "test",
+    "author": "@Kostastsale, TheDFIRReport",
+    "path": "windows/process_creation/proc_creation_win_registry_special_accounts_hide_user.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_registry_special_accounts_hide_user.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1564.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó reg.exe para crear un valor en la clave Winlogon\\SpecialAccounts\\UserList con dato 0. Esto oculta una cuenta local de la pantalla de inicio de sesión, algo que suele hacerse después de crear una cuenta de persistencia.",
+      "what_it_detects": "Creación de procesos de reg.exe cuyo CommandLine contiene la ruta \\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\SpecialAccounts\\UserList junto con 'add', '/v' y '/d 0'. El nombre que acompaña a /v es la cuenta que se oculta.",
+      "why_it_matters": "Corresponde a MITRE ATT&CK T1564.002 (Hide Artifacts: Hidden Users). Un atacante crea una cuenta local, la agrega a Administradores o a Remote Desktop Users y la oculta para conservar acceso sin llamar la atención. Este patrón se ha documentado en intrusiones que terminaron en ransomware.",
+      "triage_steps": [
+        "Extraiga del CommandLine el nombre de la cuenta indicado en /v y confirme si existe en el host con 'net user' o en el inventario de cuentas.",
+        "Revise User y ParentImage: identifique quién ejecutó reg.exe y desde qué proceso (cmd.exe, powershell.exe, un script o una herramienta de acceso remoto).",
+        "Busque en el mismo host, +/- 15 minutos, comandos 'net user /add' y 'net localgroup administrators' o eventos 4720, 4722 y 4732 que creen o eleven esa cuenta.",
+        "Revise inicios de sesión de la cuenta oculta (4624, en especial tipo 10 RDP) y desde qué IP de origen se conectó.",
+        "Pivotee sobre el usuario que ejecutó el comando: otros hosts con la misma actividad, alertas previas y procesos hijos del mismo padre.",
+        "Busque indicios de acompañamiento: habilitación de RDP (fDenyTSConnections), cambios de firewall, herramientas de acceso remoto o borrado de logs.",
+        "Consulte con el equipo de TI si existe un cambio aprobado que justifique ocultar esa cuenta."
+      ],
+      "false_positives": [
+        "Administradores que ocultan cuentas de servicio o de soporte técnico en equipos de kiosco o compartidos.",
+        "Scripts de aprovisionamiento o imágenes corporativas que ocultan una cuenta local de administración.",
+        "Software de terceros (gestión remota, backup) que crea y oculta su propia cuenta local durante la instalación."
+      ],
+      "response_steps": [
+        "Valide con el responsable del equipo si la cuenta y el cambio son legítimos antes de actuar.",
+        "Si no está autorizado, deshabilite la cuenta oculta (net user <cuenta> /active:no), restablezca su contraseña y aísle el endpoint si hay otros indicadores.",
+        "Elimine el valor de UserList y la cuenta solo después de preservar evidencia: exportación de la clave, eventos de seguridad y línea de tiempo.",
+        "Busque la misma cuenta o el mismo comando en todo el parque y revise credenciales del usuario que lo ejecutó.",
+        "Monitoree nuevos inicios de sesión y cambios en la clave SpecialAccounts durante los días siguientes."
+      ],
+      "severity_rationale": "Es de severidad media porque ocultar cuentas es una técnica clara de persistencia y evasión, aunque algunos administradores la usan de forma legítima y requiere contexto para confirmarse."
+    },
+    "en": {
+      "summary": "reg.exe created a value under Winlogon\\SpecialAccounts\\UserList with data 0, which hides a local account from the logon screen. Attackers often do this right after creating a persistence account.",
+      "what_it_detects": "Process creation of reg.exe whose CommandLine contains \\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\SpecialAccounts\\UserList plus 'add', '/v' and '/d 0'. The name after /v is the account being hidden.",
+      "why_it_matters": "This maps to MITRE ATT&CK T1564.002 (Hide Artifacts: Hidden Users). An attacker creates a local account, adds it to Administrators or Remote Desktop Users, then hides it to keep quiet access. This pattern has been documented in intrusions that ended in ransomware.",
+      "triage_steps": [
+        "Extract the account name given after /v in CommandLine and check whether it exists on the host with 'net user' or your account inventory.",
+        "Review User and ParentImage: who ran reg.exe and from which process (cmd.exe, powershell.exe, a script or a remote access tool).",
+        "On the same host within +/- 15 minutes, look for 'net user /add', 'net localgroup administrators' or events 4720, 4722 and 4732 for that account.",
+        "Check logons by the hidden account (4624, especially type 10 RDP) and the source IP they came from.",
+        "Pivot on the executing user: same activity on other hosts, earlier alerts, and other child processes of the same parent.",
+        "Look for companion activity: RDP enablement (fDenyTSConnections), firewall changes, remote access tools or log clearing.",
+        "Ask IT whether an approved change explains hiding this account."
+      ],
+      "false_positives": [
+        "Administrators hiding service or support accounts on kiosk or shared machines.",
+        "Provisioning scripts or corporate images that hide a local admin account.",
+        "Third-party software (remote management, backup) that creates and hides its own local account during installation."
+      ],
+      "response_steps": [
+        "Confirm with the system owner whether the account and change are legitimate before acting.",
+        "If unauthorized, disable the hidden account (net user <account> /active:no), reset its password, and isolate the endpoint if other indicators exist.",
+        "Remove the UserList value and the account only after preserving evidence: key export, security events and timeline.",
+        "Hunt for the same account name or command across the fleet and review the executing user's credentials.",
+        "Monitor for new logons and SpecialAccounts key changes over the following days."
+      ],
+      "severity_rationale": "Medium fits because hiding accounts is a clear persistence and evasion technique, but some administrators do it legitimately, so context is needed to confirm."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe launched from cmd.exe hides a newly created local account 'svc_update' from the logon screen.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg  add \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\SpecialAccounts\\UserList\" /v svc_update /t REG_DWORD /d 0 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\setup.bat",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator queries the UserList key with reg query; no 'add' or '/d 0' present.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.mrojas",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\SpecialAccounts\\UserList\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "reg add sets the value to 1, making the account visible again, so '/d 0' does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\admin.mrojas",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg add \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\SpecialAccounts\\UserList\" /v soporte /t REG_DWORD /d 1 /f",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

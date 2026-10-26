@@ -1,0 +1,124 @@
+{
+  "rule": {
+    "id": "7050bba1-1aed-454e-8f73-3f46f09ce56a",
+    "title": "Cloudflared Tunnel Connections Cleanup",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_cloudflared_tunnel_cleanup.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cloudflared_tunnel_cleanup.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1090",
+      "T1102",
+      "T1572"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó cloudflared con el subcomando \"tunnel cleanup\" y las opciones --config o --connector-id, lo que elimina conexiones activas de un túnel de Cloudflare. Puede ser administración legítima o un atacante borrando rastros de un túnel usado para acceso remoto.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene \" tunnel \" y \"cleanup \", además de \"-config \" o \"-connector-id \", es decir, la limpieza de conexiones de túnel de cloudflared apuntando a una configuración o conector concreto.",
+      "why_it_matters": "Cloudflared crea túneles salientes hacia la red de Cloudflare que permiten exponer servicios internos (RDP, SSH, SMB) sin abrir puertos. Los atacantes lo usan para comando y control y proxy (T1572 túnel de protocolos, T1090 proxy, T1102 servicio web). Limpiar conexiones puede indicar rotación de infraestructura o eliminación de evidencia.",
+      "triage_steps": [
+        "Revisar CommandLine completo: ruta de cloudflared.exe, archivo --config y valor de --connector-id o nombre del túnel.",
+        "Validar si la ruta del binario es estándar (Program Files) o inusual (Users\\Public, Temp, AppData) y verificar firma y hash.",
+        "Examinar ParentImage y la cadena de procesos: ¿lo lanzó un script de administración, servicio o una shell interactiva sospechosa?",
+        "Identificar el usuario y confirmar con el equipo de TI si el host y la cuenta gestionan túneles de Cloudflare autorizados.",
+        "Buscar en el mismo host +/- 15 minutos ejecuciones de cloudflared con \"tunnel run\", \"--token\", \"service install\" o \"--url\".",
+        "Revisar el archivo de configuración referenciado: hostnames, servicios expuestos (rdp://, ssh://) y credenciales del túnel.",
+        "Consultar conexiones de red hacia dominios de Cloudflare (argotunnel.com, trycloudflare.com) y alertas previas del mismo host o usuario."
+      ],
+      "false_positives": [
+        "Administradores que limpian conectores obsoletos de túneles Cloudflare Zero Trust autorizados.",
+        "Scripts de despliegue o automatización que reinician o reconfiguran cloudflared en servidores aprobados.",
+        "Pruebas del equipo de redes o DevOps en entornos de laboratorio."
+      ],
+      "response_steps": [
+        "Confirmar con el propietario del sistema si el túnel y el conector están autorizados en la cuenta Cloudflare de la organización.",
+        "Si no está autorizado, aislar el endpoint y bloquear dominios de túnel de Cloudflare no aprobados en el proxy o firewall.",
+        "Preservar el binario, el archivo de configuración y credenciales del túnel antes de eliminarlos; detener y desinstalar el servicio cloudflared.",
+        "Investigar el acceso inicial, revisar inicios de sesión remotos a través del túnel y restablecer credenciales comprometidas."
+      ],
+      "severity_rationale": "Nivel medio porque cloudflared tiene usos administrativos legítimos, pero la limpieza de túneles en hosts no autorizados puede ocultar actividad de C2."
+    },
+    "en": {
+      "summary": "cloudflared ran the \"tunnel cleanup\" subcommand with --config or --connector-id, removing active connections of a Cloudflare tunnel. This may be legitimate administration or an attacker tearing down a tunnel used for remote access.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains \" tunnel \" and \"cleanup \", plus \"-config \" or \"-connector-id \", meaning cloudflared tunnel connection cleanup targeting a specific config or connector.",
+      "why_it_matters": "Cloudflared builds outbound tunnels to Cloudflare that expose internal services (RDP, SSH, SMB) without inbound ports. Attackers abuse it for command and control and proxying (T1572 protocol tunneling, T1090 proxy, T1102 web service). Cleanup can mean infrastructure rotation or evidence removal.",
+      "triage_steps": [
+        "Read the full CommandLine: cloudflared.exe path, --config file, and --connector-id value or tunnel name.",
+        "Check whether the binary path is standard (Program Files) or unusual (Users\\Public, Temp, AppData); verify signature and hash.",
+        "Inspect ParentImage and the process tree: admin script or service, or a suspicious interactive shell?",
+        "Identify the user and confirm with IT whether this host and account manage authorized Cloudflare tunnels.",
+        "Search the same host +/- 15 minutes for cloudflared with \"tunnel run\", \"--token\", \"service install\" or \"--url\".",
+        "Review the referenced config file: hostnames, exposed services (rdp://, ssh://) and tunnel credentials.",
+        "Check network connections to Cloudflare tunnel domains (argotunnel.com, trycloudflare.com) and earlier alerts for the same host or user."
+      ],
+      "false_positives": [
+        "Administrators cleaning stale connectors of authorized Cloudflare Zero Trust tunnels.",
+        "Deployment or automation scripts restarting or reconfiguring cloudflared on approved servers.",
+        "Network or DevOps team testing in lab environments."
+      ],
+      "response_steps": [
+        "Confirm with the system owner whether the tunnel and connector exist in the organization's Cloudflare account.",
+        "If unauthorized, isolate the endpoint and block unapproved Cloudflare tunnel domains at the proxy or firewall.",
+        "Preserve the binary, config and tunnel credentials before removal; stop and uninstall the cloudflared service.",
+        "Investigate initial access, review remote logons through the tunnel and reset compromised credentials."
+      ],
+      "severity_rationale": "Medium because cloudflared has legitimate admin uses, but tunnel cleanup on unauthorized hosts can conceal C2 activity."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cloudflared from a public folder cleaning a specific connector of a tunnel",
+        "event": {
+          "Image": "C:\\Users\\Public\\cloudflared.exe",
+          "CommandLine": "\"C:\\Users\\Public\\cloudflared.exe\" tunnel cleanup --connector-id 5f2c9a1e-7b3d-4e8a-9c10-2d4f6a8b0c1e ops-tunnel",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.example.com"
+        }
+      },
+      {
+        "description": "cloudflared cleanup using an explicit config file",
+        "event": {
+          "Image": "C:\\ProgramData\\cf\\cloudflared.exe",
+          "CommandLine": "C:\\ProgramData\\cf\\cloudflared.exe tunnel --config C:\\ProgramData\\cf\\config.yml cleanup ops-tunnel",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\svc-backup",
+          "Computer": "SRV-FS01.example.com"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "tunnel cleanup without --config or --connector-id does not satisfy the second condition",
+        "event": {
+          "Image": "C:\\Program Files (x86)\\cloudflared\\cloudflared.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\cloudflared\\cloudflared.exe\" tunnel cleanup ops-tunnel",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\netadmin",
+          "Computer": "SRV-NET02.example.com"
+        }
+      },
+      {
+        "description": "cloudflared running a tunnel with a config file but no cleanup",
+        "event": {
+          "Image": "C:\\Program Files (x86)\\cloudflared\\cloudflared.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\cloudflared\\cloudflared.exe\" tunnel --config C:\\cloudflared\\config.yml run ops-tunnel",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Computer": "SRV-NET02.example.com"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

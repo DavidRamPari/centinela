@@ -1,0 +1,139 @@
+{
+  "rule": {
+    "id": "dd2a821e-3b07-4d3b-a9ac-929fe4c6ca0c",
+    "title": "Suspicious Scheduled Task Creation via Masqueraded XML File",
+    "level": "medium",
+    "status": "test",
+    "author": "Swachchhanda Shrawan Poudel, Elastic (idea)",
+    "path": "windows/process_creation/proc_creation_win_schtasks_schedule_via_masqueraded_xml_file.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_schtasks_schedule_via_masqueraded_xml_file.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036.005",
+      "T1053.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "schtasks.exe creó una tarea programada a partir de un archivo de definición indicado con /XML que no tiene extensión .xml. Renombrar la definición de la tarea puede ocultar persistencia frente a revisiones simples de archivos o de línea de comandos.",
+      "what_it_detects": "Creación del proceso schtasks.exe (Image u OriginalFileName) cuyo CommandLine contiene /create o -create y /xml o -xml, pero no '.xml'. Se excluyen los procesos con integridad System, las acciones personalizadas MSI ejecutadas vía rundll32 y algunos instaladores de terceros conocidos.",
+      "why_it_matters": "Las tareas programadas dan al atacante persistencia y ejecución, posiblemente con privilegios elevados (T1053.005). Ponerle al XML un nombre o una extensión engañosa (T1036.005) hace que la definición parezca inofensiva y evade detecciones que solo vigilan archivos .xml.",
+      "triage_steps": [
+        "Revise el CommandLine completo: nombre de la tarea en /TN, archivo pasado a /XML, su extensión y su ubicación (Temp, AppData, ProgramData, Public o un recurso compartido).",
+        "Verifique el usuario y el IntegrityLevel. Una integridad High en la sesión de un usuario estándar, o una cuenta inusual, eleva la gravedad.",
+        "Analice ParentImage y ParentCommandLine. Son sospechosos cmd.exe, powershell.exe, wscript.exe, mshta.exe o procesos de Office; los instaladores firmados lo son menos.",
+        "Obtenga el archivo referenciado si aún existe. Revise Exec Command, Arguments, triggers, RunLevel y Principal, y registre su hash.",
+        "Inspeccione la tarea creada en C:\\Windows\\System32\\Tasks y en el evento 4698 o en TaskScheduler/Operational 106 para conocer la acción real.",
+        "Pivote en el mismo host en +/- 15 minutos: creación del archivo disfrazado, descargas, binarios nuevos a los que apunta la tarea y conexiones de red.",
+        "Busque el mismo nombre de tarea, nombre de archivo o hash en otros endpoints, y revise alertas previas del usuario y del host."
+      ],
+      "false_positives": [
+        "Instaladores o herramientas de despliegue que escriben la definición en archivos temporales con extensión .tmp o sin extensión antes de importarla.",
+        "Scripts de administradores o de RMM que generan el XML de la tarea con una extensión propia, como .cfg o .dat.",
+        "Actualizadores de terceros que aún no cubren los filtros opcionales. Confirme el firmante y la ruta de instalación antes de agregar una exclusión."
+      ],
+      "response_steps": [
+        "Verificar: confirme con el usuario o con el responsable del activo si la tarea y el proceso padre son esperados, y revise la firma del binario que ejecuta la tarea.",
+        "Contener: si es maliciosa, aísle el endpoint y deshabilite la tarea. Antes, preserve como evidencia el archivo de la tarea y el XML disfrazado.",
+        "Erradicar: elimine la tarea y su payload, y busque otras formas de persistencia (claves Run, servicios, WMI) creadas en la misma ventana de tiempo.",
+        "Recuperar: restablezca las credenciales usadas en el Principal de la tarea si quedaron expuestas. Restablezca la operación normal y siga vigilando que la tarea no reaparezca."
+      ],
+      "severity_rationale": "El nivel medio es adecuado: algunos instaladores importan legítimamente el XML desde archivos temporales, pero una definición renombrada es un indicador real de evasión que requiere revisión del analista."
+    },
+    "en": {
+      "summary": "schtasks.exe created a scheduled task from a definition file passed with /XML that does not have a .xml extension. Renaming the task definition can hide persistence from simple file or command-line checks.",
+      "what_it_detects": "Process creation of schtasks.exe (Image or OriginalFileName) whose CommandLine contains /create or -create and /xml or -xml but no '.xml'. Excluded: System integrity processes, MSI custom actions run through rundll32, and a few known third-party installers.",
+      "why_it_matters": "Scheduled tasks give attackers persistence and execution, possibly with elevated privileges (T1053.005). Giving the XML file a misleading name or extension (T1036.005) makes the task definition look harmless and avoids detections that only watch for .xml files.",
+      "triage_steps": [
+        "Read the full CommandLine: note the /TN task name, the file passed to /XML, its extension and location (Temp, AppData, ProgramData, Public, or a network share).",
+        "Check the user and IntegrityLevel. High integrity from a standard user's session, or an unusual account, makes the alert more serious.",
+        "Look at ParentImage and ParentCommandLine. cmd.exe, powershell.exe, wscript.exe, mshta.exe or Office processes as parent are suspicious; signed installers are less so.",
+        "Get the referenced file if it still exists. Review its Exec Command, Arguments, triggers, RunLevel and Principal, and record its hash.",
+        "Inspect the created task under C:\\Windows\\System32\\Tasks and in Task Scheduler event 4698 or TaskScheduler/Operational 106 to find the real action.",
+        "Pivot on the same host within +/- 15 minutes: file creation of the masqueraded file, downloads, new binaries the task points to, and network connections.",
+        "Search for the same task name, file name or hash on other endpoints, and check earlier alerts for this user and host."
+      ],
+      "false_positives": [
+        "Software installers or deployment tools that write task definitions to temporary files with a .tmp or no extension before importing them.",
+        "Administrator or RMM scripts that generate task XML under a custom extension, such as .cfg or .dat.",
+        "Third-party updaters not yet covered by the optional filters. Confirm the signer and the install path before adding an exclusion."
+      ],
+      "response_steps": [
+        "Verify: confirm with the user or the asset owner whether the task and the parent process are expected, and check the signature of the binary the task runs.",
+        "Contain: if it is malicious, isolate the endpoint and disable the scheduled task. Preserve the task file and the masqueraded XML as evidence first.",
+        "Eradicate: remove the task and its payload, and look for other persistence (Run keys, services, WMI) set up in the same time window.",
+        "Recover: reset credentials used by the task's Principal if they were exposed. Restore normal operation and keep watching for the task coming back."
+      ],
+      "severity_rationale": "Medium fits: some installers legitimately import task XML from temporary files, but a renamed task definition is a real evasion indicator that needs analyst review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell launches schtasks to import a task definition disguised as a .txt file in the user's Temp folder, running at High integrity.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks.exe /Create /TN \"MicrosoftEdgeUpdateCore\" /XML \"C:\\Users\\jperez\\AppData\\Local\\Temp\\notes.txt\" /F",
+          "IntegrityLevel": "High",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile -WindowStyle Hidden -File C:\\Users\\jperez\\AppData\\Local\\Temp\\setup.ps1"
+        }
+      },
+      {
+        "description": "cmd.exe runs a renamed schtasks binary (matched by OriginalFileName) with dash-style flags and a .dat definition file.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svc.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "C:\\Users\\Public\\svc.exe -create -tn SyncHelper -xml C:\\ProgramData\\cache\\config.dat",
+          "IntegrityLevel": "Medium",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\ProgramData\\cache\\run.bat"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "An administrator imports a task from a normal .xml file, so filter_main_extension_xml excludes it.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.lgarcia",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks.exe /Create /TN \"BackupDaily\" /XML \"C:\\IT\\Tasks\\BackupDaily.xml\"",
+          "IntegrityLevel": "High",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      },
+      {
+        "description": "An MSI custom action running through rundll32 at System integrity imports a .tmp definition, so the System and rundll32 filters exclude it.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks.exe /create /tn \"VendorUpdater\" /xml \"C:\\Windows\\Temp\\task4F2A.tmp\"",
+          "IntegrityLevel": "System",
+          "ParentImage": "C:\\Windows\\System32\\rundll32.exe",
+          "ParentCommandLine": "rundll32.exe \"C:\\WINDOWS\\Installer\\MSI8A3B.tmp\",zzzzInvokeManagedCustomActionOutOfProc SfxCA_123456 1 VendorSetup!CustomActions.CreateTask"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "59e938ff-0d6d-4dc3-b13f-36cc28734d4e",
+    "title": "Execute Code with Pester.bat",
+    "level": "medium",
+    "status": "test",
+    "author": "Julia Fomina, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_lolbin_pester_1.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_pester_1.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001",
+      "T1216"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Pester.bat o el módulo Pester con Get-Help de una forma que permite encadenar comandos arbitrarios. Puede tratarse de un abuso de LOLBAS para ejecutar código a través de un script firmado de Windows.",
+      "what_it_detects": "Procesos powershell.exe o pwsh.exe cuyo CommandLine contiene 'Pester' y 'Get-Help', o cmd.exe cuyo CommandLine contiene 'pester', un ';' y 'help' o '\\?', que es el patrón documentado para inyectar comandos en Pester.bat.",
+      "why_it_matters": "Pester.bat viene incluido con Windows PowerShell y pasa sus argumentos a Get-Help. Un atacante puede agregar '; comando' para ejecutar código desde un script legítimo de Microsoft y evadir controles basados en reputación (T1216, ejecución mediante scripts del sistema). También es ejecución con PowerShell (T1059.001).",
+      "triage_steps": [
+        "Lea el CommandLine completo y localice lo que sigue al ';': identifique binarios, scripts, URL o comandos codificados que se ejecutan después de la llamada a Get-Help.",
+        "Revise ParentImage y la línea de comandos del proceso padre: Office, navegadores, wscript o mshta como padre son mucho más sospechosos que un IDE o un agente de CI.",
+        "Confirme la ruta de Pester.bat (por ejemplo, C:\\Program Files\\WindowsPowerShell\\Modules\\Pester\\<versión>\\bin) y verifique que no sea una copia en una carpeta temporal o de usuario.",
+        "Enumere los procesos hijos del powershell.exe/cmd.exe en el mismo host dentro de +/- 15 minutos y busque descargas, conexiones de red o procesos nuevos.",
+        "Valide el usuario: ¿es desarrollador o cuenta de build que use Pester habitualmente? Compare con el historial de ejecuciones de esa cuenta.",
+        "Busque alertas previas para el mismo host y usuario, y la misma línea de comandos en otros endpoints."
+      ],
+      "false_positives": [
+        "Uso legítimo de Pester para escribir y ejecutar pruebas de scripts y módulos de PowerShell.",
+        "Desarrolladores que consultan la ayuda de Pester (Get-Help Invoke-Pester) en una sesión interactiva o desde el IDE.",
+        "Pipelines de CI/CD o scripts de build que encadenan comandos con ';' e invocan Pester con ayuda."
+      ],
+      "response_steps": [
+        "Si el comando tras el ';' no es parte de una prueba legítima, aísle el endpoint y preserve la línea de comandos y el árbol de procesos.",
+        "Recolecte y obtenga el hash de los archivos ejecutados o descargados, y búsquelos en el resto del parque.",
+        "Termine los procesos maliciosos tras verificarlos, elimine persistencia creada y restablezca credenciales del usuario si hubo compromiso.",
+        "Si es uso legítimo, documente el host, usuario y patrón para ajustar exclusiones específicas sin desactivar la regla."
+      ],
+      "severity_rationale": "El nivel medio es apropiado porque Pester tiene usos legítimos de desarrollo, pero la combinación de ayuda con ';' es un patrón conocido de ejecución por proxy que merece revisión."
+    },
+    "en": {
+      "summary": "Pester.bat or the Pester module was run with Get-Help in a way that allows arbitrary commands to be chained. This may be LOLBAS abuse that executes code through a signed Windows script.",
+      "what_it_detects": "powershell.exe or pwsh.exe processes whose CommandLine contains 'Pester' and 'Get-Help', or cmd.exe whose CommandLine contains 'pester', a ';' and 'help' or '\\?', the documented pattern for injecting commands into Pester.bat.",
+      "why_it_matters": "Pester.bat ships with Windows PowerShell and passes its arguments to Get-Help. Appending '; command' runs code from a legitimate Microsoft script, evading reputation controls (T1216, system script proxy execution) and using PowerShell (T1059.001).",
+      "triage_steps": [
+        "Read the full CommandLine and identify what follows the ';': binaries, scripts, URLs or encoded commands run after the Get-Help call.",
+        "Check ParentImage and its command line: Office, browsers, wscript or mshta as parent are far more suspicious than an IDE or CI agent.",
+        "Confirm the Pester.bat path (e.g. C:\\Program Files\\WindowsPowerShell\\Modules\\Pester\\<version>\\bin) and that it is not a copy in a temp or user folder.",
+        "List child processes of the powershell.exe/cmd.exe on the same host within +/- 15 minutes; look for downloads, network connections or new processes.",
+        "Validate the user: is it a developer or build account that routinely uses Pester? Compare with that account's execution history.",
+        "Search for earlier alerts on the same host and user, and the same command line on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate use of Pester for writing and running tests for PowerShell scripts and modules.",
+        "Developers viewing Pester help (Get-Help Invoke-Pester) interactively or from an IDE.",
+        "CI/CD pipelines or build scripts that chain commands with ';' and call Pester help."
+      ],
+      "response_steps": [
+        "If the command after ';' is not part of a legitimate test, isolate the endpoint and preserve the command line and process tree.",
+        "Collect and hash any executed or downloaded files and hunt for them across the fleet.",
+        "After verification, terminate malicious processes, remove any persistence and reset the user's credentials if compromise is confirmed.",
+        "If benign, document host, user and pattern to build narrow exclusions without disabling the rule."
+      ],
+      "severity_rationale": "Medium fits because Pester has legitimate development uses, but help combined with ';' is a known proxy-execution pattern that warrants review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe runs Pester.bat with /help and a chained command after ';'",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\system32\\cmd.exe /c \"C:\\Program Files\\WindowsPowerShell\\Modules\\Pester\\3.4.0\\bin\\Pester.bat\" /help \"$null; notepad.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      },
+      {
+        "description": "powershell.exe spawned by Pester.bat calling Get-Help with an injected command",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Import-Module Pester; Get-Help Invoke-Pester $null; notepad.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\cmd.exe /c \"C:\\Program Files\\WindowsPowerShell\\Modules\\Pester\\3.4.0\\bin\\Pester.bat\" /help \"$null; notepad.exe\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Build agent runs Pester.bat against a test folder, no ';' and no help",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-07",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\system32\\cmd.exe /c \"C:\\Program Files\\WindowsPowerShell\\Modules\\Pester\\3.4.0\\bin\\Pester.bat\" C:\\Build\\Tests",
+          "ParentImage": "C:\\agent\\bin\\Agent.Worker.exe"
+        }
+      },
+      {
+        "description": "pwsh.exe runs Invoke-Pester tests without Get-Help",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-07",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "CommandLine": "pwsh.exe -NoProfile -Command \"Invoke-Pester -Path C:\\Build\\Tests -CI\"",
+          "ParentImage": "C:\\agent\\bin\\Agent.Worker.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

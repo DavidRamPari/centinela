@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "24c8392b-aa3c-46b7-a545-43f71657fe98",
+    "title": "Suspicious Schtasks Schedule Types",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_schtasks_schedule_type.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_schtasks_schedule_type.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1053.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó schtasks.exe para crear o modificar una tarea programada con un disparador ONLOGON, ONSTART, ONCE u ONIDLE, sin ejecutarse como SYSTEM ni con privilegios HIGHEST. Este patrón es común en mecanismos de persistencia en el contexto del usuario.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\schtasks.exe u OriginalFileName es schtasks.exe y el CommandLine contiene ' ONLOGON ', ' ONSTART ', ' ONCE ' u ' ONIDLE '. Se excluyen las líneas de comando que contienen 'NT AUT', ' SYSTEM' o 'HIGHEST', que cubre una regla relacionada.",
+      "why_it_matters": "Las tareas programadas (ATT&CK T1053.005) permiten a un atacante ejecutar un payload al iniciar sesión, al arrancar el equipo, una sola vez o cuando el equipo está inactivo. Así consigue persistencia y ejecución diferida, a menudo sin necesitar privilegios de administrador.",
+      "triage_steps": [
+        "Revise el CommandLine completo: nombre de la tarea (/tn), acción (/tr), tipo de disparador (/sc) y si se usa /create o /change.",
+        "Analice el binario o script de /tr: ruta (AppData, ProgramData, Public, Temp), firma, hash y reputación.",
+        "Identifique el ParentImage y la cadena de procesos: cmd, powershell, wscript, mshta o documentos de Office como padre son señales de alerta.",
+        "Confirme el usuario y el host; verifique si ese usuario suele administrar tareas o si se trata de un equipo de usuario final.",
+        "Revise la definición de la tarea en C:\\Windows\\System32\\Tasks y los eventos 4698/4702 o TaskScheduler 106/140.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, descargas, archivos nuevos, conexiones de red y otras alertas.",
+        "Busque el mismo nombre de tarea o la misma ruta de /tr en otros endpoints para detectar propagación."
+      ],
+      "false_positives": [
+        "Software legítimo que se ejecuta al iniciar sesión (sincronizadores, agentes de actualización, clientes VPN) y registra su tarea con schtasks.",
+        "Scripts de administradores o GPO que crean tareas ONCE u ONSTART para despliegues o mantenimiento.",
+        "Instaladores que programan una tarea ONCE para terminar la configuración tras reiniciar."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del equipo o con TI si la tarea es esperada antes de actuar.",
+        "Si es maliciosa, aísle el endpoint y conserve como evidencia el XML de la tarea y el payload de /tr.",
+        "Deshabilite y elimine la tarea, borre el payload y busque otros mecanismos de persistencia (claves Run, servicios, carpeta Startup).",
+        "Restablezca las credenciales del usuario afectado si hubo ejecución de código y busque el mismo IOC en toda la flota.",
+        "Documente las exclusiones legítimas por nombre de tarea y ruta exacta, no por usuario completo."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque este tipo de disparador sin privilegios elevados es una técnica de persistencia frecuente en malware, aunque existen usos legítimos que deben filtrarse según el entorno."
+    },
+    "en": {
+      "summary": "schtasks.exe created or changed a scheduled task with an ONLOGON, ONSTART, ONCE or ONIDLE trigger. The task does not run as SYSTEM or with HIGHEST privileges, which is a common way to set up persistence in the user's context.",
+      "what_it_detects": "Process creation events where Image ends with \\schtasks.exe or OriginalFileName is schtasks.exe, and CommandLine contains ' ONLOGON ', ' ONSTART ', ' ONCE ' or ' ONIDLE '. Command lines containing 'NT AUT', ' SYSTEM' or 'HIGHEST' are excluded because a related rule covers them.",
+      "why_it_matters": "Scheduled tasks (ATT&CK T1053.005) let an attacker run a payload at logon, at boot, once, or when the machine is idle. This gives persistence and delayed execution, often without admin rights.",
+      "triage_steps": [
+        "Read the full CommandLine: task name (/tn), action (/tr), trigger (/sc), and whether it uses /create or /change.",
+        "Check the /tr binary or script: its path (AppData, ProgramData, Public, Temp), signature, hash and reputation.",
+        "Look at the ParentImage and process chain. Be suspicious of cmd, powershell, wscript, mshta or Office parents.",
+        "Confirm the user and host. Check whether this user normally manages tasks and whether the host is an end-user workstation.",
+        "Inspect the task definition in C:\\Windows\\System32\\Tasks and Security 4698/4702 or TaskScheduler 106/140 events.",
+        "On the same host, review downloads, new files, network connections and other alerts within +/- 15 minutes.",
+        "Search other endpoints for the same task name or /tr path to find spread."
+      ],
+      "false_positives": [
+        "Legitimate software that runs at logon (sync clients, updaters, VPN agents) and registers its task with schtasks.",
+        "Admin scripts or GPOs that create ONCE or ONSTART tasks for deployment or maintenance.",
+        "Installers that schedule a ONCE task to finish setup after a reboot."
+      ],
+      "response_steps": [
+        "Check with the host owner or IT that the task is expected before acting.",
+        "If it is malicious, isolate the endpoint and keep the task XML and /tr payload as evidence.",
+        "Disable and delete the task, remove the payload, and look for other persistence (Run keys, services, Startup folder).",
+        "Reset the affected user's credentials if code ran, and hunt for the same IOCs across the fleet.",
+        "Write exclusions for legitimate cases by exact task name and path, not by whole user."
+      ],
+      "severity_rationale": "High fits because these triggers without elevated privileges are a frequent malware persistence technique, though some legitimate uses need environment-specific filtering."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "schtasks creates an ONLOGON task running a binary from the user's AppData, without SYSTEM or HIGHEST",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks /create /sc ONLOGON /tn \"OneDriveSyncHelper\" /tr \"C:\\Users\\jperez\\AppData\\Roaming\\odsync.exe\" /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start.bat"
+        }
+      },
+      {
+        "description": "Renamed schtasks binary (matched via OriginalFileName) schedules a ONCE task running a PowerShell script",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\st.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "st.exe /create /tn WinUpdateCheck /tr \"powershell.exe -w hidden -f C:\\ProgramData\\u.ps1\" /sc ONCE /st 23:30 /f",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "ONSTART task explicitly run as SYSTEM, excluded by the ' SYSTEM' filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-BKP-01.andes.example.com",
+          "User": "ANDES\\adm-backup",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks /create /tn \"BackupAgent\" /tr \"C:\\Program Files\\BackupAgent\\agent.exe\" /sc ONSTART /ru SYSTEM /f",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe"
+        }
+      },
+      {
+        "description": "Daily task created by schtasks; DAILY is not one of the monitored schedule types",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks /create /sc DAILY /st 09:00 /tn \"CleanupTemp\" /tr \"C:\\Scripts\\cleanup.cmd\" /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

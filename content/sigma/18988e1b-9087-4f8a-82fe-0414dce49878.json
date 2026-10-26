@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "18988e1b-9087-4f8a-82fe-0414dce49878",
+    "title": "Execute Code with Pester.bat as Parent",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113, Nasreddine Bencherchali",
+    "path": "windows/process_creation/proc_creation_win_lolbin_pester.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_pester.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001",
+      "T1216"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "PowerShell inició un proceso con una línea de comandos del estilo de Pester.bat desde la carpeta del módulo Pester, con texto inyectado después de Invoke-Pester o dentro de Get-Help. Puede ser ejecución de código arbitrario a través de un script firmado por Microsoft.",
+      "what_it_detects": "Creación de procesos donde ParentImage es powershell.exe o pwsh.exe y ParentCommandLine incluye '\\WindowsPowerShell\\Modules\\Pester\\' junto con '{ Invoke-Pester -EnableExit ;' o '{ Get-Help \"'. Son las cadenas que genera Pester.bat cuando sus argumentos pasan directamente al bloque -Command de PowerShell.",
+      "why_it_matters": "Pester.bat pasa sus argumentos a un comando de PowerShell sin limpiarlos, así que un atacante puede agregar comandos como '; calc.exe' y ejecutar código mediante un script confiable. Corresponde a ejecución con PowerShell (T1059.001) y a ejecución mediante scripts firmados (T1216).",
+      "triage_steps": [
+        "Lea ParentCommandLine y revise qué viene después de 'Invoke-Pester -EnableExit ;' o 'Get-Help \"'. Una ejecución real de pruebas pasa rutas o parámetros de prueba, no comandos ni ejecutables.",
+        "Revise Image y CommandLine del proceso hijo. Son sospechosos los shells, los LOLBins, las herramientas de descarga o los binarios en rutas donde el usuario puede escribir.",
+        "Identifique el proceso que lanzó el PowerShell padre, por ejemplo cmd.exe ejecutando Pester.bat, y verifique quién lo inició: Office, un intérprete de scripts o un agente de CI.",
+        "Revise el usuario y el host. ¿Es una estación de desarrollo o un servidor de build donde Pester se usa normalmente?",
+        "En el mismo host, revise los eventos de procesos, red y archivos de +/- 15 minutos en busca de descargas, persistencia o más procesos hijos.",
+        "Busque alertas o ejecuciones anteriores de Pester.bat del mismo usuario y host para distinguir un hecho aislado de un patrón habitual."
+      ],
+      "false_positives": [
+        "Desarrolladores o pipelines de CI/CD que ejecutan Pester.bat de forma legítima para probar scripts y módulos de PowerShell.",
+        "Administradores que ejecutan 'Pester.bat /?' para ver la ayuda, si la línea de comandos generada coincide."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del sistema si la ejecución de Pester era esperada y revise los argumentos utilizados.",
+        "Si encuentra comandos inyectados, aísle el endpoint y detenga el árbol de procesos hijos después de documentar lo que estaba haciendo.",
+        "Recolecte hashes y muestras de los binarios hijos y de los archivos creados, y busque en toda la flota el mismo patrón de ParentCommandLine.",
+        "Elimine la persistencia y los payloads, restablezca las credenciales que el usuario pudo exponer y evalúe bloquear Pester.bat en los equipos que no lo necesitan."
+      ],
+      "severity_rationale": "La severidad media es adecuada porque las cadenas indican con fuerza un abuso de los argumentos de Pester.bat, pero las pruebas legítimas con Pester en equipos de desarrollo y build pueden generar líneas de comandos parecidas."
+    },
+    "en": {
+      "summary": "A process was started by PowerShell running Pester.bat-style command lines from the Pester module folder, where extra text was injected after Invoke-Pester or into Get-Help. This may be proxy execution of arbitrary code through a signed Microsoft script.",
+      "what_it_detects": "Process creation where ParentImage is powershell.exe or pwsh.exe and ParentCommandLine includes '\\WindowsPowerShell\\Modules\\Pester\\' plus either '{ Invoke-Pester -EnableExit ;' or '{ Get-Help \"'. These are the strings Pester.bat produces when its arguments are passed straight into the PowerShell -Command block.",
+      "why_it_matters": "Pester.bat passes its arguments into a PowerShell command without cleaning them, so an attacker can append commands such as '; calc.exe' and run code through a trusted script. This covers PowerShell execution (T1059.001) and signed script proxy execution (T1216).",
+      "triage_steps": [
+        "Read ParentCommandLine and look at what follows 'Invoke-Pester -EnableExit ;' or 'Get-Help \"'. Real test runs pass test paths or parameters, not commands or executables.",
+        "Review the child Image and CommandLine. Shells, LOLBins, download tools or binaries in user-writable paths are suspicious.",
+        "Find the process that launched the parent PowerShell, such as cmd.exe running Pester.bat, and see who started it: an Office app, a script host or a CI agent.",
+        "Check the user and host. Is this a developer workstation or build server where Pester normally runs?",
+        "On the same host, review process, network and file events within +/- 15 minutes for downloads, persistence or more child processes.",
+        "Look for earlier alerts or Pester.bat runs for the same user and host to tell a one-off from a routine pattern."
+      ],
+      "false_positives": [
+        "Developers or CI/CD pipelines legitimately running Pester.bat to test PowerShell scripts and modules.",
+        "Administrators running 'Pester.bat /?' to view help, if the generated command line happens to match."
+      ],
+      "response_steps": [
+        "Confirm with the user or the system owner whether the Pester run was expected and check the arguments passed.",
+        "If you find injected commands, isolate the endpoint and stop the child process tree after you have recorded what it was doing.",
+        "Collect hashes and samples of the child binaries and any dropped files, then search the whole fleet for the same ParentCommandLine pattern.",
+        "Remove persistence and payloads, reset credentials the user may have exposed, and consider blocking Pester.bat on hosts that do not need it."
+      ],
+      "severity_rationale": "Medium fits because the strings strongly suggest Pester.bat argument abuse, but legitimate Pester test runs on developer and build hosts can produce similar command lines."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Pester.bat help branch abused: a command is injected into Get-Help and PowerShell launches calc.exe.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\calc.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\calc.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "PowerShell -NonInteractive -NoProfile -ExecutionPolicy Bypass -Command \"& Import-Module 'C:\\Program Files\\WindowsPowerShell\\Modules\\Pester\\3.4.0\\bin\\..\\Pester.psm1'; & { Get-Help \"$null; calc.exe\" }\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Pester.bat run branch abused: a command is appended after Invoke-Pester -EnableExit and launches cmd.exe.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami > C:\\Users\\Public\\o.txt",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "PowerShell -NonInteractive -NoProfile -ExecutionPolicy Bypass -Command \"& Import-Module 'C:\\Program Files\\WindowsPowerShell\\Modules\\Pester\\3.4.0\\bin\\..\\Pester.psm1'; & { Invoke-Pester -EnableExit ; cmd.exe /c whoami > C:\\Users\\Public\\o.txt}\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate CI test run: Invoke-Pester -EnableExit is followed by a test path rather than ' ;', so selection_cli does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-03.andes.example.com",
+          "User": "ANDES\\svc-build",
+          "Image": "C:\\Program Files\\Git\\cmd\\git.exe",
+          "CommandLine": "git.exe rev-parse HEAD",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "PowerShell -NonInteractive -NoProfile -ExecutionPolicy Bypass -Command \"& Import-Module 'C:\\Program Files\\WindowsPowerShell\\Modules\\Pester\\3.4.0\\bin\\..\\Pester.psm1'; & { Invoke-Pester -EnableExit .\\tests }\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Get-Help pattern from a module outside the Pester folder: selection_module does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "ParentImage": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "ParentCommandLine": "pwsh.exe -NoProfile -Command \"& Import-Module 'C:\\Program Files\\WindowsPowerShell\\Modules\\PSReadLine\\2.0.0\\PSReadLine.psd1'; & { Get-Help \"Set-PSReadLineOption\" }\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:57:07+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

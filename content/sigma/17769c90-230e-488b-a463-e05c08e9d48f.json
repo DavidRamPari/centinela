@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "17769c90-230e-488b-a463-e05c08e9d48f",
+    "title": "Powershell Defender Exclusion",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_defender_exclusion.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_defender_exclusion.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso cuya línea de comandos usa Add-MpPreference o Set-MpPreference para agregar exclusiones a Microsoft Defender Antivirus. Puede ser administración legítima o un atacante preparando el terreno para ejecutar malware sin que se analice.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde CommandLine contiene Add-MpPreference o Set-MpPreference junto con -ExclusionPath, -ExclusionExtension, -ExclusionProcess o -ExclusionIpAddress.",
+      "why_it_matters": "Una exclusión hace que Defender deje de analizar una ruta, extensión, proceso o IP. Así un atacante puede guardar y ejecutar payloads sin detección. Corresponde al debilitamiento de defensas (etiqueta ATT&CK T1685).",
+      "triage_steps": [
+        "Lee el CommandLine completo: anota qué tipo de exclusión se agregó y el valor exacto (ruta, extensión, proceso o IP).",
+        "Evalúa el valor: rutas de usuario, Temp, ProgramData, Public, raíces de disco o extensiones como .exe, .ps1 o .dll son muy sospechosas.",
+        "Revisa ParentImage y la cadena de procesos: un origen en Office, navegador, script, wscript o mshta es mala señal; GPO, Intune o SCCM es más esperable.",
+        "Identifica al usuario y confirma con el equipo de TI si existe un cambio aprobado o ticket asociado.",
+        "Pivotea en el mismo host +/- 15 minutos: archivos creados en la ruta excluida, nuevos procesos desde ella, conexiones de red y servicios o tareas programadas.",
+        "Verifica las exclusiones vigentes con Get-MpPreference y busca eventos de Defender 5007 (cambio de configuración).",
+        "Busca la misma línea de comandos o el mismo valor de exclusión en otros hosts y alertas previas del usuario o equipo."
+      ],
+      "false_positives": [
+        "Administradores que configuran exclusiones para software de backup, bases de datos o herramientas de desarrollo.",
+        "Scripts de despliegue o instaladores de proveedores que agregan exclusiones documentadas.",
+        "Otros cmdlets o herramientas de gestión que usan los mismos nombres de parámetros."
+      ],
+      "response_steps": [
+        "Valida con el dueño del equipo o TI si el cambio fue autorizado antes de actuar.",
+        "Si no está autorizado, aísla el endpoint y elimina la exclusión con Remove-MpPreference tras documentar su valor.",
+        "Ejecuta un análisis completo de Defender sobre la ruta o proceso excluido y obtén hash de los archivos encontrados.",
+        "Restablece credenciales de la cuenta implicada si hay indicios de compromiso y revisa persistencia en el host.",
+        "Considera bloquear cambios locales de exclusiones mediante Tamper Protection o políticas centralizadas."
+      ],
+      "severity_rationale": "Medio es adecuado porque la acción debilita directamente el antivirus, pero también es una tarea administrativa habitual que requiere contexto para confirmar malicia."
+    },
+    "en": {
+      "summary": "A process ran with a command line that uses Add-MpPreference or Set-MpPreference to add Microsoft Defender Antivirus exclusions. This may be legitimate admin work or an attacker preparing to run malware unscanned.",
+      "what_it_detects": "Windows process creation events where CommandLine contains Add-MpPreference or Set-MpPreference together with -ExclusionPath, -ExclusionExtension, -ExclusionProcess or -ExclusionIpAddress.",
+      "why_it_matters": "An exclusion stops Defender from scanning a path, extension, process or IP, letting an attacker store and run payloads undetected. This is defense impairment (ATT&CK tag T1685).",
+      "triage_steps": [
+        "Read the full CommandLine: record the exclusion type and the exact value (path, extension, process or IP).",
+        "Assess the value: user folders, Temp, ProgramData, Public, drive roots, or extensions like .exe, .ps1 or .dll are highly suspicious.",
+        "Check ParentImage and the process tree: Office, browsers, wscript or mshta parents are bad signs; GPO, Intune or SCCM is more expected.",
+        "Identify the user and confirm with IT whether an approved change or ticket exists.",
+        "Pivot on the same host +/- 15 minutes: files written to the excluded path, processes started from it, network connections, new services or scheduled tasks.",
+        "Check current exclusions with Get-MpPreference and look for Defender event 5007 (configuration change).",
+        "Search other hosts for the same command line or exclusion value, and review earlier alerts for this user or host."
+      ],
+      "false_positives": [
+        "Administrators configuring exclusions for backup, database or developer tools.",
+        "Deployment scripts or vendor installers adding documented exclusions.",
+        "Other cmdlets or management tools that use the same parameter names."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the change was authorized before acting.",
+        "If unauthorized, isolate the endpoint and remove the exclusion with Remove-MpPreference after documenting its value.",
+        "Run a full Defender scan of the excluded path or process and collect hashes of any files found.",
+        "Reset credentials for the involved account if compromise is suspected and review the host for persistence.",
+        "Consider preventing local exclusion changes via Tamper Protection or centrally managed policy."
+      ],
+      "severity_rationale": "Medium fits because the action directly weakens antivirus protection, yet it is also a common admin task that needs context to confirm malice."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell spawned by Word adds a path exclusion for a public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -NoProfile -WindowStyle Hidden -Command \"Add-MpPreference -ExclusionPath 'C:\\Users\\Public\\Downloads'\"",
+          "ProcessId": 6120
+        }
+      },
+      {
+        "description": "Set-MpPreference used from cmd.exe to exclude the .exe extension",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell -c Set-MpPreference -ExclusionExtension .exe",
+          "ProcessId": 4388
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin removes an exclusion with Remove-MpPreference (cmdlet not in selection1)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command \"Remove-MpPreference -ExclusionPath 'C:\\Temp\\build'\"",
+          "ProcessId": 5012
+        }
+      },
+      {
+        "description": "Set-MpPreference re-enables real-time monitoring without any exclusion parameter",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-01.andes.example.com",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -Command \"Set-MpPreference -DisableRealtimeMonitoring $false\"",
+          "ProcessId": 2896
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

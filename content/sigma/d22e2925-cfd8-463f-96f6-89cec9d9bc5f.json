@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "d22e2925-cfd8-463f-96f6-89cec9d9bc5f",
+    "title": "XBAP Execution From Uncommon Locations Via PresentationHost.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_presentationhost_uncommon_location_exec.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_presentationhost_uncommon_location_exec.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "PresentationHost.exe ejecutó un archivo .xbap (XAML Browser Application) cuya ruta no está en C:\\Windows\\ ni en C:\\Program Files. Puede tratarse de un binario LOLBAS usado para ejecutar código y evadir controles de lista blanca.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\presentationhost.exe u OriginalFileName es PresentationHost.exe, y CommandLine contiene '.xbap', salvo que CommandLine incluya ' C:\\Windows\\' o ' C:\\Program Files'.",
+      "why_it_matters": "PresentationHost.exe es un binario firmado por Microsoft que aloja aplicaciones WPF. Un atacante puede usarlo para ejecutar un .xbap malicioso desde Temp, Downloads o un recurso de red. Así ejecuta código a través de un proxy firmado y evade AppLocker u otros controles de lista blanca (ATT&CK T1218, System Binary Proxy Execution).",
+      "triage_steps": [
+        "Revise CommandLine e identifique la ruta exacta del .xbap: carpeta de usuario, Temp, Downloads, recurso UNC o URL.",
+        "Verifique Image y OriginalFileName. Una copia renombrada o fuera de System32/SysWOW64 aumenta la sospecha.",
+        "Analice ParentImage y la línea de comandos del padre. Un navegador, un cliente de correo, Office o un script como padre sugieren entrega por phishing.",
+        "Obtenga el .xbap y sus archivos .manifest/.exe/.dll asociados. Calcule el hash y consúltelo en su fuente de inteligencia.",
+        "Revise los procesos hijos, las conexiones de red y los archivos creados por PresentationHost.exe en el mismo host dentro de +/- 15 minutos.",
+        "Busque en la telemetría de proxy y DNS cómo se descargó el archivo y si otros hosts accedieron al mismo origen.",
+        "Consulte alertas previas del mismo usuario y host, y busque otras ejecuciones de PresentationHost.exe con .xbap en toda la organización."
+      ],
+      "false_positives": [
+        "Aplicaciones .xbap legítimas de negocio, internas o heredadas, ejecutadas desde rutas de usuario o recursos compartidos corporativos.",
+        "Desarrolladores que prueban proyectos WPF Browser Application desde sus carpetas de compilación (bin\\Debug)."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y el responsable de la aplicación si el .xbap es conocido y autorizado. Si lo es, documéntelo para afinar exclusiones.",
+        "Si es sospechoso, aísle el endpoint y termine el proceso PresentationHost.exe y sus procesos hijos.",
+        "Preserve el .xbap y sus dependencias como evidencia antes de eliminarlos. Bloquee el hash y el dominio o recurso de origen.",
+        "Revise si hay mecanismos de persistencia o credenciales comprometidas. Restablezca las contraseñas del usuario si hubo ejecución de código.",
+        "Considere restringir PresentationHost.exe con AppLocker o WDAC si la organización no usa XBAP."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque XBAP ya casi no se usa y su ejecución desde rutas no estándar es poco común. Aun así, existen aplicaciones heredadas legítimas, por lo que cada caso requiere validación."
+    },
+    "en": {
+      "summary": "PresentationHost.exe ran a .xbap (XAML Browser Application) file whose path is outside C:\\Windows\\ and C:\\Program Files. This may be a LOLBAS binary used to execute code and bypass application allowlisting.",
+      "what_it_detects": "Process creation events where Image ends with \\presentationhost.exe or OriginalFileName is PresentationHost.exe, and CommandLine contains '.xbap', unless CommandLine includes ' C:\\Windows\\' or ' C:\\Program Files'.",
+      "why_it_matters": "PresentationHost.exe is a Microsoft-signed host for WPF applications. Attackers can use it to run a malicious .xbap from Temp, Downloads or a network share. This proxies code execution through a signed binary and evades AppLocker-style allowlisting (ATT&CK T1218, System Binary Proxy Execution).",
+      "triage_steps": [
+        "Read CommandLine and find the exact .xbap path: user profile, Temp, Downloads, UNC share or URL.",
+        "Check Image and OriginalFileName. A renamed copy, or one outside System32/SysWOW64, raises suspicion.",
+        "Review ParentImage and the parent command line. A browser, mail client, Office app or script as parent suggests phishing delivery.",
+        "Collect the .xbap and its related .manifest, .exe and .dll files. Hash them and check the hashes against threat intelligence.",
+        "Check child processes, network connections and files created by PresentationHost.exe on the same host within +/- 15 minutes.",
+        "Search proxy and DNS logs for how the file was downloaded and whether other hosts contacted the same source.",
+        "Look for earlier alerts on the same user and host, and hunt for other PresentationHost.exe .xbap executions across the organization."
+      ],
+      "false_positives": [
+        "Legitimate internal or legacy line-of-business .xbap applications run from user paths or corporate file shares.",
+        "Developers testing WPF Browser Application projects from their build folders (bin\\Debug)."
+      ],
+      "response_steps": [
+        "Ask the user and the application owner whether the .xbap is known and approved. If it is, document it so the exclusions can be tuned.",
+        "If it is suspicious, isolate the endpoint and kill PresentationHost.exe and its child processes.",
+        "Preserve the .xbap and its dependencies as evidence before you remove them. Block the hash and the source domain or share.",
+        "Check for persistence and exposed credentials. Reset the user's password if code ran.",
+        "If the organization does not use XBAP, consider restricting PresentationHost.exe with AppLocker or WDAC."
+      ],
+      "severity_rationale": "Medium fits because XBAP is largely obsolete and running it from a non-standard path is unusual. Legitimate legacy apps still exist, so each case needs validation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PresentationHost runs a .xbap from the user's Temp folder after a browser launches it",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\PresentationHost.exe",
+          "OriginalFileName": "PresentationHost.exe",
+          "CommandLine": "PresentationHost.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\invoice_viewer.xbap",
+          "ParentImage": "C:\\Program Files\\Mozilla Firefox\\firefox.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Mozilla Firefox\\firefox.exe\"",
+          "ProcessId": 6120
+        }
+      },
+      {
+        "description": "Renamed PresentationHost copy, matched by OriginalFileName, runs a .xbap from a remote UNC share",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0187.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Users\\Public\\phost.exe",
+          "OriginalFileName": "PresentationHost.exe",
+          "CommandLine": "\"C:\\Users\\Public\\phost.exe\" \\\\files.example.org\\pub\\update.xbap",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\phost.exe \\\\files.example.org\\pub\\update.xbap",
+          "ProcessId": 4388
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Approved .xbap installed under Program Files; the filter excludes it",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\PresentationHost.exe",
+          "OriginalFileName": "PresentationHost.exe",
+          "CommandLine": "PresentationHost.exe C:\\Program Files\\Contoso\\Inventory\\inventory.xbap",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ProcessId": 5012
+        }
+      },
+      {
+        "description": "PresentationHost started with -embedding and no .xbap in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\PresentationHost.exe",
+          "OriginalFileName": "PresentationHost.exe",
+          "CommandLine": "C:\\Windows\\System32\\PresentationHost.exe -embedding",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ProcessId": 7344
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

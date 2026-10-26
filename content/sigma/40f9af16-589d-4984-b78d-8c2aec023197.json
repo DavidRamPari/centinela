@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "40f9af16-589d-4984-b78d-8c2aec023197",
+    "title": "Potential UAC Bypass Via Sdclt.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Roberto Rodriguez (Cyb3rWard0g), OTR (Open Threat Research)",
+    "path": "windows/process_creation/proc_creation_win_uac_bypass_sdclt.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_uac_bypass_sdclt.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1548.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó sdclt.exe (Copias de seguridad y restauración de Windows) con integridad alta. Puede ser un uso administrativo legítimo o un intento de evadir UAC mediante el auto-elevado de sdclt.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en sdclt.exe e IntegrityLevel es High o S-1-16-12288. Es una detección general, no busca un método concreto de bypass.",
+      "why_it_matters": "sdclt.exe se eleva automáticamente sin mostrar el aviso de UAC. Un atacante puede secuestrar claves de registro en HKCU, como App Paths\\control.exe o Folder\\shell\\open\\command, para que sdclt lance su payload con privilegios altos (T1548.002, Bypass User Account Control).",
+      "triage_steps": [
+        "Revise ParentImage y CommandLine de sdclt.exe; es sospechoso un padre como powershell.exe, cmd.exe, wscript.exe o un binario en una ruta de usuario, o argumentos como /KickOffElev.",
+        "Identifique los procesos hijos de sdclt.exe; un cmd.exe, powershell.exe, control.exe fuera de System32 o cualquier binario desconocido con integridad alta indica bypass.",
+        "Busque en el mismo host, +/- 15 minutos, modificaciones de registro en HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\control.exe y HKCU\\Software\\Classes\\Folder\\shell\\open\\command.",
+        "Confirme si el usuario es administrador local y si tenía una razón para configurar copias de seguridad; consulte con el usuario o con la mesa de ayuda.",
+        "Compruebe el hash y la firma de sdclt.exe y de los binarios hijos; sdclt legítimo reside en C:\\Windows\\System32.",
+        "Revise alertas previas del mismo host y usuario: descarga de archivos, ejecución de scripts o acceso inicial sospechoso."
+      ],
+      "false_positives": [
+        "Un administrador que abre Copias de seguridad y restauración desde una consola ya elevada o aceptando el aviso de UAC.",
+        "Herramientas de gestión o scripts de despliegue que configuran Windows Backup con privilegios de administrador."
+      ],
+      "response_steps": [
+        "Si hay hijos sospechosos o claves de registro secuestradas, aísle el endpoint y preserve la memoria y los eventos relevantes.",
+        "Elimine los valores de registro maliciosos en HKCU después de exportarlos como evidencia, y termine los procesos del payload.",
+        "Restablezca las credenciales del usuario afectado y busque persistencia adicional creada con privilegios altos.",
+        "Considere configurar UAC en 'Notificar siempre' y quitar privilegios de administrador local a usuarios que no los necesiten."
+      ],
+      "severity_rationale": "Es nivel medio porque la ejecución elevada de sdclt puede ser legítima, pero cuando hay bypass representa una escalada de privilegios silenciosa."
+    },
+    "en": {
+      "summary": "sdclt.exe (Windows Backup and Restore) started with High integrity. This may be legitimate admin use or an attempt to bypass UAC through sdclt's auto-elevation.",
+      "what_it_detects": "Windows process creation events where Image ends with sdclt.exe and IntegrityLevel is High or S-1-16-12288. It is a general detection, not tied to one specific bypass method.",
+      "why_it_matters": "sdclt.exe auto-elevates without a UAC prompt. Attackers can hijack HKCU registry keys such as App Paths\\control.exe or Folder\\shell\\open\\command so sdclt launches their payload elevated (T1548.002, Bypass User Account Control).",
+      "triage_steps": [
+        "Review ParentImage and CommandLine of sdclt.exe; parents like powershell.exe, cmd.exe, wscript.exe or binaries in user paths, or arguments like /KickOffElev, are suspicious.",
+        "List child processes of sdclt.exe; elevated cmd.exe, powershell.exe, control.exe outside System32, or unknown binaries indicate a bypass.",
+        "On the same host within +/- 15 minutes, look for registry writes to HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\control.exe and HKCU\\Software\\Classes\\Folder\\shell\\open\\command.",
+        "Confirm whether the user is a local admin with a reason to configure backups; check with the user or help desk.",
+        "Verify the hash and signature of sdclt.exe and its children; the genuine binary lives in C:\\Windows\\System32.",
+        "Check earlier alerts for the same host and user: file downloads, script execution or suspicious initial access."
+      ],
+      "false_positives": [
+        "An administrator opening Backup and Restore from an already elevated console or after accepting a UAC prompt.",
+        "Management tools or deployment scripts configuring Windows Backup with administrative privileges."
+      ],
+      "response_steps": [
+        "If suspicious children or hijacked registry keys are found, isolate the endpoint and preserve memory and relevant events.",
+        "Export malicious HKCU registry values as evidence, then remove them and terminate payload processes.",
+        "Reset the affected user's credentials and hunt for further persistence created with elevated privileges.",
+        "Consider setting UAC to 'Always notify' and removing local admin rights from users who do not need them."
+      ],
+      "severity_rationale": "Medium fits because elevated sdclt can be legitimate, yet a successful bypass means silent privilege escalation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sdclt.exe spawned by PowerShell with High integrity, typical of a registry-hijack UAC bypass",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sdclt.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\sdclt.exe\" /KickOffElev",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden -c Start-Process sdclt.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "sdclt.exe with IntegrityLevel reported as the High SID",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\sdclt.exe",
+          "CommandLine": "C:\\Windows\\system32\\sdclt.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "S-1-16-12288"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "sdclt.exe opened normally by the user at Medium integrity",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sdclt.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\sdclt.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Another elevated process (control.exe), not sdclt.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\control.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\control.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "0944e002-e3f6-4eb5-bf69-3a3067b53d73",
+    "title": "PowerShell Set-Acl On Windows Folder",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_set_acl_susp_location.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_set_acl_susp_location.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "PowerShell ejecutó Set-Acl con -AclObject sobre una ruta bajo C:\\Windows y otorgó permisos como FullControl o Allow. Un atacante puede estar abriendo archivos protegidos del sistema para modificarlos o reemplazarlos.",
+      "what_it_detects": "Creación de procesos powershell.exe o pwsh.exe (por Image u OriginalFileName) cuyo CommandLine contiene 'Set-Acl ' y '-AclObject ', una ruta -Path hacia C:\\Windows, %windir% o $env:windir, y los términos 'FullControl' o 'Allow'.",
+      "why_it_matters": "Cambiar las ACL de archivos de Windows permite reemplazar binarios o DLL del sistema, por ejemplo termsrv.dll en la técnica T1505.005 referenciada, y facilita la persistencia y la evasión de defensas.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique la ruta exacta bajo C:\\Windows, la identidad que recibe permisos (Everyone, Users, una cuenta concreta) y el nivel otorgado.",
+        "Identifique el usuario y su nivel de privilegios; confirme si es un administrador o una cuenta de servicio esperada en ese host.",
+        "Examine el ParentImage y la cadena de procesos: ¿proviene de un script de despliegue, de una sesión RDP interactiva, de Office o de un proceso web?",
+        "Compare la ACL actual del archivo o carpeta afectada (Get-Acl o icacls) con la de un equipo de referencia.",
+        "Busque en el mismo host, +/- 15 minutos, escrituras, renombrados o reemplazos de archivos en la ruta afectada, takeown.exe, icacls.exe o detención de servicios.",
+        "Verifique el hash y la firma de cualquier binario o DLL modificado en esa ruta contra la versión legítima de Microsoft.",
+        "Revise alertas previas del mismo usuario y host, incluidos inicios de sesión inusuales o ejecución de PowerShell codificado."
+      ],
+      "false_positives": [
+        "Scripts de administración o de hardening que ajustan permisos en carpetas de Windows, normalmente desde SCCM, Intune o GPO, con cuentas de servicio conocidas.",
+        "Instaladores o herramientas de terceros que modifican ACL en rutas como C:\\Windows\\Temp o directorios de drivers durante su instalación."
+      ],
+      "response_steps": [
+        "Valide con el dueño del equipo o el equipo de TI si el cambio fue autorizado; documente el ticket de cambio si existe.",
+        "Si no está autorizado, aísle el endpoint y preserve el script, el historial de PowerShell y los registros 4104 si están disponibles.",
+        "Restaure la ACL original de la ruta afectada y reemplace archivos del sistema alterados usando sfc /scannow o una fuente confiable, tras verificar.",
+        "Restablezca las credenciales de la cuenta usada y busque el mismo CommandLine en otros hosts para detectar alcance."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque otorgar FullControl o Allow sobre archivos de C:\\Windows vía PowerShell es poco común en operación normal y precede a la manipulación de componentes del sistema."
+    },
+    "en": {
+      "summary": "PowerShell ran Set-Acl with -AclObject against a path under C:\\Windows and granted rights such as FullControl or Allow. An attacker may be unlocking protected system files to modify or replace them.",
+      "what_it_detects": "powershell.exe or pwsh.exe process creation (by Image or OriginalFileName) whose CommandLine contains 'Set-Acl ' and '-AclObject ', a -Path pointing to C:\\Windows, %windir% or $env:windir, and 'FullControl' or 'Allow'.",
+      "why_it_matters": "Changing ACLs on Windows files lets an attacker replace system binaries or DLLs, such as termsrv.dll in the referenced T1505.005 technique, supporting persistence and defense evasion.",
+      "triage_steps": [
+        "Read the full CommandLine: note the exact path under C:\\Windows, the identity receiving rights (Everyone, Users, a specific account) and the rights granted.",
+        "Identify the user and privilege level; confirm whether it is an expected admin or service account on this host.",
+        "Inspect ParentImage and the process tree: deployment script, interactive RDP session, Office or a web server process?",
+        "Compare the current ACL of the target (Get-Acl or icacls) with a known-good reference host.",
+        "Pivot on the same host +/- 15 minutes for writes, renames or replacements in that path, takeown.exe, icacls.exe or service stops.",
+        "Check hash and signature of any modified binary or DLL in that path against the legitimate Microsoft version.",
+        "Review earlier alerts for the same user and host, including unusual logons or encoded PowerShell."
+      ],
+      "false_positives": [
+        "Admin or hardening scripts adjusting permissions on Windows folders, usually pushed by SCCM, Intune or GPO under known service accounts.",
+        "Third-party installers or tools changing ACLs on paths like C:\\Windows\\Temp or driver directories during setup."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the change was authorized; record any change ticket.",
+        "If unauthorized, isolate the endpoint and preserve the script, PowerShell history and 4104 logs if available.",
+        "After verification, restore the original ACL and replace tampered system files with sfc /scannow or a trusted source.",
+        "Reset credentials of the account used and hunt for the same CommandLine across other hosts."
+      ],
+      "severity_rationale": "High fits because granting FullControl or Allow on C:\\Windows files via PowerShell is rare in normal operations and typically precedes tampering with system components."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "powershell.exe grants Everyone FullControl on a System32 DLL via Set-Acl with a double-quoted C:\\Windows path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"$acl = Get-Acl C:\\Windows\\System32\\termsrv.dll; $r = New-Object System.Security.AccessControl.FileSystemAccessRule('Everyone','FullControl','Allow'); $acl.SetAccessRule($r); Set-Acl -Path \"C:\\Windows\\System32\\termsrv.dll\" -AclObject $acl\""
+        }
+      },
+      {
+        "description": "pwsh.exe uses $env:windir path and an Allow rule with Set-Acl",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07",
+          "User": "ANDES\\svc_temp",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "pwsh.exe -c \"$a = Get-Acl $env:windir\\System32\\Tasks; $a.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('Users','Modify','Allow'))); Set-Acl -Path $env:windir\\System32\\Tasks -AclObject $a\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Set-Acl with FullControl on an application folder under ProgramData, not the Windows folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin_it",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Windows\\CCM\\CcmExec.exe",
+          "CommandLine": "powershell.exe -Command \"$acl = Get-Acl 'C:\\ProgramData\\ContosoApp'; $r = New-Object System.Security.AccessControl.FileSystemAccessRule('ANDES\\svc_app','FullControl','Allow'); $acl.SetAccessRule($r); Set-Acl -Path 'C:\\ProgramData\\ContosoApp' -AclObject $acl\""
+        }
+      },
+      {
+        "description": "Read-only Get-Acl audit of a Windows folder, no Set-Acl",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07",
+          "User": "ANDES\\auditor",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -Command \"Get-Acl -Path \"C:\\Windows\\System32\\Tasks\" | Format-List\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

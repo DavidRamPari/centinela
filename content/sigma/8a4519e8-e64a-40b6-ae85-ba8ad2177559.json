@@ -1,0 +1,111 @@
+{
+  "rule": {
+    "id": "8a4519e8-e64a-40b6-ae85-ba8ad2177559",
+    "title": "Renamed BrowserCore.EXE Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Max Altgelt (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_renamed_browsercore.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_renamed_browsercore.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036.003",
+      "T1528"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso cuyo OriginalFileName es BrowserCore.exe, pero su Image no termina en \\BrowserCore.exe. Es una copia renombrada del componente de Microsoft que puede usarse para obtener tokens de Azure AD/Entra ID.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde el metadato PE OriginalFileName es BrowserCore.exe y la ruta de Image no termina en \\BrowserCore.exe. Así se detecta un binario legítimo de Microsoft copiado y renombrado.",
+      "why_it_matters": "BrowserCore.exe es el host de native messaging que los navegadores usan para el inicio de sesión único con cuentas de Entra ID. Un atacante puede invocarlo para obtener cookies o tokens basados en el Primary Refresh Token (robo de tokens de aplicación, T1528). Renombrarlo sirve para evadir controles basados en el nombre (enmascaramiento, T1036.003).",
+      "triage_steps": [
+        "Revise Image, OriginalFileName, Hashes y la firma: confirme que es un binario de Microsoft ubicado fuera de su ruta normal (por ejemplo, en Users, Temp o ProgramData).",
+        "Analice CommandLine, ParentImage y ParentCommandLine. Lo legítimo es que un navegador (msedge.exe, chrome.exe) lance BrowserCore con argumentos chrome-extension://. Desconfíe si el padre es cmd, powershell o un binario desconocido.",
+        "Busque eventos de creación del archivo en la ruta de Image dentro de ±15 minutos para identificar quién copió el binario y desde dónde.",
+        "Revise procesos hijos, conexiones de red y otros procesos del mismo host en ±15 minutos, sobre todo scripts o herramientas que lean la salida del proceso.",
+        "En los registros de inicio de sesión de Entra ID para ese User, busque autenticaciones posteriores desde IPs, dispositivos o user agents inusuales.",
+        "Busque alertas anteriores sobre el mismo host o usuario, en especial otros binarios renombrados o herramientas de robo de credenciales."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Ejercicios autorizados de red team o pruebas de seguridad que reproducen la extracción de tokens.",
+        "Investigadores o administradores que copian el binario para analizarlo o probarlo; confírmelo con el responsable y con el ticket de cambio."
+      ],
+      "response_steps": [
+        "Verifique con el usuario y con el equipo de seguridad si hay una prueba autorizada antes de escalar.",
+        "Si la actividad no está autorizada, aísle el endpoint y conserve el binario renombrado, su hash y la línea de tiempo de procesos.",
+        "En Entra ID, revoque las sesiones y los refresh tokens del usuario afectado, y revise los registros de inicio de sesión y de auditoría para detectar accesos con tokens robados.",
+        "Elimine la copia renombrada y los artefactos relacionados una vez preservada la evidencia, e investigue el vector de acceso inicial.",
+        "Restablezca las credenciales y vuelva a registrar el dispositivo si se confirma el compromiso; vigile los inicios de sesión del usuario en los días siguientes."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque renombrar este agente de autenticación de Microsoft no tiene un uso legítimo habitual y permite robar tokens de identidad en la nube."
+    },
+    "en": {
+      "summary": "A process ran whose OriginalFileName is BrowserCore.exe, but its Image does not end in \\BrowserCore.exe. This renamed copy of a Microsoft component can be used to obtain Azure AD/Entra ID tokens.",
+      "what_it_detects": "Windows process creation events where the PE OriginalFileName metadata is BrowserCore.exe and the Image path does not end in \\BrowserCore.exe. This flags a legitimate Microsoft binary that was copied and renamed.",
+      "why_it_matters": "BrowserCore.exe is the native messaging host browsers use for single sign-on with Entra ID accounts. Attackers can call it to get cookies or tokens backed by the Primary Refresh Token (application access token theft, T1528). Renaming it gets around name-based controls (masquerading, T1036.003).",
+      "triage_steps": [
+        "Check Image, OriginalFileName, Hashes and the signature. Confirm it is a Microsoft binary sitting outside its normal path, for example in Users, Temp or ProgramData.",
+        "Look at CommandLine, ParentImage and ParentCommandLine. Normally a browser (msedge.exe, chrome.exe) launches BrowserCore with chrome-extension:// arguments. A cmd, powershell or unknown parent is suspicious.",
+        "Search for file creation events at the Image path within ±15 minutes to find out who copied the binary and where it came from.",
+        "Review child processes, network connections and other processes on the same host within ±15 minutes, especially scripts or tools that read the process output.",
+        "In Entra ID sign-in logs for that User, look for later authentications from unusual IPs, devices or user agents.",
+        "Check earlier alerts for the same host or user, especially other renamed binaries or credential theft tools."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Authorized red team exercises or security tests that reproduce token extraction.",
+        "Researchers or admins copying the binary to analyze or test it. Confirm with the owner and the change ticket."
+      ],
+      "response_steps": [
+        "Ask the user and the security team whether this was an authorized test before you escalate.",
+        "If it was not authorized, isolate the endpoint and keep the renamed binary, its hash and the process timeline.",
+        "In Entra ID, revoke the affected user's sessions and refresh tokens. Review sign-in and audit logs for access with stolen tokens.",
+        "Once evidence is preserved, delete the renamed copy and related artifacts. Investigate how the attacker first got in.",
+        "If compromise is confirmed, reset credentials and re-register the device. Watch the user's sign-ins over the following days."
+      ],
+      "severity_rationale": "High fits because there is rarely a legitimate reason to rename this Microsoft authentication broker, and doing so enables theft of cloud identity tokens."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Renamed BrowserCore.exe copied to C:\\Users\\Public and launched from PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "BrowserCore.exe",
+          "Company": "Microsoft Corporation",
+          "Product": "Microsoft® Windows® Operating System",
+          "CommandLine": "C:\\Users\\Public\\svchelper.exe chrome-extension://ppnbnpeolgkicgegkbkbjmhlideopiji/",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000001"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate BrowserCore.exe launched by Edge from its standard location; the filter excludes it",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Windows Security\\BrowserCore\\BrowserCore.exe",
+          "OriginalFileName": "BrowserCore.exe",
+          "Company": "Microsoft Corporation",
+          "CommandLine": "\"C:\\Program Files\\Windows Security\\BrowserCore\\BrowserCore.exe\" chrome-extension://ppnbnpeolgkicgegkbkbjmhlideopiji/ --parent-window=0",
+          "ParentImage": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

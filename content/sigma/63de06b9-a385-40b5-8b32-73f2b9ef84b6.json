@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "63de06b9-a385-40b5-8b32-73f2b9ef84b6",
+    "title": "Fsutil Drive Enumeration",
+    "level": "low",
+    "status": "test",
+    "author": "Christopher Peacock '@securepeacock', SCYTHE '@scythe_io'",
+    "path": "windows/process_creation/proc_creation_win_fsutil_drive_enumeration.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_fsutil_drive_enumeration.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1120"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó fsutil.exe con el argumento 'drives' (normalmente 'fsutil fsinfo drives'), que lista las unidades conectadas al equipo. Puede ser administración legítima o reconocimiento previo a la recolección de datos.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\fsutil.exe u OriginalFileName es fsutil.exe (también detecta binarios renombrados), y CommandLine contiene 'drives'.",
+      "why_it_matters": "Listar unidades locales, extraíbles y de red le permite a un atacante encontrar dónde hay datos para robar o cifrar (ATT&CK T1120, Peripheral Device Discovery). Las referencias de la regla mencionan este uso en la actividad de Turla.",
+      "triage_steps": [
+        "Revise CommandLine, User y host. Confirme si el comando es 'fsutil fsinfo drives' o una variante, y si el usuario suele administrar este equipo.",
+        "Compare Image con OriginalFileName. Si fsutil se ejecuta fuera de System32 o con otro nombre, el binario fue renombrado: eleve la prioridad.",
+        "Analice ParentImage y ParentCommandLine. Es más sospechoso si lo lanzan cmd.exe o powershell.exe desde Office, navegadores, scripts en carpetas temporales o shells remotos (wmiprvse.exe, wsmprovhost.exe).",
+        "Revise el mismo host +/- 15 minutos y busque otros comandos de reconocimiento (whoami, net, systeminfo, ipconfig, tasklist, dir sobre otras unidades).",
+        "Busque actividad posterior en ese equipo: acceso masivo a archivos, archivos comprimidos, conexiones salientes poco comunes o creación de servicios y tareas.",
+        "Revise alertas anteriores del mismo usuario y host, y si el mismo comando se ejecutó en varios equipos en poco tiempo."
+      ],
+      "false_positives": [
+        "Software o tareas administrativas que inventarían discos, como agentes de gestión, herramientas de respaldo o scripts de monitoreo.",
+        "Técnicos de soporte que diagnostican discos o unidades USB desde una consola interactiva.",
+        "Scripts de despliegue o imágenes de sistema que verifican las unidades disponibles."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del equipo si la ejecución era esperada y documente las excepciones legítimas recurrentes.",
+        "Si el padre es sospechoso o el binario está renombrado, aísle el endpoint con el EDR y conserve la memoria y el árbol de procesos.",
+        "Obtenga el hash del binario y de los scripts relacionados, y búsquelos en toda la flota.",
+        "Restablezca las credenciales del usuario si hay señales de compromiso y revise sus sesiones activas.",
+        "Elimine la persistencia y las herramientas identificadas solo después de verificarlas, y luego restaure el equipo y vigílelo de cerca."
+      ],
+      "severity_rationale": "El nivel bajo es adecuado porque enumerar unidades es común en administración y solo cobra relevancia junto con otras señales de reconocimiento o intrusión."
+    },
+    "en": {
+      "summary": "fsutil.exe was run with the 'drives' argument (usually 'fsutil fsinfo drives'), which lists the drives attached to the host. This can be normal admin work or reconnaissance before data collection.",
+      "what_it_detects": "Windows process creation events where Image ends with \\fsutil.exe or OriginalFileName is fsutil.exe (which also catches renamed copies), and CommandLine contains 'drives'.",
+      "why_it_matters": "Listing local, removable and network drives shows an attacker where data to steal or encrypt is stored (ATT&CK T1120, Peripheral Device Discovery). The rule's references cite this usage by Turla.",
+      "triage_steps": [
+        "Review CommandLine, User and host. Confirm whether it is 'fsutil fsinfo drives' or a variant, and whether the user normally administers this machine.",
+        "Compare Image with OriginalFileName. If fsutil runs from outside System32 or under another name, it was renamed. Raise the priority.",
+        "Check ParentImage and ParentCommandLine. Treat cmd.exe or powershell.exe launched by Office, browsers, temp-folder scripts or remote shells (wmiprvse.exe, wsmprovhost.exe) as suspicious.",
+        "Check the same host within +/- 15 minutes for other discovery commands such as whoami, net, systeminfo, ipconfig, tasklist or dir on other drives.",
+        "Look for follow-on activity on the host: mass file access, archive creation, unusual outbound connections, or new services and scheduled tasks.",
+        "Check earlier alerts for the same user and host, and whether the same command ran on several hosts in a short time."
+      ],
+      "false_positives": [
+        "Software or admin tasks that inventory disks, such as management agents, backup tools or monitoring scripts.",
+        "Support technicians troubleshooting disks or USB drives from an interactive console.",
+        "Deployment or imaging scripts that check which drives are available."
+      ],
+      "response_steps": [
+        "Ask the user or system owner whether the run was expected. Document recurring legitimate cases as tuning exceptions.",
+        "If the parent is suspicious or the binary is renamed, isolate the endpoint through EDR and preserve memory and the process tree.",
+        "Collect hashes of the binary and any related scripts, then hunt for them across the fleet.",
+        "If there are signs of compromise, reset the user's credentials and review their active sessions.",
+        "Remove persistence and tools only after you verify them, then restore the host and monitor it closely."
+      ],
+      "severity_rationale": "Low fits because drive enumeration is common in administration and only matters when it appears with other discovery or intrusion signals."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "fsutil fsinfo drives launched from cmd.exe spawned by a script in a temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\fsutil.exe",
+          "OriginalFileName": "fsutil.exe",
+          "CommandLine": "fsutil  fsinfo drives",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.bat",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "Renamed fsutil copy matched through OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\fsx.exe",
+          "OriginalFileName": "fsutil.exe",
+          "CommandLine": "C:\\Users\\Public\\fsx.exe fsinfo drives",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate fsutil volume query without 'drives' in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\adm.lgarcia",
+          "Image": "C:\\Windows\\System32\\fsutil.exe",
+          "OriginalFileName": "fsutil.exe",
+          "CommandLine": "fsutil fsinfo volumeinfo C:",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Command line contains 'drives' but the process is not fsutil",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c dir D:\\backup\\drives",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

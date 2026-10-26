@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "9c14c9fa-1a63-4a64-8e57-d19280559490",
+    "title": "Invoke-Obfuscation Via Stdin",
+    "level": "high",
+    "status": "test",
+    "author": "Nikita Nazarov, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_hktl_invoke_obfuscation_via_stdin.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_invoke_obfuscation_via_stdin.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso cuya CommandLine encadena varios comandos set con && y referencias a $input, Invoke o environment, el patrón del lanzador STDIN de Invoke-Obfuscation. Indica PowerShell ofuscado que se entrega por la entrada estándar para ocultar el script real.",
+      "what_it_detects": "Una expresión regular sobre CommandLine que busca 'set', luego '&& set' seguido de environment, invoke, $input o ${input}, otro '&&' y una comilla doble. Es típico de cmd.exe que guarda código en variables y lo canaliza a powershell mediante echo %var% ^| powershell -.",
+      "why_it_matters": "Invoke-Obfuscation es un framework público que ofusca comandos de PowerShell para evadir firmas y registros. Corresponde a ofuscación de archivos o información (T1027) y ejecución con PowerShell (T1059.001); suele preceder a descargas, persistencia o movimiento lateral.",
+      "triage_steps": [
+        "Lea la CommandLine completa: identifique las variables definidas con set y qué contenido se canaliza a powershell con echo y ^|.",
+        "Reconstruya el comando final sustituyendo las variables %var%; no lo ejecute, analícelo de forma estática.",
+        "Revise ParentImage y la cadena de procesos: Office, navegador, wscript, mshta o un servicio como padre aumenta mucho la sospecha.",
+        "Identifique al usuario y confirme si es una cuenta que normalmente ejecuta scripts administrativos en ese host.",
+        "Busque procesos hijos de powershell.exe en el mismo host +/- 15 minutos: conexiones de red, nuevos archivos, tareas programadas o servicios.",
+        "Revise los Script Block Logs de PowerShell (evento 4104) del mismo intervalo para ver el código ya desofuscado.",
+        "Busque la misma CommandLine o un patrón similar en otros hosts y alertas previas del mismo usuario o equipo."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Scripts por lotes de administración o instaladores que encadenan set con variables llamadas ENVIRONMENT y pasan valores a PowerShell.",
+        "Ejercicios autorizados de red team o pruebas de detección con Invoke-Obfuscation; confirme con el equipo responsable."
+      ],
+      "response_steps": [
+        "Valide con el dueño del equipo o del script si la ejecución estaba autorizada antes de actuar.",
+        "Si no hay justificación, aísle el endpoint mediante el EDR y preserve memoria y logs de PowerShell.",
+        "Detenga los procesos maliciosos y elimine la persistencia encontrada (tareas, servicios, claves Run) tras documentarla.",
+        "Restablezca las credenciales del usuario afectado si hubo ejecución con privilegios o indicios de robo de credenciales.",
+        "Bloquee los indicadores obtenidos (dominios, IP, hash) y busque coincidencias en toda la flota.",
+        "Restaure el equipo desde una imagen limpia si no puede garantizar la erradicación completa."
+      ],
+      "severity_rationale": "Nivel alto porque este patrón de canalización ofuscada casi no aparece en uso legítimo y suele indicar ejecución deliberada de PowerShell oculto."
+    },
+    "en": {
+      "summary": "A process was created whose CommandLine chains several set commands with && and references $input, Invoke or environment, the Invoke-Obfuscation STDIN launcher pattern. It indicates obfuscated PowerShell delivered through standard input to hide the real script.",
+      "what_it_detects": "A regex on CommandLine looking for 'set', then '&& set' followed by environment, invoke, $input or ${input}, another '&&' and a double quote. Typical of cmd.exe storing code in variables and piping it to powershell via echo %var% ^| powershell -.",
+      "why_it_matters": "Invoke-Obfuscation is a public framework that obfuscates PowerShell commands to evade signatures and logging. This maps to obfuscated files or information (T1027) and PowerShell execution (T1059.001), often preceding downloads, persistence or lateral movement.",
+      "triage_steps": [
+        "Read the full CommandLine: identify the variables defined with set and what is piped to powershell using echo and ^|.",
+        "Rebuild the final command by substituting the %var% values; analyze it statically, never run it.",
+        "Check ParentImage and the process tree: Office, a browser, wscript, mshta or a service as parent greatly raises suspicion.",
+        "Identify the user and confirm whether that account normally runs administrative scripts on this host.",
+        "Look for powershell.exe child activity on the same host +/- 15 minutes: network connections, new files, scheduled tasks or services.",
+        "Review PowerShell Script Block Logging (event 4104) in the same window to see the deobfuscated code.",
+        "Search for the same or similar CommandLine on other hosts and for earlier alerts on the same user or host."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Admin batch scripts or installers that chain set with variables named ENVIRONMENT and pass values to PowerShell.",
+        "Authorized red team exercises or detection tests using Invoke-Obfuscation; confirm with the responsible team."
+      ],
+      "response_steps": [
+        "Confirm with the host or script owner whether the execution was authorized before acting.",
+        "If unjustified, isolate the endpoint through EDR and preserve memory and PowerShell logs.",
+        "Stop malicious processes and remove discovered persistence (tasks, services, Run keys) after documenting it.",
+        "Reset the affected user's credentials if execution was privileged or credential theft is suspected.",
+        "Block extracted indicators (domains, IPs, hashes) and hunt for matches across the fleet.",
+        "Reimage the host if full eradication cannot be assured."
+      ],
+      "severity_rationale": "High because this obfuscated piping pattern is rare in legitimate use and usually signals deliberate execution of hidden PowerShell."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe launched by Word storing a command in variables and piping it to PowerShell through $input (Invoke-Obfuscation STDIN launcher style).",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "cmd.exe /c \"set kq=Write-Output 'test'&& set wx=powershell -NoProfile $input^|IEX&& cmd /c echo %kq% ^| %wx%\"",
+          "ProcessId": 6120
+        }
+      },
+      {
+        "description": "Uppercase SET variant using ${input} and Invoke-Expression, then piping to powershell reading from stdin.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "CommandLine": "C:\\Windows\\system32\\cmd.exe /C \"SET a=Get-Date&&SET b=${input}^|Invoke-Expression&&cmd /c echo %a%^|powershell -noni -\"",
+          "ProcessId": 4388
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate build script chaining set commands, but no environment/invoke/$input after the second set.",
+        "event": {
+          "EventID": 4688,
+          "Computer": "BUILD-03.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Tools\\Jenkins\\jenkins.exe",
+          "CommandLine": "cmd.exe /c \"set PATH=C:\\Tools;%PATH%&& set JAVA_HOME=C:\\Java&& java -version\"",
+          "ProcessId": 2916
+        }
+      },
+      {
+        "description": "Deployment script sets a DEPLOY_ENVIRONMENT variable but has no further && after it, so the pattern is incomplete.",
+        "event": {
+          "EventID": 4688,
+          "Computer": "APP-01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "cmd.exe /c \"set CONFIG=Release&& set DEPLOY_ENVIRONMENT=staging\"",
+          "ProcessId": 5032
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

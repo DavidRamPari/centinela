@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "43fa5350-db63-4b8f-9a01-789a427074e1",
+    "title": "Potential Obfuscated Ordinal Call Via Rundll32",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_rundll32_obfuscated_ordinal_call.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_rundll32_obfuscated_ordinal_call.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027.010"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó rundll32 con una llamada por ordinal en formato inusual (signo, ceros a la izquierda o valor mayor a 16 bits). Este formato suele usarse para ocultar qué función de la DLL se invoca.",
+      "what_it_detects": "Procesos rundll32 (por Image, OriginalFileName o CommandLine) cuyo CommandLine contiene '#+', '#-', '#0', '#655' o '#656'. Así se escriben ordinales con signo, con ceros a la izquierda o que exceden 16 bits y dan la vuelta (65560 = ordinal 24).",
+      "why_it_matters": "Los atacantes usan rundll32 para ejecutar payloads en DLL con un binario firmado de Windows. Ofuscar el ordinal evade firmas que buscan exportaciones o ordinales conocidos (T1027.010, ofuscación de línea de comandos).",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique la DLL, su ruta (Temp, AppData, ProgramData, recursos compartidos) y normalice el ordinal real (quite ceros y signo, reste 65536 si corresponde).",
+        "Calcule el hash de la DLL, verifique su firma y consulte la reputación en sus fuentes de inteligencia.",
+        "Examine ParentImage y la cadena de procesos: Office, navegadores, wscript, mshta o PowerShell como padre aumentan la sospecha.",
+        "Correlacione en el mismo host +/- 15 minutos: creación de la DLL, descargas, conexiones de red salientes del rundll32 y procesos hijos.",
+        "Revise el usuario (User) y si la cuenta suele ejecutar software administrativo; busque actividad similar del mismo usuario en otros equipos.",
+        "Busque alertas previas del host y del usuario, y otras ejecuciones de la misma DLL u ordinal en toda la flota."
+      ],
+      "false_positives": [
+        "El campo falsepositives de la regla indica 'Unknown'; no se conocen usos legítimos frecuentes.",
+        "Ordinales legítimos entre 655 y 6569 o 65500-65699 en alguna DLL de terceros, que coinciden con '#655' o '#656'.",
+        "Rutas o nombres de archivo con '#-', '#+' o '#0' en el CommandLine de software interno o instaladores."
+      ],
+      "response_steps": [
+        "Confirme la malicia: analice la DLL en sandbox y valide la exportación invocada con el ordinal normalizado.",
+        "Si se confirma, aísle el endpoint desde el EDR y preserve la DLL, la memoria y los registros relevantes.",
+        "Bloquee el hash de la DLL y los dominios o IPs contactados; busque el indicador en otros hosts.",
+        "Elimine la DLL y los mecanismos de persistencia asociados (tareas, claves Run, servicios) tras documentarlos.",
+        "Restablezca las credenciales del usuario afectado si hubo ejecución confirmada y restaure el equipo a un estado conocido."
+      ],
+      "severity_rationale": "Nivel medio: el formato de ordinal es muy raro en uso legítimo, pero por sí solo no prueba ejecución maliciosa y requiere validar la DLL."
+    },
+    "en": {
+      "summary": "rundll32 was run with an ordinal call in an unusual format (sign, leading zeros or a value wider than 16 bits). This format is often used to hide which DLL function is invoked.",
+      "what_it_detects": "rundll32 processes (by Image, OriginalFileName or CommandLine) whose CommandLine contains '#+', '#-', '#0', '#655' or '#656'. These are signed or zero-padded ordinals, or ordinals above 16 bits that wrap around (65560 = ordinal 24).",
+      "why_it_matters": "Attackers use rundll32 to run DLL payloads through a signed Windows binary. Obfuscating the ordinal evades signatures that look for known exports or ordinals (T1027.010, command obfuscation).",
+      "triage_steps": [
+        "Read the full CommandLine: identify the DLL, its path (Temp, AppData, ProgramData, shares) and normalize the real ordinal (strip zeros and sign, subtract 65536 if needed).",
+        "Hash the DLL, check its signature and look up its reputation in your threat intel sources.",
+        "Review ParentImage and the process tree: Office, browsers, wscript, mshta or PowerShell as parent raise suspicion.",
+        "Correlate on the same host +/- 15 minutes: DLL file creation, downloads, outbound network connections from rundll32 and child processes.",
+        "Check the User and whether the account normally runs admin tools; look for similar activity by the same user on other hosts.",
+        "Search for earlier alerts on the host and user, and other executions of the same DLL or ordinal across the fleet."
+      ],
+      "false_positives": [
+        "The rule's falsepositives field says 'Unknown'; no common legitimate use is known.",
+        "Legitimate ordinals such as 655-6569 or 65500-65699 in a third-party DLL, which match '#655' or '#656'.",
+        "Paths or file names containing '#-', '#+' or '#0' in internal software or installer command lines."
+      ],
+      "response_steps": [
+        "Confirm maliciousness: detonate the DLL in a sandbox and check which export the normalized ordinal resolves to.",
+        "If confirmed, isolate the endpoint via EDR and preserve the DLL, memory and relevant logs.",
+        "Block the DLL hash and contacted domains or IPs; hunt for the indicators on other hosts.",
+        "Remove the DLL and related persistence (scheduled tasks, Run keys, services) after documenting them.",
+        "Reset the affected user's credentials if execution is confirmed and restore the host to a known-good state."
+      ],
+      "severity_rationale": "Medium: this ordinal format is very rare in legitimate use, but alone it does not prove malicious execution and the DLL must be validated."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "rundll32 launched by PowerShell loading a DLL from Temp with a zero-padded ordinal (#000024)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "\"C:\\Windows\\System32\\rundll32.exe\" C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.dll,#000024",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "rundll32 calling ordinal 24 wrapped above 16 bits (#65560)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\SysWOW64\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe C:\\ProgramData\\cache\\svc.dll,#65560",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "rundll32 with a plain ordinal (#24), no obfuscation",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe C:\\Program Files\\Vendor\\helper.dll,#24",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Legitimate Control Panel applet via rundll32 named export, no ordinal",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0301.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "C:\\Windows\\System32\\rundll32.exe shell32.dll,Control_RunDLL desk.cpl",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "a7664b14-75fb-4a50-a223-cb9bc0afbacf",
+    "title": "HackTool - RemoteKrbRelay Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_krbrelay_remote.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_krbrelay_remote.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1558.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso que coincide con RemoteKrbRelay, ya sea por su nombre de archivo, por sus metadatos PE o por sus flags característicos en la línea de comandos. RemoteKrbRelay es una herramienta ofensiva que retransmite (relay) la autenticación Kerberos de un equipo remoto hacia servicios como LDAP, AD CS o SMB.",
+      "what_it_detects": "Creación de procesos en la que Image termina en \\RemoteKrbRelay.exe, OriginalFileName es RemoteKrbRelay.exe o CommandLine contiene alguna combinación de flags de la herramienta: -clsid/-target/-victim, -rbcd con -cn, -chp con -chpUser/-chpPass, -addgroupmember con -group/-groupuser, o -smb --smbkeyword con interactive/secrets/service-add.",
+      "why_it_matters": "La herramienta usa DCOM (el valor de -clsid) para forzar la autenticación de un equipo víctima y retransmite esa autenticación Kerberos hacia el -target. A partir de ahí puede configurar RBCD o Shadow Credentials, leer contraseñas LAPS, cambiar contraseñas, agregar miembros a grupos, solicitar certificados o extraer secretos por SMB. La regla lo asocia a ATT&CK T1558.003, dentro de robo o falsificación de tickets Kerberos, y puede terminar en el compromiso del dominio.",
+      "triage_steps": [
+        "Lea el CommandLine y anote los valores de -victim, -target y -clsid y el modo de ataque (-rbcd, -chp, -addgroupmember, -smb, -adcs, -laps, -shadowcred).",
+        "Identifique el usuario y el host, y revise ParentImage y su proceso padre. ¿Se ejecutó desde una shell, un script o una sesión remota como WinRM o PsExec?",
+        "Obtenga la ruta y el hash del binario. Una copia renombrada cuyo OriginalFileName no coincide indica evasión deliberada.",
+        "En el host de origen, busque conexiones hacia la víctima por 135/TCP y hacia el LDAP (389/636), el certsrv HTTP o el SMB (445) del target, en una ventana de ±15 minutos.",
+        "En los controladores de dominio, busque el evento 5136 (cambios en msDS-AllowedToActOnBehalfOfOtherIdentity o msDS-KeyCredentialLink), el 4724 (restablecimiento de contraseña) y los 4728/4732/4756 (alta de miembros en grupos).",
+        "En el servidor AD CS, revise los eventos 4886/4887 en busca de certificados emitidos para la cuenta víctima, y revise las lecturas de atributos LAPS.",
+        "Pivotee sobre el mismo usuario y el mismo host en busca de alertas previas: herramientas de coerción, Rubeus, solicitudes de tickets S4U o cuentas de equipo nuevas."
+      ],
+      "false_positives": [
+        "Pruebas de penetración o ejercicios de red team autorizados que usan RemoteKrbRelay. Confirme el alcance, el operador y la ventana horaria con el responsable del ejercicio.",
+        "Investigadores de seguridad que hacen pruebas en dominios de laboratorio. Confirme que el host realmente pertenece a un laboratorio aislado."
+      ],
+      "response_steps": [
+        "Confirme que no se trata de una prueba autorizada. Si no lo es, aísle el host de origen y deshabilite o restablezca la cuenta que ejecutó la herramienta.",
+        "Una vez verificado, revierta los cambios en AD: limpie las entradas RBCD y KeyCredentialLink, quite a los miembros agregados a grupos y restablezca las contraseñas modificadas.",
+        "Revoque los certificados emitidos mediante el relay. Rote las contraseñas LAPS y los secretos SMB que hayan quedado expuestos.",
+        "Recolecte el binario, la memoria y los logs para el análisis forense. Busque el mismo hash y los mismos flags en todos los endpoints.",
+        "Endurezca el entorno: exija firma LDAP y channel binding, active EPA en la inscripción web de AD CS, exija la firma SMB y restrinja el acceso DCOM."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque la herramienta no tiene ningún uso administrativo legítimo y un relay exitoso puede escalar privilegios en Active Directory en poco tiempo."
+    },
+    "en": {
+      "summary": "A process ran that matches RemoteKrbRelay, either by its file name or PE metadata or by its distinctive command-line flags. RemoteKrbRelay is an offensive tool that relays Kerberos authentication from a remote machine to services such as LDAP, AD CS or SMB.",
+      "what_it_detects": "Process creation where Image ends with \\RemoteKrbRelay.exe, OriginalFileName is RemoteKrbRelay.exe, or CommandLine has the tool's flag sets: -clsid/-target/-victim, -rbcd with -cn, -chp with -chpUser/-chpPass, -addgroupmember with -group/-groupuser, or -smb --smbkeyword with interactive/secrets/service-add.",
+      "why_it_matters": "The tool uses DCOM (the -clsid value) to force a victim machine to authenticate, then relays that Kerberos authentication to the -target. From there it can set up RBCD or Shadow Credentials, read LAPS passwords, change passwords, add group members, request certificates or dump SMB secrets. The rule maps this to ATT&CK T1558.003 under Steal or Forge Kerberos Tickets, and it can lead to domain compromise.",
+      "triage_steps": [
+        "Read the CommandLine and note the -victim, -target and -clsid values and the attack mode (-rbcd, -chp, -addgroupmember, -smb, -adcs, -laps, -shadowcred).",
+        "Find the user and host, then check ParentImage and its parent. Was it run from a shell, a script or a remote session such as WinRM or PsExec?",
+        "Get the binary's path and hash. A renamed copy whose OriginalFileName does not match points to deliberate evasion.",
+        "On the source host, look for connections to the victim on 135/TCP and to the target's LDAP (389/636), HTTP certsrv or SMB (445), within ±15 minutes.",
+        "On domain controllers, look for event 5136 (changes to msDS-AllowedToActOnBehalfOfOtherIdentity or msDS-KeyCredentialLink), 4724 (password reset) and 4728/4732/4756 (group member added).",
+        "On the AD CS server, check events 4886/4887 for certificates issued for the victim account, and check LAPS attribute reads.",
+        "Pivot on the same user and host for earlier alerts such as coercion tools, Rubeus, S4U ticket requests or new computer accounts."
+      ],
+      "false_positives": [
+        "Authorized penetration tests or red team exercises that use RemoteKrbRelay. Confirm the scope, the operator and the time window with the engagement owner.",
+        "Security researchers testing in lab domains. Confirm the host really belongs to an isolated lab."
+      ],
+      "response_steps": [
+        "Confirm the activity is not an authorized test. If it is not, isolate the source host and disable or reset the account that ran the tool.",
+        "Once confirmed, undo the AD changes: clear RBCD and KeyCredentialLink entries, remove added group members and reset any changed passwords.",
+        "Revoke certificates issued through the relay. Rotate the LAPS passwords and any SMB secrets that were exposed.",
+        "Collect the binary, memory and logs for forensics. Hunt for the same hash and flags across all endpoints.",
+        "Harden the environment: enforce LDAP signing and channel binding, turn on EPA on AD CS web enrollment, require SMB signing and restrict DCOM access."
+      ],
+      "severity_rationale": "High fits because the tool has no legitimate administrative use and successful relaying can quickly lead to privilege escalation in Active Directory."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "RemoteKrbRelay.exe launched from a Downloads folder in ADCS relay mode with the required -victim, -target and -clsid flags.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.corp.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\Downloads\\RemoteKrbRelay.exe",
+          "OriginalFileName": "RemoteKrbRelay.exe",
+          "CommandLine": "RemoteKrbRelay.exe -adcs -template Machine -victim ws-0207.corp.example.com -target ca01.corp.example.com -clsid 90f18417-f0f1-484e-9d3c-59dceee5dbd8",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\cmd.exe\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed binary in ProgramData using the LDAP change-password attack (-chp with -chpUser and -chpPass).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.corp.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\ProgramData\\updsvc.exe",
+          "OriginalFileName": "updsvc.exe",
+          "CommandLine": "C:\\ProgramData\\updsvc.exe -chp -chpUser svc_backup -chpPass Placeholder-Pass1 -victim dc01.corp.example.com -target dc01.corp.example.com -clsid 90f18417-f0f1-484e-9d3c-59dceee5dbd8",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate deployment agent using -target and -clsid but no -victim flag. It is not the RemoteKrbRelay image and has no attack flags.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-DEPLOY01.corp.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Program Files\\Contoso\\Deploy\\deployagent.exe",
+          "OriginalFileName": "deployagent.exe",
+          "CommandLine": "\"C:\\Program Files\\Contoso\\Deploy\\deployagent.exe\" -target WS-0142 -clsid {4991D34B-80A1-4291-83B6-3328366B9097} -package inventory.msi",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Admin running klist to purge Kerberos tickets. This is Kerberos-related but matches none of the image or flag selections.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.corp.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\klist.exe",
+          "OriginalFileName": "klist.exe",
+          "CommandLine": "klist.exe purge -li 0x3e7",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

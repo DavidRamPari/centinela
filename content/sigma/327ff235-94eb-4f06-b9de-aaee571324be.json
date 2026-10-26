@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "327ff235-94eb-4f06-b9de-aaee571324be",
+    "title": "Regsvr32 Execution From Highly Suspicious Location",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_regsvr32_susp_exec_path_2.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_regsvr32_susp_exec_path_2.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.010"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó regsvr32.exe para cargar una DLL ubicada en un directorio inusual o con permisos de escritura abusables (PerfLogs, Temp, spool, Tasks, Tracing u otra ruta fuera de las carpetas habituales). Es una forma típica de ejecutar código malicioso a través de un binario firmado de Windows.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\regsvr32.exe u OriginalFileName es REGSVR32.EXE, y la CommandLine apunta a directorios sospechosos conocidos o a una ruta C:\\ o D:\\ que no está bajo Program Files, ProgramData, Users ni Windows.",
+      "why_it_matters": "Los atacantes usan regsvr32 (ATT&CK T1218.010, ejecución mediante binario proxy del sistema) para cargar DLL maliciosas con un binario de confianza y así evadir controles de aplicaciones. Las carpetas detectadas suelen tener permisos de escritura y se usan para ocultar payloads.",
+      "triage_steps": [
+        "Revise CommandLine: identifique la ruta exacta de la DLL, los parámetros (/s, /u, /i) y si hay URL o scriptlets.",
+        "Obtenga el hash de la DLL, verifique su firma digital, la fecha de creación y su reputación en fuentes de threat intelligence.",
+        "Analice ParentImage y la cadena de procesos: Office, navegadores, wscript, mshta, cmd o tareas programadas como padres son altamente sospechosos.",
+        "Revise procesos hijos de regsvr32 y conexiones de red salientes del mismo host en una ventana de +/- 15 minutos.",
+        "Identifique qué proceso escribió la DLL en esa ruta (eventos de creación de archivos) y desde dónde se descargó.",
+        "Busque la misma ruta, nombre o hash de DLL en otros endpoints y alertas previas para el mismo usuario y host.",
+        "Compruebe persistencia asociada: tareas programadas, claves Run o servicios que invoquen regsvr32 con esa DLL."
+      ],
+      "false_positives": [
+        "Poco probable según la regla; algún instalador o software heredado podría registrar DLL desde C:\\Temp o una unidad D:\\.",
+        "Scripts de administración o empaquetado internos que registran componentes COM desde rutas temporales o compartidas; valide con el equipo responsable."
+      ],
+      "response_steps": [
+        "Valide la legitimidad de la DLL con el dueño del sistema y el análisis del hash antes de actuar.",
+        "Si es malicioso, aísle el endpoint desde el EDR y preserve la DLL y la memoria para análisis forense.",
+        "Elimine la DLL, sus mecanismos de persistencia y cualquier archivo relacionado; bloquee el hash y los dominios o IPs contactados.",
+        "Restablezca credenciales del usuario afectado si hubo actividad posterior y busque movimiento lateral.",
+        "Considere reglas de control de aplicaciones que restrinjan regsvr32 a rutas aprobadas."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque cargar DLL con regsvr32 desde estas ubicaciones casi nunca es legítimo y suele indicar ejecución de payloads con evasión de defensas."
+    },
+    "en": {
+      "summary": "regsvr32.exe was run to load a DLL from an unusual or commonly abused writable directory (PerfLogs, Temp, spool, Tasks, Tracing, or a path outside the normal install folders). This is a common way to run malicious code through a signed Windows binary.",
+      "what_it_detects": "Process creation events where Image ends with \\regsvr32.exe or OriginalFileName is REGSVR32.EXE, and CommandLine references known suspicious directories or a C:\\ or D:\\ path not under Program Files, ProgramData, Users or Windows.",
+      "why_it_matters": "Attackers use regsvr32 (ATT&CK T1218.010, system binary proxy execution) to load malicious DLLs through a trusted binary and bypass application controls. The listed folders are often writable and used to hide payloads.",
+      "triage_steps": [
+        "Review CommandLine: note the exact DLL path, switches (/s, /u, /i) and any URL or scriptlet references.",
+        "Hash the DLL, check its digital signature, creation time and reputation in threat intelligence sources.",
+        "Inspect ParentImage and the process tree; Office, browsers, wscript, mshta, cmd or scheduled tasks as parents are highly suspicious.",
+        "Review regsvr32 child processes and outbound network connections on the same host within +/- 15 minutes.",
+        "Find which process wrote the DLL to that path (file creation events) and where it was downloaded from.",
+        "Search for the same DLL path, name or hash on other endpoints and in earlier alerts for the same user and host.",
+        "Check for related persistence: scheduled tasks, Run keys or services invoking regsvr32 with that DLL."
+      ],
+      "false_positives": [
+        "Unlikely per the rule; a legacy installer or application might register DLLs from C:\\Temp or a D:\\ drive.",
+        "Internal admin or packaging scripts registering COM components from temporary or staging paths; confirm with the owning team."
+      ],
+      "response_steps": [
+        "Confirm legitimacy of the DLL with the system owner and hash analysis before acting.",
+        "If malicious, isolate the endpoint via EDR and preserve the DLL and memory for forensics.",
+        "Remove the DLL, its persistence and related files; block the hash and any contacted domains or IPs.",
+        "Reset the affected user's credentials if follow-on activity occurred and hunt for lateral movement.",
+        "Consider application control rules restricting regsvr32 to approved paths."
+      ],
+      "severity_rationale": "High fits because loading DLLs with regsvr32 from these locations is rarely legitimate and usually indicates payload execution with defense evasion."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "regsvr32 silently loads a DLL dropped in the print spooler color directory (selection_path_1).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\regsvr32.exe",
+          "OriginalFileName": "REGSVR32.EXE",
+          "CommandLine": "regsvr32.exe /s C:\\Windows\\System32\\spool\\drivers\\color\\msclr.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c regsvr32.exe /s C:\\Windows\\System32\\spool\\drivers\\color\\msclr.dll"
+        }
+      },
+      {
+        "description": "regsvr32 loads a DLL from a non-standard folder on C:\\ outside excluded directories (selection_path_2).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\SysWOW64\\regsvr32.exe",
+          "OriginalFileName": "REGSVR32.EXE",
+          "CommandLine": "regsvr32.exe /s C:\\Intel\\Logs\\upd.dll",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate registration of a vendor plugin under Program Files; excluded by selection_exclude_known_dirs.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\System32\\regsvr32.exe",
+          "OriginalFileName": "REGSVR32.EXE",
+          "CommandLine": "regsvr32.exe /s \"C:\\Program Files\\ExampleVendor\\plugin.dll\"",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe"
+        }
+      },
+      {
+        "description": "Re-registering a system DLL in System32; ' C:\\Windows\\' is excluded and no suspicious subfolder is present.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\System32\\regsvr32.exe",
+          "OriginalFileName": "REGSVR32.EXE",
+          "CommandLine": "regsvr32 /s C:\\Windows\\System32\\msxml3.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

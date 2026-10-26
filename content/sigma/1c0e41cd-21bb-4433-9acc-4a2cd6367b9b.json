@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "1c0e41cd-21bb-4433-9acc-4a2cd6367b9b",
+    "title": "Suspicious Modification Of Scheduled Tasks",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_schtasks_change.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_schtasks_change.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1053.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó schtasks.exe con /Change sobre una tarea existente (/TN), y la nueva línea de comandos apunta a una ruta sospechosa y usa un intérprete o LOLBin. Puede ser un intento de convertir en persistencia maliciosa una tarea que parecía inofensiva.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\schtasks.exe y CommandLine contiene ' /Change ' y ' /TN ', una ruta sospechosa (AppData, Temp, Users\\Public, ProgramData, Downloads, %comspec%, etc.) y un binario como powershell, cmd /c, rundll32, regsvr32, mshta, certutil o wscript.",
+      "why_it_matters": "Los atacantes crean una tarea de aspecto inocuo para no llamar la atención y después la modifican para que ejecute su payload. Esto corresponde a ATT&CK T1053.005 (Scheduled Task): persistencia, ejecución y posible escalamiento de privilegios si la tarea corre como SYSTEM.",
+      "triage_steps": [
+        "Revise CommandLine completo: nombre de la tarea (/TN), nueva acción (/TR), usuario (/RU) y si se modificó en un equipo remoto (/S).",
+        "Identifique el usuario y ParentImage. Un padre como cmd.exe, powershell.exe, un proceso de Office o un servidor web aumenta la sospecha.",
+        "Consulte la definición actual de la tarea con 'schtasks /Query /TN <nombre> /V /FO LIST' o en C:\\Windows\\System32\\Tasks y compare con su versión original.",
+        "Obtenga el hash del archivo referenciado en /TR (script, DLL o ejecutable), revise su firma, su fecha de creación y su reputación.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, la creación de la tarea (schtasks /Create, evento 4698), descargas de archivos y conexiones de red.",
+        "Revise el evento 4702 (tarea actualizada) y alertas previas del mismo usuario o host.",
+        "Busque la misma tarea o el mismo comando en otros endpoints para medir el alcance."
+      ],
+      "false_positives": [
+        "Scripts de administración o instaladores legítimos que reconfiguran tareas para que ejecuten PowerShell o cmd desde ProgramData.",
+        "Herramientas de despliegue de software (SCCM, Intune, RMM) que ajustan tareas propias en rutas de ProgramData o AppData.",
+        "Pruebas de equipos de red team o de validación de detecciones autorizadas."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del equipo o con el equipo de TI si el cambio estaba autorizado.",
+        "Si es malicioso, aísle el endpoint y deshabilite la tarea (schtasks /Change /TN <nombre> /DISABLE) tras exportar su XML como evidencia.",
+        "Preserve y analice el payload referenciado; bloquee su hash y los dominios o IP asociados.",
+        "Elimine la tarea y los archivos maliciosos, restablezca las credenciales de la cuenta usada y busque otros mecanismos de persistencia.",
+        "Restaure el equipo a un estado conocido y vigile si la tarea reaparece."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque modificar una tarea existente para ejecutar intérpretes desde rutas escribibles por el usuario rara vez es legítimo y otorga persistencia inmediata."
+    },
+    "en": {
+      "summary": "schtasks.exe ran with /Change against an existing task (/TN), and the new command line points to a suspicious path and uses an interpreter or LOLBin. This may be an attempt to turn a harmless-looking task into malicious persistence.",
+      "what_it_detects": "Process creation events where Image ends with \\schtasks.exe and CommandLine contains ' /Change ' and ' /TN ', a suspicious path (AppData, Temp, Users\\Public, ProgramData, Downloads, %comspec%, etc.) and a binary such as powershell, cmd /c, rundll32, regsvr32, mshta, certutil or wscript.",
+      "why_it_matters": "Attackers create a benign-looking task to avoid scrutiny, then modify it later to run their payload. This maps to ATT&CK T1053.005 (Scheduled Task): persistence, execution and possible privilege escalation if the task runs as SYSTEM.",
+      "triage_steps": [
+        "Read the full CommandLine: task name (/TN), new action (/TR), run-as user (/RU) and whether a remote system was targeted (/S).",
+        "Identify the user and ParentImage. A parent such as cmd.exe, powershell.exe, an Office app or a web server raises suspicion.",
+        "Check the current task definition with 'schtasks /Query /TN <name> /V /FO LIST' or in C:\\Windows\\System32\\Tasks and compare with its original.",
+        "Hash the file referenced in /TR (script, DLL or executable); check signature, creation time and reputation.",
+        "On the same host within +/- 15 minutes, look for task creation (schtasks /Create, event 4698), file downloads and network connections.",
+        "Review event 4702 (task updated) and earlier alerts for the same user or host.",
+        "Search other endpoints for the same task name or command to scope the activity."
+      ],
+      "false_positives": [
+        "Legitimate admin scripts or installers reconfiguring tasks to run PowerShell or cmd from ProgramData.",
+        "Software deployment tools (SCCM, Intune, RMM) adjusting their own tasks in ProgramData or AppData paths.",
+        "Authorized red team or detection validation exercises."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the change was authorized.",
+        "If malicious, isolate the endpoint and disable the task (schtasks /Change /TN <name> /DISABLE) after exporting its XML as evidence.",
+        "Preserve and analyze the referenced payload; block its hash and related domains or IPs.",
+        "Delete the task and malicious files, reset credentials of the account used and hunt for other persistence.",
+        "Restore the host to a known-good state and monitor for the task reappearing."
+      ],
+      "severity_rationale": "High fits because modifying an existing task to launch interpreters from user-writable paths is rarely legitimate and grants immediate persistence."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Existing task changed to run hidden PowerShell script from C:\\Users\\Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks.exe /Change /TN \"\\Microsoft\\Windows\\UpdateCheck\" /TR \"powershell.exe -NoProfile -WindowStyle Hidden -File C:\\Users\\Public\\upd.ps1\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat"
+        }
+      },
+      {
+        "description": "Task changed to load a DLL from ProgramData via rundll32",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks /Change /TN \"OneDriveSync\" /TR \"rundll32.exe C:\\ProgramData\\sync.dll,Start\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -ep bypass"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Backup task changed to a signed agent under Program Files (no suspicious path or interpreter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-BK01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks.exe /Change /TN \"\\Backup\\Nightly\" /TR \"C:\\Program Files\\BackupAgent\\agent.exe --run\"",
+          "ParentImage": "C:\\Program Files\\BackupAgent\\installer.exe"
+        }
+      },
+      {
+        "description": "Task changed to run PowerShell from a non-suspicious D:\\Scripts path (location selection not met)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-RPT02.andes.example.com",
+          "User": "ANDES\\admin_lgomez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks.exe /Change /TN \"DailyReport\" /TR \"powershell.exe -File D:\\Scripts\\report.ps1\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "66e563f9-1cbd-4a22-a957-d8b7c0f44372",
+    "title": "HackTool - XORDump Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_xordump.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_xordump.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.001",
+      "T1036"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó XORDump, o un binario con sus mismos parámetros, una herramienta que vuelca la memoria de procesos como lsass.exe. Es muy probable que se trate de un intento de robo de credenciales.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\xordump.exe, o donde CommandLine contiene los parámetros propios de XORDump: ' -process lsass.exe ', ' -m comsvcs ', ' -m dbghelp ' o ' -m dbgcore '. Con los parámetros también se detectan copias renombradas de la herramienta.",
+      "why_it_matters": "XORDump genera minidumps de procesos mediante comsvcs, dbghelp o dbgcore y puede ofuscar el archivo de salida con XOR para que el antivirus no lo detecte. Un volcado de LSASS expone hashes y tickets (T1003.001). Cambiar el nombre del binario corresponde a masquerading (T1036).",
+      "triage_steps": [
+        "Revise Image y CommandLine: anote el proceso objetivo, el método (-m), la ruta de salida y la clave XOR, si aparece.",
+        "Si Image no es xordump.exe, el binario probablemente fue renombrado. Obtenga su hash, firma y metadatos OriginalFileName.",
+        "Analice ParentImage y la cadena de procesos: shell remoto, PsExec, WMI, tareas programadas o un documento de Office.",
+        "Identifique al usuario y verifique si tenía privilegios elevados o SeDebugPrivilege. Revise sus inicios de sesión recientes y los hosts de origen.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, archivos nuevos en la ruta de salida y accesos a lsass.exe (Sysmon EventID 10).",
+        "Busque conexiones salientes o copias SMB posteriores que indiquen la exfiltración del volcado.",
+        "Busque el mismo hash o la misma línea de comandos en otros endpoints y revise alertas previas del host y del usuario."
+      ],
+      "false_positives": [
+        "Otra herramienta legítima que usa los mismos parámetros de línea de comandos que XORDump, según indica la regla.",
+        "Ejercicios autorizados de red team o pruebas de penetración. Confirme que existe un ticket y que la ventana de pruebas está aprobada."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del activo y el equipo de seguridad si la ejecución estaba autorizada.",
+        "Si no lo estaba, aísle el endpoint desde el EDR y conserve el archivo de volcado y el binario como evidencia antes de eliminarlos.",
+        "Restablezca las contraseñas de las cuentas que iniciaron sesión en el host, incluidas las privilegiadas. Si el riesgo de Kerberos lo justifica, evalúe rotar krbtgt.",
+        "Elimine el binario y los mecanismos de persistencia, habilite LSA Protection (RunAsPPL) y busque movimiento lateral con las credenciales expuestas."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque los parámetros son muy específicos de una herramienta ofensiva de volcado de LSASS y casi no tienen usos legítimos."
+    },
+    "en": {
+      "summary": "XORDump, or a binary that uses its command-line switches, was run to dump process memory, most likely from lsass.exe. This points to credential theft.",
+      "what_it_detects": "Windows process creation events where Image ends with \\xordump.exe, or where CommandLine contains XORDump switches: ' -process lsass.exe ', ' -m comsvcs ', ' -m dbghelp ' or ' -m dbgcore '. Matching on the switches also catches renamed copies.",
+      "why_it_matters": "XORDump writes process minidumps through comsvcs, dbghelp or dbgcore and can XOR-encode the output so antivirus misses it. An LSASS dump exposes hashes and tickets (T1003.001). Renaming the binary is masquerading (T1036).",
+      "triage_steps": [
+        "Read Image and CommandLine: record the target process, the method (-m), the output path and the XOR key if one is shown.",
+        "If Image is not xordump.exe, the binary was probably renamed. Collect its hash, signature and OriginalFileName metadata.",
+        "Check ParentImage and the process tree for a remote shell, PsExec, WMI, a scheduled task or an Office document.",
+        "Identify the user and check for admin rights or SeDebugPrivilege. Review recent logons and their source hosts.",
+        "On the same host, within +/- 15 minutes, look for new files at the output path and for access to lsass.exe (Sysmon EventID 10).",
+        "Look for later outbound connections or SMB copies that suggest the dump was exfiltrated.",
+        "Search other endpoints for the same hash or command line, and review earlier alerts for this host and user."
+      ],
+      "false_positives": [
+        "Another legitimate tool that uses XORDump's command-line switches, as the rule notes.",
+        "Authorized red team or penetration test work. Confirm there is a ticket and an approved test window."
+      ],
+      "response_steps": [
+        "Confirm with the asset owner and the security team whether the run was authorized.",
+        "If it was not, isolate the endpoint through EDR and keep the dump file and binary as evidence before removing them.",
+        "Reset passwords for accounts that logged on to the host, including privileged ones. Consider rotating krbtgt if Kerberos exposure is likely.",
+        "Remove the binary and any persistence, enable LSA Protection (RunAsPPL), and hunt for lateral movement with the exposed credentials."
+      ],
+      "severity_rationale": "High fits because these switches are specific to an offensive LSASS dumping tool and have almost no legitimate use."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "XORDump run under its original name to dump LSASS through comsvcs",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\xordump.exe",
+          "CommandLine": "C:\\Users\\Public\\xordump.exe -process lsass.exe -m comsvcs -o C:\\Users\\Public\\out.bin",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\xordump.exe"
+        }
+      },
+      {
+        "description": "Renamed XORDump binary that uses the dbgcore method",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE01.andes.example.com",
+          "User": "ANDES\\adm-mlopez",
+          "Image": "C:\\ProgramData\\svchelper.exe",
+          "CommandLine": "C:\\ProgramData\\svchelper.exe -process lsass.exe -m dbgcore -o C:\\ProgramData\\cache.dat",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "xordump.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate ProcDump capture of an IIS worker process for troubleshooting",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-WEB02.andes.example.com",
+          "User": "ANDES\\adm-rgomez",
+          "Image": "C:\\Tools\\Sysinternals\\procdump64.exe",
+          "CommandLine": "procdump64.exe -accepteula -ma w3wp.exe C:\\dumps\\w3wp.dmp",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Administrator checking the LSASS process with tasklist; no XORDump switches",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\tasklist.exe",
+          "CommandLine": "tasklist.exe /fi \"imagename eq lsass.exe\" /v",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "fadb84f0-4e84-4f6d-a1ce-9ef2bffb6ccd",
+    "title": "Cloudflared Portable Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_cloudflared_portable_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cloudflared_portable_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1090.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó cloudflared.exe desde una ruta distinta de las carpetas de instalación estándar en Program Files. Puede tratarse de una copia portable usada para crear un túnel saliente hacia Cloudflare y evadir los controles perimetrales.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\cloudflared.exe y la ruta no contiene :\\Program Files\\cloudflared\\ ni :\\Program Files (x86)\\cloudflared\\. Suele indicar binarios portables en carpetas de usuario, Temp, ProgramData o recursos compartidos.",
+      "why_it_matters": "Cloudflared crea túneles cifrados hacia la red de Cloudflare, por ejemplo con TryCloudflare, sin abrir puertos de entrada. Un atacante puede usarlo como proxy interno (ATT&CK T1090.001) para mantener acceso remoto, exponer RDP o SMB y exfiltrar datos.",
+      "triage_steps": [
+        "Revise Image y CommandLine: busque 'tunnel', '--url', 'run --token', 'service install' o destinos como localhost:3389 y localhost:445.",
+        "Identifique el usuario y ParentImage: un padre como cmd.exe, powershell.exe, rundll32.exe o una herramienta de acceso remoto es más sospechoso que un instalador conocido.",
+        "Obtenga el hash, la firma digital y la fecha de creación del archivo; confirme si es un binario firmado por Cloudflare y cómo llegó al disco.",
+        "Revise conexiones de red del proceso hacia dominios de Cloudflare como *.trycloudflare.com o *.argotunnel.com y su duración.",
+        "Pivote en el mismo host +/- 15 minutos: descargas, creación de servicios o tareas programadas, cuentas nuevas, cambios en RDP y herramientas de descubrimiento.",
+        "Busque el mismo hash o ruta en otros endpoints y alertas previas del mismo usuario o host.",
+        "Confirme con el dueño del equipo o con TI si existe un uso aprobado de túneles Cloudflare."
+      ],
+      "false_positives": [
+        "Uso legítimo de versiones portables de cloudflared por desarrolladores o administradores para pruebas o acceso a servicios internos.",
+        "Despliegues corporativos que instalan cloudflared en rutas personalizadas, como C:\\Tools o ProgramData, o mediante gestores de paquetes como Chocolatey o Scoop."
+      ],
+      "response_steps": [
+        "Valide con el usuario y el responsable del activo si el túnel está autorizado; documente la justificación.",
+        "Si no está autorizado, aísle el endpoint y termine el proceso tras conservar evidencia: binario, CommandLine, configuración y token del túnel.",
+        "Elimine servicios, tareas programadas y archivos de configuración de cloudflared creados por el atacante; revoque credenciales expuestas.",
+        "Bloquee o restrinja dominios de túneles Cloudflare no aprobados en el proxy o DNS y busque el hash en toda la flota.",
+        "Si es legítimo, ajuste una exclusión por ruta y hash específicos en lugar de excluir el nombre del binario."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque los túneles portables son una técnica real de persistencia y C2, pero también tienen usos legítimos que requieren validación."
+    },
+    "en": {
+      "summary": "cloudflared.exe ran from a path outside the standard Program Files install folders. This may be a portable copy used to build an outbound tunnel to Cloudflare and bypass perimeter controls.",
+      "what_it_detects": "Windows process creation events where Image ends with \\cloudflared.exe and the path does not contain :\\Program Files\\cloudflared\\ or :\\Program Files (x86)\\cloudflared\\. This typically catches portable binaries in user folders, Temp, ProgramData or shares.",
+      "why_it_matters": "Cloudflared creates encrypted tunnels to Cloudflare's network, for example via TryCloudflare, without opening inbound ports. Attackers can use it as an internal proxy (ATT&CK T1090.001) to keep remote access, expose RDP or SMB, and exfiltrate data.",
+      "triage_steps": [
+        "Review Image and CommandLine: look for 'tunnel', '--url', 'run --token', 'service install', or targets such as localhost:3389 and localhost:445.",
+        "Identify the user and ParentImage: cmd.exe, powershell.exe, rundll32.exe or a remote access tool as parent is more suspicious than a known installer.",
+        "Get the file hash, digital signature and creation time; confirm it is Cloudflare-signed and determine how it reached disk.",
+        "Review the process's network connections to Cloudflare domains such as *.trycloudflare.com or *.argotunnel.com and their duration.",
+        "Pivot on the same host +/- 15 minutes: downloads, service or scheduled task creation, new accounts, RDP changes and discovery tools.",
+        "Search for the same hash or path on other endpoints and prior alerts for the same user or host.",
+        "Confirm with the device owner or IT whether approved Cloudflare tunnel usage exists."
+      ],
+      "false_positives": [
+        "Legitimate use of portable cloudflared builds by developers or admins for testing or reaching internal services.",
+        "Corporate deployments installing cloudflared in custom paths such as C:\\Tools or ProgramData, or via package managers like Chocolatey or Scoop."
+      ],
+      "response_steps": [
+        "Validate with the user and asset owner whether the tunnel is authorized; document the justification.",
+        "If unauthorized, isolate the endpoint and kill the process after preserving evidence: binary, CommandLine, config and tunnel token.",
+        "Remove attacker-created cloudflared services, scheduled tasks and config files; revoke any exposed credentials.",
+        "Block or restrict unapproved Cloudflare tunnel domains at proxy or DNS and hunt for the hash fleet-wide.",
+        "If legitimate, tune with an exclusion on the specific path and hash rather than the binary name."
+      ],
+      "severity_rationale": "Medium fits because portable tunnels are a real persistence and C2 technique, yet they also have legitimate uses that need validation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Portable cloudflared in a user's Downloads folder launched from PowerShell to tunnel local RDP via TryCloudflare",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\Downloads\\cloudflared.exe",
+          "CommandLine": "C:\\Users\\jperez\\Downloads\\cloudflared.exe tunnel --url rdp://localhost:3389",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden",
+          "OriginalFileName": "cloudflared.exe"
+        }
+      },
+      {
+        "description": "Renamed staging folder under ProgramData running cloudflared with a tunnel token",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\ProgramData\\Microsoft\\Update\\cloudflared.exe",
+          "CommandLine": "\"C:\\ProgramData\\Microsoft\\Update\\cloudflared.exe\" tunnel run --token REDACTED_TOKEN",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start /b cloudflared.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Cloudflared installed by the official MSI and running as a service from Program Files (filtered)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-01",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Program Files (x86)\\cloudflared\\cloudflared.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\cloudflared\\cloudflared.exe\" tunnel run",
+          "ParentImage": "C:\\Windows\\System32\\services.exe"
+        }
+      },
+      {
+        "description": "Different binary whose name only contains cloudflared but does not end with \\cloudflared.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\Downloads\\cloudflared-windows-amd64-installer.exe",
+          "CommandLine": "\"C:\\Users\\jperez\\Downloads\\cloudflared-windows-amd64-installer.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

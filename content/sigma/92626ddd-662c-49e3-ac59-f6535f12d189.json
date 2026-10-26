@@ -1,0 +1,119 @@
+{
+  "rule": {
+    "id": "92626ddd-662c-49e3-ac59-f6535f12d189",
+    "title": "Scheduled Task Creation Via Schtasks.EXE",
+    "level": "low",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_schtasks_creation.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_schtasks_creation.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1053.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Una cuenta de usuario ejecutó schtasks.exe con el parámetro /create para registrar una tarea programada. Puede ser administración legítima o un mecanismo de persistencia o ejecución de un atacante.",
+      "what_it_detects": "Procesos cuyo Image termina en \\schtasks.exe y cuyo CommandLine contiene ' /create ', siempre que User no sea una cuenta NT AUTHORITY/AUTORITE y que no se trate de la tarea Office Performance Monitor creada por integrator.exe de Microsoft Office.",
+      "why_it_matters": "Las tareas programadas (ATT&CK T1053.005) permiten a un atacante ejecutar código al iniciar sesión, al arrancar o de forma periódica, y mantener persistencia o escalar privilegios si la tarea corre como SYSTEM.",
+      "triage_steps": [
+        "Revise el CommandLine completo: nombre de la tarea (/tn), acción (/tr o /xml), frecuencia (/sc), cuenta de ejecución (/ru) y si usa /s para un equipo remoto.",
+        "Evalúe el binario o script de /tr: rutas en AppData, Temp, ProgramData o Public, o el uso de powershell, mshta, rundll32 o cmd con argumentos codificados son sospechosos.",
+        "Identifique el ParentImage y su cadena de procesos; un padre como winword.exe, wscript.exe o un proceso descargado es más preocupante que un instalador firmado o una consola de administración.",
+        "Confirme si el User es administrador de TI o una cuenta de servicio de despliegue y si existe un ticket de cambio relacionado.",
+        "Obtenga el hash del archivo indicado en /tr y consulte su reputación y firma digital.",
+        "Revise el mismo host en +/- 15 minutos: descargas, conexiones de red salientes, nuevos archivos y eventos 4698 (tarea creada) del registro Security.",
+        "Busque alertas previas para el mismo usuario y host, y la misma línea de comandos en otros endpoints."
+      ],
+      "false_positives": [
+        "Tareas creadas por administradores para mantenimiento, respaldos o scripts de inventario.",
+        "Instaladores de software o actualizadores que registran tareas propias durante la instalación.",
+        "Herramientas de gestión de endpoints o scripts de inicio de sesión que ejecutan schtasks con cuentas de usuario."
+      ],
+      "response_steps": [
+        "Valide con el usuario o el área de TI si la tarea es esperada antes de actuar.",
+        "Si es maliciosa, aísle el endpoint y deshabilite la tarea (schtasks /change /disable), conservando una exportación /xml como evidencia.",
+        "Preserve y analice el payload referenciado; luego elimine la tarea y los archivos asociados.",
+        "Restablezca credenciales del usuario si hay indicios de compromiso y busque la misma tarea en otros equipos."
+      ],
+      "severity_rationale": "El nivel low es adecuado porque crear tareas programadas es habitual en administración e instalaciones; el contexto del comando y del proceso padre determina la gravedad real."
+    },
+    "en": {
+      "summary": "A user account ran schtasks.exe with /create to register a scheduled task. This may be legitimate administration or an attacker's persistence or execution mechanism.",
+      "what_it_detects": "Processes whose Image ends with \\schtasks.exe and whose CommandLine contains ' /create ', excluding NT AUTHORITY/AUTORITE accounts in User and the Office Performance Monitor task created by Microsoft Office integrator.exe.",
+      "why_it_matters": "Scheduled tasks (ATT&CK T1053.005) let attackers run code at logon, at boot or periodically, giving persistence or privilege escalation when the task runs as SYSTEM.",
+      "triage_steps": [
+        "Read the full CommandLine: task name (/tn), action (/tr or /xml), schedule (/sc), run-as account (/ru) and any /s remote target.",
+        "Assess the /tr target: paths in AppData, Temp, ProgramData or Public, or powershell, mshta, rundll32 or cmd with encoded arguments are suspicious.",
+        "Identify the ParentImage and process chain; Office apps, script hosts or downloaded binaries are more concerning than signed installers or admin consoles.",
+        "Confirm whether the User is an IT admin or deployment account and whether a change ticket exists.",
+        "Hash the file referenced in /tr and check reputation and code signature.",
+        "Review the same host within +/- 15 minutes: downloads, outbound connections, new files and Security event 4698 (task created).",
+        "Look for earlier alerts for the same user and host, and the same command line on other endpoints."
+      ],
+      "false_positives": [
+        "Admin-created tasks for maintenance, backups or inventory scripts.",
+        "Software installers or updaters registering their own tasks.",
+        "Endpoint management tools or logon scripts running schtasks under user accounts."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT whether the task is expected before acting.",
+        "If malicious, isolate the endpoint and disable the task (schtasks /change /disable), keeping an /xml export as evidence.",
+        "Preserve and analyze the referenced payload, then delete the task and related files.",
+        "Reset the user's credentials if compromise is suspected and hunt for the same task on other hosts."
+      ],
+      "severity_rationale": "Low fits because task creation is common in administration and installs; the command details and parent process determine the real severity."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Domain user creates a recurring task that runs a binary from AppData, launched from cmd.exe.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "CommandLine": "schtasks.exe /create /sc minute /mo 30 /tn \"UpdateCheck\" /tr \"C:\\Users\\jperez\\AppData\\Roaming\\upd.exe\" /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c schtasks.exe /create /sc minute /mo 30 /tn \"UpdateCheck\" /tr \"C:\\Users\\jperez\\AppData\\Roaming\\upd.exe\" /f",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Same task creation executed by NT AUTHORITY\\SYSTEM, excluded by filter_main_system_user.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "CommandLine": "schtasks.exe /create /sc daily /tn \"VendorAgentUpdate\" /tr \"C:\\Program Files\\VendorAgent\\update.exe\" /ru SYSTEM /f",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Microsoft Office integrator.exe registering the Office Performance Monitor task, excluded by filter_optional_msoffice.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "CommandLine": "schtasks.exe /Create /tn \"Microsoft\\Office\\Office Performance Monitor\" /XML \"C:\\ProgramData\\Microsoft\\ClickToRun\\{9AC08E99-230B-47e8-9721-4577B7F124EA}\\Microsoft_Office_Office Performance Monitor.xml\"",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\integration\\integrator.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

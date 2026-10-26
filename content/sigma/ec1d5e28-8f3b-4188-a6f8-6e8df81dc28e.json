@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "ec1d5e28-8f3b-4188-a6f8-6e8df81dc28e",
+    "title": "WMI Persistence - Script Event Consumer",
+    "level": "medium",
+    "status": "test",
+    "author": "Thomas Patzke",
+    "path": "windows/process_creation/proc_creation_win_wmi_persistence_script_event_consumer.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmi_persistence_script_event_consumer.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1546.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "El host de scripts de WMI (scrcons.exe) se ejecutó como hijo de svchost.exe, lo que indica que una suscripción WMI con un ActiveScriptEventConsumer disparó código VBScript o JScript. Puede ser una configuración legítima o un mecanismo de persistencia.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image es C:\\WINDOWS\\system32\\wbem\\scrcons.exe y ParentImage es C:\\Windows\\System32\\svchost.exe. Esto ocurre cuando un consumidor de eventos de script de WMI ejecuta su script registrado.",
+      "why_it_matters": "Los atacantes registran suscripciones WMI (filtro, consumidor y binding) para que su script se ejecute solo ante un evento, como el arranque o un intervalo de tiempo, a menudo como SYSTEM. Corresponde a ATT&CK T1546.003, ejecución disparada por eventos mediante suscripción a eventos WMI. Sirve para persistencia y escalamiento de privilegios, y no deja archivos en disco.",
+      "triage_steps": [
+        "Confirma el host, la hora y el usuario del evento, y que Image y ParentImage coincidan exactamente con las rutas del sistema.",
+        "Lista las suscripciones con PowerShell: Get-CimInstance -Namespace root\\subscription para __EventFilter, ActiveScriptEventConsumer y __FilterToConsumerBinding.",
+        "Revisa ScriptText o ScriptFilename del consumidor: busca descargas, PowerShell codificado, WScript.Shell, rutas en %TEMP% o dominios externos.",
+        "Busca la creación de la suscripción: Sysmon ID 19, 20 y 21, o WMI-Activity/Operational 5861. Anota quién la creó y cuándo.",
+        "Revisa procesos hijos de scrcons.exe, conexiones de red y escrituras de archivo en el mismo host durante +/- 15 minutos.",
+        "Compara con otros hosts: un consumidor idéntico en toda la flota apunta a software de un proveedor. Si aparece en un solo equipo, es más sospechoso.",
+        "Busca alertas anteriores del mismo host o usuario, como movimiento lateral, ejecución remota de WMI o volcado de credenciales."
+      ],
+      "false_positives": [
+        "Consumidores de eventos legítimos de software de gestión, monitoreo o inventario.",
+        "Algunos equipos Dell registran un consumidor que se activa al cambiar el brillo con la tecla del teclado.",
+        "Scripts de administración o GPO que usan suscripciones WMI para automatizar tareas."
+      ],
+      "response_steps": [
+        "Verifica con el dueño del equipo o con TI si el consumidor y su script son conocidos y están autorizados.",
+        "Si es malicioso, aísla el endpoint y exporta el filtro, el consumidor y el binding como evidencia antes de cambiar nada.",
+        "Elimina el __FilterToConsumerBinding, el consumidor y el filtro maliciosos. Elimina también los payloads asociados.",
+        "Busca la misma suscripción en otros hosts, rota las credenciales comprometidas y revisa cómo se obtuvo acceso administrativo.",
+        "Si es legítimo, documenta el consumidor y crea una exclusión acotada por host o por nombre del consumidor."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque scrcons.exe es poco común e indica persistencia WMI, pero algunos consumidores legítimos de proveedores lo ejecutan sin que haya actividad maliciosa."
+    },
+    "en": {
+      "summary": "The WMI script host (scrcons.exe) ran as a child of svchost.exe. This means a WMI subscription with an ActiveScriptEventConsumer triggered VBScript or JScript code, either as a legitimate setup or as persistence.",
+      "what_it_detects": "Process creation events where Image is C:\\WINDOWS\\system32\\wbem\\scrcons.exe and ParentImage is C:\\Windows\\System32\\svchost.exe. This happens when a WMI script event consumer runs its registered script.",
+      "why_it_matters": "Attackers register WMI subscriptions (filter, consumer and binding) so their script runs when an event occurs, such as boot or a timer, often as SYSTEM. This is ATT&CK T1546.003, event triggered execution through WMI event subscription. It gives fileless persistence and privilege escalation.",
+      "triage_steps": [
+        "Confirm the host, time and user, and check that Image and ParentImage match the system paths exactly.",
+        "Enumerate subscriptions with Get-CimInstance -Namespace root\\subscription for __EventFilter, ActiveScriptEventConsumer and __FilterToConsumerBinding.",
+        "Review the consumer's ScriptText or ScriptFilename for downloads, encoded PowerShell, WScript.Shell, %TEMP% paths or external domains.",
+        "Find when the subscription was created and by whom: Sysmon events 19, 20 and 21, or WMI-Activity/Operational event 5861.",
+        "Review child processes of scrcons.exe, network connections and file writes on the same host within +/- 15 minutes.",
+        "Compare with other hosts. An identical consumer across the fleet suggests vendor software, while one on a single host is more suspicious.",
+        "Check earlier alerts for the same host or user, such as lateral movement, remote WMI execution or credential dumping."
+      ],
+      "false_positives": [
+        "Legitimate event consumers from management, monitoring or inventory software.",
+        "Some Dell computers register a consumer that fires when the brightness keyboard key is pressed.",
+        "Admin scripts or GPOs that use WMI subscriptions for automation."
+      ],
+      "response_steps": [
+        "Ask the asset owner or IT whether the consumer and its script are known and authorized.",
+        "If it is malicious, isolate the endpoint and export the filter, consumer and binding as evidence before changing anything.",
+        "Remove the malicious binding, consumer and filter, and any related payloads.",
+        "Hunt for the same subscription on other hosts, rotate exposed credentials and find out how admin access was gained.",
+        "If it is legitimate, document it and add a narrow exclusion by host or consumer name."
+      ],
+      "severity_rationale": "Medium fits because scrcons.exe rarely runs and points to WMI persistence, but some legitimate vendor consumers also trigger it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "scrcons.exe started by svchost.exe when a WMI ActiveScriptEventConsumer fires",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-05-14 03:12:45.221",
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\WINDOWS\\system32\\wbem\\scrcons.exe",
+          "CommandLine": "C:\\WINDOWS\\system32\\wbem\\scrcons.exe -Embedding",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k DcomLaunch -p",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Same execution with different path casing, which still matches because Sigma comparison is case-insensitive",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-05-14 09:40:02.118",
+          "Computer": "WS-0201.andes.example.com",
+          "Image": "c:\\windows\\System32\\wbem\\SCRCONS.EXE",
+          "CommandLine": "c:\\windows\\System32\\wbem\\scrcons.exe -Embedding",
+          "ParentImage": "C:\\WINDOWS\\system32\\svchost.exe",
+          "User": "NT AUTHORITY\\SYSTEM"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "WMI provider host started by svchost.exe, which is a normal WMI process and not the script consumer host",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-05-14 03:15:10.004",
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "CommandLine": "C:\\Windows\\system32\\wbem\\wmiprvse.exe -Embedding",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "User": "NT AUTHORITY\\NETWORK SERVICE"
+        }
+      },
+      {
+        "description": "scrcons.exe launched manually from cmd.exe. The parent is not svchost.exe, so the selection does not match",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-05-14 11:02:33.540",
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\WINDOWS\\system32\\wbem\\scrcons.exe",
+          "CommandLine": "scrcons.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

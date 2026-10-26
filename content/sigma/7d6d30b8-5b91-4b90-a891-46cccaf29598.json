@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "7d6d30b8-5b91-4b90-a891-46cccaf29598",
+    "title": "Program Executed Using Proxy/Local Command Via SSH.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113, Nasreddine Bencherchali",
+    "path": "windows/process_creation/proc_creation_win_ssh_proxy_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_ssh_proxy_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se detectó ssh.exe de OpenSSH para Windows usado como proxy para ejecutar otro programa mediante ProxyCommand o LocalCommand, o un proceso cuyo padre es el servidor sshd.exe. Puede ser una técnica para ejecutar binarios a través de un ejecutable firmado y confiable.",
+      "what_it_detects": "Eventos de creación de procesos donde ssh.exe (por ruta, Product 'OpenSSH for Windows' o IMPHASH conocido) recibe en CommandLine 'ProxyCommand=' o la combinación 'PermitLocalCommand=yes' y ' LocalCommand', o cualquier proceso cuyo ParentImage es C:\\Windows\\System32\\OpenSSH\\sshd.exe.",
+      "why_it_matters": "Corresponde a T1218 (System Binary Proxy Execution): el atacante lanza payloads a través de ssh.exe, un binario legítimo, para evadir controles basados en listas de aplicaciones permitidas. Los hijos de sshd.exe indican ejecución remota vía SSH entrante.",
+      "triage_steps": [
+        "Revise CommandLine completo y extraiga el valor de ProxyCommand o LocalCommand: identifique qué programa o script se ejecuta y si el destino SSH tiene sentido (por ejemplo, '.' o localhost es sospechoso).",
+        "Confirme Image y Hashes: verifique que ssh.exe esté en una ruta esperada y que el hash coincida con la versión instalada en la organización.",
+        "Revise ParentImage y ParentCommandLine: ¿ssh.exe fue lanzado por una terminal interactiva, un script, Office o un proceso inusual?",
+        "Si el padre es sshd.exe, identifique el usuario de la sesión y la IP de origen en los logs de OpenSSH (Event Log OpenSSH/Operational) y valide si es acceso administrativo autorizado.",
+        "Enumere procesos hijos de ssh.exe o del proceso lanzado por sshd.exe en el mismo host +/- 15 minutos: shells, PowerShell codificado, descargas o herramientas de reconocimiento.",
+        "Busque alertas previas para el mismo host, usuario e IP de origen, y si el mismo CommandLine aparece en otros endpoints.",
+        "Revise archivos ssh_config o %USERPROFILE%\\.ssh\\config recientemente modificados que definan ProxyCommand o LocalCommand."
+      ],
+      "false_positives": [
+        "Uso administrativo legítimo de ProxyCommand para saltar a través de bastiones (por ejemplo, con netcat o connect.exe).",
+        "Administradores que se conectan por SSH a servidores Windows con OpenSSH Server y ejecutan shells o scripts de mantenimiento.",
+        "Herramientas de automatización o CI/CD que usan sesiones SSH entrantes en servidores Windows."
+      ],
+      "response_steps": [
+        "Valide con el usuario o el responsable del host si la conexión y el comando eran esperados antes de actuar.",
+        "Si es malicioso, aísle el endpoint, termine el proceso hijo y bloquee la IP de origen o la cuenta comprometida.",
+        "Elimine configuraciones SSH maliciosas, claves en authorized_keys no autorizadas y payloads asociados; restablezca credenciales afectadas.",
+        "Si OpenSSH Server no es necesario, deshabilite el servicio sshd y documente la línea base de uso legítimo para afinar la regla."
+      ],
+      "severity_rationale": "Nivel medio porque la técnica permite evasión y ejecución remota, pero el uso administrativo de SSH y ProxyCommand es común y requiere contexto para confirmar malicia."
+    },
+    "en": {
+      "summary": "OpenSSH for Windows ssh.exe was used as a proxy to launch another program via ProxyCommand or LocalCommand, or a process was spawned by the sshd.exe server. This can be a way to run binaries through a trusted, signed executable.",
+      "what_it_detects": "Process creation where ssh.exe (by path, Product 'OpenSSH for Windows' or known IMPHASH) has 'ProxyCommand=' or both 'PermitLocalCommand=yes' and ' LocalCommand' in CommandLine, or any process whose ParentImage is C:\\Windows\\System32\\OpenSSH\\sshd.exe.",
+      "why_it_matters": "Maps to T1218 (System Binary Proxy Execution): attackers launch payloads through legitimate ssh.exe to bypass application allowlisting. Children of sshd.exe indicate remote execution over inbound SSH.",
+      "triage_steps": [
+        "Read the full CommandLine and extract the ProxyCommand or LocalCommand value: what program or script runs, and is the SSH target plausible ('.' or localhost is suspicious)?",
+        "Check Image and Hashes: ssh.exe should sit in an expected path and match the version deployed in your environment.",
+        "Review ParentImage and ParentCommandLine: was ssh.exe started by an interactive terminal, a script, an Office app or something unusual?",
+        "If the parent is sshd.exe, get the session user and source IP from the OpenSSH/Operational event log and confirm it is authorized admin access.",
+        "List child processes of ssh.exe or of the sshd-spawned process on the same host +/- 15 minutes: shells, encoded PowerShell, downloads, recon tools.",
+        "Search earlier alerts for the same host, user and source IP, and whether the same CommandLine appears on other endpoints.",
+        "Look for recently modified ssh_config or %USERPROFILE%\\.ssh\\config files defining ProxyCommand or LocalCommand."
+      ],
+      "false_positives": [
+        "Legitimate admin use of ProxyCommand to hop through bastion hosts (for example with netcat or connect.exe).",
+        "Administrators connecting over SSH to Windows servers running OpenSSH Server and launching shells or maintenance scripts.",
+        "Automation or CI/CD tooling that uses inbound SSH sessions on Windows servers."
+      ],
+      "response_steps": [
+        "Confirm with the user or host owner that the connection and command were expected before acting.",
+        "If malicious, isolate the endpoint, kill the child process and block the source IP or compromised account.",
+        "Remove malicious SSH configs, unauthorized authorized_keys entries and related payloads; reset affected credentials.",
+        "If OpenSSH Server is not needed, disable the sshd service; document legitimate usage baselines to tune the rule."
+      ],
+      "severity_rationale": "Medium because the technique enables evasion and remote execution, yet admin use of SSH and ProxyCommand is common and needs context to confirm malice."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "ssh.exe used as a LOLBin: ProxyCommand launches calc.exe without a real SSH target",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\OpenSSH\\ssh.exe",
+          "OriginalFileName": "ssh.exe",
+          "Product": "OpenSSH for Windows",
+          "CommandLine": "ssh.exe -o ProxyCommand=calc.exe .",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c ssh.exe -o ProxyCommand=calc.exe .",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000000,IMPHASH=55b4964d29aad5438b9e950052dbbbc0"
+        }
+      },
+      {
+        "description": "PowerShell spawned directly by the OpenSSH server sshd.exe (inbound SSH session)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILES-01.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command whoami /all",
+          "ParentImage": "C:\\Windows\\System32\\OpenSSH\\sshd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\OpenSSH\\sshd.exe\" -R",
+          "Product": "Microsoft® Windows® Operating System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal admin SSH connection through a jump host using ProxyJump, not ProxyCommand, launched from PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\OpenSSH\\ssh.exe",
+          "Product": "OpenSSH for Windows",
+          "CommandLine": "ssh.exe -o ProxyJump=bastion-01.example.com jperez@db-01.example.com",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "Hashes": "IMPHASH=55b4964d29aad5438b9e950052dbbbc0"
+        }
+      },
+      {
+        "description": "ssh.exe with LocalCommand but PermitLocalCommand set to no, so the |all requirement is not met",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\OpenSSH\\ssh.exe",
+          "Product": "OpenSSH for Windows",
+          "CommandLine": "ssh.exe -o PermitLocalCommand=no -o LocalCommand=echo lgomez@app-02.example.org",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

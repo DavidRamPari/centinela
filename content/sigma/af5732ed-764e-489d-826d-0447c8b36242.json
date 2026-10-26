@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "af5732ed-764e-489d-826d-0447c8b36242",
+    "title": "Windows MSIX Package Support Framework AI_STUBS Execution",
+    "level": "low",
+    "status": "experimental",
+    "author": "Michael Haag, Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_msix_ai_stub_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_msix_ai_stub_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1204.002",
+      "T1218",
+      "T1553.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un stub AI_STUBS de Advanced Installer (OriginalFileName popupwrapper.exe), parte del Package Support Framework de un paquete MSIX. Puede ser una aplicación legítima o un MSIX malicioso que usa PSF para ejecutar scripts o payloads.",
+      "what_it_detects": "Creación de procesos cuyo Image termina en \\AI_STUBS\\AiStubX64.exe, AiStubX86.exe o sus variantes Elevated, y cuyo OriginalFileName es popupwrapper.exe.",
+      "why_it_matters": "Algunos atacantes distribuyen instaladores MSIX falsos creados con Advanced Installer. El PSF ejecuta scripts como PowerShell dentro del contexto de un paquete firmado. Esto encaja con la ejecución por proxy de binarios (T1218), la modificación de controles de confianza (T1553.005) y la ejecución por el usuario de un archivo malicioso (T1204.002).",
+      "triage_steps": [
+        "Revise la ruta de Image para identificar el paquete, normalmente C:\\Program Files\\WindowsApps\\<Paquete>_<versión>_<arch>__<publisherId>\\AI_STUBS, y anote el nombre y la versión.",
+        "Valide el publisher y la firma del paquete con Get-AppxPackage y Get-AuthenticodeSignature. Compare el nombre del firmante con el del proveedor que espera.",
+        "Revise ParentImage y CommandLine. Confirme si el usuario lo abrió desde el menú Inicio o si vino de un navegador o de una descarga reciente.",
+        "Busque procesos hijos del stub en un rango de +/- 15 minutos, sobre todo powershell.exe, cmd.exe, rundll32.exe o binarios en AppData o Temp.",
+        "Consulte el log Microsoft-Windows-AppXDeploymentServer/Operational para ver cuándo y desde dónde se instaló el paquete. Busque archivos .msix o .appinstaller en Downloads.",
+        "Pivotee por hash, usuario y host: tráfico de red saliente del proceso o de sus hijos, conexiones a dominios recién registrados y alertas anteriores de la misma entidad."
+      ],
+      "false_positives": [
+        "Aplicaciones legítimas empaquetadas con Advanced Installer que usan el Package Support Framework, por ejemplo software corporativo distribuido vía Intune o la Microsoft Store.",
+        "Equipos de empaquetado o QA que prueban paquetes MSIX internos."
+      ],
+      "response_steps": [
+        "Si el publisher o el origen no son confiables, aísle el endpoint y conserve el paquete MSIX, su AppxManifest.xml y config.json para analizarlos.",
+        "Termine los procesos relacionados y desinstale el paquete con Remove-AppxPackage solo después de recolectar la evidencia.",
+        "Bloquee el hash, el certificado del firmante y el dominio de descarga. Busque el mismo paquete en otros equipos.",
+        "Restablezca las credenciales del usuario si hubo ejecución de payloads o robo de información. Considere restringir la instalación de MSIX desde fuentes no confiables."
+      ],
+      "severity_rationale": "El nivel low es adecuado porque muchas aplicaciones legítimas usan estos stubs. La alerta solo gana peso si el publisher es sospechoso, el paquete se descargó hace poco o el stub lanza procesos hijos anómalos."
+    },
+    "en": {
+      "summary": "An Advanced Installer AI_STUBS stub (OriginalFileName popupwrapper.exe) ran as part of an MSIX package's Package Support Framework. It may be a legitimate app or a malicious MSIX that uses PSF to run scripts or payloads.",
+      "what_it_detects": "Process creation where Image ends in \\AI_STUBS\\AiStubX64.exe, AiStubX86.exe or their Elevated variants, and OriginalFileName is popupwrapper.exe.",
+      "why_it_matters": "Some attackers distribute fake MSIX installers built with Advanced Installer. The PSF runs scripts such as PowerShell inside a signed package context. This maps to signed binary proxy execution (T1218), trust control subversion (T1553.005) and user execution of a malicious file (T1204.002).",
+      "triage_steps": [
+        "Read the Image path to identify the package, usually C:\\Program Files\\WindowsApps\\<Package>_<version>_<arch>__<publisherId>\\AI_STUBS. Record its name and version.",
+        "Check the package publisher and signature with Get-AppxPackage and Get-AuthenticodeSignature. Compare the signer name with the vendor you expect.",
+        "Review ParentImage and CommandLine. Confirm whether the user launched it from Start or whether it followed a browser session or a recent download.",
+        "Look for child processes of the stub within +/- 15 minutes, especially powershell.exe, cmd.exe, rundll32.exe or binaries in AppData or Temp.",
+        "Check the Microsoft-Windows-AppXDeploymentServer/Operational log for when and from where the package was installed. Look for .msix or .appinstaller files in Downloads.",
+        "Pivot on hash, user and host: outbound traffic from the process or its children, connections to newly registered domains, and earlier alerts for the same entity."
+      ],
+      "false_positives": [
+        "Legitimate applications packaged with Advanced Installer that use the Package Support Framework, such as corporate software deployed via Intune or the Microsoft Store.",
+        "Packaging or QA teams testing internal MSIX packages."
+      ],
+      "response_steps": [
+        "If the publisher or source is untrusted, isolate the endpoint. Preserve the MSIX package, its AppxManifest.xml and config.json for analysis.",
+        "Kill the related processes. Remove the package with Remove-AppxPackage only after you have collected evidence.",
+        "Block the hash, the signer certificate and the download domain. Hunt for the same package on other hosts.",
+        "Reset the user's credentials if payloads ran or data was stolen. Consider restricting MSIX installs from untrusted sources."
+      ],
+      "severity_rationale": "Low fits because many legitimate apps use these stubs. The alert matters more when the publisher is suspicious, the package was downloaded recently or the stub spawns unusual child processes."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "AI_STUBS x64 stub from a recently installed MSIX package, launched by explorer.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\WindowsApps\\ExampleViewer_2.4.1.0_x64__8wekyb3d8bbwe\\AI_STUBS\\AiStubX64.exe",
+          "OriginalFileName": "popupwrapper.exe",
+          "CommandLine": "\"C:\\Program Files\\WindowsApps\\ExampleViewer_2.4.1.0_x64__8wekyb3d8bbwe\\AI_STUBS\\AiStubX64.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Elevated x86 AI_STUBS variant with upper-case original filename (case-insensitive match)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files\\WindowsApps\\ContosoUpdater_1.0.0.0_x86__abcde12345fgh\\AI_STUBS\\AiStubX86Elevated.exe",
+          "OriginalFileName": "PopupWrapper.exe",
+          "CommandLine": "\"C:\\Program Files\\WindowsApps\\ContosoUpdater_1.0.0.0_x86__abcde12345fgh\\AI_STUBS\\AiStubX86Elevated.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\sihost.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Microsoft PSF launcher from an MSIX package: no AI_STUBS path and a different OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\WindowsApps\\ExampleViewer_2.4.1.0_x64__8wekyb3d8bbwe\\PsfLauncher64.exe",
+          "OriginalFileName": "PsfLauncher.exe",
+          "CommandLine": "\"C:\\Program Files\\WindowsApps\\ExampleViewer_2.4.1.0_x64__8wekyb3d8bbwe\\PsfLauncher64.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Binary named AiStubX64.exe outside an AI_STUBS folder, so the Image condition fails",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0305.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Users\\lgomez\\Downloads\\AiStubX64.exe",
+          "OriginalFileName": "popupwrapper.exe",
+          "CommandLine": "\"C:\\Users\\lgomez\\Downloads\\AiStubX64.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

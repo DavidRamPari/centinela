@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "01aeb693-138d-49d2-9403-c4f52d7d3d62",
+    "title": "RDP Connection Allowed Via Netsh.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Sander Wiebing",
+    "path": "windows/process_creation/proc_creation_win_netsh_fw_allow_rdp.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_netsh_fw_allow_rdp.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1686.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó netsh.exe para agregar una regla o apertura de puerto en el firewall de Windows que permite conexiones TCP al puerto 3389 (RDP). Esto puede exponer el equipo a acceso remoto no autorizado.",
+      "what_it_detects": "Creación de procesos de netsh.exe (por Image u OriginalFileName) cuyo CommandLine contiene 'firewall ', 'add ', 'tcp ' y '3389', junto con 'portopening' (sintaxis antigua) o 'allow' (sintaxis advfirewall).",
+      "why_it_matters": "Abrir RDP en el firewall local debilita las defensas del host (técnica etiquetada como attack.t1686.003, modificación del firewall del sistema) y prepara acceso remoto interactivo. La referencia de la regla documenta este comportamiento en el malware Sarwent.",
+      "triage_steps": [
+        "Revise el CommandLine completo: nombre de la regla, dirección, perfil y si hay remoteip restringido o abierto a cualquier origen.",
+        "Identifique ParentImage y la cadena de procesos padres; cmd.exe o powershell.exe lanzados desde Office, navegador o rutas temporales es sospechoso.",
+        "Confirme el usuario y si pertenece a TI; valide si existe un ticket de cambio o un script de despliegue conocido.",
+        "Busque en el mismo host, +/- 15 minutos, cambios a fDenyTSConnections, inicio del servicio TermService o creación de cuentas locales.",
+        "Revise inicios de sesión RDP entrantes (tipo 10) posteriores y sus IP de origen.",
+        "Busque alertas previas del mismo host o usuario y la misma línea de comandos en otros equipos.",
+        "Calcule el hash del proceso padre y de binarios cercanos y contrástelos con inteligencia de amenazas."
+      ],
+      "false_positives": [
+        "Administración legítima: personal de TI habilitando RDP manualmente en servidores o estaciones.",
+        "Scripts de aprovisionamiento, imágenes doradas o herramientas de gestión (GPO de inicio, SCCM, Intune) que abren 3389.",
+        "Herramientas de soporte remoto o de proveedores que configuran el firewall durante su instalación."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del equipo o el equipo de TI si el cambio fue autorizado antes de actuar.",
+        "Si no está autorizado, aísle el endpoint y bloquee el puerto 3389 desde el perímetro o EDR.",
+        "Elimine la regla de firewall creada, tras documentarla, y restablezca la configuración de RDP aprobada.",
+        "Investigue el origen de la ejecución, elimine el malware o persistencia hallados y restablezca credenciales potencialmente comprometidas.",
+        "Revise sesiones RDP ocurridas y amplíe la búsqueda a otros hosts con la misma regla."
+      ],
+      "severity_rationale": "Es nivel alto porque abrir RDP en el firewall rara vez ocurre fuera de cambios planificados y habilita directamente acceso remoto y movimiento lateral."
+    },
+    "en": {
+      "summary": "netsh.exe was run to add a Windows Firewall rule or port opening that allows inbound TCP connections to port 3389 (RDP). This may expose the host to unauthorized remote access.",
+      "what_it_detects": "Process creation of netsh.exe (by Image or OriginalFileName) whose CommandLine contains 'firewall ', 'add ', 'tcp ' and '3389', plus either 'portopening' (legacy syntax) or 'allow' (advfirewall syntax).",
+      "why_it_matters": "Opening RDP in the local firewall impairs host defenses (tagged attack.t1686.003, system firewall modification) and prepares interactive remote access. The rule's reference documents this behavior in Sarwent malware.",
+      "triage_steps": [
+        "Read the full CommandLine: rule name, direction, profile, and whether remoteip is restricted or open to any source.",
+        "Identify ParentImage and the process ancestry; cmd.exe or powershell.exe spawned by Office, a browser or temp paths is suspicious.",
+        "Confirm the user and whether they belong to IT; check for a change ticket or known deployment script.",
+        "On the same host within +/- 15 minutes, look for fDenyTSConnections changes, TermService starts or new local accounts.",
+        "Review subsequent inbound RDP logons (type 10) and their source IPs.",
+        "Search earlier alerts for the same host or user, and the same command line on other hosts.",
+        "Hash the parent process and nearby binaries and check them against threat intelligence."
+      ],
+      "false_positives": [
+        "Legitimate administration: IT staff manually enabling RDP on servers or workstations.",
+        "Provisioning scripts, golden images or management tools (startup GPO, SCCM, Intune) that open 3389.",
+        "Remote support or vendor tools that configure the firewall during installation."
+      ],
+      "response_steps": [
+        "Verify with the host owner or IT whether the change was authorized before acting.",
+        "If unauthorized, isolate the endpoint and block port 3389 at the perimeter or via EDR.",
+        "Document and then remove the created firewall rule, restoring the approved RDP configuration.",
+        "Investigate the execution source, remove any malware or persistence found, and reset potentially compromised credentials.",
+        "Review RDP sessions that occurred and hunt for the same rule on other hosts."
+      ],
+      "severity_rationale": "High fits because opening RDP in the firewall rarely happens outside planned changes and directly enables remote access and lateral movement."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "advfirewall syntax adding an inbound allow rule for TCP 3389, launched from cmd.exe",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh advfirewall firewall add rule name=\"Open Port 3389\" dir=in action=allow protocol=TCP localport=3389",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.bat"
+        }
+      },
+      {
+        "description": "Legacy netsh firewall portopening syntax for TCP 3389",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\SysWOW64\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh firewall add portopening TCP 3389 \"Open Port 3389\"",
+          "ParentImage": "C:\\Users\\mrojas\\AppData\\Roaming\\svch.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "netsh deleting an RDP rule: no 'add ' and no 'allow'/'portopening'",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-01.andes.example.com",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh advfirewall firewall delete rule name=\"Open Port 3389\" protocol=TCP localport=3389",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      },
+      {
+        "description": "netsh allowing HTTPS on TCP 443, not RDP port 3389",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-WEB-02.andes.example.com",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh advfirewall firewall add rule name=\"Allow HTTPS\" dir=in action=allow protocol=TCP localport=443",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

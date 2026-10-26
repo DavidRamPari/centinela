@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "b7966f4a-b333-455b-8370-8ca53c229762",
+    "title": "Dropping Of Password Filter DLL",
+    "level": "medium",
+    "status": "test",
+    "author": "Sreeman",
+    "path": "windows/process_creation/proc_creation_win_reg_credential_access_via_password_filter.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reg_credential_access_via_password_filter.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1556.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó 'reg add' sobre HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa con un valor que comienza con 'scecli\\0'. Lo más probable es que modificara 'Notification Packages' para registrar otra DLL de filtro de contraseñas que LSASS cargará.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene 'reg add', la ruta de la clave LSA y el fragmento multicadena 'scecli\\0'. Juntos indican que se conserva el paquete predeterminado 'scecli' y se agregan otros nombres de DLL.",
+      "why_it_matters": "Las DLL de filtro de contraseñas se ejecutan dentro de LSASS y reciben en texto claro cada contraseña nueva cuando se cambia o restablece. Los atacantes las usan para persistencia y robo de credenciales (ATT&CK T1556.002, Modify Authentication Process: Password Filter DLL). En un controlador de dominio exponen todos los cambios de contraseña del dominio.",
+      "triage_steps": [
+        "Revise el CommandLine y anote cada nombre de DLL después de 'scecli\\0'. Compárelos con los valores predeterminados (scecli y, a veces, rassfm) y con productos de filtro aprobados.",
+        "Busque cada DLL indicada en C:\\Windows\\System32. Registre su hash, firmante, información de versión y fecha de creación, y contrástelos con inteligencia de amenazas.",
+        "Analice el Image, el ParentImage, la línea de comandos del padre y el usuario. Es sospechoso que el padre sea cmd o PowerShell interactivo, Office, un intérprete de scripts o una herramienta de ejecución remota.",
+        "En el mismo host, busque creación de archivos en System32, otros cambios en LSA o en el registro e inicios de sesión remotos en +/- 15 minutos.",
+        "Consulte el valor actual de 'Notification Packages' en el host y verifique si se reinició desde el cambio, porque LSASS carga los filtros al arrancar.",
+        "Determine si el host es un controlador de dominio y busque el mismo CommandLine o nombre de DLL en otros DC y endpoints.",
+        "Revise alertas previas del host y del usuario, sobre todo de volcado de credenciales, movimiento lateral o escalamiento de privilegios."
+      ],
+      "false_positives": [
+        "Despliegue de un producto aprobado de política o sincronización de contraseñas mediante scripts o instaladores.",
+        "Administradores o scripts de hardening que reescriben Notification Packages, incluso para restaurar los valores predeterminados.",
+        "Ejercicios autorizados de red team o pruebas de penetración."
+      ],
+      "response_steps": [
+        "Antes de actuar, confirme con el responsable del sistema o con gestión de cambios si la DLL pertenece a un producto aprobado.",
+        "Si es maliciosa, aísle el host y preserve como evidencia la DLL, una exportación del registro y la memoria relacionada con LSASS.",
+        "Restaure 'Notification Packages' al valor aprobado, elimine la DLL y reinicie el host para que LSASS la descargue.",
+        "Restablezca las contraseñas de todas las cuentas que se cambiaron o restablecieron en el host desde la modificación. En un controlador de dominio, esto incluye todas las cuentas del dominio, también las privilegiadas.",
+        "Busque exfiltración de las contraseñas capturadas (conexiones salientes, archivos escritos por LSASS) y determine cómo obtuvo el atacante acceso administrativo."
+      ],
+      "severity_rationale": "El nivel medio es adecuado: el patrón es muy específico y rara vez es legítimo, pero puede coincidir con despliegues autorizados de filtros, y el impacto depende de si la DLL es maliciosa y de si el host es un controlador de dominio."
+    },
+    "en": {
+      "summary": "A process ran 'reg add' against HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa with a value beginning 'scecli\\0', most likely changing 'Notification Packages' to register another password filter DLL that LSASS will load.",
+      "what_it_detects": "Process creation events whose CommandLine contains 'reg add', the LSA registry key path and the multi-string fragment 'scecli\\0'. Together these show the default 'scecli' package being kept while extra DLL names are appended.",
+      "why_it_matters": "Password filter DLLs run inside LSASS and receive every new password in cleartext when users change or reset them. Attackers use them for persistence and credential theft (ATT&CK T1556.002, Modify Authentication Process: Password Filter DLL). On a domain controller this exposes every domain password change.",
+      "triage_steps": [
+        "Read the CommandLine and list every DLL name after 'scecli\\0'. Compare them with the defaults (scecli, sometimes rassfm) and with approved password filter products.",
+        "Look for each named DLL in C:\\Windows\\System32. Record its hash, signer, version info and creation time, then check them against threat intelligence.",
+        "Review the Image, ParentImage, parent command line and user. Interactive cmd or PowerShell, Office, script hosts or remote execution tools as the parent are suspicious.",
+        "On the same host, look for file creation events in System32, other LSA or registry changes and remote logons within +/- 15 minutes.",
+        "Query the current 'Notification Packages' value on the host and check whether the host has rebooted since then, because LSASS loads filters at boot.",
+        "Check whether the host is a domain controller, and search other DCs and endpoints for the same CommandLine or DLL name.",
+        "Check earlier alerts for this host and user, especially credential dumping, lateral movement or privilege escalation."
+      ],
+      "false_positives": [
+        "Deployment of an approved third-party password policy or password synchronization filter through scripts or software installers.",
+        "Administrators or hardening scripts rewriting the Notification Packages value, including restoring defaults.",
+        "Authorized red team or penetration test activity."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or change management whether the DLL belongs to an approved product before acting.",
+        "If it is malicious, isolate the host and preserve the DLL, a registry export and LSASS-related memory as evidence.",
+        "Restore 'Notification Packages' to its approved value, remove the DLL, then reboot so LSASS unloads it.",
+        "Reset the passwords of every account changed or reset on the host since the modification. On a domain controller this means all domain accounts, including privileged ones.",
+        "Hunt for exfiltration of captured passwords (outbound connections, files written by LSASS) and review how the attacker got administrative access."
+      ],
+      "severity_rationale": "Medium fits because the pattern is very specific and rarely benign, but it can match legitimate password filter deployments, and the impact depends on whether the DLL is malicious and the host is a domain controller."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe appends a DLL named pwfltr to LSA Notification Packages, keeping the default scecli entry.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v \"Notification Packages\" /t REG_MULTI_SZ /d \"scecli\\0pwfltr\" /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c install.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Lowercase command run from PowerShell on a domain controller that adds two DLLs after scecli.",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\adm-rgomez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg add hklm\\system\\currentcontrolset\\control\\lsa /v \"notification packages\" /t reg_multi_sz /d scecli\\0rassfm\\0evilpwd /f",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "An administrator reads the Notification Packages value with reg query. There is no 'reg add' and no 'scecli\\0'.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v \"Notification Packages\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "A hardening script sets LmCompatibilityLevel under the LSA key. It uses 'reg add' and the key path but does not contain scecli\\0.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc-hardening",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\" /v LmCompatibilityLevel /t REG_DWORD /d 5 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:57:07+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

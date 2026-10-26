@@ -1,0 +1,146 @@
+{
+  "rule": {
+    "id": "2ea44a60-cfda-11ea-87d0-0242ac130003",
+    "title": "Webshell ReGeorg Detection Via Web Logs",
+    "level": "high",
+    "status": "test",
+    "author": "Cian Heasley",
+    "path": "web/webserver_generic/web_webshell_regeorg.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/web/webserver_generic/web_webshell_regeorg.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1505.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "El servidor web recibió una petición POST sin referer ni user agent cuyo query string contiene parámetros de reGeorg (cmd=connect, cmd=read, cmd=forward, cmd=disconnect). Esto puede indicar que hay un webshell de túnel activo usado para pivotar hacia la red interna.",
+      "what_it_detects": "Peticiones POST con cs-referer y cs-user-agent nulos y un cs-uri-query que contiene 'cmd=read', 'connect&target', 'cmd=connect', 'cmd=disconnect' o 'cmd=forward', que son los comandos del cliente reGeorg hacia su script de túnel (tunnel.jsp/aspx/php/ashx).",
+      "why_it_matters": "reGeorg es una herramienta pública que convierte un script web en un proxy SOCKS sobre HTTP. Un atacante con un webshell (T1505.003) mantiene persistencia y alcanza hosts internos que no están expuestos, saltando el perímetro.",
+      "triage_steps": [
+        "Revisa cs-uri-stem para identificar el script que recibe las peticiones y confirma si existe en disco, quién lo creó y cuándo (comparar con despliegues conocidos).",
+        "En peticiones cmd=connect, extrae los valores target y port del cs-uri-query: muestran qué hosts y servicios internos intenta alcanzar el atacante (RDP, SMB, SSH, bases de datos).",
+        "Pivota por la IP de origen (c-ip) y busca todas sus peticiones en ±15 minutos y en días anteriores, incluidas la carga inicial del archivo y otras URIs.",
+        "Revisa la secuencia y el volumen: muchos POST cmd=read/forward seguidos suelen indicar una sesión de túnel activa. Revisa sc-status y los bytes transferidos.",
+        "Correlaciona con telemetría del servidor: procesos hijos del servicio web (w3wp, java, php-fpm), conexiones salientes del servidor hacia el target indicado y archivos nuevos en el webroot.",
+        "En los hosts internos señalados como target, busca inicios de sesión o conexiones que vengan del servidor web en la misma ventana.",
+        "Consulta alertas previas de webshell, escaneo o explotación contra el mismo servidor o la misma c-ip."
+      ],
+      "false_positives": [
+        "Aplicaciones web legítimas que usan los mismos parámetros (por ejemplo cmd=read) llamadas por clientes automatizados sin user agent ni referer.",
+        "Pruebas de penetración o ejercicios de red team autorizados que usan reGeorg o variantes (Neo-reGeorg)."
+      ],
+      "response_steps": [
+        "Valida con el responsable de la aplicación si el script y los parámetros son legítimos, y confirma si hay una prueba autorizada en curso.",
+        "Si se confirma la actividad, bloquea la c-ip en el WAF o firewall y restringe las conexiones salientes del servidor web hacia la red interna.",
+        "Aísla el servidor y preserva logs, el archivo del webshell y una imagen forense antes de eliminar nada.",
+        "Elimina el webshell, identifica el vector de carga inicial (vulnerabilidad o credenciales) y corrígelo.",
+        "Investiga los hosts target alcanzados por el túnel, rota las credenciales expuestas y restaura desde una línea base conocida."
+      ],
+      "severity_rationale": "Es nivel alto porque los parámetros de reGeorg, junto con un POST sin user agent ni referer, apuntan con fuerza a un webshell de túnel activo que da acceso a la red interna."
+    },
+    "en": {
+      "summary": "The web server received a POST request with no referer and no user agent, and its query string contains reGeorg parameters (cmd=connect, cmd=read, cmd=forward, cmd=disconnect). This may mean an active tunneling webshell is being used to pivot into the internal network.",
+      "what_it_detects": "POST requests where cs-referer and cs-user-agent are null and cs-uri-query contains 'cmd=read', 'connect&target', 'cmd=connect', 'cmd=disconnect' or 'cmd=forward'. These are the commands the reGeorg client sends to its tunnel script (tunnel.jsp/aspx/php/ashx).",
+      "why_it_matters": "reGeorg is a public tool that turns a web script into a SOCKS proxy over HTTP. An attacker with a webshell (T1505.003) keeps persistence and reaches internal hosts that are not exposed, bypassing the perimeter.",
+      "triage_steps": [
+        "Check cs-uri-stem to find the script receiving the requests. Confirm it exists on disk and find out who created it and when. Compare against known deployments.",
+        "For cmd=connect requests, extract target and port from cs-uri-query. They show which internal hosts and services the attacker is trying to reach (RDP, SMB, SSH, databases).",
+        "Pivot on the source IP (c-ip). Review all its requests within ±15 minutes and on earlier days, including the initial file upload and other URIs.",
+        "Review the sequence and volume: many back-to-back cmd=read/forward POSTs usually mean a live tunnel session. Check sc-status and bytes transferred.",
+        "Correlate with server telemetry: child processes of the web service (w3wp, java, php-fpm), outbound connections to the named target, and new files in the webroot.",
+        "On the target hosts, look for logons or connections coming from the web server in the same window.",
+        "Check earlier webshell, scanning or exploitation alerts against the same server or c-ip."
+      ],
+      "false_positives": [
+        "Legitimate web applications that use the same parameters (for example cmd=read) and are called by automated clients without a user agent or referer.",
+        "Authorized penetration tests or red team exercises using reGeorg or variants such as Neo-reGeorg."
+      ],
+      "response_steps": [
+        "Ask the application owner whether the script and parameters are legitimate, and check whether an authorized test is running.",
+        "If the activity is confirmed, block the c-ip at the WAF or firewall and restrict outbound connections from the web server to internal networks.",
+        "Isolate the server. Preserve logs, the webshell file and a forensic image before removing anything.",
+        "Remove the webshell, then find and fix the initial upload vector (vulnerability or credentials).",
+        "Investigate target hosts reached through the tunnel, rotate exposed credentials and restore from a known-good baseline."
+      ],
+      "severity_rationale": "The level is high because reGeorg parameters in a POST with no user agent or referer strongly point to an active tunneling webshell that gives access to the internal network."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reGeorg client opening a tunnel to an internal RDP host through a JSP webshell, sent as a POST with no referer or user agent",
+        "event": {
+          "date": "2024-10-25",
+          "time": "14:03:12",
+          "s-ip": "198.51.100.10",
+          "c-ip": "203.0.113.77",
+          "cs-method": "POST",
+          "cs-uri-stem": "/uploads/tunnel.jsp",
+          "cs-uri-query": "cmd=connect&target=192.0.2.45&port=3389",
+          "cs-referer": null,
+          "cs-user-agent": null,
+          "sc-status": 200,
+          "cs-host": "portal.example.com"
+        }
+      },
+      {
+        "description": "reGeorg read loop against an ASPX tunnel script, sent as a POST with no referer or user agent",
+        "event": {
+          "date": "2024-10-25",
+          "time": "14:03:15",
+          "s-ip": "198.51.100.10",
+          "c-ip": "203.0.113.77",
+          "cs-method": "POST",
+          "cs-uri-stem": "/aspnet_client/tunnel.aspx",
+          "cs-uri-query": "cmd=read",
+          "cs-referer": null,
+          "cs-user-agent": null,
+          "sc-status": 200,
+          "cs-host": "portal.example.com"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate document viewer that uses cmd=read in a browser GET request with a referer and user agent",
+        "event": {
+          "date": "2024-10-25",
+          "time": "09:12:40",
+          "s-ip": "198.51.100.10",
+          "c-ip": "192.0.2.88",
+          "cs-method": "GET",
+          "cs-uri-stem": "/docs/viewer.php",
+          "cs-uri-query": "cmd=read&doc=manual.pdf",
+          "cs-referer": "https://portal.example.com/docs/",
+          "cs-user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+          "sc-status": 200,
+          "cs-host": "portal.example.com"
+        }
+      },
+      {
+        "description": "POST with no referer or user agent whose query has no reGeorg command strings",
+        "event": {
+          "date": "2024-10-25",
+          "time": "10:05:01",
+          "s-ip": "198.51.100.10",
+          "c-ip": "203.0.113.20",
+          "cs-method": "POST",
+          "cs-uri-stem": "/api/status",
+          "cs-uri-query": "action=ping&target=self",
+          "cs-referer": null,
+          "cs-user-agent": null,
+          "sc-status": 200,
+          "cs-host": "portal.example.com"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

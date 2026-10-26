@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "d4498716-1d52-438f-8084-4a603157d131",
+    "title": "Password Provided In Command Line Of Net.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Tim Shelton (HAWK.IO)",
+    "path": "windows/process_creation/proc_creation_win_net_use_password_plaintext.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_net_use_password_plaintext.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.002",
+      "T1078"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó net.exe o net1.exe con el subcomando 'use' y una contraseña en texto claro después de /USER:. Puede tratarse de movimiento lateral con credenciales robadas o de un script administrativo inseguro.",
+      "what_it_detects": "Creación de procesos donde Image u OriginalFileName es net.exe o net1.exe y CommandLine contiene ' use ', una ruta UNC posterior a dos puntos y '/USER:usuario contraseña'. Se excluyen las líneas que terminan en espacio.",
+      "why_it_matters": "Conectar recursos compartidos SMB con credenciales explícitas es una forma habitual de moverse lateralmente (T1021.002) y de usar cuentas válidas (T1078). Además, la contraseña queda expuesta en los logs de procesos y en el EDR.",
+      "triage_steps": [
+        "Revise CommandLine e identifique el servidor y recurso de destino, la cuenta en /USER: y si es privilegiada, por ejemplo Administrator o una cuenta de servicio.",
+        "Revise ParentImage y la cadena de procesos padre. Un cmd.exe o powershell.exe lanzado por Office, wmiprvse.exe o una herramienta remota es sospechoso.",
+        "Confirme el usuario que ejecutó el proceso y compárelo con la cuenta en /USER:. Usar credenciales de otra cuenta merece más atención.",
+        "En el host de destino, busque eventos 4624 tipo 3 y 5140 de esa cuenta y en el origen eventos 4648, en una ventana de +/- 15 minutos.",
+        "Pivotee en el mismo host +/- 15 minutos: copia de archivos a C$ o ADMIN$, psexec, sc.exe, schtasks o wmic hacia el mismo destino.",
+        "Busque alertas previas del host, del usuario y de la cuenta usada, y si la misma línea aparece en otros endpoints."
+      ],
+      "false_positives": [
+        "Scripts de inicio de sesión o de mapeo de unidades heredados que incluyen la contraseña en texto claro.",
+        "Tareas administrativas o de backup que conectan recursos compartidos con una cuenta de servicio.",
+        "Herramientas de despliegue o inventario que montan recursos SMB con credenciales fijas."
+      ],
+      "response_steps": [
+        "Considere comprometida la contraseña expuesta en los logs y coordine su rotación con el dueño de la cuenta, aunque la actividad resulte legítima.",
+        "Si no hay justificación, aísle el host de origen y revise la actividad de la cuenta en todos los destinos alcanzados.",
+        "Deshabilite o restrinja la cuenta temporalmente si hay indicios de movimiento lateral, previa validación con su responsable.",
+        "Elimine las conexiones y persistencias creadas tras verificarlas, y corrija los scripts legítimos para usar credenciales gestionadas en lugar de texto claro."
+      ],
+      "severity_rationale": "El nivel medio es adecuado: el patrón puede ser legítimo, pero siempre expone una credencial y puede indicar movimiento lateral, así que requiere revisión pero no es intrusión confirmada."
+    },
+    "en": {
+      "summary": "net.exe or net1.exe ran the 'use' subcommand with a cleartext password after /USER:. This may be lateral movement with stolen credentials or an insecure admin script.",
+      "what_it_detects": "Process creation where Image or OriginalFileName is net.exe or net1.exe and CommandLine contains ' use ', a UNC path after a colon and '/USER:account password'. Command lines ending in a space are excluded.",
+      "why_it_matters": "Mapping SMB shares with explicit credentials is a common way to move laterally (T1021.002) and to use valid accounts (T1078). The password is also exposed in process logs and EDR telemetry.",
+      "triage_steps": [
+        "Read CommandLine: identify the target server and share, the account in /USER: and whether it is privileged, such as Administrator or a service account.",
+        "Check ParentImage and the parent process chain. cmd.exe or powershell.exe spawned by Office, wmiprvse.exe or a remote access tool is suspicious.",
+        "Confirm the user who ran the process and compare it with the /USER: account. Using another account's credentials deserves more scrutiny.",
+        "On the target host, look for 4624 logon type 3 and 5140 events for that account, and on the source host for 4648 events, within +/- 15 minutes.",
+        "Pivot on the same host within +/- 15 minutes: file copies to C$ or ADMIN$, psexec, sc.exe, schtasks or wmic aimed at the same target.",
+        "Look for earlier alerts on the host, the user and the account used, and check whether the same command line appears on other endpoints."
+      ],
+      "false_positives": [
+        "Legacy logon or drive-mapping scripts that embed the password in cleartext.",
+        "Admin or backup jobs that map shares with a service account.",
+        "Deployment or inventory tools that mount SMB shares with hardcoded credentials."
+      ],
+      "response_steps": [
+        "Treat the password exposed in logs as compromised and arrange a reset with the account owner, even if the activity turns out to be legitimate.",
+        "If there is no business reason, isolate the source host and review the account's activity on every target it reached.",
+        "After checking with the account owner, temporarily disable or restrict the account if there are signs of lateral movement.",
+        "Verify connections and persistence before removing them, and change legitimate scripts to use managed credentials instead of cleartext."
+      ],
+      "severity_rationale": "Medium fits because the pattern can be legitimate, but it always exposes a credential and may indicate lateral movement. It needs review but is not a confirmed intrusion."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "net.exe maps a drive to a file share with a domain account and a cleartext password",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net use Z: \\\\FS-01.example.com\\finanzas /USER:ANDES\\jperez S3cr3t!2024",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c map.bat"
+        }
+      },
+      {
+        "description": "Renamed net1 binary, identified by OriginalFileName, connects to an admin share with a local Administrator password",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\svc_temp",
+          "Image": "C:\\Users\\Public\\n1.exe",
+          "OriginalFileName": "net1.exe",
+          "CommandLine": "n1.exe use X: \\\\203.0.113.25\\C$ /user:SRV-DB01\\Administrator Winter2024 /persistent:no",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "net use with /USER: but no password, so the user is prompted interactively and there is no space after the account",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net use Z: \\\\FS-01.example.com\\finanzas /user:ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Command line ends with a trailing space after the account, which filter_main_empty excludes",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net use Z: \\\\FS-01.example.com\\finanzas /user:ANDES\\jperez ",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

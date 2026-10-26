@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "ae215552-081e-44c7-805f-be16f975c8a2",
+    "title": "Suspicious Debugger Registration Cmdline",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), oscd.community, Jonhnathan Ribeiro",
+    "path": "windows/process_creation/proc_creation_win_registry_install_reg_debugger_backdoor.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_registry_install_reg_debugger_backdoor.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1546.008"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso cuya línea de comandos hace referencia a la clave Image File Execution Options (IFEO) junto con un binario de accesibilidad de la pantalla de inicio de sesión. Esto suele indicar la instalación de un backdoor tipo sticky keys.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene '\\CurrentVersion\\Image File Execution Options\\' y además sethc.exe, utilman.exe, osk.exe, magnify.exe, narrator.exe, displayswitch.exe, atbroker.exe o HelpPane.exe, normalmente al registrar un valor Debugger con reg.exe o PowerShell.",
+      "why_it_matters": "Cuando un debugger queda registrado para una herramienta de accesibilidad, cualquier persona en la pantalla de inicio de sesión (local o por RDP) puede abrir, por ejemplo, cmd.exe como SYSTEM sin credenciales. Es persistencia y escalamiento de privilegios mediante Accessibility Features (T1546.008).",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el binario objetivo, el valor (Debugger, GlobalFlag) y el ejecutable que se registra, por ejemplo cmd.exe o un payload.",
+        "Identifique el usuario, la integridad del proceso y el ParentImage; determine si el padre es una shell interactiva, un script o una herramienta de acceso remoto.",
+        "Consulte en el host la clave HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\<binario> para confirmar si el valor Debugger sigue presente.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, otros procesos, cambios de registro (Sysmon 13) y modificaciones de firewall o RDP.",
+        "Revise los inicios de sesión RDP posteriores (4624 tipo 10) y procesos hijos de winlogon.exe o de utilman.exe/sethc.exe que lancen cmd.exe o powershell.exe.",
+        "Verifique si el usuario o el host tienen alertas previas y si el mismo comando se ejecutó en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Herramientas de accesibilidad de terceros o de soporte que reemplazan legítimamente el lanzador de una utilidad; valide con el responsable del software.",
+        "Pruebas de red team o validaciones de detección autorizadas y documentadas."
+      ],
+      "response_steps": [
+        "Confirme el valor malicioso con el propietario del sistema antes de actuar y preserve una exportación de la clave como evidencia.",
+        "Aísle el endpoint de la red si se confirma el backdoor o hubo acceso RDP sospechoso.",
+        "Elimine el valor Debugger de la clave IFEO afectada y compruebe la integridad de los binarios de accesibilidad en System32.",
+        "Restablezca las credenciales de la cuenta que ejecutó el comando y revise cuentas con privilegios administrativos en el host.",
+        "Busque el mismo indicador en toda la flota y habilite NLA en RDP para reducir la exposición de la pantalla de inicio de sesión."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque la combinación es muy específica, rara en uso legítimo y otorga acceso SYSTEM sin autenticación."
+    },
+    "en": {
+      "summary": "A process command line referenced the Image File Execution Options (IFEO) key together with a logon-screen accessibility binary. This usually means a sticky keys backdoor is being installed.",
+      "what_it_detects": "Process creation events whose CommandLine contains '\\CurrentVersion\\Image File Execution Options\\' plus sethc.exe, utilman.exe, osk.exe, magnify.exe, narrator.exe, displayswitch.exe, atbroker.exe or HelpPane.exe, typically reg.exe or PowerShell setting a Debugger value.",
+      "why_it_matters": "With a debugger registered for an accessibility tool, anyone at the logon screen, locally or over RDP, can launch for example cmd.exe as SYSTEM without credentials. This is persistence and privilege escalation via Accessibility Features (T1546.008).",
+      "triage_steps": [
+        "Read the full CommandLine: identify the target binary, the value name (Debugger, GlobalFlag) and the executable being registered, such as cmd.exe or a payload.",
+        "Identify the user, process integrity and ParentImage; decide whether the parent is an interactive shell, a script or a remote access tool.",
+        "Query HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\<binary> on the host to confirm the Debugger value still exists.",
+        "Search the same host within +/- 15 minutes for other processes, registry changes (Sysmon 13) and firewall or RDP configuration changes.",
+        "Review later RDP logons (4624 type 10) and child processes of winlogon.exe or utilman.exe/sethc.exe spawning cmd.exe or powershell.exe.",
+        "Check earlier alerts for the user and host, and whether the same command ran on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Third-party accessibility or support tools that legitimately redirect an accessibility utility; confirm with the software owner.",
+        "Authorized, documented red team exercises or detection validation tests."
+      ],
+      "response_steps": [
+        "Confirm the malicious value with the system owner before acting and export the key as evidence.",
+        "Isolate the endpoint if the backdoor is confirmed or suspicious RDP access occurred.",
+        "Remove the Debugger value from the affected IFEO key and verify the integrity of accessibility binaries in System32.",
+        "Reset credentials of the account that ran the command and review administrative accounts on the host.",
+        "Hunt for the same indicator fleet-wide and enforce RDP NLA to reduce logon-screen exposure."
+      ],
+      "severity_rationale": "High fits because the combination is very specific, rarely legitimate and grants unauthenticated SYSTEM access."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe registers cmd.exe as debugger for sethc.exe (sticky keys backdoor)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "reg add \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\sethc.exe\" /v Debugger /t REG_SZ /d \"C:\\windows\\system32\\cmd.exe\" /f",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell sets a Debugger value for utilman.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02",
+          "User": "ANDES\\admin.rgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -c \"New-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\Utilman.exe' -Name Debugger -Value 'C:\\Windows\\System32\\cmd.exe'\"",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "IFEO entry configured for a non-accessibility application (GlobalFlag for a custom app)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\dev.lmartinez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "reg add \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\myapp.exe\" /v GlobalFlag /t REG_DWORD /d 0x200 /f",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Legitimate launch of the on-screen keyboard without any IFEO reference",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201",
+          "User": "ANDES\\mtorres",
+          "Image": "C:\\Windows\\System32\\osk.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\osk.exe\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:57:07+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

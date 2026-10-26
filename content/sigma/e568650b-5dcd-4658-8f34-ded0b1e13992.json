@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "e568650b-5dcd-4658-8f34-ded0b1e13992",
+    "title": "Potential Product Class Reconnaissance Via Wmic.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Michael Haag, Florian Roth (Nextron Systems), juju4, oscd.community, Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wmic_recon_product_class.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmic_recon_product_class.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1047",
+      "T1082"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó wmic.exe con una consulta a las clases AntiVirusProduct, AntiSpywareProduct o FirewallProduct, lo que suele indicar enumeración de los productos de seguridad instalados en el equipo.",
+      "what_it_detects": "Creación de procesos de wmic.exe (por Image o OriginalFileName) cuyo CommandLine contiene AntiVirusProduct, AntiSpywareProduct o FirewallProduct, normalmente contra el namespace root\\SecurityCenter2.",
+      "why_it_matters": "Los atacantes enumeran antivirus y firewall para decidir cómo evadirlos o desactivarlos antes de ejecutar payloads o ransomware. Corresponde a ejecución vía WMI (T1047) y descubrimiento de información del sistema (T1082).",
+      "triage_steps": [
+        "Revise el CommandLine completo: clases consultadas, uso de /node: hacia equipos remotos y formato de salida o redirección a archivo.",
+        "Identifique ParentImage y la cadena de procesos: cmd.exe, powershell.exe, wscript.exe, mshta.exe o binarios en carpetas temporales son más sospechosos.",
+        "Confirme el usuario y si la cuenta suele ejecutar tareas administrativas o herramientas de inventario.",
+        "Pivotee en el mismo host +/- 15 minutos buscando otros comandos de descubrimiento (whoami, net, nltest, systeminfo, ipconfig).",
+        "Busque alertas previas del mismo host o usuario, sobre todo descargas, macros, scripts o conexiones salientes inusuales.",
+        "Verifique si después hubo intentos de desactivar Defender, detener servicios de seguridad o borrar instantáneas.",
+        "Compare con otros equipos: la misma línea de comandos en muchos hosts desde una cuenta de servicio sugiere una herramienta legítima."
+      ],
+      "false_positives": [
+        "Scripts de inventario o cumplimiento que verifican el estado del antivirus y del firewall.",
+        "Agentes de RMM, MDM o soporte técnico que consultan SecurityCenter2.",
+        "Administradores que revisan manualmente la protección del equipo durante una incidencia."
+      ],
+      "response_steps": [
+        "Valide con el dueño del equipo o el equipo de TI si la ejecución corresponde a una tarea conocida.",
+        "Si no está justificada, aísle el endpoint y preserve la línea de comandos, el árbol de procesos y los artefactos relacionados.",
+        "Identifique y elimine el mecanismo de ejecución inicial (script, documento, tarea programada o persistencia) tras confirmarlo.",
+        "Restablezca credenciales de la cuenta implicada si hay indicios de compromiso y busque la misma actividad en otros hosts.",
+        "Documente las exclusiones para herramientas legítimas por ParentImage y cuenta, no por CommandLine genérico."
+      ],
+      "severity_rationale": "Media porque la enumeración de productos de seguridad es un paso típico previo a la evasión, pero también la realizan herramientas administrativas legítimas."
+    },
+    "en": {
+      "summary": "wmic.exe queried the AntiVirusProduct, AntiSpywareProduct or FirewallProduct classes, which usually means someone enumerated the security products installed on the host.",
+      "what_it_detects": "Process creation of wmic.exe (by Image or OriginalFileName) whose CommandLine contains AntiVirusProduct, AntiSpywareProduct or FirewallProduct, typically against the root\\SecurityCenter2 namespace.",
+      "why_it_matters": "Attackers list antivirus and firewall products to plan evasion or disable protection before running payloads or ransomware. Maps to WMI execution (T1047) and system information discovery (T1082).",
+      "triage_steps": [
+        "Read the full CommandLine: queried classes, any /node: remote targets, output format or redirection to a file.",
+        "Check ParentImage and the process tree; cmd.exe, powershell.exe, wscript.exe, mshta.exe or binaries in temp folders are more suspicious.",
+        "Confirm the user and whether that account normally runs admin or inventory tooling.",
+        "Pivot on the same host +/- 15 minutes for other discovery commands (whoami, net, nltest, systeminfo, ipconfig).",
+        "Look for earlier alerts on the same host or user, especially downloads, macros, scripts or unusual outbound connections.",
+        "Check whether attempts to disable Defender, stop security services or delete shadow copies followed.",
+        "Compare across hosts: the same command on many machines from a service account suggests legitimate tooling."
+      ],
+      "false_positives": [
+        "Inventory or compliance scripts checking antivirus and firewall status.",
+        "RMM, MDM or helpdesk agents querying SecurityCenter2.",
+        "Administrators manually reviewing endpoint protection while troubleshooting."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the execution matches a known task.",
+        "If unexplained, isolate the endpoint and preserve the command line, process tree and related artifacts.",
+        "Identify and remove the initial execution mechanism (script, document, scheduled task, persistence) after confirming it.",
+        "Reset credentials for the involved account if compromise is indicated, and hunt for the same activity on other hosts.",
+        "Tune legitimate tools by ParentImage and account, not by a broad CommandLine exclusion."
+      ],
+      "severity_rationale": "Medium because security product enumeration commonly precedes defense evasion, yet legitimate admin tools also perform it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WMIC launched from cmd.exe enumerating antivirus products via SecurityCenter2",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic.exe /Namespace:\\\\root\\SecurityCenter2 Path AntiVirusProduct Get displayName /Format:List",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\jperez\\AppData\\Local\\Temp\\run.bat"
+        }
+      },
+      {
+        "description": "Renamed WMIC binary identified by OriginalFileName querying firewall products",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mgomez",
+          "Image": "C:\\Users\\Public\\svc.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "svc.exe /namespace:\\\\root\\securitycenter2 path FirewallProduct get displayName,productState",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "WMIC used for routine OS inventory, no security product class",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic.exe os get Caption,Version /Format:List",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "PowerShell querying AntiVirusProduct via Get-CimInstance, not wmic.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\svc_inventory",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct\"",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

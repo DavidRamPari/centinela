@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "82343930-652f-43f5-ab70-2ee9fdd6d5e9",
+    "title": "Potential ShellDispatch.DLL Functionality Abuse",
+    "level": "medium",
+    "status": "test",
+    "author": "X__Junior (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_rundll32_shelldispatch_potential_abuse.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_rundll32_shelldispatch_potential_abuse.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "rundll32.exe, o una copia renombrada, se ejecutó con una línea de comandos que invoca la exportación RunDll_ShellExecuteW. Esta exportación, documentada en ShellDispatch.dll, puede lanzar un programa arbitrario mediante ShellExecute.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\rundll32.exe u OriginalFileName es RUNDLL32.EXE, y CommandLine contiene 'RunDll_ShellExecuteW'.",
+      "why_it_matters": "Un atacante puede usar un binario confiable de Windows para lanzar un payload, que así aparece como hijo de rundll32 y no del verdadero origen. Es ejecución por proxy mediante binario firmado con Rundll32 (ATT&CK T1218.011), usada para ejecutar código y evadir la detección.",
+      "triage_steps": [
+        "Lea el CommandLine completo: anote la ruta de la DLL, la exportación RunDll_ShellExecuteW y el binario o la URL que recibe como argumento.",
+        "Revise la ubicación de la DLL. Una copia en rutas escribibles por el usuario, como Users, Temp, ProgramData o Downloads, es más sospechosa que una en un directorio de un fabricante instalado.",
+        "Compare Image con OriginalFileName. Un rundll32 renombrado fuera de System32 indica con fuerza un intento de evasión.",
+        "Revise ParentImage y su línea de comandos. Si el padre es Office, un intérprete de scripts, un navegador o un descompresor, puede tratarse de una cadena de phishing.",
+        "Liste los procesos hijos de este rundll32, obtenga el hash y la firma del binario lanzado y consulte su reputación.",
+        "Pivotee en el mismo host +/- 15 minutos: escritura de archivos, conexiones de red, cambios de persistencia y otras alertas.",
+        "Revise la cuenta de usuario, si esta actividad es habitual para ella y las alertas previas del mismo host o usuario."
+      ],
+      "false_positives": [
+        "Poco probable, según el autor de la regla.",
+        "Una aplicación legítima que incluye ShellDispatch.dll y usa esta exportación en su instalador o lanzador. Confirme la ruta del fabricante, la firma y que el comportamiento se repita en varios equipos.",
+        "Pruebas autorizadas de red team o investigación de LOLBins."
+      ],
+      "response_steps": [
+        "Verifique con el responsable del equipo o con el inventario de software si la DLL y el programa lanzado son legítimos.",
+        "Si la actividad es maliciosa, aísle el endpoint y detenga el proceso rundll32 y sus hijos.",
+        "Recolecte la DLL, el payload lanzado y los artefactos del proceso padre, y busque los mismos hashes y líneas de comandos en toda la flota.",
+        "Elimine el payload y cualquier persistencia que haya creado, restablezca las credenciales del usuario si quedaron expuestas y reinstale el equipo si se confirma el compromiso."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque el patrón es raro y casi nunca legítimo, pero la alerta por sí sola no demuestra que el binario lanzado sea malicioso."
+    },
+    "en": {
+      "summary": "rundll32.exe, or a renamed copy of it, was started with a command line that calls the RunDll_ShellExecuteW export. This export, documented in ShellDispatch.dll, can launch an arbitrary program through ShellExecute.",
+      "what_it_detects": "Process creation events where Image ends with \\rundll32.exe or OriginalFileName is RUNDLL32.EXE, and CommandLine contains 'RunDll_ShellExecuteW'.",
+      "why_it_matters": "An attacker can use a trusted Windows binary to start a payload, so the payload appears as a child of rundll32 rather than of the real launcher. This is signed binary proxy execution through Rundll32 (ATT&CK T1218.011), used for execution and to avoid detection.",
+      "triage_steps": [
+        "Read the full CommandLine: note the DLL path, the RunDll_ShellExecuteW export and the target binary or URL passed as an argument.",
+        "Check the DLL location. Copies in user-writable paths such as Users, Temp, ProgramData or Downloads are more suspicious than a copy in an installed vendor directory.",
+        "Compare Image and OriginalFileName. A renamed rundll32 outside System32 strongly points to evasion.",
+        "Review ParentImage and its command line. Office apps, script hosts, browsers or archive tools as the parent suggest a phishing chain.",
+        "List child processes of this rundll32 and get the hash and signature of the launched binary, then check its reputation.",
+        "Pivot on the same host within +/- 15 minutes for file writes, network connections, persistence changes and other alerts.",
+        "Check the user account, whether this activity is normal for that user, and earlier alerts for the same host or user."
+      ],
+      "false_positives": [
+        "Unlikely, per the rule author.",
+        "A legitimate application that ships ShellDispatch.dll and calls this export from its installer or launcher. Confirm the vendor path, the signature and that the behavior repeats across hosts.",
+        "Authorized red team or LOLBin research testing."
+      ],
+      "response_steps": [
+        "Verify with the host owner or the software inventory whether the DLL and the launched program are legitimate.",
+        "If the activity is malicious, isolate the endpoint and stop the rundll32 process and its children.",
+        "Collect the DLL, the launched payload and the parent artifacts, then search the fleet for the same hashes and command lines.",
+        "Remove the payload and any persistence it created, reset the user's credentials if they were exposed, and reimage the host if the compromise is confirmed."
+      ],
+      "severity_rationale": "Medium fits because the pattern is rare and rarely legitimate, but the alert alone does not prove the launched binary is malicious."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "rundll32 from System32 calls RunDll_ShellExecuteW in a ShellDispatch.dll dropped in a public folder to launch an executable.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe C:\\Users\\Public\\ShellDispatch.dll,RunDll_ShellExecuteW C:\\Users\\Public\\update.exe",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\Downloads\\invoice.vbs"
+        }
+      },
+      {
+        "description": "Renamed rundll32 copy (matched via OriginalFileName) invoking RunDll_ShellExecuteW.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\ProgramData\\svchelper.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "svchelper.exe C:\\ProgramData\\sd.dll,RunDll_ShellExecuteW C:\\ProgramData\\payload.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\ProgramData\\run.bat"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate rundll32 use opening a Control Panel applet; command line lacks RunDll_ShellExecuteW.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe shell32.dll,Control_RunDLL desk.cpl",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Notepad opening a research note whose filename contains the export name; image is not rundll32.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\analista1",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "OriginalFileName": "NOTEPAD.EXE",
+          "CommandLine": "notepad.exe C:\\Users\\analista1\\Desktop\\RunDll_ShellExecuteW_notes.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

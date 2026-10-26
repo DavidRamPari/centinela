@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "98c5aeef-32d5-492f-b174-64a691896d25",
+    "title": "Service Security Descriptor Tampering Via Sc.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_sc_sdset_modification.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sc_sdset_modification.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1574.011"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó sc.exe con el subcomando sdset, que reemplaza el descriptor de seguridad (SDDL) de un servicio de Windows. Los atacantes lo usan para ocultar un servicio o impedir que los administradores lo consulten, detengan o eliminen.",
+      "what_it_detects": "Creación de un proceso cuyo Image termina en \\sc.exe o cuyo OriginalFileName es sc.exe, con un CommandLine que contiene 'sdset'. Cubre cualquier cambio de permisos de un servicio, no solo los maliciosos.",
+      "why_it_matters": "Un SDDL con ACE de denegación (D;) para usuarios interactivos, SYSTEM o administradores oculta el servicio de sc query, services.msc y de muchas herramientas EDR. Esto da persistencia sigilosa. La regla lo asocia con T1574.011: abuso de permisos de servicios para persistir o escalar privilegios.",
+      "triage_steps": [
+        "Lea el CommandLine: identifique el nombre del servicio y el SDDL. Busque ACE 'D;' dirigidas a IU, SU, BA, SY o WD y la ausencia de permisos normales para administradores.",
+        "Revise ParentImage, el usuario y el IntegrityLevel. Un shell, un script o un binario desconocido como padre es más sospechoso que un instalador firmado o una herramienta de gestión.",
+        "Busque en el mismo host, en un rango de +/- 15 minutos, eventos 'sc create' o 'sc config', los eventos 7045 (System) y 4697 (Security), y procesos hijos del servicio.",
+        "Valide el servicio en HKLM\\SYSTEM\\CurrentControlSet\\Services\\<nombre>: revise ImagePath, la cuenta de inicio y la fecha de modificación. Un servicio oculto sigue presente en el registro.",
+        "Obtenga el hash del binario del ImagePath y revise su firma, su reputación y su ruta. Una ruta en carpetas de usuario, Temp o ProgramData es una señal de alerta.",
+        "Busque el mismo CommandLine o el mismo nombre de servicio en otros hosts, y revise alertas previas del usuario y del host."
+      ],
+      "false_positives": [
+        "Scripts de hardening o GPO que restringen permisos de servicios de forma intencional.",
+        "Instaladores de software de seguridad, agentes o productos de backup que protegen su propio servicio contra manipulación.",
+        "Administradores que corrigen permisos débiles de servicios después de una auditoría."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host o con el equipo de cambios si la modificación estaba autorizada.",
+        "Si es maliciosa, aísle el endpoint y preserve evidencia: el SDDL original (sc sdshow ejecutado como SYSTEM), la clave del registro y el binario del servicio.",
+        "Restaure un SDDL estándar o elimine el servicio malicioso solo después de recolectar evidencia. Puede requerir contexto SYSTEM si hay denegaciones para BA.",
+        "Restablezca las credenciales usadas, busque otros mecanismos de persistencia y aplique la búsqueda de IOC en toda la flota."
+      ],
+      "severity_rationale": "El nivel medium es adecuado porque sdset se usa poco de forma legítima. Puede ocultar persistencia, pero también tiene usos administrativos válidos. Escale el caso si el SDDL contiene denegaciones o el servicio es nuevo o desconocido."
+    },
+    "en": {
+      "summary": "sc.exe ran with the sdset subcommand, which replaces a Windows service's security descriptor (SDDL). Attackers use it to hide a service or block administrators from querying, stopping or deleting it.",
+      "what_it_detects": "Process creation where Image ends with \\sc.exe or OriginalFileName is sc.exe, and CommandLine contains 'sdset'. It catches any service permission change, not only malicious ones.",
+      "why_it_matters": "An SDDL with deny ACEs (D;) for interactive users, SYSTEM or administrators hides the service from sc query, services.msc and many EDR tools. This gives stealthy persistence. The rule maps it to T1574.011: abusing service permissions for persistence or privilege escalation.",
+      "triage_steps": [
+        "Read CommandLine: identify the service name and the SDDL. Look for 'D;' ACEs targeting IU, SU, BA, SY or WD, and for missing normal admin rights.",
+        "Check ParentImage, the user and IntegrityLevel. A shell, a script or an unknown binary as parent is more suspicious than a signed installer or a management agent.",
+        "On the same host within +/- 15 minutes, look for 'sc create' or 'sc config', events 7045 (System) and 4697 (Security), and child processes of the service.",
+        "Inspect HKLM\\SYSTEM\\CurrentControlSet\\Services\\<name>: check ImagePath, the start account and the last-write time. A hidden service still exists in the registry.",
+        "Hash the ImagePath binary and check its signature, reputation and path. Paths in user folders, Temp or ProgramData are red flags.",
+        "Search other hosts for the same CommandLine or service name, and review earlier alerts for this user and host."
+      ],
+      "false_positives": [
+        "Hardening scripts or GPOs that intentionally restrict service permissions.",
+        "Security agents, EDR or backup products protecting their own service from tampering.",
+        "Administrators fixing weak service permissions after an audit."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or the change team whether the modification was authorized.",
+        "If it is malicious, isolate the endpoint and preserve evidence: the current SDDL (sc sdshow run as SYSTEM), the registry key and the service binary.",
+        "Restore a standard SDDL or remove the malicious service only after you collect evidence. This may need SYSTEM context if BA is denied.",
+        "Reset the credentials involved, hunt for other persistence, and sweep the fleet for the IOCs."
+      ],
+      "severity_rationale": "Medium fits because sdset is rarely used legitimately. It can hide persistence but also has valid admin uses. Escalate if the SDDL contains deny ACEs or the service is new or unknown."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sc.exe launched from cmd sets deny ACEs on a newly created service to hide it",
+        "event": {
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe sdset UpdaterSvc \"D:(D;;DCLCWPDTSD;;;IU)(D;;DCLCWPDTSD;;;SU)(D;;DCLCWPDTSD;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "High",
+          "Computer": "WS-0142.andes.example.com"
+        }
+      },
+      {
+        "description": "Renamed sc.exe identified by OriginalFileName, invoked from PowerShell with sdset",
+        "event": {
+          "Image": "C:\\Users\\Public\\svcctl.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "svcctl.exe sdset MsHelper D:(D;;DCLCWPDTSD;;;IU)(A;;CCLCSWRPWPDTLOCRRC;;;SY)",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\svc_deploy",
+          "IntegrityLevel": "High",
+          "Computer": "SRV-APP-07.andes.example.com"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator only reads a service security descriptor with sdshow",
+        "event": {
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe sdshow Spooler",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\admin.lgarcia",
+          "IntegrityLevel": "High",
+          "Computer": "WS-0142.andes.example.com"
+        }
+      },
+      {
+        "description": "Routine service query and config change without sdset",
+        "event": {
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe config wuauserv start= demand",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\admin.lgarcia",
+          "IntegrityLevel": "High",
+          "Computer": "SRV-APP-07.andes.example.com"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "d7c75059-2901-4578-b209-8837fd31c6a8",
+    "title": "Proxy Execution via Vshadow",
+    "level": "medium",
+    "status": "experimental",
+    "author": "David Faiss",
+    "path": "windows/process_creation/proc_creation_win_vshadow_exec.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_vshadow_exec.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1202"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó vshadow.exe, la herramienta de instantáneas de volumen del Windows SDK, con el parámetro -exec, que lanza un script o programa después de crear las instantáneas. Un atacante puede usarlo para ejecutar malware a través de un binario firmado por Microsoft.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\vshadow.exe u OriginalFileName es vshadow.exe, y CommandLine contiene -exec. La condición de OriginalFileName también detecta copias renombradas de la herramienta.",
+      "why_it_matters": "Es ejecución indirecta de comandos (ATT&CK T1202). Lanzar un payload como hijo de una herramienta firmada por Microsoft puede evadir el allowlisting de aplicaciones y las detecciones por proceso padre. vshadow.exe viene con el Windows SDK y no con Windows, así que encontrarlo fuera de las rutas del SDK es sospechoso.",
+      "triage_steps": [
+        "Revise CommandLine y extraiga el destino de -exec=. Anote la ruta, el nombre del archivo y los argumentos.",
+        "Verifique la ruta de Image. Las carpetas Windows Kits o del SDK son esperables. Las rutas con permisos de escritura del usuario, como Users\\Public, Temp, AppData o ProgramData, son sospechosas, al igual que un binario renombrado.",
+        "Obtenga el hash y la firma de vshadow.exe y del destino de -exec. Consulte su reputación, la fecha en que apareció en el host y quién creó el archivo.",
+        "Analice ParentImage y la línea de comandos del padre. Una tarea programada o un agente de backup encaja con un respaldo. Office, un script host, cmd o PowerShell de un usuario no.",
+        "Liste los procesos hijos de vshadow.exe, las conexiones de red y las escrituras de archivos en el mismo host en +/- 15 minutos.",
+        "Pivotee por usuario y host en busca de alertas previas, otros LOLBAS o borrado y listado de instantáneas.",
+        "Consulte al responsable del sistema si existe un respaldo documentado que use vshadow -exec en ese host."
+      ],
+      "false_positives": [
+        "Herramientas de backup o administración que usan vshadow -exec para ejecutar un script de copia mientras existe la instantánea.",
+        "Scripts administrativos o de desarrollo legítimos que prueban VSS desde la ruta de instalación del Windows SDK."
+      ],
+      "response_steps": [
+        "Confirme con el responsable si la ejecución era esperada. Si lo era, documéntela y ajuste la regla para esa ruta y ese padre exactos.",
+        "Si es maliciosa, aísle el endpoint y conserve el destino de -exec, vshadow.exe y los artefactos del padre para analizarlos.",
+        "Busque los mismos hashes y patrones de línea de comandos en toda la flota y bloquéelos.",
+        "Elimine el payload y su persistencia después de recolectar la evidencia. Restablezca las credenciales del usuario afectado si hace falta.",
+        "Verifique la integridad de las instantáneas y los respaldos antes de restaurar."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque -exec tiene usos legítimos en respaldos, pero también permite ejecutar código arbitrario de forma fiable mediante un binario firmado, por lo que cada alerta requiere revisar su contexto."
+    },
+    "en": {
+      "summary": "vshadow.exe (the Windows SDK Volume Shadow Copy tool) was started with the -exec parameter, which runs a script or program after the shadow copies are created. Attackers can use this to launch malware through a signed Microsoft binary.",
+      "what_it_detects": "Process creation events where Image ends with \\vshadow.exe or OriginalFileName is vshadow.exe, and CommandLine contains -exec. The OriginalFileName check also catches renamed copies of the tool.",
+      "why_it_matters": "This is indirect command execution (ATT&CK T1202). Running a payload as a child of a signed Microsoft tool can get around application allowlisting and parent-child detections. vshadow.exe ships with the Windows SDK, not with Windows, so finding it outside SDK paths is suspicious.",
+      "triage_steps": [
+        "Read CommandLine and pull out the -exec= target. Note its path, file name and any arguments.",
+        "Check where Image lives. Windows Kits or SDK folders are expected. User-writable folders such as Users\\Public, Temp, AppData or ProgramData are suspicious, and so is a renamed binary.",
+        "Look up the hash and signature of both vshadow.exe and the -exec target. Check reputation, first-seen date on the host, and who created the file.",
+        "Review ParentImage and the parent command line. A scheduled task or backup agent fits backup work. Office, a script host, cmd or PowerShell started by a user does not.",
+        "List the child processes of vshadow.exe, plus network connections and file writes on the same host within +/- 15 minutes.",
+        "Pivot on the user and host for earlier alerts, other LOLBAS use, or shadow copy deletion and listing.",
+        "Ask the system owner whether a documented backup job uses vshadow -exec on this host."
+      ],
+      "false_positives": [
+        "Backup or administration tools that call vshadow -exec to run a copy script while the snapshot exists.",
+        "Legitimate administrative or developer scripts that test VSS from the Windows SDK installation path."
+      ],
+      "response_steps": [
+        "Confirm with the owner whether the run was expected. If it was, document it and tune the rule for that exact path and parent.",
+        "If it is malicious, isolate the endpoint and keep the -exec target, vshadow.exe and the parent artifacts for analysis.",
+        "Hunt for the same hashes and command-line patterns across the fleet, then block them.",
+        "Remove the payload and its persistence after you have collected evidence. Reset the credentials of the affected user if needed.",
+        "Check the integrity of shadow copies and backups before you restore."
+      ],
+      "severity_rationale": "Medium fits because the -exec flag has real backup uses, but it also reliably proxies arbitrary code through a signed binary, so each alert needs a review of its context."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "vshadow.exe copied to Users\\Public, started by PowerShell, runs an unknown executable through -exec",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\vshadow.exe",
+          "OriginalFileName": "vshadow.exe",
+          "CommandLine": "C:\\Users\\Public\\vshadow.exe -nw -exec=C:\\Users\\Public\\update.exe C:",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile -WindowStyle Hidden",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      {
+        "description": "Renamed vshadow binary identified by OriginalFileName, launching a batch script via -exec",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc_temp",
+          "Image": "C:\\ProgramData\\vsshelper.exe",
+          "OriginalFileName": "vshadow.exe",
+          "CommandLine": "C:\\ProgramData\\vsshelper.exe -p -nw -exec=C:\\ProgramData\\run.cmd C:",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\ProgramData\\stage.cmd"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator creates a persistent shadow copy with vshadow from the SDK path, without -exec",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-BKP-01.andes.example.com",
+          "User": "ANDES\\adm_backup",
+          "Image": "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.22621.0\\x64\\vshadow.exe",
+          "OriginalFileName": "vshadow.exe",
+          "CommandLine": "vshadow.exe -p -nw C:",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Different binary (vssadmin) listing shadow copies, no vshadow image and no -exec",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\vssadmin.exe",
+          "OriginalFileName": "VSSADMIN.EXE",
+          "CommandLine": "vssadmin.exe list shadows",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

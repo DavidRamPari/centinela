@@ -1,0 +1,138 @@
+{
+  "rule": {
+    "id": "7864a175-3654-4824-9f0d-f0da18ab27c0",
+    "title": "Password Set to Never Expire via WMI",
+    "level": "medium",
+    "status": "experimental",
+    "author": "Daniel Koifman (KoifSec)",
+    "path": "windows/process_creation/proc_creation_win_wmi_password_never_expire.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmi_password_never_expire.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1047",
+      "T1098"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó wmic.exe (o un binario renombrado cuyo OriginalFileName es wmic.exe) para modificar una cuenta local con passwordexpires=false, de modo que su contraseña deja de caducar.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\wmic.exe u OriginalFileName es wmic.exe, y el CommandLine contiene 'useraccount', ' set ', 'passwordexpires' y 'false', por ejemplo: wmic useraccount where name='guest' set passwordexpires=false.",
+      "why_it_matters": "Un atacante puede preparar una cuenta, a menudo Guest u otra cuenta local recién activada, para conservar acceso duradero (T1098, manipulación de cuentas) mediante WMI (T1047). Si la contraseña no caduca, la cuenta sigue sirviendo como persistencia aunque haya rotación de credenciales.",
+      "triage_steps": [
+        "Revise el CommandLine completo e identifique la cuenta objetivo de la cláusula where name=. Las cuentas Guest, las recién creadas o las que no tienen dueño claro son más sospechosas.",
+        "Verifique el User que ejecutó el proceso y si tiene funciones administrativas legítimas en ese host.",
+        "Analice ParentImage y la cadena de procesos padre. Que se lance desde cmd.exe o powershell.exe por RDP, una web shell o una herramienta de acceso remoto es sospechoso.",
+        "Si Image no está en System32 o SysWOW64 pero OriginalFileName es wmic.exe, trátelo como un binario renombrado y revise su hash.",
+        "Busque en el mismo host, +/- 15 minutos, comandos net user, net localgroup administrators, activación de Guest o creación de cuentas (eventos 4720, 4722, 4732, 4738).",
+        "Revise inicios de sesión posteriores de la cuenta modificada (4624 de tipo 3 o 10) y las IP de origen.",
+        "Busque alertas anteriores del mismo usuario, host o cuenta objetivo y compare con tickets de cambio."
+      ],
+      "false_positives": [
+        "Administración legítima: un administrador o script de aprovisionamiento configura cuentas de servicio o de kiosco para que la contraseña no caduque.",
+        "Imágenes base o herramientas de despliegue que ajustan cuentas locales durante la instalación del equipo.",
+        "Pruebas de equipos red team o de validación de detecciones autorizadas."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del sistema o con el ticket de cambio si la modificación estaba autorizada.",
+        "Si no lo estaba, deshabilite la cuenta afectada, restablezca su contraseña y vuelva a activar la caducidad.",
+        "Aísle el endpoint si hay indicios de acceso remoto no autorizado y revoque las sesiones activas de la cuenta.",
+        "Investigue el vector inicial, elimine cuentas, servicios o tareas de persistencia relacionados y revise los miembros de grupos privilegiados.",
+        "Restaure la configuración de cuentas según la línea base y vigile el host por recurrencia."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque el cambio es una técnica de persistencia real, aunque los administradores también lo usan de forma legítima y conviene validarlo con contexto."
+    },
+    "en": {
+      "summary": "wmic.exe (or a renamed binary whose OriginalFileName is wmic.exe) modified a local user account with passwordexpires=false, so the account's password no longer expires.",
+      "what_it_detects": "Windows process creation events where Image ends with \\wmic.exe or OriginalFileName is wmic.exe, and CommandLine contains 'useraccount', ' set ', 'passwordexpires' and 'false', for example: wmic useraccount where name='guest' set passwordexpires=false.",
+      "why_it_matters": "Attackers can prepare an account, often Guest or another freshly enabled local account, for long-term access (T1098, Account Manipulation) through WMI (T1047). A password that never expires keeps the backdoor usable even when credentials are rotated.",
+      "triage_steps": [
+        "Read the full CommandLine and note the target account in the where name= clause. Guest, newly created or ownerless accounts are more suspicious.",
+        "Check the User that ran the process and whether they do legitimate admin work on this host.",
+        "Review ParentImage and the process ancestry. A launch from cmd.exe or powershell.exe under RDP, a web shell or a remote access tool is suspicious.",
+        "If Image is outside System32 or SysWOW64 but OriginalFileName is wmic.exe, treat it as a renamed binary and check its hash.",
+        "On the same host, +/- 15 minutes, look for net user, net localgroup administrators, Guest activation or account creation (events 4720, 4722, 4732, 4738).",
+        "Check later logons by the modified account (4624 type 3 or 10) and their source IPs.",
+        "Look for earlier alerts on the same user, host or target account, and compare against change tickets."
+      ],
+      "false_positives": [
+        "Legitimate administration: an admin or provisioning script sets service or kiosk accounts so their passwords never expire.",
+        "Golden images or deployment tooling that configure local accounts during machine build.",
+        "Authorized red team or detection validation exercises."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or the change ticket that the modification was authorized.",
+        "If it was not, disable the affected account, reset its password and turn password expiration back on.",
+        "Isolate the endpoint if there are signs of unauthorized remote access, and revoke the account's active sessions.",
+        "Find the initial access vector, remove related persistence (accounts, services, tasks) and review privileged group membership.",
+        "Restore account settings to the baseline and watch the host for the change happening again."
+      ],
+      "severity_rationale": "Medium fits because this is a real persistence technique, but administrators also do it legitimately, so each alert needs context before you escalate."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "wmic.exe launched from cmd.exe sets the Guest account password to never expire",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic  useraccount where name='guest' set passwordexpires=false",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c wmic  useraccount where name='guest' set passwordexpires=false",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed wmic binary identified by OriginalFileName disables password expiration for a local account",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "svchelper.exe useraccount where name='helpdesk' set PasswordExpires=False",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Read-only wmic query that lists accounts and their password expiration, without set or false",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.mrojas",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic useraccount get name,passwordexpires,disabled",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Administrator re-enables password expiration (passwordexpires=true), so 'false' is absent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\admin.mrojas",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic useraccount where name='jperez' set passwordexpires=true",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

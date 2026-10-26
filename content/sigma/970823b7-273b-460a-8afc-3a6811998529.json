@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "970823b7-273b-460a-8afc-3a6811998529",
+    "title": "Uncommon One Time Only Scheduled Task At 00:00",
+    "level": "high",
+    "status": "test",
+    "author": "pH-T (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_schtasks_one_time_only_midnight_task.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_schtasks_one_time_only_midnight_task.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1053.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó schtasks.exe para crear una tarea programada de una sola ejecución (ONCE) a las 00:00 cuya acción invoca un intérprete de scripts, WMIC, regsvr32 o un archivo en \\AppData\\. Este patrón aparece en intrusiones de ransomware que preparan ejecución diferida o persistencia.",
+      "what_it_detects": "Procesos schtasks.exe (por Image u OriginalFileName) cuyo CommandLine contiene 'once' y '00:00' junto con wscript, cscript, vbscript, wmic, regsvr32.exe, powershell o una ruta \\AppData\\.",
+      "why_it_matters": "Las tareas programadas (ATT&CK T1053.005) permiten ejecutar código más tarde, con privilegios de SYSTEM y fuera del horario laboral. Una tarea única a medianoche que lanza scripts suele servir para desplegar payloads o cifrado mientras nadie supervisa.",
+      "triage_steps": [
+        "Revise el CommandLine completo: nombre de la tarea (/tn), acción (/tr), cuenta (/ru) y si usa /f para sobrescribir una tarea existente.",
+        "Identifique ParentImage y el árbol de procesos: cmd.exe, powershell.exe, wmiprvse.exe o un instalador firmado cambian mucho la evaluación.",
+        "Obtenga el script o binario referenciado en /tr; calcule su hash, verifique firma y consulte reputación e indicadores internos.",
+        "Confirme el usuario que creó la tarea y si es administrador; compare con su actividad habitual en el endpoint.",
+        "Liste la tarea en el host (schtasks /query /tn ... /v o el XML en C:\\Windows\\System32\\Tasks) y revise eventos 4698 y 106.",
+        "Busque en el mismo host +/- 15 minutos: descargas, conexiones de red salientes, creación de archivos en AppData y movimiento lateral.",
+        "Busque el mismo nombre de tarea o CommandLine en otros hosts; una creación masiva sugiere despliegue vía GPO, PsExec o WMI de un atacante.",
+        "Revise alertas previas del mismo host y usuario, en especial accesos remotos o volcado de credenciales."
+      ],
+      "false_positives": [
+        "Instaladores o actualizadores de software que programan una tarea única con PowerShell o un ejecutable en AppData.",
+        "Scripts de administración o despliegue de TI que agendan mantenimiento a medianoche; valide con el equipo responsable y el ticket de cambio."
+      ],
+      "response_steps": [
+        "Si la acción es maliciosa o no se justifica, aísle el endpoint antes de las 00:00 para evitar la ejecución.",
+        "Deshabilite la tarea y conserve su XML y el payload referenciado como evidencia antes de eliminarlos.",
+        "Restablezca las credenciales de la cuenta usada y revise su uso en otros sistemas.",
+        "Busque la misma tarea en toda la flota y elimine la persistencia confirmada; restaure desde respaldo si hubo cifrado o daño."
+      ],
+      "severity_rationale": "Nivel alto porque la combinación de ejecución única a medianoche con intérpretes de scripts o rutas de usuario es poco común en uso legítimo y coincide con preparación de ransomware."
+    },
+    "en": {
+      "summary": "schtasks.exe created a run-once (ONCE) scheduled task at 00:00 whose action invokes a script interpreter, WMIC, regsvr32 or a file under \\AppData\\. Ransomware intrusions use this pattern to stage delayed execution or persistence.",
+      "what_it_detects": "schtasks.exe processes (by Image or OriginalFileName) whose CommandLine contains 'once' and '00:00' plus wscript, cscript, vbscript, wmic, regsvr32.exe, powershell or an \\AppData\\ path.",
+      "why_it_matters": "Scheduled tasks (ATT&CK T1053.005) let attackers run code later, often as SYSTEM and outside business hours. A single midnight run that launches scripts is a common way to deploy payloads or encryption while nobody is watching.",
+      "triage_steps": [
+        "Read the full CommandLine: task name (/tn), action (/tr), run-as account (/ru) and whether /f overwrites an existing task.",
+        "Check ParentImage and the process tree: cmd.exe, powershell.exe, wmiprvse.exe or a signed installer change the assessment significantly.",
+        "Collect the script or binary referenced in /tr; hash it, check its signature and look up reputation and internal indicators.",
+        "Confirm which user created the task, whether it is an admin, and compare with that user's normal activity on the endpoint.",
+        "Inspect the task on the host (schtasks /query /tn ... /v or the XML in C:\\Windows\\System32\\Tasks) and review events 4698 and 106.",
+        "Pivot on the same host +/- 15 minutes: downloads, outbound connections, new files in AppData and lateral movement.",
+        "Search for the same task name or CommandLine on other hosts; mass creation suggests attacker deployment via GPO, PsExec or WMI.",
+        "Review earlier alerts for the same host and user, especially remote logons or credential dumping."
+      ],
+      "false_positives": [
+        "Software installers or updaters scheduling a one-time task with PowerShell or an executable in AppData.",
+        "IT administration or deployment scripts scheduling midnight maintenance; confirm with the owning team and change ticket."
+      ],
+      "response_steps": [
+        "If the action is malicious or unexplained, isolate the endpoint before 00:00 to prevent execution.",
+        "Disable the task and preserve its XML and referenced payload as evidence before deleting them.",
+        "Reset credentials of the account used and review its use on other systems.",
+        "Hunt for the same task fleet-wide, remove confirmed persistence, and restore from backup if encryption or damage occurred."
+      ],
+      "severity_rationale": "High fits because a one-time midnight task launching script interpreters or user-profile paths is rare in legitimate use and matches ransomware staging."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "schtasks creates a one-time 00:00 task running hidden PowerShell from AppData",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks.exe /create /tn \"Microsoft\\Windows\\SvcUpdate\" /tr \"powershell.exe -w hidden -ep bypass -f C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.ps1\" /sc once /st 00:00 /ru SYSTEM /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\jperez\\AppData\\Local\\Temp\\run.bat"
+        }
+      },
+      {
+        "description": "Renamed schtasks binary identified by OriginalFileName scheduling wscript once at 00:00",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\st.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "st.exe /create /tn Sync /tr \"wscript.exe C:\\ProgramData\\sync.vbs\" /sc ONCE /st 00:00",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Installer schedules a one-time 00:00 task for a signed binary in Program Files, no script interpreter or AppData path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks.exe /create /tn \"Contoso\\UpdaterOnce\" /tr \"\\\"C:\\Program Files\\Contoso\\updater.exe\\\" /silent\" /sc once /st 00:00 /f",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe"
+        }
+      },
+      {
+        "description": "Daily PowerShell maintenance task at 03:00, not a one-time midnight task",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP01.andes.example.com",
+          "User": "ANDES\\adm_rgomez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks.exe /create /tn CleanupLogs /tr \"powershell.exe -File C:\\Scripts\\cleanup.ps1\" /sc daily /st 03:00",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

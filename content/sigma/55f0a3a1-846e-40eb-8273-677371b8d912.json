@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "55f0a3a1-846e-40eb-8273-677371b8d912",
+    "title": "Outlook EnableUnsafeClientMailRules Setting Enabled",
+    "level": "high",
+    "status": "test",
+    "author": "Markus Neis, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_office_outlook_enable_unsafe_client_mail_rules.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_office_outlook_enable_unsafe_client_mail_rules.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059",
+      "T1202"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó una línea de comandos que hace referencia al valor de registro Outlook\\Security\\EnableUnsafeClientMailRules. Este valor vuelve a habilitar las reglas de Outlook que inician aplicaciones o ejecutan scripts, algo que se usa para obtener persistencia y ejecución.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene '\\Outlook\\Security\\EnableUnsafeClientMailRules'. Suele verse en PowerShell, VBScript (RegWrite) o en herramientas que escriben la ruta completa del valor.",
+      "why_it_matters": "Microsoft deshabilita por defecto las acciones de regla \"iniciar aplicación\" y \"ejecutar un script\". Si se reactivan, un atacante puede crear una regla que ejecute un payload cuando llega un correo concreto. Así logra ejecución indirecta (T1202) mediante intérpretes de comandos (T1059). Herramientas públicas como Ruler abusan de este mecanismo.",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique la versión de Office, el valor escrito (1 habilita) y si se trata de una escritura o solo de una consulta.",
+        "Examine Image y ParentImage: PowerShell, wscript, mshta o cmd lanzados desde Office, el navegador o un adjunto son mucho más sospechosos que una herramienta de despliegue.",
+        "Identifique al User y el host; confirme si el usuario tiene un motivo de negocio o un ticket de cambio que justifique el ajuste.",
+        "Verifique en el endpoint el valor actual en HKCU\\Software\\Microsoft\\Office\\<versión>\\Outlook\\Security y busque alertas de la regla relacionada de registro.",
+        "Revise las reglas de Outlook del buzón (cliente y servidor, p. ej. Get-InboxRule) buscando acciones que inicien una aplicación o ejecuten un script, y las rutas de esas acciones.",
+        "Busque en el mismo host, +/- 15 minutos, procesos hijo de OUTLOOK.EXE, archivos nuevos en rutas de usuario o WebDAV y conexiones de red inusuales.",
+        "Consulte alertas previas del mismo usuario y host, sobre todo inicios de sesión anómalos al buzón o phishing reciente."
+      ],
+      "false_positives": [
+        "Scripts de administración o GPO que habilitan el ajuste para flujos de trabajo heredados que dependen de reglas con scripts.",
+        "Configuración de despliegue de Office o soluciones de terceros documentadas que requieren esta opción.",
+        "Pruebas autorizadas de red team o auditorías de configuración."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y con TI si el cambio estaba autorizado antes de actuar.",
+        "Si no está autorizado, aísle el endpoint y restablezca EnableUnsafeClientMailRules a 0 o elimine el valor.",
+        "Elimine las reglas de Outlook maliciosas tras documentarlas y preserve los archivos que estas ejecutaban para su análisis.",
+        "Restablezca las credenciales del usuario, revoque sesiones y revise el acceso al buzón desde IP inusuales.",
+        "Aplique por GPO el bloqueo de reglas inseguras y busque el mismo cambio en otros equipos."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque el ajuste casi nunca se modifica legítimamente y habilita persistencia con ejecución de código vía Outlook."
+    },
+    "en": {
+      "summary": "A process ran a command line that references the Outlook\\Security\\EnableUnsafeClientMailRules registry value. That value re-enables Outlook rules that start applications or run scripts, which attackers use for persistence and execution.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains '\\Outlook\\Security\\EnableUnsafeClientMailRules'. This typically comes from PowerShell, VBScript RegWrite or tools that write the full value path.",
+      "why_it_matters": "Microsoft disables the \"start application\" and \"run a script\" rule actions by default. Once they are re-enabled, an attacker can create a rule that runs a payload when a specific email arrives. That gives them indirect command execution (T1202) through command interpreters (T1059). Public tools such as Ruler abuse this mechanism.",
+      "triage_steps": [
+        "Read the full CommandLine: Office version, value written (1 enables) and whether it is a write or only a query.",
+        "Check Image and ParentImage: PowerShell, wscript, mshta or cmd spawned by Office, a browser or an attachment is far more suspicious than a deployment tool.",
+        "Identify the User and host; confirm whether a change ticket or business reason exists.",
+        "Check the current value under HKCU\\Software\\Microsoft\\Office\\<version>\\Outlook\\Security and look for alerts from the related registry rule.",
+        "Review the mailbox's Outlook rules (client and server, e.g. Get-InboxRule) for start-application or run-script actions and their target paths.",
+        "On the same host within +/- 15 minutes, look for OUTLOOK.EXE child processes, new files in user or WebDAV paths and unusual network connections.",
+        "Check earlier alerts for the same user and host, especially anomalous mailbox sign-ins or recent phishing."
+      ],
+      "false_positives": [
+        "Admin scripts or GPOs enabling the setting for legacy workflows that rely on script rules.",
+        "Documented Office deployment configurations or third-party add-ins that require the option.",
+        "Authorized red team exercises or configuration audits."
+      ],
+      "response_steps": [
+        "Confirm with the user and IT whether the change was authorized before acting.",
+        "If unauthorized, isolate the endpoint and reset EnableUnsafeClientMailRules to 0 or remove the value.",
+        "Document, then delete malicious Outlook rules; preserve the files they launched for analysis.",
+        "Reset the user's credentials, revoke sessions and review mailbox access from unusual IPs.",
+        "Enforce blocking of unsafe rules through GPO and hunt for the same change on other hosts."
+      ],
+      "severity_rationale": "The high level fits because this setting is rarely changed legitimately and it enables persistent code execution through Outlook."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell uses WScript.Shell RegWrite to set EnableUnsafeClientMailRules to 1, launched from a Word document",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -NoProfile -c \"(New-Object -ComObject WScript.Shell).RegWrite('HKCU\\Software\\Microsoft\\Office\\16.0\\Outlook\\Security\\EnableUnsafeClientMailRules',1,'REG_DWORD')\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "mshta inline VBScript writes the full value path with RegWrite",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\mshta.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "mshta.exe vbscript:Execute(\"CreateObject(\"\"WScript.Shell\"\").RegWrite \"\"HKCU\\Software\\Microsoft\\Office\\16.0\\Outlook\\Security\\EnableUnsafeClientMailRules\"\",1,\"\"REG_DWORD\"\":close\")",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Help desk queries the Outlook Security key without referencing the EnableUnsafeClientMailRules value path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\soporte01",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "reg.exe query \"HKCU\\Software\\Microsoft\\Office\\16.0\\Outlook\\Security\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Normal Outlook launch by the user",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

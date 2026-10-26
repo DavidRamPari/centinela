@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "a85ffc3a-e8fd-4040-93bf-78aff284d801",
+    "title": "Use Of The SFTP.EXE Binary As A LOLBIN",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_lolbin_sftp.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_sftp.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó sftp.exe con la opción -D seguida de una ruta absoluta (C:\\) o relativa (..). Esto puede indicar que el cliente OpenSSH se usa como LOLBIN para lanzar otro ejecutable como proceso hijo.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\sftp.exe y CommandLine contiene ' -D C:\\' o ' -D ..'. La opción -D sirve para conectarse directo a un servidor sftp local sin pasar por ssh, pero ejecuta cualquier binario indicado en la ruta.",
+      "why_it_matters": "Un atacante puede ejecutar binarios arbitrarios a través de un ejecutable firmado de Microsoft, evadiendo controles basados en el proceso padre o en listas de permitidos. Corresponde a ATT&CK T1218 (System Binary Proxy Execution).",
+      "triage_steps": [
+        "Revise CommandLine e identifique el binario que sigue a -D; resuelva las rutas relativas (..\\..\\) a partir del directorio de trabajo del proceso.",
+        "Busque los procesos hijo de sftp.exe en el mismo host dentro de +/- 15 minutos y confirme qué se ejecutó realmente.",
+        "Obtenga el hash, la firma y la ubicación del binario indicado; desconfíe de rutas en Temp, AppData, Public o ProgramData.",
+        "Analice ParentImage y la cadena de procesos padre: cmd.exe, powershell.exe, wscript.exe o macros de Office aumentan la sospecha.",
+        "Valide si el usuario es un administrador o desarrollador que trabaja habitualmente con OpenSSH en ese equipo.",
+        "Busque conexiones de red, archivos creados o persistencia generados por el proceso hijo en la misma ventana de tiempo.",
+        "Revise alertas previas para el mismo host y usuario, y si la misma línea de comandos aparece en otros endpoints."
+      ],
+      "false_positives": [
+        "Administradores o desarrolladores que prueban un sftp-server.exe local con -D apuntando a C:\\Program Files\\OpenSSH o a C:\\Windows\\System32\\OpenSSH.",
+        "Ejercicios autorizados de red team o pruebas de detección basadas en LOLBAS."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del equipo si la ejecución fue legítima antes de tomar medidas.",
+        "Si no se justifica, aísle el endpoint y termine el proceso hijo malicioso, preservando antes la evidencia (memoria, binario, logs).",
+        "Elimine el binario ejecutado y cualquier persistencia asociada después de recolectar su hash y una copia para análisis.",
+        "Restablezca las credenciales del usuario si hay indicios de compromiso y busque el hash en toda la flota.",
+        "Considere restringir sftp.exe mediante AppLocker o WDAC en equipos que no necesitan OpenSSH."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque -D con ruta casi nunca se usa legítimamente, pero confirmar que hubo abuso exige revisar el proceso hijo y el contexto."
+    },
+    "en": {
+      "summary": "sftp.exe ran with the -D option followed by an absolute (C:\\) or relative (..) path. This may mean the OpenSSH client is being used as a LOLBIN to launch another executable as its child process.",
+      "what_it_detects": "Windows process creation events where Image ends with \\sftp.exe and CommandLine contains ' -D C:\\' or ' -D ..'. The -D option is meant to connect directly to a local sftp server without ssh, but it runs whatever binary the path points to.",
+      "why_it_matters": "An attacker can run arbitrary binaries through a Microsoft-signed executable. This helps them get past parent-process and allowlisting controls. It maps to ATT&CK T1218 (System Binary Proxy Execution).",
+      "triage_steps": [
+        "Read CommandLine and find the binary after -D. Resolve relative paths (..\\..\\) against the process working directory.",
+        "Find child processes of sftp.exe on the same host within +/- 15 minutes and confirm what actually ran.",
+        "Get the hash, signature and location of the target binary. Treat paths under Temp, AppData, Public or ProgramData as suspicious.",
+        "Check ParentImage and the parent chain. cmd.exe, powershell.exe, wscript.exe or Office macros as parents raise suspicion.",
+        "Check whether the user is an admin or developer who normally works with OpenSSH on this host.",
+        "Look for network connections, dropped files or persistence created by the child process in the same window.",
+        "Review earlier alerts for the same host and user, and search for the same command line on other endpoints."
+      ],
+      "false_positives": [
+        "Admins or developers testing a local sftp-server.exe with -D pointing to C:\\Program Files\\OpenSSH or C:\\Windows\\System32\\OpenSSH.",
+        "Authorized red team exercises or LOLBAS-based detection testing."
+      ],
+      "response_steps": [
+        "Before acting, ask the user or the system owner whether the execution was legitimate.",
+        "If it was not, isolate the endpoint and kill the malicious child process. Preserve memory, the binary and logs first.",
+        "Collect the hash and a sample of the executed binary, then remove it and any related persistence.",
+        "Reset the user's credentials if compromise is suspected, and hunt for the hash across the fleet.",
+        "Consider blocking sftp.exe with AppLocker or WDAC on hosts that do not need OpenSSH."
+      ],
+      "severity_rationale": "Medium fits because -D with a path is rarely used legitimately, but confirming abuse requires checking the child process and its context."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sftp.exe used to proxy-execute calc.exe via an absolute path after -D",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\OpenSSH\\sftp.exe",
+          "CommandLine": "sftp.exe -D C:\\Windows\\System32\\calc.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "sftp.exe launching a payload in the user's Temp folder via a relative path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\OpenSSH\\sftp.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\OpenSSH\\sftp.exe\" -D ..\\..\\..\\Users\\mrojas\\AppData\\Local\\Temp\\svcupd.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Windows\\System32\\OpenSSH\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal interactive sftp session to a remote server; no -D option",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\OpenSSH\\sftp.exe",
+          "CommandLine": "sftp.exe -P 22 jperez@sftp.example.com",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "-D followed by a bare server name, with no C:\\ or .. path, so the selection does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-01.andes.example.com",
+          "User": "ANDES\\adm.lgomez",
+          "Image": "C:\\Windows\\System32\\OpenSSH\\sftp.exe",
+          "CommandLine": "sftp.exe -D sftp-server.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Windows\\System32\\OpenSSH\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

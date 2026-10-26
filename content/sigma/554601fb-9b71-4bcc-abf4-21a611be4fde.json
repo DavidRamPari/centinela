@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "554601fb-9b71-4bcc-abf4-21a611be4fde",
+    "title": "Suspicious Recursive Takeown",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_takeown_recursive_own.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_takeown_recursive_own.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1222.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó takeown.exe con /f y /r para tomar de forma recursiva la propiedad de un archivo o una carpeta y de todo su contenido. Esto puede preparar cambios en la DACL que dan acceso total a datos o binarios protegidos.",
+      "what_it_detects": "Eventos de creación de procesos en Windows en los que Image termina en \\takeown.exe y CommandLine contiene tanto '/f ' (ruta de destino) como '/r' (recursivo).",
+      "why_it_matters": "Tomar la propiedad recursivamente permite reescribir los permisos (T1222.001, modificación de permisos de archivos y carpetas en Windows). Los atacantes lo usan para reemplazar binarios del sistema, desactivar herramientas de seguridad, acceder a datos protegidos o preparar el cifrado por ransomware.",
+      "triage_steps": [
+        "Revise CommandLine: identifique la ruta de /f. Considere críticas rutas como System32, Program Files, carpetas de software de seguridad, perfiles de otros usuarios o recursos compartidos.",
+        "Identifique el usuario y el nivel de integridad. Confirme si la cuenta es de un administrador conocido o de servicio, o si es inusual para ese host.",
+        "Examine ParentImage y la línea de comandos del padre: cmd.exe, powershell.exe, un script en %TEMP%, wscript o una herramienta remota (psexec, wmiprvse) aumentan la sospecha.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, comandos icacls /grant, attrib, cacls, sc stop, vssadmin, o el borrado o reemplazo de archivos en la misma ruta.",
+        "Busque eventos de modificación de archivos (Sysmon 11/23) en la ruta afectada, en especial binarios reemplazados o renombrados después del takeown.",
+        "Revise alertas previas del mismo usuario y host, y si el mismo comando aparece en otros equipos, lo que indicaría ejecución masiva o movimiento lateral.",
+        "Pregunte al dueño del equipo o al equipo de TI si existe un ticket de cambio, una instalación o un script de mantenimiento que lo justifique."
+      ],
+      "false_positives": [
+        "Scripts de administradores o desarrolladores que recuperan carpetas de perfiles huérfanos o de cuentas eliminadas.",
+        "Actividad administrativa legítima: migraciones de servidores de archivos, limpieza de discos de equipos reutilizados o reparación de permisos.",
+        "Instaladores o herramientas de despliegue que toman la propiedad de carpetas de aplicaciones durante una actualización."
+      ],
+      "response_steps": [
+        "Confirme con el responsable si la acción fue autorizada. Si es legítima, documente el script o el usuario para ajustar la detección.",
+        "Si no es autorizada, aísle el endpoint y suspenda o restablezca la cuenta involucrada mientras investiga.",
+        "Recopile evidencia: árbol de procesos, hash de los scripts del proceso padre y listado de propietarios y ACL actuales de la ruta afectada.",
+        "Verifique la integridad de los archivos en la ruta. Restaure desde respaldo o reinstale los binarios alterados después de confirmar el cambio.",
+        "Restablezca el propietario original (por ejemplo, TrustedInstaller) y las ACL correctas, y busque persistencia o ejecución adicional en el host."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque el takeown recursivo es frecuente en tareas administrativas, pero en rutas del sistema o de seguridad suele preceder a la evasión de defensas o al impacto."
+    },
+    "en": {
+      "summary": "takeown.exe was run with /f and /r to recursively take ownership of a file or folder tree. This can be a first step toward rewriting DACLs and gaining full access to protected data or binaries.",
+      "what_it_detects": "Windows process creation events where Image ends with \\takeown.exe and CommandLine contains both '/f ' (target path) and '/r' (recurse).",
+      "why_it_matters": "Recursive ownership lets the caller rewrite permissions (T1222.001, Windows File and Directory Permissions Modification). Attackers use it to replace system binaries, disable security tools, reach protected data or stage ransomware encryption.",
+      "triage_steps": [
+        "Read CommandLine and identify the /f path. Treat System32, Program Files, security product folders, other users' profiles or file shares as high concern.",
+        "Identify the user and integrity level. Is it a known admin or service account, or unusual for this host?",
+        "Inspect ParentImage and the parent command line. cmd.exe or powershell.exe running a %TEMP% script, wscript, or remote tools (psexec, wmiprvse) raise suspicion.",
+        "On the same host within +/- 15 minutes, look for icacls /grant, cacls, attrib, sc stop, vssadmin, or file deletion or replacement in the same path.",
+        "Check file events (Sysmon 11/23) under the target path for binaries replaced or renamed after takeown.",
+        "Review earlier alerts for the same user and host, and whether the same command ran on other machines, which would suggest mass execution or lateral movement.",
+        "Ask the asset owner or IT whether a change ticket, install or maintenance script explains it."
+      ],
+      "false_positives": [
+        "Admin or developer scripts that reclaim orphaned profile folders or data of deleted accounts.",
+        "Legitimate administration: file server migrations, cleanup of reimaged disks, permission repair.",
+        "Installers or deployment tools taking ownership of application folders during upgrades."
+      ],
+      "response_steps": [
+        "Confirm authorization with the owner. If the activity is legitimate, document the script or account so the detection can be tuned.",
+        "If unauthorized, isolate the endpoint and suspend or reset the involved account while you investigate.",
+        "Collect evidence: process tree, hashes of parent scripts, and the current owner and ACL listing of the target path.",
+        "Verify file integrity in the path. Restore from backup or reinstall altered binaries after confirming the tampering.",
+        "Reset the original owner (for example TrustedInstaller) and the correct ACLs, then hunt for persistence or follow-on execution on the host."
+      ],
+      "severity_rationale": "Medium fits because recursive takeown is common in admin work, but on system or security paths it often comes before defense evasion or impact."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Recursive takeown of a security product folder launched from a PowerShell script in a temp directory",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\takeown.exe",
+          "OriginalFileName": "takeown.exe",
+          "CommandLine": "takeown.exe /f \"C:\\Program Files\\Windows Defender\" /r /d y",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -ExecutionPolicy Bypass -File C:\\Users\\jperez\\AppData\\Local\\Temp\\fix.ps1",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Recursive takeown of System32 subfolder from cmd, as in the Atomic Red Team test",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02",
+          "User": "ANDES\\adm_rlopez",
+          "Image": "C:\\Windows\\System32\\takeown.exe",
+          "CommandLine": "takeown /F C:\\Windows\\System32\\drivers /R",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Non-recursive takeown of a single file (no /r switch)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\takeown.exe",
+          "CommandLine": "takeown.exe /f C:\\Users\\Public\\Documents\\inventory.xlsx",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "icacls recursive permission reset; different binary, so the Image condition fails",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02",
+          "User": "ANDES\\adm_rlopez",
+          "Image": "C:\\Windows\\System32\\icacls.exe",
+          "CommandLine": "icacls.exe D:\\Shares\\Finance /reset /t /c",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "ba4cfc11-d0fa-4d94-bf20-7c332c412e76",
+    "title": "Potentially Suspicious DLL Registered Via Odbcconf.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_odbcconf_register_dll_regsvr_susp.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_odbcconf_register_dll_regsvr_susp.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.008"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "odbcconf.exe se ejecutó con la acción REGSVR para registrar un archivo que no tiene extensión .dll. Es una técnica conocida para cargar código malicioso mediante un binario firmado de Microsoft.",
+      "what_it_detects": "Creación de procesos de odbcconf.exe, identificado por Image u OriginalFileName, cuyo CommandLine contiene 'REGSVR ' pero no contiene '.dll'. Esto incluye copias renombradas del binario, ya que OriginalFileName también activa la regla.",
+      "why_it_matters": "odbcconf REGSVR carga el archivo indicado y ejecuta su función DllRegisterServer dentro de un proceso firmado. Así se ejecuta código mediante un proxy y se evaden controles de aplicaciones (ATT&CK T1218.008). Si el archivo tiene una extensión falsa como .txt o .dat, su objetivo suele ser esconderse.",
+      "triage_steps": [
+        "Revise CommandLine e identifique la ruta del archivo registrado. Las rutas en Temp, AppData, ProgramData, Public o recursos compartidos de red aumentan la sospecha.",
+        "Compare Image con OriginalFileName. Si odbcconf.exe se ejecutó con otro nombre o desde fuera de System32/SysWOW64, la actividad es muy sospechosa.",
+        "Revise ParentImage y la línea de comandos del proceso padre. Office, navegadores, wscript, mshta o PowerShell como padres sugieren phishing o un loader.",
+        "Obtenga el archivo cargado y calcule su hash. Verifique si es un PE disfrazado, si tiene firma digital y qué reputación tiene en su plataforma de threat intelligence.",
+        "Revise los procesos hijos, las conexiones de red y las cargas de imágenes de odbcconf en el mismo host durante +/- 15 minutos.",
+        "Busque cuándo se creó o descargó el archivo. Revise los eventos de archivo y la actividad del navegador o del correo electrónico del usuario.",
+        "Consulte las alertas anteriores del mismo host y usuario, y busque la misma ruta o el mismo hash en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla indica que son poco probables.",
+        "Instaladores antiguos de drivers ODBC que registran componentes con extensiones poco comunes, como .ocx o .ax. Confírmelo con el equipo dueño de la aplicación.",
+        "Pruebas autorizadas de red team o de emulación de adversarios que usan técnicas de LOLBAS."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y con el equipo de TI si existe una instalación ODBC legítima en curso.",
+        "Si se confirma la actividad maliciosa, aísle el endpoint con EDR y conserve el archivo cargado, la memoria y la línea de tiempo.",
+        "Ponga en cuarentena el archivo y elimine la persistencia relacionada, como claves Run, tareas programadas o servicios, tras validar que son maliciosas.",
+        "Bloquee el hash y los indicadores de red en EDR, proxy y firewall. Busque el mismo hash en toda la organización.",
+        "Restablezca las credenciales del usuario si hubo ejecución de código y restaure el host desde una imagen confiable si está comprometido."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque registrar archivos sin extensión .dll mediante odbcconf casi nunca es legítimo y equivale a ejecutar código mediante un binario firmado."
+    },
+    "en": {
+      "summary": "odbcconf.exe ran the REGSVR action on a file that has no .dll extension. This is a known way to load malicious code through a Microsoft-signed binary.",
+      "what_it_detects": "Process creation of odbcconf.exe, matched by Image or OriginalFileName, where CommandLine contains 'REGSVR ' but not '.dll'. Because OriginalFileName also matches, renamed copies of the binary are covered.",
+      "why_it_matters": "odbcconf REGSVR loads the target file and calls its DllRegisterServer function inside a signed process. This proxies code execution and bypasses application control (ATT&CK T1218.008). A fake extension such as .txt or .dat usually means the file is meant to hide.",
+      "triage_steps": [
+        "Read CommandLine and find the path of the registered file. Paths in Temp, AppData, ProgramData, Public or network shares raise suspicion.",
+        "Compare Image with OriginalFileName. A renamed odbcconf.exe, or one running outside System32/SysWOW64, is highly suspicious.",
+        "Review ParentImage and the parent command line. Office, a browser, wscript, mshta or PowerShell as the parent suggests phishing or a loader.",
+        "Collect the loaded file and hash it. Check whether it is a disguised PE, whether it is signed, and what threat-intel reputation it has.",
+        "On the same host within +/- 15 minutes, review odbcconf's child processes, network connections and image loads.",
+        "Find when the file was created or downloaded. Check file events and the user's browser or email activity.",
+        "Check earlier alerts for the same host and user, and search other endpoints for the same path or hash."
+      ],
+      "false_positives": [
+        "The rule rates false positives as unlikely.",
+        "Legacy ODBC driver installers that register components with unusual extensions such as .ocx or .ax. Confirm with the application owner.",
+        "Authorized red team or adversary emulation exercises that use LOLBAS techniques."
+      ],
+      "response_steps": [
+        "Check with the user and IT whether a legitimate ODBC installation is in progress.",
+        "If the activity is malicious, isolate the endpoint through EDR and preserve the loaded file, memory and timeline.",
+        "Quarantine the file. After confirming they are malicious, remove related persistence such as Run keys, scheduled tasks or services.",
+        "Block the hash and network indicators in EDR, proxy and firewall. Hunt for the hash across the organization.",
+        "If code ran, reset the user's credentials. Reimage the host from a trusted image if it is compromised."
+      ],
+      "severity_rationale": "High fits because registering a file without a .dll extension through odbcconf is almost never legitimate and amounts to signed-binary proxy execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "odbcconf.exe from System32 registers a payload disguised as a .txt file in the user's Temp folder, launched by Word",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\odbcconf.exe",
+          "OriginalFileName": "odbcconf.exe",
+          "CommandLine": "odbcconf.exe /a {REGSVR C:\\Users\\jperez\\AppData\\Local\\Temp\\invoice_0522.txt}",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n C:\\Users\\jperez\\Downloads\\invoice.doc"
+        }
+      },
+      {
+        "description": "Renamed odbcconf binary, matched by OriginalFileName, registers a .dat file without the /A flag",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "odbcconf.exe",
+          "CommandLine": "svchelper.exe REGSVR C:\\ProgramData\\cache\\cfg.dat",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate registration of an ODBC driver DLL; the .dll filter excludes it",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-DB-03.andes.example.com",
+          "User": "ANDES\\svc_sqlinstall",
+          "Image": "C:\\Windows\\System32\\odbcconf.exe",
+          "OriginalFileName": "odbcconf.exe",
+          "CommandLine": "odbcconf.exe /a {REGSVR C:\\Windows\\System32\\sqlsrv32.dll}",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\msiexec.exe /V"
+        }
+      },
+      {
+        "description": "odbcconf used to configure a DSN, with no REGSVR action",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\SysWOW64\\odbcconf.exe",
+          "OriginalFileName": "odbcconf.exe",
+          "CommandLine": "odbcconf.exe /a {CONFIGDSN \"SQL Server\" \"DSN=Ventas|Server=db01.example.com\"}",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c setup_dsn.cmd"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

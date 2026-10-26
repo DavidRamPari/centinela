@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "caa06de8-fdef-4c91-826a-7f9e163eef4b",
+    "title": "RunDLL32 Spawning Explorer",
+    "level": "high",
+    "status": "test",
+    "author": "elhoim, CD_ROM_",
+    "path": "windows/process_creation/proc_creation_win_rundll32_spawn_explorer.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_rundll32_spawn_explorer.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.011"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se detectó rundll32.exe creando un proceso explorer.exe hijo fuera del caso legítimo de Panel de control (shell32.dll,Control_RunDLL). Este patrón es muy poco común y se ha observado en malware como Gamarue.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde ParentImage termina en \\rundll32.exe e Image termina en \\explorer.exe, excluyendo los casos en que ParentCommandLine contiene \\shell32.dll,Control_RunDLL.",
+      "why_it_matters": "Rundll32 permite ejecutar código de una DLL usando un binario firmado de Windows (T1218.011, ejecución por proxy). Si una DLL maliciosa lanza un explorer.exe nuevo, puede inyectarse en él y ocultar su actividad dentro de un proceso de confianza.",
+      "triage_steps": [
+        "Revise ParentCommandLine: identifique la DLL y la función exportada que cargó rundll32, y si la ruta está en carpetas escribibles por el usuario (AppData, Temp, Downloads, USB).",
+        "Obtenga el hash de la DLL y consúltelo en su plataforma de threat intelligence; verifique firma y fecha de creación del archivo.",
+        "Compruebe la línea de comandos y el PID del explorer.exe hijo; un explorer.exe legítimo de sesión normalmente lo crea userinit.exe, no rundll32.",
+        "Revise el proceso padre de rundll32.exe (cadena completa de procesos) para identificar el origen: macro, LNK, tarea programada o medio extraíble.",
+        "Busque en el mismo host en +/- 15 minutos conexiones de red salientes, escrituras en claves Run y archivos nuevos creados por rundll32 o el explorer.exe hijo.",
+        "Verifique el usuario asociado y alertas previas para el mismo host, usuario o hash de DLL en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; posibles casos son extensiones de shell o software de terceros que relanzan explorer.exe mediante rundll32.",
+        "Herramientas de instalación o personalización del escritorio que reinician el shell tras aplicar cambios."
+      ],
+      "response_steps": [
+        "Confirme la malicia revisando la DLL, su hash y la actividad de red antes de actuar.",
+        "Si se confirma, aísle el endpoint de la red y preserve memoria y la DLL para análisis forense.",
+        "Termine los procesos rundll32 y explorer.exe anómalos, elimine la DLL y los mecanismos de persistencia identificados.",
+        "Busque el mismo hash o ruta de DLL en toda la flota, revise medios extraíbles y restablezca credenciales del usuario si hubo exposición."
+      ],
+      "severity_rationale": "Nivel alto porque el patrón casi nunca ocurre legítimamente fuera del filtro y está asociado a malware que usa ejecución por proxy e inyección."
+    },
+    "en": {
+      "summary": "rundll32.exe spawned a child explorer.exe outside the legitimate Control Panel case (shell32.dll,Control_RunDLL). This is very uncommon and has been observed with malware such as Gamarue.",
+      "what_it_detects": "Windows process creation events where ParentImage ends with \\rundll32.exe and Image ends with \\explorer.exe, excluding events where ParentCommandLine contains \\shell32.dll,Control_RunDLL.",
+      "why_it_matters": "Rundll32 lets attackers run DLL code through a signed Windows binary (T1218.011, system binary proxy execution). A malicious DLL launching a new explorer.exe can inject into it and hide inside a trusted process.",
+      "triage_steps": [
+        "Review ParentCommandLine: identify the DLL and exported function rundll32 loaded, and whether the path is user-writable (AppData, Temp, Downloads, USB drive).",
+        "Hash the DLL and check it in threat intelligence; verify its signature and file creation time.",
+        "Inspect the child explorer.exe command line and PID; a normal session explorer.exe is started by userinit.exe, not rundll32.",
+        "Walk the full process tree above rundll32.exe to find the origin: macro, LNK file, scheduled task or removable media.",
+        "On the same host within +/- 15 minutes, look for outbound connections, Run key writes and new files from rundll32 or the child explorer.exe.",
+        "Check the user involved and earlier alerts for the same host, user or DLL hash on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; possible causes are third-party shell extensions or software that relaunch explorer.exe via rundll32.",
+        "Installers or desktop customization tools that restart the shell after applying changes."
+      ],
+      "response_steps": [
+        "Confirm maliciousness by reviewing the DLL, its hash and network activity before acting.",
+        "If confirmed, isolate the endpoint and preserve memory and the DLL for forensics.",
+        "Kill the anomalous rundll32 and explorer.exe processes, remove the DLL and any identified persistence.",
+        "Hunt for the same DLL hash or path fleet-wide, check removable media and reset the user's credentials if exposed."
+      ],
+      "severity_rationale": "High fits because this parent-child pair rarely occurs legitimately outside the filter and is linked to malware using proxy execution and injection."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "rundll32 loads a DLL from the user's Temp folder and spawns explorer.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\rundll32.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\rundll32.exe\" C:\\Users\\jperez\\AppData\\Local\\Temp\\upd4831.dll,DllRegisterServer",
+          "Image": "C:\\Windows\\explorer.exe",
+          "CommandLine": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "rundll32 running a DLL from a removable drive spawns explorer.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Windows\\SysWOW64\\rundll32.exe",
+          "ParentCommandLine": "rundll32.exe E:\\~$WTR4132.dll,Start",
+          "Image": "C:\\Windows\\SysWOW64\\explorer.exe",
+          "CommandLine": "C:\\Windows\\SysWOW64\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Control Panel applet opened via shell32.dll,Control_RunDLL launches explorer.exe (excluded by filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\rundll32.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\rundll32.exe\" C:\\Windows\\System32\\shell32.dll,Control_RunDLL C:\\Windows\\System32\\desk.cpl",
+          "Image": "C:\\Windows\\explorer.exe",
+          "CommandLine": "C:\\Windows\\explorer.exe /n",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Normal logon: userinit.exe starts explorer.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\userinit.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\userinit.exe",
+          "Image": "C:\\Windows\\explorer.exe",
+          "CommandLine": "C:\\Windows\\Explorer.EXE",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

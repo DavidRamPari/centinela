@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "6938366d-8954-4ddc-baff-c830b3ba8fcd",
+    "title": "HackTool - Certipy Execution",
+    "level": "high",
+    "status": "test",
+    "author": "pH-T (Nextron Systems), Sittikorn Sangrattanapitak",
+    "path": "windows/process_creation/proc_creation_win_hktl_certipy.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_certipy.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1649"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Certipy en un endpoint Windows, o un binario con sus argumentos típicos. Certipy es una herramienta ofensiva para enumerar y abusar de Active Directory Certificate Services (AD CS).",
+      "what_it_detects": "Creación de procesos donde Image termina en \\Certipy.exe, OriginalFileName es Certipy.exe o Description contiene 'Certipy'. También detecta binarios renombrados cuyo CommandLine combina un subcomando de Certipy (find, req, auth, shadow, relay, etc.) con un flag típico (-dc-ip, -pfx, -vulnerable, -template, -username).",
+      "why_it_matters": "Certipy busca plantillas y CAs vulnerables, solicita certificados en nombre de otros usuarios y los usa para autenticarse u obtener hashes NT. Es ATT&CK T1649 (robo o falsificación de certificados de autenticación) y puede llevar a comprometer el dominio y dar persistencia.",
+      "triage_steps": [
+        "Revise CommandLine para identificar el subcomando: find indica enumeración; req, auth, shadow, forge o relay indican abuso activo y mayor urgencia.",
+        "Extraiga del CommandLine los valores de -username, -target, -template, -ca y -dc-ip para saber qué cuenta, CA y controlador de dominio están involucrados.",
+        "Verifique Image, hash y firma: un binario renombrado o en carpetas como Users\\Public, Temp o Downloads refuerza la sospecha.",
+        "Analice ParentImage y el árbol de procesos: shell interactiva, sesión RDP, PowerShell o un implante C2.",
+        "Pivote en el mismo host +/- 15 minutos: archivos .pfx, .ccache o .kirbi creados, conexiones LDAP/RPC/HTTP a la CA y otras herramientas de ataque.",
+        "En la CA, revise los eventos 4886/4887 (solicitud y emisión de certificados) con SAN o plantilla anómalos; en los DC, revise los eventos 4768 con autenticación PKINIT.",
+        "Busque alertas previas del mismo usuario y del mismo host, y confirme si existe un pentest o ejercicio de red team autorizado."
+      ],
+      "false_positives": [
+        "Pentest o ejercicio de red team autorizado sobre AD CS.",
+        "Administradores de PKI que auditan plantillas vulnerables con certipy find, con aprobación documentada."
+      ],
+      "response_steps": [
+        "Confirme con el equipo de seguridad o el responsable del ejercicio si la actividad está autorizada antes de actuar.",
+        "Si no está autorizada, aísle el host y deshabilite o restablezca la cuenta que ejecutó Certipy.",
+        "Identifique y revoque en la CA los certificados emitidos de forma fraudulenta; restablezca las cuentas suplantadas y elimine las shadow credentials (msDS-KeyCredentialLink).",
+        "Corrija las plantillas y CAs vulnerables (ESC) detectadas y busque movimiento lateral desde las cuentas afectadas."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque Certipy casi nunca tiene uso legítimo y su abuso puede dar acceso de dominio con certificados que persisten aunque se cambie la contraseña."
+    },
+    "en": {
+      "summary": "Certipy, or a binary using its typical arguments, ran on a Windows endpoint. Certipy is an offensive tool for enumerating and abusing Active Directory Certificate Services (AD CS).",
+      "what_it_detects": "Process creation where Image ends with \\Certipy.exe, OriginalFileName is Certipy.exe or Description contains 'Certipy'. It also catches renamed binaries whose CommandLine combines a Certipy subcommand (find, req, auth, shadow, relay, etc.) with a typical flag (-dc-ip, -pfx, -vulnerable, -template, -username).",
+      "why_it_matters": "Certipy finds vulnerable templates and CAs, requests certificates on behalf of other users, and uses them to authenticate or recover NT hashes. This is ATT&CK T1649 (steal or forge authentication certificates) and can lead to domain compromise and persistence.",
+      "triage_steps": [
+        "Read CommandLine to find the subcommand: find means enumeration; req, auth, shadow, forge or relay mean active abuse and higher urgency.",
+        "Pull the -username, -target, -template, -ca and -dc-ip values from CommandLine to see which account, CA and domain controller are involved.",
+        "Check Image, hash and signature: a renamed binary or one in Users\\Public, Temp or Downloads adds to the suspicion.",
+        "Review ParentImage and the process tree: interactive shell, RDP session, PowerShell or a C2 implant.",
+        "Pivot on the same host within +/- 15 minutes: new .pfx, .ccache or .kirbi files, LDAP/RPC/HTTP connections to the CA, and other attack tools.",
+        "On the CA, look at events 4886/4887 (certificate requested and issued) for an unusual SAN or template. On DCs, look at 4768 events that use PKINIT.",
+        "Look for earlier alerts on the same user and the same host, and check whether an authorized pentest or red team exercise is running."
+      ],
+      "false_positives": [
+        "An authorized pentest or red team exercise targeting AD CS.",
+        "PKI administrators auditing for vulnerable templates with certipy find, with documented approval."
+      ],
+      "response_steps": [
+        "Before acting, confirm with the security team or the exercise owner whether the activity is authorized.",
+        "If it is not, isolate the host and disable or reset the account that ran Certipy.",
+        "Find and revoke fraudulently issued certificates on the CA. Reset impersonated accounts and remove shadow credentials (msDS-KeyCredentialLink).",
+        "Fix the vulnerable templates and CAs (ESC) it found, and hunt for lateral movement from the affected accounts."
+      ],
+      "severity_rationale": "High fits because Certipy almost never has a legitimate use, and abusing it can give domain access through certificates that keep working after a password reset."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Certipy.exe run from a user folder to find vulnerable certificate templates",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.local",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\Downloads\\Certipy.exe",
+          "OriginalFileName": "Certipy.exe",
+          "Description": "Certipy",
+          "CommandLine": "Certipy.exe find -u jperez@andes.local -p ******** -dc-ip 192.0.2.10 -vulnerable",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\Downloads\\"
+        }
+      },
+      {
+        "description": "Renamed binary without Certipy metadata requesting a certificate with a target template",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.local",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "svchelper.exe",
+          "Description": "Helper Service",
+          "CommandLine": "C:\\Users\\Public\\svchelper.exe req -username mlopez@andes.local -ca ANDES-CA -target ca01.andes.local -template UserAuth -upn administrator@andes.local",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate pipe to find.exe: includes ' find ' but none of the Certipy flags, and the metadata is not Certipy",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.local",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "Description": "Windows Command Processor",
+          "CommandLine": "cmd.exe /c dir /s C:\\Reports | find \"2024\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Administrator using certutil to list certificate templates, with no Certipy subcommand or metadata",
+        "event": {
+          "EventID": 1,
+          "Computer": "CA01.andes.local",
+          "User": "ANDES\\adm.rgarcia",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "Description": "CertUtil.exe",
+          "CommandLine": "certutil.exe -v -template -dc-ip",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

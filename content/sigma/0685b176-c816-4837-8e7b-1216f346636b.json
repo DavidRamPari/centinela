@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "0685b176-c816-4837-8e7b-1216f346636b",
+    "title": "HackTool - Quarks PwDump Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_quarks_pwdump.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_quarks_pwdump.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Quarks PwDump en un endpoint Windows, identificado por el nombre de la imagen o por sus argumentos de volcado. Es casi seguro que alguien intenta extraer hashes de credenciales del host o del dominio.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\QuarksPwDump.exe, o donde CommandLine coincide exactamente con una opción de volcado (-dhl, -dhdc, -dhd, --dump-bitlocker, --ntds-file). Ojo: la regla compara CommandLine de forma exacta, sin wildcards, así que un binario renombrado con argumentos completos puede pasar sin alerta.",
+      "why_it_matters": "Quarks PwDump es una herramienta open source que extrae hashes NTLM locales del SAM, credenciales de dominio en caché, información de BitLocker y hashes de un archivo NTDS.dit. Corresponde a ATT&CK T1003.002 (Security Account Manager). Con esos hashes el atacante puede hacer pass-the-hash, crackearlos offline o moverse lateralmente.",
+      "triage_steps": [
+        "Revise Image, CommandLine, User, IntegrityLevel y el hash del binario. Confirme qué opción se usó: local (-dhl), caché (-dhdc), dominio (-dhd/--ntds-file) o BitLocker.",
+        "Examine ParentImage y la cadena de procesos padres: cmd.exe o powershell.exe lanzados desde un servicio, una herramienta de acceso remoto o una sesión RDP inesperada.",
+        "Busque en el mismo host, +/- 15 minutos, la creación del archivo de salida (parámetro -o), copias de SAM/SYSTEM/NTDS.dit, uso de vssadmin o ntdsutil y compresión de archivos.",
+        "Si se usó --ntds-file, determine de dónde salió el NTDS.dit: shadow copy en un controlador de dominio o archivo copiado por la red.",
+        "Pivotee por el usuario: inicios de sesión 4624/4648 en otros hosts, sobre todo logon tipo 3 o 9, que sugieran pass-the-hash posterior.",
+        "Haga hunting de binarios renombrados: procesos cuyo CommandLine contenga -dhl o --dump-hash pero con otra Image, y búsquelos por hash en toda la flota.",
+        "Revise alertas anteriores del mismo host y usuario (acceso inicial, otras herramientas de hacking) y valide si existe un pentest autorizado."
+      ],
+      "false_positives": [
+        "Pruebas de penetración o ejercicios de red team autorizados, confirmados con ticket y alcance documentado.",
+        "Auditorías internas de contraseñas que usen la herramienta, algo poco común; valide con el responsable."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del sistema y con el equipo de seguridad ofensiva si la ejecución estaba autorizada antes de escalar.",
+        "Si no lo estaba, aísle el endpoint desde el EDR, preserve memoria y el archivo de salida como evidencia, y deshabilite la cuenta involucrada.",
+        "Asuma que las credenciales fueron comprometidas: rote contraseñas de cuentas locales y en caché, y si hubo NTDS.dit, planifique doble reinicio de krbtgt y rotación de cuentas privilegiadas.",
+        "Elimine el binario y las herramientas asociadas tras recolectarlas, busque persistencia y revise el movimiento lateral antes de devolver el host a producción."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque la herramienta no tiene uso administrativo legítimo y su ejecución indica robo activo de credenciales."
+    },
+    "en": {
+      "summary": "Quarks PwDump ran on a Windows endpoint, identified by its image name or its dump arguments. Someone is almost certainly trying to extract credential hashes from the host or domain.",
+      "what_it_detects": "Process creation events where Image ends with \\QuarksPwDump.exe, or where CommandLine exactly equals a dump option (-dhl, -dhdc, -dhd, --dump-bitlocker, --ntds-file). Note: CommandLine is matched exactly, without wildcards, so a renamed binary with full arguments may not alert.",
+      "why_it_matters": "Quarks PwDump is an open-source tool that dumps local NTLM hashes from SAM, domain cached credentials, BitLocker information and hashes from an NTDS.dit file. This maps to ATT&CK T1003.002 (Security Account Manager). Stolen hashes enable pass-the-hash, offline cracking and lateral movement.",
+      "triage_steps": [
+        "Review Image, CommandLine, User, IntegrityLevel and the binary hash. Identify the mode used: local (-dhl), cached (-dhdc), domain (-dhd/--ntds-file) or BitLocker.",
+        "Inspect ParentImage and the process tree: cmd.exe or powershell.exe spawned by a service, remote access tool or unexpected RDP session.",
+        "On the same host within +/- 15 minutes, look for the output file (-o), SAM/SYSTEM/NTDS.dit copies, vssadmin or ntdsutil use, and archiving.",
+        "If --ntds-file was used, find the NTDS.dit source: a shadow copy on a domain controller or a file copied over the network.",
+        "Pivot on the user: 4624/4648 logons on other hosts, especially logon type 3 or 9, suggesting follow-on pass-the-hash.",
+        "Hunt for renamed copies: processes whose CommandLine contains -dhl or --dump-hash under another Image, and search the fleet for the same hash.",
+        "Check earlier alerts for this host and user (initial access, other hacktools) and confirm whether an authorized pentest is running."
+      ],
+      "false_positives": [
+        "Authorized penetration tests or red team exercises, confirmed by ticket and documented scope.",
+        "Internal password audits using the tool, which is rare; confirm with the owner."
+      ],
+      "response_steps": [
+        "Confirm with the system owner and offensive security team whether the run was authorized before escalating.",
+        "If unauthorized, isolate the endpoint via EDR, preserve memory and the output file as evidence, and disable the involved account.",
+        "Treat credentials as compromised: rotate local and cached account passwords; if NTDS.dit was dumped, plan a double krbtgt reset and privileged account rotation.",
+        "Remove the binary and related tools after collection, hunt for persistence and review lateral movement before returning the host to production."
+      ],
+      "severity_rationale": "High fits because the tool has no legitimate administrative use and its execution indicates active credential theft."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "QuarksPwDump.exe dumping local SAM hashes to a file from a staging folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Users\\Public\\Tools\\QuarksPwDump.exe",
+          "OriginalFileName": "QuarksPwDump.exe",
+          "CommandLine": "QuarksPwDump.exe -dhl -o C:\\Users\\Public\\out.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\Tools\\QuarksPwDump.exe -dhl -o C:\\Users\\Public\\out.txt",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "QuarksPwDump.exe parsing an NTDS.dit copied from a shadow copy on a domain controller",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "Image": "C:\\ProgramData\\temp\\QuarksPwDump.exe",
+          "CommandLine": "QuarksPwDump.exe --dump-hash-domain --ntds-file C:\\ProgramData\\temp\\ntds.dit",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\adm-mrojas",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Renamed copy with dump arguments; CommandLine is not an exact match and Image does not end with QuarksPwDump.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Users\\Public\\qp.exe",
+          "CommandLine": "qp.exe -dhl -o C:\\Users\\Public\\h.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Legitimate admin exporting a registry hive with reg.exe; no Quarks image or option",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg.exe export HKLM\\SOFTWARE\\Example C:\\Backup\\example.reg",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\adm-lgomez",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

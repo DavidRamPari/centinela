@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "cc368ed0-2411-45dc-a222-510ace303cb2",
+    "title": "Potentially Suspicious Execution Of Regasm/Regsvcs From Uncommon Location",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_regasm_regsvcs_uncommon_location_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_regasm_regsvcs_uncommon_location_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.009"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó RegAsm.exe o RegSvcs.exe con una línea de comandos que apunta a un directorio poco común y escribible por usuarios, como Temp, Public, PerfLogs o la carpeta Startup. Esto puede indicar que se está usando un binario firmado de .NET para cargar un ensamblado malicioso.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\Regasm.exe o \\Regsvcs.exe (o OriginalFileName es RegAsm.exe/RegSvcs.exe) y el CommandLine contiene \\AppData\\Local\\Temp\\, \\Users\\Public\\, \\PerfLogs\\, \\Windows\\Temp\\ o la carpeta Startup.",
+      "why_it_matters": "RegAsm y RegSvcs son utilidades firmadas de .NET que ejecutan código de registro de ensamblados. Los atacantes las usan para ejecutar DLL maliciosas eludiendo controles de aplicaciones (T1218.009, ejecución de binario proxy firmado).",
+      "triage_steps": [
+        "Revisar CommandLine: identificar el ensamblado o DLL referenciado, su ruta exacta y parámetros como /U, /codebase o /tlb.",
+        "Obtener el hash del ensamblado referenciado, comprobar su firma digital y consultarlo en inteligencia de amenazas o en un sandbox.",
+        "Analizar ParentImage y la línea de comandos del padre; desconfiar de Office, scripts (wscript, powershell, mshta) o procesos ubicados en Temp.",
+        "Confirmar que Image está en la ruta legítima del .NET Framework; si OriginalFileName coincide pero la ruta difiere, se trata de un binario renombrado o copiado.",
+        "Revisar procesos hijos, conexiones de red y escrituras de archivos o registro de RegAsm/RegSvcs en el mismo host en +/- 15 minutos.",
+        "Buscar cómo llegó el archivo: descargas, adjuntos de correo o archivos comprimidos extraídos poco antes en el mismo host por el mismo usuario.",
+        "Consultar alertas previas del mismo host y usuario, y buscar el mismo hash o la misma línea de comandos en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; algunos instaladores o herramientas de desarrollo .NET registran ensamblados temporales desde %TEMP% durante la instalación.",
+        "Scripts de despliegue de software que copian DLL COM a C:\\Windows\\Temp antes de registrarlas; validar con el equipo responsable y la firma del ensamblado."
+      ],
+      "response_steps": [
+        "Verificar la legitimidad con el usuario o el responsable del software antes de actuar, apoyándose en la firma y la reputación del hash.",
+        "Si se confirma como malicioso, aislar el endpoint y terminar el proceso RegAsm/RegSvcs y sus hijos.",
+        "Preservar el ensamblado y artefactos relacionados para análisis; luego eliminarlos junto con cualquier persistencia, como entradas en Startup o claves COM registradas.",
+        "Bloquear el hash y los indicadores de red observados; buscar la misma actividad en toda la flota.",
+        "Restablecer credenciales del usuario afectado si hubo ejecución confirmada y restaurar el equipo desde una imagen limpia si es necesario."
+      ],
+      "severity_rationale": "Media, porque el uso de RegAsm/RegSvcs desde rutas escribibles es poco habitual y suele estar asociado a abusos, aunque algunos instaladores legítimos pueden generarlo."
+    },
+    "en": {
+      "summary": "RegAsm.exe or RegSvcs.exe ran with a command line pointing to an uncommon, user-writable directory such as Temp, Public, PerfLogs or the Startup folder. A signed .NET binary may be loading a malicious assembly.",
+      "what_it_detects": "Process creation events where Image ends with \\Regasm.exe or \\Regsvcs.exe (or OriginalFileName is RegAsm.exe/RegSvcs.exe) and CommandLine contains \\AppData\\Local\\Temp\\, \\Users\\Public\\, \\PerfLogs\\, \\Windows\\Temp\\ or the Startup folder.",
+      "why_it_matters": "RegAsm and RegSvcs are signed .NET utilities that run assembly registration code. Attackers abuse them to execute malicious DLLs while bypassing application controls (T1218.009, signed binary proxy execution).",
+      "triage_steps": [
+        "Review CommandLine: identify the referenced assembly or DLL, its exact path and switches such as /U, /codebase or /tlb.",
+        "Hash the referenced assembly, check its digital signature and look it up in threat intel or a sandbox.",
+        "Inspect ParentImage and its command line; be wary of Office, script hosts (wscript, powershell, mshta) or parents running from Temp.",
+        "Confirm Image is in the legitimate .NET Framework path; if OriginalFileName matches but the path differs, the binary was renamed or copied.",
+        "Review child processes, network connections and file or registry writes by RegAsm/RegSvcs on the same host within +/- 15 minutes.",
+        "Find how the file arrived: downloads, email attachments or archives extracted shortly before by the same user on that host.",
+        "Check earlier alerts for the same host and user, and hunt for the same hash or command line on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; some installers or .NET developer tools register temporary assemblies from %TEMP% during setup.",
+        "Software deployment scripts that stage COM DLLs in C:\\Windows\\Temp before registering them; confirm with the owning team and the assembly signature."
+      ],
+      "response_steps": [
+        "Verify legitimacy with the user or software owner before acting, using the signature and hash reputation.",
+        "If confirmed malicious, isolate the endpoint and terminate the RegAsm/RegSvcs process and its children.",
+        "Preserve the assembly and related artifacts for analysis, then remove them and any persistence such as Startup entries or registered COM keys.",
+        "Block the hash and observed network indicators; hunt for the same activity fleet-wide.",
+        "Reset the affected user's credentials if execution is confirmed and reimage the host if needed."
+      ],
+      "severity_rationale": "Medium, because RegAsm/RegSvcs running from writable paths is unusual and often linked to abuse, though some legitimate installers can trigger it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "RegAsm from the .NET Framework folder loading a DLL dropped in the user's Temp directory, spawned by PowerShell.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\RegAsm.exe",
+          "OriginalFileName": "RegAsm.exe",
+          "CommandLine": "\"C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\RegAsm.exe\" /U C:\\Users\\jperez\\AppData\\Local\\Temp\\update_helper.dll",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile -WindowStyle Hidden"
+        }
+      },
+      {
+        "description": "Renamed RegSvcs copy (matched by OriginalFileName) registering an assembly from C:\\Users\\Public.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0388.andes.example.com",
+          "User": "ANDES\\mgomez",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "RegSvcs.exe",
+          "CommandLine": "C:\\Users\\Public\\svchelper.exe C:\\Users\\Public\\Libraries\\core.dll",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\mgomez\\Downloads\\invoice.js"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate RegAsm registration of a vendor assembly from Program Files; no suspicious directory in CommandLine.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\RegAsm.exe",
+          "OriginalFileName": "RegAsm.exe",
+          "CommandLine": "\"C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\RegAsm.exe\" /codebase \"C:\\Program Files\\ExampleVendor\\Addin\\Example.Addin.dll\"",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\msiexec.exe /V"
+        }
+      },
+      {
+        "description": "regsvr32 (not RegAsm/RegSvcs) registering a DLL from Temp; image selection does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\lrojas",
+          "Image": "C:\\Windows\\System32\\regsvr32.exe",
+          "OriginalFileName": "REGSVR32.EXE",
+          "CommandLine": "regsvr32.exe /s C:\\Windows\\Temp\\viewer.dll",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\msiexec.exe /V"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

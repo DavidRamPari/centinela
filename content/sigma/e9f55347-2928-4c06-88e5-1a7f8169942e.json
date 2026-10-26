@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "e9f55347-2928-4c06-88e5-1a7f8169942e",
+    "title": "Invoke-Obfuscation VAR++ LAUNCHER OBFUSCATION",
+    "level": "high",
+    "status": "test",
+    "author": "Timur Zinniatullin, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_hktl_invoke_obfuscation_via_var.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_invoke_obfuscation_via_var.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó una línea de comandos de cmd.exe que guarda un comando de PowerShell en variables de entorno con \"&&set\" y lo arma con el operador de formato -f y marcadores como {0}{1}. Este patrón corresponde al launcher VAR++ de Invoke-Obfuscation.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene a la vez '&&set', 'cmd', '/c' y '-f', además de al menos un marcador de formato entre {0} y {5}. Es la firma de la técnica VAR++ LAUNCHER de Invoke-Obfuscation: cmd /c define variables (set X=...&&set Y=powershell ...) y luego ejecuta %Y%.",
+      "why_it_matters": "Invoke-Obfuscation es un framework público que ofusca PowerShell para evadir firmas y dificultar el análisis (T1027). El launcher termina ejecutando PowerShell (T1059.001), a menudo con Invoke-Expression y DownloadString para descargar y correr un payload en memoria.",
+      "triage_steps": [
+        "Revise el CommandLine completo y reconstruya el comando: resuelva los -f reordenando los fragmentos según los índices {n} y concatene las cadenas partidas.",
+        "Identifique el ParentImage y la cadena de procesos: Office, navegador, wscript/mshta o un servicio como padre aumentan mucho la sospecha.",
+        "Busque procesos hijos powershell.exe del mismo host en +/- 15 minutos y revise su CommandLine y los logs de Script Block (4104) para ver el código desofuscado.",
+        "Extraiga URL, dominios o IP del comando desofuscado y búsquelos en logs de proxy, DNS y firewall de toda la organización.",
+        "Revise conexiones de red, archivos creados, tareas programadas y claves Run en el host después de la ejecución.",
+        "Verifique el usuario: si es una cuenta privilegiada o de servicio, o si tuvo inicios de sesión anómalos recientes.",
+        "Busque alertas previas del mismo host, usuario o hash del proceso padre."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; el patrón es poco común en uso legítimo.",
+        "Ejercicios de red team, pentest o pruebas de detección que usan Invoke-Obfuscation de forma autorizada.",
+        "Scripts internos atípicos que combinan set encadenado con formato -f de PowerShell; confirme con el responsable antes de descartar."
+      ],
+      "response_steps": [
+        "Confirme la malicia desofuscando el comando y validando si hubo ejecución de PowerShell o conexiones salientes.",
+        "Si se confirma, aísle el endpoint desde el EDR y preserve memoria y artefactos relevantes.",
+        "Bloquee las URL, dominios, IP y hashes identificados en proxy, firewall y EDR.",
+        "Restablezca las credenciales del usuario afectado y revise su actividad en otros equipos.",
+        "Elimine la persistencia encontrada y reimagine el equipo si no puede garantizar su limpieza; documente los IOC."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque esta ofuscación específica casi no aparece en administración legítima y suele preceder la ejecución de código en memoria."
+    },
+    "en": {
+      "summary": "A cmd.exe command line stored a PowerShell command in environment variables via \"&&set\" and built it with the -f format operator and placeholders like {0}{1}. This matches the Invoke-Obfuscation VAR++ launcher.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains '&&set', 'cmd', '/c' and '-f', plus at least one format placeholder from {0} to {5}. This is the VAR++ LAUNCHER pattern: cmd /c sets variables (set X=...&&set Y=powershell ...) and then runs %Y%.",
+      "why_it_matters": "Invoke-Obfuscation is a public framework that obfuscates PowerShell to evade signatures and slow analysis (T1027). The launcher ultimately runs PowerShell (T1059.001), often Invoke-Expression with DownloadString to fetch and run a payload in memory.",
+      "triage_steps": [
+        "Read the full CommandLine and rebuild the command: resolve each -f by reordering fragments per their {n} indexes and join split strings.",
+        "Check ParentImage and the process chain; Office, browsers, wscript/mshta or services as parent raise suspicion significantly.",
+        "Find child powershell.exe processes on the same host within +/- 15 minutes; review their CommandLine and Script Block logs (4104) for deobfuscated code.",
+        "Extract URLs, domains or IPs from the decoded command and search proxy, DNS and firewall logs organization-wide.",
+        "Review network connections, new files, scheduled tasks and Run keys on the host after execution.",
+        "Assess the user: privileged or service account, recent anomalous logons.",
+        "Look for earlier alerts on the same host, user or parent process hash."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; this pattern is rare in legitimate use.",
+        "Authorized red team, pentest or detection validation exercises using Invoke-Obfuscation.",
+        "Unusual internal scripts mixing chained set with PowerShell -f formatting; confirm with the owner before closing."
+      ],
+      "response_steps": [
+        "Confirm maliciousness by deobfuscating the command and checking for PowerShell execution or outbound connections.",
+        "If confirmed, isolate the endpoint via EDR and preserve memory and relevant artifacts.",
+        "Block identified URLs, domains, IPs and hashes in proxy, firewall and EDR.",
+        "Reset the affected user's credentials and review their activity on other hosts.",
+        "Remove persistence found and reimage if cleanliness cannot be assured; record IOCs."
+      ],
+      "severity_rationale": "High fits because this specific obfuscation almost never appears in legitimate administration and usually precedes in-memory code execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "VAR++ launcher spawned by Word: cmd /C sets two variables and runs PowerShell built with -f placeholders.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "CMD /C\"sET KUR=Invoke-Expression (New-Object Net.WebClient).DownloadString&&Set MxI=C:\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe ${ExEcut`IoN`cON`TExT}.\\\"invo`kEcoMm`A`ND\\\".( \\\"{2}{1}{0}\\\" -f 'pt','EscRi','INvOk' ).Invoke( ( .( \\\"{0}{1}\\\" -f'D','IR' ) ( \\\"{0}{1}\\\"-f'ENV:kU','R')).\\\"vAl`Ue\\\" )&& CMD /C%mXI%\""
+        }
+      },
+      {
+        "description": "Second VAR++ variant with full cmd.exe path, -noexit and Set-Item built via format operator.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "CommandLine": "c:\\WiNDOWS\\sYSTEm32\\CmD.exE /C \"sEt DeJLz=Write-Output test&&set yBKM=PoWERShelL -noeX ^^^&(\\\"{2}{0}{1}\\\"-f '-ItE','m','seT') ( 'V' + 'a'+ 'RiAblE:z8JU2l' ) ( 'x' ) && c:\\WiNDOWS\\sYSTEm32\\CmD.exE /C %ybkm%\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate build step chaining set commands with cmd /c, but no -f operator or format placeholders.",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-03.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Program Files\\Jenkins\\jenkins.exe",
+          "CommandLine": "cmd.exe /c \"set JAVA_HOME=C:\\jdk17&&set PATH=%JAVA_HOME%\\bin;%PATH%&& java -version\""
+        }
+      },
+      {
+        "description": "Admin PowerShell using -f string formatting directly, without cmd /c or chained set.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"'Report {0} generated on {1}' -f 'inventory', (Get-Date)\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

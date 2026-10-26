@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "8bc64091-6875-4881-aaf9-7bd25b5dda08",
+    "title": "Suspicious Process Patterns NTDS.DIT Exfil",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_ntds.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_ntds.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "La línea de comandos o la imagen de un proceso coincide con patrones usados para copiar o volcar la base de datos de Active Directory (NTDS.DIT). Suele indicar un intento de robar los hashes de contraseñas de todo el dominio.",
+      "what_it_detects": "Eventos de creación de procesos con NTDSDump/NTDSDumpEx, NTDSgrab.ps1, comandos de ntdsutil IFM con 'create full', 'cmd /c copy' de \\windows\\ntds\\ntds.dit, PowerShell que manipula ntds.dit, o ntds.dit referenciado por procesos lanzados desde Temp, AppData, Public, PerfLogs, Apache o Tomcat.",
+      "why_it_matters": "NTDS.DIT contiene los hashes de todas las cuentas del dominio. Junto con la colmena SYSTEM, permite crackear o usar pass-the-hash con cualquier cuenta, incluso Domain Admins y krbtgt (ATT&CK T1003.003, volcado de credenciales NTDS).",
+      "triage_steps": [
+        "Revise CommandLine, Image y ParentImage. Determine qué patrón coincidió: herramienta de volcado, ntdsutil IFM, copia desde shadow copy, PowerShell o carpeta sospechosa.",
+        "Confirme si el equipo es un controlador de dominio e identifique la cuenta que lanzó el proceso, con su tipo de logon e IP de origen.",
+        "Recorra el árbol de procesos: padre e hijos, y actividad de vssadmin, wmic shadowcopy, diskshadow o reg save HKLM\\SYSTEM en el mismo host +/- 15 minutos.",
+        "Obtenga la ruta de salida desde CommandLine (por ejemplo C:\\Windows\\Temp\\data) y verifique si existen copias de ntds.dit, SYSTEM o SECURITY.",
+        "Busque preparación y exfiltración: archivos comprimidos, acceso SMB a ADMIN$ o C$, o transferencias salientes desde el DC poco después del evento.",
+        "Consulte con los responsables de AD o respaldos si había una creación IFM, promoción de DC o respaldo documentado en ese horario.",
+        "Revise alertas previas del mismo usuario, host e IP de origen, en especial actividad de web shell si ParentImage apunta a Apache o Tomcat."
+      ],
+      "false_positives": [
+        "Administradores que crean medios IFM con ntdsutil para promover un nuevo controlador de dominio.",
+        "Pruebas de penetración o ejercicios de red team autorizados que auditan la fortaleza de contraseñas.",
+        "Scripts de respaldo o recuperación de AD que copian ntds.dit desde una shadow copy."
+      ],
+      "response_steps": [
+        "Si no está autorizado, trátelo como compromiso del dominio: aísle el host de redes no esenciales sin detener el dominio y preserve evidencia de memoria y disco.",
+        "Recolecte las copias de ntds.dit y colmenas como evidencia y solo después elimínelas de forma segura.",
+        "Deshabilite o restablezca la cuenta que ejecutó el comando y revise sus inicios de sesión y cambios de privilegios recientes.",
+        "Planifique un restablecimiento total de credenciales: cuentas privilegiadas, de servicio y doble reinicio de krbtgt según la guía de Microsoft.",
+        "Busque las mismas herramientas, rutas y persistencia en todos los DC y restrinja quién puede iniciar sesión en ellos."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque estos patrones casi no aparecen fuera del mantenimiento de DC y un volcado exitoso expone todas las credenciales del dominio."
+    },
+    "en": {
+      "summary": "A process command line or image matches patterns used to copy or dump the Active Directory database (NTDS.DIT). This often means someone is trying to steal every domain password hash.",
+      "what_it_detects": "Process creation events showing NTDSDump/NTDSDumpEx, NTDSgrab.ps1, ntdsutil IFM 'create full' one-liners, 'cmd /c copy' of \\windows\\ntds\\ntds.dit, PowerShell handling ntds.dit, or ntds.dit referenced by a process running from or launched by Temp, AppData, Public, PerfLogs, Apache or Tomcat paths.",
+      "why_it_matters": "NTDS.DIT holds password hashes for all domain accounts. Combined with the SYSTEM hive, an attacker can crack or pass-the-hash any account, including Domain Admins and krbtgt (ATT&CK T1003.003, OS Credential Dumping: NTDS).",
+      "triage_steps": [
+        "Read CommandLine, Image and ParentImage. Identify which pattern matched: dump tool, ntdsutil IFM, shadow-copy copy, PowerShell or a suspicious folder.",
+        "Confirm the host is a domain controller and identify the user account that launched the process, including logon type and source IP.",
+        "Walk the process tree: parent and child processes, and any vssadmin, wmic shadowcopy, diskshadow or reg save HKLM\\SYSTEM activity on the same host within +/- 15 minutes.",
+        "Find the output path from CommandLine (for example C:\\Windows\\Temp\\data) and check whether ntds.dit, SYSTEM or SECURITY copies exist there now.",
+        "Look for staging and exfiltration: archive creation, SMB access to ADMIN$ or C$, or outbound transfers from the DC shortly after the event.",
+        "Check with AD or backup owners whether a documented IFM creation, DC promotion or backup job was scheduled at that time.",
+        "Review earlier alerts for the same user, host and source IP, especially web-shell activity when ParentImage points to Apache or Tomcat."
+      ],
+      "false_positives": [
+        "Administrators creating IFM media with ntdsutil to promote a new domain controller.",
+        "Authorized penetration tests or red-team exercises auditing password strength.",
+        "Backup or AD recovery scripts that copy ntds.dit from a shadow copy."
+      ],
+      "response_steps": [
+        "If not authorized, treat as a domain compromise: isolate the affected host from non-essential networks while keeping the domain running, and preserve memory and disk evidence.",
+        "Collect and securely remove the dumped ntds.dit and hive copies only after you have preserved them as evidence.",
+        "Disable or reset the account that ran the command and review its recent logons and privilege changes.",
+        "Plan a full credential reset: privileged accounts, service accounts, and a twice-repeated krbtgt reset following Microsoft guidance.",
+        "Hunt across all domain controllers for the same tools, paths and persistence, then tighten who can log on to DCs."
+      ],
+      "severity_rationale": "High fits because these patterns rarely appear outside DC maintenance, and a successful dump exposes every domain credential."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "ntdsutil IFM one-liner creating a full copy of the AD database (selection_onliner_3).",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\ntdsutil.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "ntdsutil \"activate instance ntds\" \"ifm\" \"create full c:\\windows\\temp\\data\" \"quit\" \"quit\""
+        }
+      },
+      {
+        "description": "cmd copying ntds.dit out of a volume shadow copy into a public folder (selection_onliner_2).",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-02.andes.example.com",
+          "User": "ANDES\\svc-backup",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "CommandLine": "cmd.exe /c copy \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy1\\windows\\ntds\\ntds.dit C:\\Users\\Public\\ntds.dit"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator running ntdsutil to view database file info; no IFM 'create full' and no ntds.dit reference.",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\adm-mrojas",
+          "Image": "C:\\Windows\\System32\\ntdsutil.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "ntdsutil \"activate instance ntds\" \"files\" \"info\" \"quit\" \"quit\""
+        }
+      },
+      {
+        "description": "esentutl integrity check of ntds.dit launched from System32 cmd; no suspicious folder, no PowerShell, no system.hiv.",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\adm-mrojas",
+          "Image": "C:\\Windows\\System32\\esentutl.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "esentutl.exe /g C:\\Windows\\NTDS\\ntds.dit"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

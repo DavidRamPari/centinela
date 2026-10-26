@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "9f8573c9-22b4-40e3-89c1-72bc2b8d49ab",
+    "title": "Scheduled Task Creation Masquerading as System Processes",
+    "level": "high",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_schtasks_system_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_schtasks_system_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036.004",
+      "T1036.005",
+      "T1053.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó schtasks.exe con /create y una línea de comandos que nombra un proceso del sistema (svchost, rundll32, lsass, etc.). Puede tratarse de persistencia que se hace pasar por un componente legítimo de Windows.",
+      "what_it_detects": "Eventos de creación de procesos en los que el Image termina en \\schtasks.exe o el OriginalFileName es schtasks.exe, y el CommandLine contiene ' /create ' (o una variante con guion) junto con un nombre de proceso del sistema precedido de un espacio, en el nombre de la tarea o en la acción.",
+      "why_it_matters": "Las tareas programadas (T1053.005) dan persistencia y ejecución, a veces como SYSTEM. Usar nombres como svchost o rundll32 en la tarea o el binario es enmascaramiento (T1036.004/T1036.005) para que la tarea parezca legítima.",
+      "triage_steps": [
+        "Lea el CommandLine completo: nombre de la tarea (/tn), acción (/tr), disparador (/sc), nivel (/rl highest) y cuenta (/ru SYSTEM).",
+        "Verifique la ruta del binario en /tr: un svchost.exe o lsass.exe fuera de C:\\Windows\\System32, o en Users, ProgramData o Temp, es muy sospechoso.",
+        "Si /tr usa rundll32, regsvr32 o msiexec, identifique el DLL, script o URL cargado y obtenga su hash y su firma.",
+        "Revise ParentImage y la cadena de procesos: ¿lo lanzó un instalador o GPO, o lo hizo Office, un navegador, un script o cmd.exe con cmd /c?",
+        "Compare Image y OriginalFileName: si schtasks.exe se renombró o se ejecutó desde una ruta no estándar, eleve la prioridad.",
+        "Busque en el mismo host, +/- 15 minutos, descargas de archivos, conexiones de red, nuevos servicios o creación de archivos en la ruta de /tr.",
+        "Revise el usuario: ¿es una cuenta administrativa esperada? Busque alertas previas para ese usuario y ese host.",
+        "Revise la tarea registrada (Get-ScheduledTask o C:\\Windows\\System32\\Tasks) y los eventos 4698 o TaskScheduler 106 para confirmar sus detalles."
+      ],
+      "false_positives": [
+        "Tareas administrativas legítimas que programan procesos confiables del sistema, como rundll32 o msiexec con rutas de System32.",
+        "Instaladores o agentes de software firmados que crean tareas de mantenimiento con msiexec o rundll32.",
+        "Scripts de despliegue de TI o GPO documentados que crean tareas con explorer o mmc para sesiones de usuario."
+      ],
+      "response_steps": [
+        "Valide la tarea con el dueño del sistema o el equipo de TI antes de actuar.",
+        "Si es maliciosa, aísle el endpoint y conserve la definición de la tarea y el binario o DLL referenciado para análisis forense.",
+        "Deshabilite y luego elimine la tarea; ponga en cuarentena el payload tras obtener su hash y buscarlo en otros hosts.",
+        "Investigue el vector inicial y otros mecanismos de persistencia (Run keys, servicios, WMI). Restablezca credenciales si la tarea corría con privilegios.",
+        "Documente las excepciones legítimas por ruta y nombre de tarea exactos para afinar la regla."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque una tarea programada que imita procesos del sistema combina persistencia y evasión, y los usos legítimos son poco comunes y fáciles de verificar."
+    },
+    "en": {
+      "summary": "schtasks.exe ran with /create and a command line naming a Windows system process (svchost, rundll32, lsass, etc.). This may be persistence disguised as a legitimate Windows component.",
+      "what_it_detects": "Process creation events where Image ends with \\schtasks.exe or OriginalFileName is schtasks.exe, and CommandLine contains ' /create ' (or a dash variant) plus a space-prefixed system process name in the task name or action.",
+      "why_it_matters": "Scheduled tasks (T1053.005) give attackers persistence and execution, sometimes as SYSTEM. Naming the task or binary after svchost or rundll32 is masquerading (T1036.004/T1036.005) to make the task look legitimate.",
+      "triage_steps": [
+        "Read the full CommandLine: task name (/tn), action (/tr), trigger (/sc), run level (/rl highest) and account (/ru SYSTEM).",
+        "Check the binary path in /tr: svchost.exe or lsass.exe outside C:\\Windows\\System32, or in Users, ProgramData or Temp, is highly suspicious.",
+        "If /tr uses rundll32, regsvr32 or msiexec, identify the DLL, script or URL it loads and get its hash and signature.",
+        "Review ParentImage and the process tree: was it an installer or GPO, or Office, a browser, a script or cmd.exe with cmd /c?",
+        "Compare Image and OriginalFileName: if schtasks.exe was renamed or ran from a non-standard path, raise priority.",
+        "On the same host within +/- 15 minutes, look for downloads, network connections, new services or file writes to the /tr path.",
+        "Check the user: is it an expected admin account? Look for earlier alerts for the same user and host.",
+        "Inspect the registered task (Get-ScheduledTask or C:\\Windows\\System32\\Tasks) and events 4698 or TaskScheduler 106 to confirm details."
+      ],
+      "false_positives": [
+        "Legitimate admin tasks scheduling trusted system processes, such as rundll32 or msiexec with System32 paths.",
+        "Signed software installers or agents creating maintenance tasks with msiexec or rundll32.",
+        "Documented IT deployment scripts or GPOs creating tasks that launch explorer or mmc in user sessions."
+      ],
+      "response_steps": [
+        "Confirm the task with the system owner or IT team before acting.",
+        "If malicious, isolate the endpoint and preserve the task definition and the referenced binary or DLL for forensics.",
+        "Disable, then delete the task; quarantine the payload after hashing it and hunting for it on other hosts.",
+        "Investigate the initial vector and other persistence (Run keys, services, WMI). Reset credentials if the task ran with privileges.",
+        "Document legitimate exceptions by exact task name and path to tune the rule."
+      ],
+      "severity_rationale": "High fits because a scheduled task imitating system processes combines persistence with evasion, and legitimate uses are uncommon and easy to verify."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "schtasks.exe creates a logon task that launches rundll32 against a DLL in a user-writable folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks.exe /create /tn \"MicrosoftEdgeUpdateCore\" /sc onlogon /rl highest /tr \"cmd.exe /c start rundll32 C:\\Users\\Public\\Libraries\\edge.dll,DllRegister\" /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\jperez\\AppData\\Local\\Temp\\setup.bat"
+        }
+      },
+      {
+        "description": "Renamed schtasks binary (matched by OriginalFileName) uses dash options to create a task named svchost",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\st.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "st.exe -create -sc minute -mo 10 -tn svchost -tr C:\\ProgramData\\svchost.exe -ru SYSTEM -f",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate backup task created with schtasks; no system process name in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks.exe /create /tn \"Backup\\Nightly\" /tr \"C:\\Program Files\\Contoso\\backup.exe\" /sc daily /st 02:00",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Admin deleting a task named svchost; contains ' svchost' but no /create",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin_ti",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "OriginalFileName": "schtasks.exe",
+          "CommandLine": "schtasks.exe /delete /tn svchost /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

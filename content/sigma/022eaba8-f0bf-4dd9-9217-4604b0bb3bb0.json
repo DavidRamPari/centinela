@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "022eaba8-f0bf-4dd9-9217-4604b0bb3bb0",
+    "title": "HackTool - Wmiexec Default Powershell Command",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_wmiexec_default_powershell.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_wmiexec_default_powershell.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó PowerShell con la secuencia exacta de parámetros '-NoP -NoL -sta -NonI -W Hidden -Exec Bypass -Enc' que usa wmiexec.py de Impacket en el modo de shell PowerShell. Lo más probable es que alguien esté ejecutando comandos de forma remota mediante WMI.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene la cadena literal '-NoP -NoL -sta -NonI -W Hidden -Exec Bypass -Enc'. wmiexec.py arma esta línea para ejecutar un comando codificado en Base64, en una ventana oculta y sin aplicar la política de ejecución.",
+      "why_it_matters": "wmiexec permite a un atacante con credenciales válidas (contraseña o hash) ejecutar comandos en equipos remotos a través de WMI (T1047) y PowerShell (T1059.001). Es una técnica habitual de movimiento lateral y de evasión, y suele aparecer después de que ya se robaron credenciales.",
+      "triage_steps": [
+        "Decodifique el Base64 que sigue a '-Enc' en CommandLine (UTF-16LE) y determine qué comando se ejecutó: reconocimiento, descarga, volcado de credenciales o persistencia.",
+        "Revise la cadena de procesos: lo típico es WmiPrvSE.exe -> cmd.exe /Q /c -> powershell.exe. Que ParentImage sea WmiPrvSE.exe confirma ejecución remota por WMI.",
+        "Busque en cmd.exe una redirección de salida del tipo '1> \\\\127.0.0.1\\ADMIN$\\__<número> 2>&1', que es otro artefacto característico de wmiexec.",
+        "Identifique el origen: busque logons de tipo 3 (evento 4624) en el mismo host dentro de +/- 15 minutos y anote la IP de origen y la cuenta que se usó.",
+        "Verifique si esa cuenta o IP de origen generó alertas parecidas en otros hosts; un patrón de varios equipos indica movimiento lateral en curso.",
+        "Revise los procesos hijos de powershell.exe, las conexiones de red, los archivos creados y los cambios de persistencia en el host durante la misma ventana.",
+        "Consulte con el equipo de TI o de pentesting si hay una prueba autorizada con Impacket en curso."
+      ],
+      "false_positives": [
+        "Pruebas de penetración o ejercicios de red team autorizados que usan wmiexec.py de Impacket.",
+        "Scripts de administración internos que copiaron la misma línea de parámetros de Impacket (es poco común; documéntelos y exclúyalos de manera específica)."
+      ],
+      "response_steps": [
+        "Confirme con los responsables que la actividad no está autorizada antes de tomar acciones de contención.",
+        "Aísle el host de destino y, si es posible, también el host de origen identificado por la IP del logon.",
+        "Deshabilite o restablezca la contraseña de la cuenta usada, revoque sus sesiones y considere que su hash pudo estar expuesto.",
+        "Elimine los artefactos que encuentre (archivos en ADMIN$, persistencia, binarios descargados) después de preservar la evidencia.",
+        "Busque la misma línea de comandos en todo el entorno y restrinja el acceso remoto por WMI/DCOM a los equipos de administración."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque la cadena exacta es propia de una herramienta ofensiva, casi no genera falsos positivos e indica ejecución remota con credenciales comprometidas."
+    },
+    "en": {
+      "summary": "PowerShell ran with the exact flag sequence '-NoP -NoL -sta -NonI -W Hidden -Exec Bypass -Enc' that Impacket's wmiexec.py uses in its PowerShell shell mode. This most likely means someone is running commands remotely over WMI.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains the literal string '-NoP -NoL -sta -NonI -W Hidden -Exec Bypass -Enc'. wmiexec.py builds this line to run a Base64-encoded command in a hidden window without applying execution policy.",
+      "why_it_matters": "wmiexec lets an attacker with valid credentials (a password or a hash) run commands on remote hosts through WMI (T1047) and PowerShell (T1059.001). It is a common lateral movement and evasion technique and usually shows up after credentials have already been stolen.",
+      "triage_steps": [
+        "Decode the Base64 after '-Enc' in CommandLine (UTF-16LE) and work out what ran: reconnaissance, a download, credential dumping or persistence.",
+        "Check the process chain. The usual one is WmiPrvSE.exe -> cmd.exe /Q /c -> powershell.exe. If ParentImage is WmiPrvSE.exe, the execution came remotely over WMI.",
+        "Look for cmd.exe output redirection like '1> \\\\127.0.0.1\\ADMIN$\\__<number> 2>&1'. This is another wmiexec artifact.",
+        "Find the source: look for type 3 logons (event 4624) on the same host within +/- 15 minutes and note the source IP and account.",
+        "Check whether that account or source IP triggered similar alerts on other hosts. Hits on several hosts mean lateral movement is in progress.",
+        "On the host in the same window, review child processes of powershell.exe, network connections, created files and persistence changes.",
+        "Ask IT or the pentest team whether an authorized Impacket test is running."
+      ],
+      "false_positives": [
+        "Authorized penetration tests or red team exercises that use Impacket's wmiexec.py.",
+        "Internal admin scripts that copied Impacket's exact flag line. This is rare; document them and write narrow exclusions."
+      ],
+      "response_steps": [
+        "Confirm with the owners that the activity is unauthorized before you contain anything.",
+        "Isolate the target host and, if possible, the source host identified by the logon IP.",
+        "Disable the account used or reset its password, revoke its sessions and assume its hash may be exposed.",
+        "Preserve evidence, then remove the artifacts you find (files in ADMIN$, persistence, downloaded binaries).",
+        "Hunt for the same command line across the environment and restrict remote WMI/DCOM access to admin workstations."
+      ],
+      "severity_rationale": "High fits because this exact string belongs to an offensive tool, almost never produces false positives and points to remote execution with compromised credentials."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "powershell.exe started by cmd.exe under WmiPrvSE.exe with the wmiexec flag sequence and an encoded 'whoami' command",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoP -NoL -sta -NonI -W Hidden -Exec Bypass -Enc dwBoAG8AYQBtAGkA",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /Q /c powershell.exe -NoP -NoL -sta -NonI -W Hidden -Exec Bypass -Enc dwBoAG8AYQBtAGkA 1> \\\\127.0.0.1\\ADMIN$\\__1678262400.12 2>&1",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "cmd.exe spawned by WmiPrvSE.exe whose command line embeds the wmiexec PowerShell invocation with output redirection to ADMIN$",
+        "event": {
+          "EventID": 4688,
+          "Computer": "SRV-FS01.andes.example.com",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /Q /c powershell.exe -NoP -NoL -sta -NonI -W Hidden -Exec Bypass -Enc dwBoAG8AYQBtAGkA 1> \\\\127.0.0.1\\ADMIN$\\__1678262511.55 2>&1",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "SubjectUserName": "svc_backup"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate management agent running an encoded PowerShell command with long-form flags, not the wmiexec sequence",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand dwBoAG8AYQBtAGkA",
+          "ParentImage": "C:\\Program Files\\ExampleAgent\\agent.exe"
+        }
+      },
+      {
+        "description": "Hidden encoded PowerShell with similar but incomplete flags (missing -NoL and -sta), so the literal substring does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoP -NonI -W Hidden -Exec Bypass -Enc dwBoAG8AYQBtAGkA",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

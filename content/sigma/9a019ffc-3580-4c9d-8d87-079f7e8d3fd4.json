@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "9a019ffc-3580-4c9d-8d87-079f7e8d3fd4",
+    "title": "Cloudflared Tunnel Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "Janantha Marasinghe, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_cloudflared_tunnel_run.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cloudflared_tunnel_run.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1090",
+      "T1102",
+      "T1572"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó cloudflared (o un binario con sus mismos argumentos) para levantar un túnel de Cloudflare con token, archivo de credenciales o configuración. Puede ser un acceso remoto legítimo o un canal persistente de un atacante.",
+      "what_it_detects": "Creación de procesos en Windows cuyo CommandLine contiene ' tunnel ' y ' run ', junto con '-config ', '-credentials-contents ', '-credentials-file ' o '-token '. La regla no revisa Image, así que también detecta binarios renombrados.",
+      "why_it_matters": "Un túnel saliente hacia Cloudflare expone servicios internos (RDP, SMB, SSH) a Internet sin abrir puertos de entrada y se mezcla con tráfico HTTPS legítimo. Corresponde a comando y control mediante servicio web (T1102), proxy (T1090) y tunelización de protocolos (T1572).",
+      "triage_steps": [
+        "Revisa CommandLine: identifica el token, el archivo de credenciales o la configuración y anota el nombre o ID del túnel.",
+        "Compara Image con la ruta esperada; un cloudflared en rutas como Users\\Public, Temp o ProgramData, o con otro nombre, es sospechoso.",
+        "Valida el hash y la firma del binario y busca cuándo se creó o descargó en el host.",
+        "Analiza ParentImage y el árbol de procesos: ¿lo inició un servicio instalado, una tarea programada, PowerShell o una sesión interactiva?",
+        "Pivotea en el mismo host +/- 15 minutos: creación de servicios, tareas programadas, cuentas nuevas, herramientas de acceso remoto o volcado de credenciales.",
+        "Revisa el usuario que lo ejecutó y alertas previas de ese usuario y de ese host.",
+        "Confirma con TI o con el responsable del sistema si existe un túnel de Cloudflare autorizado para ese equipo y en la cuenta de la organización.",
+        "Si el archivo de configuración es accesible, revisa las reglas de ingress para ver qué servicios internos se exponen."
+      ],
+      "false_positives": [
+        "Uso legítimo de Cloudflare Tunnel por TI o DevOps para publicar aplicaciones internas o dar acceso Zero Trust.",
+        "Servidores de laboratorio o desarrollo donde los ingenieros prueban túneles con token o archivo de configuración.",
+        "Instalaciones de cloudflared como servicio gestionadas por software de despliegue corporativo."
+      ],
+      "response_steps": [
+        "Verifica la autorización con el dueño del sistema antes de actuar; si es legítimo, documenta el túnel y considera una exclusión acotada por host e Image.",
+        "Si no está autorizado, aísla el endpoint y bloquea la ejecución del binario y el tráfico a dominios de túnel de Cloudflare no aprobados.",
+        "Preserva evidencia: binario, configuración, credenciales del túnel y memoria del proceso antes de detenerlo.",
+        "Elimina servicios, tareas programadas o claves de inicio asociadas y revoca credenciales de cuentas usadas desde el host.",
+        "Busca la misma línea de comandos o el mismo hash en otros equipos y continúa la investigación de intrusión."
+      ],
+      "severity_rationale": "Nivel medio porque el túnel puede ser legítimo, pero sin autorización otorga acceso remoto persistente que evade los controles perimetrales."
+    },
+    "en": {
+      "summary": "cloudflared (or a binary using its arguments) was run to start a Cloudflare tunnel with a token, credentials file or config. This may be sanctioned remote access or an attacker's persistent channel.",
+      "what_it_detects": "Windows process creation where CommandLine contains ' tunnel ' and ' run ' plus one of '-config ', '-credentials-contents ', '-credentials-file ' or '-token '. Image is not checked, so renamed binaries also match.",
+      "why_it_matters": "An outbound tunnel to Cloudflare can expose internal services (RDP, SMB, SSH) to the Internet without inbound ports and blends with normal HTTPS. Maps to web service C2 (T1102), proxy (T1090) and protocol tunneling (T1572).",
+      "triage_steps": [
+        "Read CommandLine: note the token, credentials file or config path and the tunnel name or ID.",
+        "Check Image against the expected path; cloudflared in Users\\Public, Temp, ProgramData or under another name is suspicious.",
+        "Verify the binary's hash and signature and find when it was created or downloaded on the host.",
+        "Review ParentImage and the process tree: was it started by an installed service, scheduled task, PowerShell or an interactive session?",
+        "Pivot on the same host +/- 15 minutes: new services, scheduled tasks, new accounts, other remote access tools or credential dumping.",
+        "Review the executing user and earlier alerts for that user and host.",
+        "Confirm with IT or the system owner whether an authorized Cloudflare tunnel exists for this host in the organization's account.",
+        "If the config file is reachable, review its ingress rules to see which internal services are exposed."
+      ],
+      "false_positives": [
+        "Legitimate Cloudflare Tunnel use by IT or DevOps to publish internal apps or provide Zero Trust access.",
+        "Lab or development servers where engineers test tunnels with tokens or config files.",
+        "cloudflared installed as a service through corporate software deployment."
+      ],
+      "response_steps": [
+        "Verify authorization with the system owner first; if legitimate, document the tunnel and consider a narrow exclusion by host and Image.",
+        "If unauthorized, isolate the endpoint and block the binary and traffic to unapproved Cloudflare tunnel endpoints.",
+        "Preserve evidence: binary, config, tunnel credentials and process memory before terminating it.",
+        "Remove related services, scheduled tasks or run keys and reset credentials of accounts used on the host.",
+        "Hunt for the same command line or hash on other hosts and continue the intrusion investigation."
+      ],
+      "severity_rationale": "Medium because tunnels can be legitimate, but an unauthorized one gives persistent remote access that bypasses perimeter controls."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Renamed cloudflared in a public folder starting a tunnel with a token",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\svchost32.exe",
+          "OriginalFileName": "cloudflared.exe",
+          "CommandLine": "C:\\Users\\Public\\svchost32.exe tunnel run --token eyJhIjoiZXhhbXBsZSJ9",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden"
+        }
+      },
+      {
+        "description": "cloudflared started with a config file and a named tunnel",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\ProgramData\\cf\\cloudflared.exe",
+          "CommandLine": "C:\\ProgramData\\cf\\cloudflared.exe tunnel --config C:\\ProgramData\\cf\\config.yml run corp-tunnel",
+          "ParentImage": "C:\\Windows\\System32\\services.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "cloudflared tunnel run without token, credentials or config arguments",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files (x86)\\cloudflared\\cloudflared.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\cloudflared\\cloudflared.exe\" tunnel run lab-tunnel",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Administrator listing tunnels, no run subcommand",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files (x86)\\cloudflared\\cloudflared.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\cloudflared\\cloudflared.exe\" tunnel --config C:\\Users\\mrojas\\.cloudflared\\config.yml list",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

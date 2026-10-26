@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "51cbac1e-eee3-4a90-b1b7-358efb81fa0a",
+    "title": "Potential Windows Defender Tampering Via Wmic.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_wmic_namespace_defender.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmic_namespace_defender.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1047",
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó WMIC (o un binario renombrado cuyo OriginalFileName es wmic.exe) contra el namespace WMI de Windows Defender. Suele indicar que alguien intenta cambiar la configuración del antivirus, por ejemplo agregar exclusiones o desactivar protecciones.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\WMIC.exe u OriginalFileName es wmic.exe, y CommandLine contiene '/Namespace:\\\\root\\Microsoft\\Windows\\Defender'. Esto incluye llamadas a la clase MSFT_MpPreference, como Add ExclusionPath.",
+      "why_it_matters": "Desde este namespace se pueden agregar exclusiones de rutas, extensiones o procesos, o apagar el monitoreo en tiempo real sin usar PowerShell. Es una forma de debilitar las defensas (T1562.001) usando WMI (T1047), y familias de malware la han usado antes de soltar su payload.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique la clase (MSFT_MpPreference), el método (Add, Set, Remove) y los valores, como ExclusionPath, ExclusionExtension, ExclusionProcess o DisableRealtimeMonitoring.",
+        "Confirme Image contra OriginalFileName. Si WMIC se ejecuta desde una ruta fuera de System32\\wbem o SysWOW64\\wbem, trate el binario como renombrado y sospechoso.",
+        "Analice ParentImage y la línea de comandos del padre. Un cmd, script, macro de Office o binario en %TEMP% o %APPDATA% como origen aumenta la sospecha.",
+        "Identifique al usuario y su nivel de privilegios. Verifique si es una cuenta administrativa conocida o una sesión inusual en ese host.",
+        "Inspeccione las rutas o procesos excluidos: busque archivos creados o ejecutados ahí en el mismo host dentro de +/- 15 minutos.",
+        "Revise los eventos de Defender (Microsoft-Windows-Windows Defender/Operational, ID 5007) para confirmar que la configuración cambió.",
+        "Busque alertas anteriores para el mismo host y usuario, y el mismo CommandLine en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos. Puede haber scripts heredados de administración o despliegue de software que configuran exclusiones de Defender con WMIC.",
+        "Pruebas autorizadas de Atomic Red Team o ejercicios de red team que simulan T1562.001."
+      ],
+      "response_steps": [
+        "Valide con el dueño del host o el equipo de TI si el cambio estaba autorizado y documentado.",
+        "Si no estaba autorizado, aísle el endpoint desde el EDR y conserve evidencia: árbol de procesos, hashes y contenido de las rutas excluidas.",
+        "Revierta las exclusiones o la configuración alterada y ejecute un análisis completo, enfocándose en las rutas que se excluyeron.",
+        "Elimine el malware y la persistencia que encuentre, restablezca las credenciales de la cuenta usada y busque la misma actividad en toda la flota."
+      ],
+      "severity_rationale": "Es nivel alto porque usar WMIC directamente contra el namespace de Defender es poco común en operaciones legítimas y suele anticipar la ejecución de malware sin detección."
+    },
+    "en": {
+      "summary": "WMIC, or a renamed binary whose OriginalFileName is wmic.exe, ran against the Windows Defender WMI namespace. This usually means someone is trying to change antivirus settings, such as adding exclusions or turning protections off.",
+      "what_it_detects": "Process creation events where Image ends with \\WMIC.exe or OriginalFileName is wmic.exe, and CommandLine contains '/Namespace:\\\\root\\Microsoft\\Windows\\Defender'. This includes calls to the MSFT_MpPreference class, such as Add ExclusionPath.",
+      "why_it_matters": "This namespace lets a user add path, extension or process exclusions, or turn off real-time monitoring, without using PowerShell. It weakens defenses (T1562.001) through WMI (T1047), and malware families have used it before dropping their payloads.",
+      "triage_steps": [
+        "Read the full CommandLine. Identify the class (MSFT_MpPreference), the method (Add, Set, Remove) and the values, such as ExclusionPath, ExclusionExtension, ExclusionProcess or DisableRealtimeMonitoring.",
+        "Compare Image with OriginalFileName. If WMIC runs from a path outside System32\\wbem or SysWOW64\\wbem, treat the binary as renamed and suspicious.",
+        "Check ParentImage and the parent's command line. A cmd, script, Office macro or binary in %TEMP% or %APPDATA% as the parent makes it more suspicious.",
+        "Identify the user and their privileges. Check whether this is a known admin account or an unusual session on that host.",
+        "Look at the excluded paths or processes. Search for files created or run there on the same host within +/- 15 minutes.",
+        "Check the Defender Operational log (event ID 5007) to confirm the setting actually changed.",
+        "Look for earlier alerts on the same host and user, and for the same CommandLine on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. Legacy admin or software deployment scripts may still set Defender exclusions through WMIC.",
+        "Authorized Atomic Red Team tests or red team exercises that simulate T1562.001."
+      ],
+      "response_steps": [
+        "Ask the host owner or IT whether the change was authorized and documented.",
+        "If it was not authorized, isolate the endpoint through EDR and keep evidence: the process tree, hashes and the contents of the excluded paths.",
+        "Undo the exclusions or changed settings, then run a full scan that covers the excluded paths.",
+        "Remove any malware and persistence you find, reset credentials for the account involved and hunt for the same activity across the fleet."
+      ],
+      "severity_rationale": "The level is high because legitimate operations rarely run WMIC directly against the Defender namespace, and this activity often comes right before malware runs undetected."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WMIC adds a Defender path exclusion through MSFT_MpPreference, as in the Atomic Red Team test",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic.exe /Namespace:\\\\root\\Microsoft\\Windows\\Defender class MSFT_MpPreference call Add ExclusionPath=\"C:\\Users\\Public\\Downloads\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\jperez\\AppData\\Local\\Temp\\setup.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed WMIC binary, identified by OriginalFileName, adds a process exclusion",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "svchelper.exe /Namespace:\\\\root\\Microsoft\\Windows\\Defender class MSFT_MpPreference call Add ExclusionProcess=\"updater.exe\"",
+          "ParentImage": "C:\\Users\\mrojas\\AppData\\Roaming\\updater.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "An inventory script uses WMIC to query the SecurityCenter2 namespace, not the Defender namespace",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\svc_inventory",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic /Namespace:\\\\root\\SecurityCenter2 Path AntiVirusProduct Get displayName,productState",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "PowerShell queries the Defender namespace through CIM; the image is not WMIC",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -Command Get-CimInstance -Namespace root/Microsoft/Windows/Defender -ClassName MSFT_MpComputerStatus",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

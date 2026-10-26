@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "2a072a96-a086-49fa-bcb5-15cc5a619093",
+    "title": "Start Windows Service Via Net.EXE",
+    "level": "low",
+    "status": "test",
+    "author": "Timur Zinniatullin, Daniil Yugoslavskiy, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_net_start_service.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_net_start_service.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1569.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó net.exe o net1.exe con el argumento \"start\" seguido de un nombre de servicio, es decir, alguien inició un servicio de Windows desde la línea de comandos.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\net.exe o \\net1.exe (o OriginalFileName coincide) y CommandLine contiene \" start \" con espacio posterior, lo que indica un servicio concreto y no el simple listado de servicios con \"net start\".",
+      "why_it_matters": "Los atacantes inician servicios para ejecutar payloads o lograr persistencia, a menudo tras crear un servicio malicioso (ATT&CK T1569.002, ejecución de servicios del sistema). También pueden reactivar servicios deshabilitados como RemoteRegistry para moverse lateralmente.",
+      "triage_steps": [
+        "Lea CommandLine e identifique el nombre del servicio iniciado; verifique si es un servicio conocido del sistema o del software corporativo.",
+        "Revise ParentImage y la cadena de procesos: cmd.exe o powershell.exe lanzados por Office, navegadores, w3wp.exe o herramientas remotas son sospechosos.",
+        "Confirme el usuario que ejecutó el comando y si tiene funciones de administración legítimas en ese host.",
+        "Busque en el mismo host, +/- 15 minutos, creación de servicios (evento 7045, sc.exe create) o cambios en HKLM\\SYSTEM\\CurrentControlSet\\Services.",
+        "Obtenga el ImagePath del servicio y valide el binario: ruta, firma digital y hash contra inteligencia de amenazas.",
+        "Revise inicios de sesión remotos (tipo 3 o 10) previos al comando y alertas anteriores para el mismo usuario o host.",
+        "Verifique si el mismo comando se ejecutó en otros hosts en un periodo corto, lo que sugiere automatización o movimiento lateral."
+      ],
+      "false_positives": [
+        "Administradores o usuarios que inician servicios legítimos por mantenimiento o soporte técnico.",
+        "Scripts de instalación, despliegue de software o herramientas de gestión (SCCM, GPO, RMM) que reinician servicios.",
+        "Tareas programadas o procedimientos de recuperación que arrancan servicios como Spooler o wuauserv."
+      ],
+      "response_steps": [
+        "Valide con el usuario o el equipo responsable si el inicio del servicio estaba previsto o documentado en un cambio.",
+        "Si el servicio o su binario es malicioso, aísle el endpoint y detenga el servicio tras preservar evidencia (binario, registro, memoria).",
+        "Deshabilite o elimine el servicio malicioso y su binario después de confirmar el hallazgo; restablezca credenciales comprometidas.",
+        "Busque el mismo servicio o hash en el resto del entorno y documente exclusiones para administración legítima recurrente."
+      ],
+      "severity_rationale": "El nivel bajo es adecuado porque iniciar servicios con net.exe es una tarea administrativa frecuente y solo resulta relevante combinado con otro contexto sospechoso."
+    },
+    "en": {
+      "summary": "net.exe or net1.exe was run with \"start\" followed by a service name, meaning someone started a Windows service from the command line.",
+      "what_it_detects": "Process creation events where Image ends with \\net.exe or \\net1.exe (or OriginalFileName matches) and CommandLine contains \" start \" with a trailing space, indicating a specific service rather than the plain \"net start\" service listing.",
+      "why_it_matters": "Attackers start services to run payloads or gain persistence, often right after creating a malicious service (ATT&CK T1569.002, System Services: Service Execution). They may also re-enable disabled services such as RemoteRegistry for lateral movement.",
+      "triage_steps": [
+        "Read CommandLine and identify the service name; check whether it is a known OS or corporate software service.",
+        "Review ParentImage and the process tree: cmd.exe or powershell.exe spawned by Office, browsers, w3wp.exe or remote tools is suspicious.",
+        "Confirm the user who ran the command and whether they have legitimate admin duties on that host.",
+        "On the same host within +/- 15 minutes, look for service creation (event 7045, sc.exe create) or changes under HKLM\\SYSTEM\\CurrentControlSet\\Services.",
+        "Get the service ImagePath and validate the binary: path, digital signature and hash against threat intelligence.",
+        "Check remote logons (type 3 or 10) preceding the command and earlier alerts for the same user or host.",
+        "Check whether the same command ran on other hosts in a short window, suggesting automation or lateral movement."
+      ],
+      "false_positives": [
+        "Administrators or users starting legitimate services for maintenance or support.",
+        "Installers, software deployment or management tools (SCCM, GPO, RMM) restarting services.",
+        "Scheduled tasks or recovery procedures starting services such as Spooler or wuauserv."
+      ],
+      "response_steps": [
+        "Confirm with the user or owning team whether the service start was expected or covered by a change record.",
+        "If the service or its binary is malicious, isolate the endpoint and stop the service after preserving evidence (binary, registry, memory).",
+        "Disable or remove the malicious service and binary once confirmed; reset any compromised credentials.",
+        "Hunt for the same service or hash across the environment and document exclusions for recurring legitimate admin activity."
+      ],
+      "severity_rationale": "Low fits because starting services with net.exe is routine administration and only matters when combined with other suspicious context."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "net.exe started from cmd.exe to launch a suspicious, recently created service",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net  start UpdaterSvc ",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c net start UpdaterSvc ",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "net1.exe (renamed copy, matched by OriginalFileName) starting RemoteRegistry",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\admin.mlopez",
+          "Image": "C:\\Users\\Public\\n1.exe",
+          "OriginalFileName": "net1.exe",
+          "CommandLine": "C:\\Users\\Public\\n1.exe start RemoteRegistry",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Plain 'net start' used to list running services (no service name, no trailing space)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net start",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Service started with sc.exe instead of net.exe, so the image selection does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe start Spooler",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "99cf1e02-00fb-4c0d-8375-563f978dfd37",
+    "title": "Deny Service Access Using Security Descriptor Tampering Via Sc.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Jonhnathan Ribeiro, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_sc_sdset_deny_service_access.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sc_sdset_deny_service_access.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1543.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó sc.exe con el subcomando sdset para aplicar a un servicio un descriptor de seguridad con ACE de denegación (D;) dirigidas a trustees críticos como SYSTEM, Administradores, Everyone o usuarios interactivos. Esto suele usarse para ocultar un servicio o impedir que se detenga o elimine.",
+      "what_it_detects": "Creación de procesos de sc.exe (por Image u OriginalFileName) cuyo CommandLine contiene 'sdset' y 'D;', además de un SID de trustee crítico: ;IU, ;SU, ;BA, ;SY o ;WD.",
+      "why_it_matters": "Un atacante con privilegios puede instalar un servicio malicioso (T1543.003, crear o modificar servicios de Windows) y luego cambiar su DACL para que ni administradores ni herramientas de seguridad puedan consultarlo, detenerlo o borrarlo, lo que asegura persistencia y dificulta la respuesta.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el nombre del servicio objetivo y qué trustees reciben denegación (IU, SU, BA, SY, WD) y qué permisos (DC, LC, WP, DT, SD).",
+        "Identifique al usuario y el ParentImage: cmd.exe, powershell.exe, un script o una herramienta de gestión remota; verifique si el usuario administra ese equipo.",
+        "Si el Image no está en C:\\Windows\\System32 o SysWOW64 pero OriginalFileName es sc.exe, trátelo como binario renombrado y más sospechoso.",
+        "Busque en el mismo host, +/- 15 minutos, 'sc create', 'sc config', New-Service o el evento 7045 para ver si el servicio se creó justo antes.",
+        "Examine el ImagePath del servicio en HKLM\\SYSTEM\\CurrentControlSet\\Services\\<servicio> y obtenga el hash del binario para validarlo en su inteligencia de amenazas.",
+        "Pivotee por el usuario y el host en alertas previas: ejecución remota (PsExec, WMI), volcado de credenciales o desactivación de herramientas de seguridad.",
+        "Confirme con el equipo de TI si existe un cambio aprobado de hardening de servicios que explique la modificación."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; son raros.",
+        "Scripts de hardening o productos de seguridad que restringen el control de sus propios servicios con ACE de denegación, previamente documentados.",
+        "Pruebas de red team o ejercicios de detección autorizados."
+      ],
+      "response_steps": [
+        "Valide la legitimidad con el dueño del sistema antes de actuar; conserve el CommandLine, el árbol de procesos y el hash del binario del servicio.",
+        "Si es malicioso, aísle el endpoint desde el EDR y restablezca la cuenta usada si hay indicios de compromiso.",
+        "Restaure la DACL con 'sc sdset' usando un SDDL predeterminado (ejecutado como SYSTEM si es necesario), luego detenga y elimine el servicio malicioso y su binario.",
+        "Busque el mismo patrón y el mismo hash en otros hosts, y vigile si reaparece la persistencia."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque denegar acceso a SYSTEM o Administradores sobre un servicio casi nunca es legítimo y es una técnica conocida para ocultar persistencia."
+    },
+    "en": {
+      "summary": "sc.exe ran the sdset subcommand to give a service a security descriptor with deny ACEs (D;) targeting critical trustees such as SYSTEM, Administrators, Everyone or interactive users. This is commonly used to hide a service or make it impossible to stop or delete.",
+      "what_it_detects": "Process creation of sc.exe (by Image or OriginalFileName) where CommandLine contains 'sdset' and 'D;' plus a critical trustee SID string: ;IU, ;SU, ;BA, ;SY or ;WD.",
+      "why_it_matters": "A privileged attacker can install a malicious service (T1543.003, create or modify Windows services) and then change its DACL so administrators and security tools cannot query, stop or remove it. That locks in persistence and slows down response.",
+      "triage_steps": [
+        "Read the full CommandLine: find the target service name, which trustees are denied (IU, SU, BA, SY, WD) and which rights (DC, LC, WP, DT, SD).",
+        "Identify the user and ParentImage (cmd.exe, powershell.exe, a script, remote management tool) and check whether that user administers the host.",
+        "If Image is outside System32/SysWOW64 but OriginalFileName is sc.exe, treat it as a renamed binary, which is more suspicious.",
+        "On the same host within +/- 15 minutes, look for 'sc create', 'sc config', New-Service or event 7045 to see if the service was created just before.",
+        "Check the service ImagePath under HKLM\\SYSTEM\\CurrentControlSet\\Services\\<service>, hash the binary and look it up in threat intelligence.",
+        "Pivot on the user and host for earlier alerts: remote execution (PsExec, WMI), credential dumping or security tool tampering.",
+        "Ask IT whether an approved service hardening change explains the modification."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; they are rare.",
+        "Documented hardening scripts or security products that lock down their own services with deny ACEs.",
+        "Authorized red team or detection testing exercises."
+      ],
+      "response_steps": [
+        "Confirm legitimacy with the system owner before acting; preserve the CommandLine, process tree and the service binary hash.",
+        "If malicious, isolate the endpoint through EDR and reset the account used if compromise is indicated.",
+        "Restore the DACL with 'sc sdset' using a default SDDL (run as SYSTEM if needed), then stop and delete the malicious service and its binary.",
+        "Hunt for the same pattern and hash on other hosts and watch for the persistence returning."
+      ],
+      "severity_rationale": "High fits because denying SYSTEM or Administrators access to a service is almost never legitimate and is a known way to hide persistence."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sc.exe applies deny ACEs for IU, SU and BA to hide a service",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe sdset UpdSyncSvc \"D:(D;;DCLCWPDTSD;;;IU)(D;;DCLCWPDTSD;;;SU)(D;;DCLCWPDTSD;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)(A;;CCLCSWRPWPDTLOCRRC;;;SY)\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\ProgramData\\setup.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed sc.exe (matched by OriginalFileName) denies Everyone access to a service",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "svchelper.exe sdset WinTelemetryHost D:(D;;DCLCWPDTSD;;;WD)(A;;CCLCSWRPWPDTLOCRRC;;;SY)",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator resets a service DACL with sc sdset using only allow ACEs (no 'D;')",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.mrios",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe sdset Spooler D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;IU)",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "sc.exe sdshow only reads the security descriptor",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\admin.mrios",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe sdshow WinTelemetryHost",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

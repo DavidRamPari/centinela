@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "ba1f7802-adc7-48b4-9ecb-81e227fddfd5",
+    "title": "Potential Network Sniffing Activity Using Network Tools",
+    "level": "medium",
+    "status": "test",
+    "author": "Timur Zinniatullin, oscd.community, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_network_sniffing.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_network_sniffing.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1040"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó tshark.exe con la opción de interfaz (-i) o se ejecutó windump.exe en un endpoint Windows. Puede tratarse de una captura de tráfico activa en la red.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\tshark.exe y CommandLine contiene '-i', o en los que Image termina en \\windump.exe con cualquier línea de comandos.",
+      "why_it_matters": "Si un atacante captura tráfico (ATT&CK T1040, Network Sniffing), puede obtener credenciales en texto claro, hashes de autenticación, tokens de sesión y datos para mapear la red. Esto sirve tanto para acceso a credenciales como para descubrimiento.",
+      "triage_steps": [
+        "Revise CommandLine: interfaz seleccionada, archivo de salida (-w), filtros de captura (-f), duración (-a) y si se está capturando un puerto de autenticación como 21, 23, 80, 389 o 445.",
+        "Identifique al usuario que ejecutó el proceso y confirme si pertenece al equipo de redes o de soporte, o si hay un ticket de cambio o troubleshooting abierto.",
+        "Revise ParentImage y el árbol de procesos: si el padre es cmd.exe, powershell.exe, una shell remota, PsExec o una tarea programada, el riesgo es mayor.",
+        "Verifique la ruta de Image. Si es distinta de Program Files\\Wireshark, por ejemplo Temp, Public o AppData, compruebe el hash y la firma del binario.",
+        "Busque en el mismo host, dentro de +/- 15 minutos, la instalación de Npcap/WinPcap, archivos .pcap o .pcapng creados y la compresión o exfiltración de esos archivos.",
+        "Busque alertas previas del mismo usuario o host: volcado de credenciales, movimiento lateral, logons anómalos o herramientas de descubrimiento."
+      ],
+      "false_positives": [
+        "Administradores de red o soporte que diagnostican problemas de conectividad, latencia o aplicaciones con tshark o windump.",
+        "Scripts de monitoreo o captura programada aprobados por el área de redes o seguridad.",
+        "Analistas de seguridad que hacen respuesta a incidentes o pruebas autorizadas desde estaciones designadas."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y con su responsable si la captura es legítima. Si lo es, documente la excepción por host, usuario y ruta.",
+        "Si no está autorizada, detenga el proceso, aísle el endpoint según el procedimiento y preserve los archivos de captura como evidencia.",
+        "Determine qué tráfico y qué credenciales pudieron quedar expuestos. Restablezca las contraseñas y revoque los tokens de las cuentas afectadas.",
+        "Elimine las herramientas y los drivers de captura no autorizados después de recolectar la evidencia, y revise cómo se obtuvo el acceso inicial."
+      ],
+      "severity_rationale": "Es nivel medio porque la captura de tráfico es una práctica habitual de administración, pero en manos de un atacante expone credenciales y datos sensibles. Por eso requiere validar el contexto."
+    },
+    "en": {
+      "summary": "tshark.exe ran with an interface option (-i), or windump.exe ran on a Windows endpoint. Live network traffic may be being captured.",
+      "what_it_detects": "Process creation events where Image ends with \\tshark.exe and CommandLine contains '-i', or where Image ends with \\windump.exe with any command line.",
+      "why_it_matters": "An attacker who captures traffic (ATT&CK T1040, Network Sniffing) can harvest cleartext credentials, authentication hashes, session tokens and network layout details. This supports both credential access and discovery.",
+      "triage_steps": [
+        "Inspect CommandLine: the selected interface, output file (-w), capture filters (-f), duration (-a), and any targeting of authentication ports such as 21, 23, 80, 389 or 445.",
+        "Identify the user who ran the process and check whether they are network or support staff, or whether a change or troubleshooting ticket covers the activity.",
+        "Review ParentImage and the process tree. A parent such as cmd.exe, powershell.exe, a remote shell, PsExec or a scheduled task raises the risk.",
+        "Check the Image path. If it is outside Program Files\\Wireshark, for example Temp, Public or AppData, verify the binary's hash and signature.",
+        "Search the same host within +/- 15 minutes for Npcap/WinPcap installation, new .pcap or .pcapng files, and archiving or exfiltration of those files.",
+        "Look for earlier alerts on the same user or host: credential dumping, lateral movement, unusual logons or discovery tools."
+      ],
+      "false_positives": [
+        "Network or support administrators using tshark or windump to troubleshoot connectivity, latency or application issues.",
+        "Monitoring or scheduled capture scripts approved by the network or security team.",
+        "Security analysts doing incident response or authorized testing from designated workstations."
+      ],
+      "response_steps": [
+        "Confirm with the user and their manager whether the capture is legitimate. If it is, document the exception by host, user and path.",
+        "If it is not authorized, stop the process, isolate the endpoint following your procedure, and preserve the capture files as evidence.",
+        "Work out which traffic and credentials may have been exposed. Reset passwords and revoke tokens for the affected accounts.",
+        "After collecting evidence, remove unauthorized capture tools and drivers, and investigate how initial access was gained."
+      ],
+      "severity_rationale": "Medium fits because packet capture is a common admin task, but an attacker can use it to expose credentials and sensitive data, so the context must be checked."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "tshark starts a live capture on interface 1 and writes it to a public folder, launched from PowerShell.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Wireshark\\tshark.exe",
+          "CommandLine": "\"C:\\Program Files\\Wireshark\\tshark.exe\" -i 1 -f \"tcp port 80 or tcp port 21\" -a duration:600 -w C:\\Users\\Public\\cap.pcapng",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop",
+          "ProcessId": 6120
+        }
+      },
+      {
+        "description": "windump runs from a temp directory and captures to a file.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\svc_backup\\AppData\\Local\\Temp\\windump.exe",
+          "CommandLine": "windump.exe -i 2 -w C:\\Users\\svc_backup\\AppData\\Local\\Temp\\out.pcap",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c windump.exe -i 2 -w out.pcap",
+          "ProcessId": 4388
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "tshark reads an existing capture file offline with no interface option, so the CommandLine condition is not met.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Program Files\\Wireshark\\tshark.exe",
+          "CommandLine": "\"C:\\Program Files\\Wireshark\\tshark.exe\" -r C:\\Temp\\trace.pcapng -Y dns",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ProcessId": 7012
+        }
+      },
+      {
+        "description": "dumpcap captures on an interface. The Image is not tshark.exe or windump.exe, so the rule does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Program Files\\Wireshark\\dumpcap.exe",
+          "CommandLine": "\"C:\\Program Files\\Wireshark\\dumpcap.exe\" -i 1 -w C:\\Temp\\trace.pcapng",
+          "ParentImage": "C:\\Program Files\\Wireshark\\Wireshark.exe",
+          "ProcessId": 7140
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:29+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "32b96012-7892-429e-b26c-ac2bf46066ff",
+    "title": "Shell32 DLL Execution in Suspicious Directory",
+    "level": "high",
+    "status": "test",
+    "author": "Christian Burkard (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_rundll32_shell32_susp_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_rundll32_shell32_susp_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.011"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "rundll32.exe llamó a shell32.dll,Control_RunDLL para cargar un archivo DLL o CPL desde un directorio escribible por el usuario (AppData, Temp o Users\\Public). Es una técnica conocida para ejecutar código malicioso usando un binario firmado de Windows.",
+      "what_it_detects": "Eventos de creación de procesos en los que la imagen es rundll32.exe (por ruta o por OriginalFileName RUNDLL32.EXE) y el CommandLine incluye shell32.dll, Control_RunDLL y una ruta como %AppData%, %LocalAppData%, %Temp%, %tmp%, \\AppData\\, \\Temp\\ o \\Users\\Public\\.",
+      "why_it_matters": "Control_RunDLL carga y ejecuta un applet del Panel de control, es decir, una DLL o un CPL. Si ese archivo está en un directorio temporal o de usuario, rundll32 actúa como proxy para ejecutar el payload y evadir controles basados en confianza del binario (ATT&CK T1218.011, System Binary Proxy Execution: Rundll32).",
+      "triage_steps": [
+        "Revise el CommandLine e identifique la ruta exacta del archivo DLL/CPL cargado y los argumentos adicionales.",
+        "Obtenga el hash, la firma digital, la fecha de creación y el Zone.Identifier del archivo. Consulte la reputación del hash en su plataforma de threat intelligence.",
+        "Analice ParentImage y su línea de comandos. Un padre de Office, wscript, mshta, un navegador o un descompresor es muy sospechoso.",
+        "Si OriginalFileName es RUNDLL32.EXE pero Image no es C:\\Windows\\System32\\rundll32.exe, trátelo como un binario renombrado y escale.",
+        "Busque procesos hijos, conexiones de red, consultas DNS y escrituras en el registro (claves Run, servicios) del proceso rundll32 en el mismo host, ±15 minutos.",
+        "Identifique cómo llegó el archivo: correo, descarga web o USB. Busque el mismo hash o la misma ruta en otros endpoints y alertas previas del usuario."
+      ],
+      "false_positives": [
+        "Instaladores legítimos que extraen un CPL en %Temp% y lo abren con Control_RunDLL durante la configuración.",
+        "Software instalado por usuario en AppData que registra su propio applet del Panel de control.",
+        "Scripts de administración o pruebas internas que cargan CPL desde carpetas temporales; valide con el equipo responsable."
+      ],
+      "response_steps": [
+        "Verifique la legitimidad del archivo (firma, proveedor, ticket de cambio) antes de actuar.",
+        "Si es malicioso, aísle el endpoint, termine el proceso rundll32 y preserve el archivo DLL/CPL y la memoria para análisis.",
+        "Elimine el archivo y los mecanismos de persistencia asociados; bloquee el hash y los dominios o IP contactados.",
+        "Restablezca las credenciales del usuario afectado si hay indicios de robo de credenciales y busque el mismo IOC en toda la flota."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque es poco común cargar applets del Panel de control desde directorios temporales o de usuario y la técnica se asocia con la ejecución de payloads."
+    },
+    "en": {
+      "summary": "rundll32.exe invoked shell32.dll,Control_RunDLL to load a DLL or CPL file from a user-writable directory (AppData, Temp or Users\\Public). Attackers use this to run malicious code through a signed Windows binary.",
+      "what_it_detects": "Process creation events where the image is rundll32.exe (by path or OriginalFileName RUNDLL32.EXE) and CommandLine contains shell32.dll, Control_RunDLL and a path such as %AppData%, %LocalAppData%, %Temp%, %tmp%, \\AppData\\, \\Temp\\ or \\Users\\Public\\.",
+      "why_it_matters": "Control_RunDLL loads and runs a Control Panel applet, which is a DLL or CPL file. When that file sits in a temp or user folder, rundll32 proxies execution of the payload and gets past controls that trust the signed binary (ATT&CK T1218.011, System Binary Proxy Execution: Rundll32).",
+      "triage_steps": [
+        "Read the CommandLine and note the exact DLL/CPL path that was loaded and any extra arguments.",
+        "Get the file's hash, signature, creation time and Zone.Identifier. Check the hash's reputation in threat intelligence.",
+        "Review ParentImage and its command line. An Office app, wscript, mshta, a browser or an archive tool as parent is highly suspicious.",
+        "If OriginalFileName is RUNDLL32.EXE but Image is not C:\\Windows\\System32\\rundll32.exe, treat it as a renamed binary and escalate.",
+        "Look for child processes, network connections, DNS queries and registry writes (Run keys, services) from rundll32 on the same host within ±15 minutes.",
+        "Work out how the file arrived (email, web download, USB). Search other endpoints for the same hash or path, and check earlier alerts for the user."
+      ],
+      "false_positives": [
+        "Legitimate installers that extract a CPL to %Temp% and open it with Control_RunDLL during setup.",
+        "Per-user software in AppData that registers its own Control Panel applet.",
+        "Admin scripts or internal tests that load CPLs from temp folders. Confirm with the owning team."
+      ],
+      "response_steps": [
+        "Check that the file is legitimate (signature, vendor, change ticket) before acting.",
+        "If it is malicious, isolate the endpoint, kill the rundll32 process, and keep the DLL/CPL file and a memory capture for analysis.",
+        "Remove the file and any related persistence. Block the hash and any contacted domains or IPs.",
+        "If credential theft is suspected, reset the user's credentials. Hunt for the same IOCs across the fleet."
+      ],
+      "severity_rationale": "High fits because Control Panel applets rarely load from temp or user directories, and attackers use this technique to run payloads."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "rundll32 launched from a Word document loads a CPL from C:\\Users\\Public via shell32 Control_RunDLL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "\"C:\\Windows\\System32\\rundll32.exe\" shell32.dll,Control_RunDLL C:\\Users\\Public\\Documents\\invoice.cpl",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n C:\\Users\\jperez\\Downloads\\invoice.docx"
+        }
+      },
+      {
+        "description": "Renamed rundll32 (matched by OriginalFileName) loads a DLL from %AppData%",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\svchelper.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "svchelper.exe shell32.dll,Control_RunDLL %AppData%\\Microsoft\\mscfg.dll",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\mrojas\\Downloads\\setup.js"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Control Panel applet (desk.cpl) opened from System32, no suspicious directory",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "\"C:\\Windows\\System32\\rundll32.exe\" C:\\Windows\\System32\\shell32.dll,Control_RunDLL C:\\Windows\\System32\\desk.cpl,,0",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      },
+      {
+        "description": "rundll32 runs a DLL from Temp without shell32 Control_RunDLL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe C:\\Users\\lgomez\\AppData\\Local\\Temp\\printdrv.dll,Install",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\msiexec.exe /V"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

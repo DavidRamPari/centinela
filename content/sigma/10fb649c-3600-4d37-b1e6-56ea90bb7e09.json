@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "10fb649c-3600-4d37-b1e6-56ea90bb7e09",
+    "title": "User Added To Highly Privileged Group",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_add_user_privileged_group.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_add_user_privileged_group.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1098"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó net.exe o PowerShell para agregar una cuenta a los grupos 'Schema Admins' o 'Group Policy Creator Owners'. Estos grupos rara vez cambian, así que cualquier alta debe validarse de inmediato.",
+      "what_it_detects": "Detecta procesos cuyo CommandLine contiene 'localgroup ' y ' /add', o bien 'Add-LocalGroupMember ' y ' -Group ', y además menciona 'Schema Admins' o 'Group Policy Creator Owners'.",
+      "why_it_matters": "Pertenecer a estos grupos permite modificar el esquema de Active Directory o crear GPO que se aplican a muchos equipos. Corresponde a T1098 (manipulación de cuentas) y sirve para escalar privilegios y mantener persistencia. La referencia de la regla describe este comportamiento tras la explotación de ScreenConnect.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique la cuenta agregada, el grupo de destino y si se usó /domain.",
+        "Revise ParentImage y la cadena de procesos. Un padre como software de acceso remoto, un web server o un script inesperado aumenta la sospecha.",
+        "Confirme quién ejecutó el comando (User) y si esa cuenta administra normalmente AD o GPO.",
+        "Correlacione con los eventos 4732, 4728 o 4756 en el host y en los controladores de dominio para confirmar que el cambio se aplicó.",
+        "Revise si la cuenta agregada se creó hace poco (evento 4720) y busque su actividad posterior.",
+        "Busque otros procesos en el mismo host en un rango de +/- 15 minutos: creación de usuarios, cambios en la configuración de RDP, descargas o herramientas de acceso remoto.",
+        "Busque alertas anteriores sobre el mismo host, usuario o cuenta agregada, incluidas las de las reglas relacionadas de grupos Admin y RDP."
+      ],
+      "false_positives": [
+        "Un administrador de AD que agrega temporalmente una cuenta a Schema Admins para una extensión de esquema planificada, por ejemplo para Exchange o LAPS.",
+        "Scripts de aprovisionamiento o de laboratorio que delegan la creación de GPO. Deben estar documentados y tener un ticket de cambio asociado."
+      ],
+      "response_steps": [
+        "Valide el cambio con el responsable de AD y con el ticket de cambio. Si no hay justificación, trátelo como un incidente.",
+        "Si se confirma que es malicioso, quite la cuenta del grupo y deshabilítela. Restablezca las credenciales del usuario que ejecutó el comando.",
+        "Aísle el host de origen y revise si hubo cambios en el esquema o GPO creadas o modificadas desde el alta.",
+        "Elimine las vías de acceso del atacante, como software remoto vulnerable o cuentas creadas, y monitoree estos grupos de forma continua."
+      ],
+      "severity_rationale": "El nivel alto es adecuado: estos grupos permiten controlar todo el dominio, cambian muy pocas veces y un alta no autorizada indica que el dominio podría estar comprometido."
+    },
+    "en": {
+      "summary": "net.exe or PowerShell was run to add an account to Schema Admins or Group Policy Creator Owners. These groups rarely change, so validate any addition right away.",
+      "what_it_detects": "It flags processes whose CommandLine contains either 'localgroup ' and ' /add', or 'Add-LocalGroupMember ' and ' -Group ', and that also names 'Schema Admins' or 'Group Policy Creator Owners'.",
+      "why_it_matters": "Members of these groups can change the Active Directory schema or create GPOs that apply to many machines. This is T1098 (account manipulation), used for privilege escalation and persistence. The rule's reference describes this behavior after ScreenConnect was exploited.",
+      "triage_steps": [
+        "Read the full CommandLine: find the added account, the target group and whether /domain was used.",
+        "Check ParentImage and the process tree. A parent such as remote access software, a web server or an unexpected script raises suspicion.",
+        "Confirm who ran the command (User) and whether that account normally manages AD or GPOs.",
+        "Correlate with events 4732, 4728 or 4756 on the host and on domain controllers to confirm the change took effect.",
+        "Check whether the added account was created recently (event 4720) and review what it did afterward.",
+        "Review the same host within +/- 15 minutes for user creation, RDP setting changes, downloads or remote access tools.",
+        "Search for earlier alerts on the same host, user or added account, including the related Admin and RDP group rules."
+      ],
+      "false_positives": [
+        "An AD administrator temporarily adding an account to Schema Admins for a planned schema extension, such as for Exchange or LAPS.",
+        "Provisioning or lab scripts that delegate GPO creation. These should be documented and tied to a change ticket."
+      ],
+      "response_steps": [
+        "Validate the change with the AD owner and the change ticket. If there is no justification, treat it as an incident.",
+        "If it is malicious, remove the account from the group and disable it. Reset the credentials of the user who ran the command.",
+        "Isolate the source host and check for schema changes or GPOs created or modified since the addition.",
+        "Remove the attacker's access paths, such as vulnerable remote software or new accounts, and keep monitoring these groups."
+      ],
+      "severity_rationale": "High fits because these groups give domain-wide control and rarely change, so an unauthorized addition suggests the domain may be compromised."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "net.exe started by a remote access service adds a new account to Group Policy Creator Owners",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net localgroup \"Group Policy Creator Owners\" svc_upd /add",
+          "ParentImage": "C:\\Program Files (x86)\\ScreenConnect Client (example)\\ScreenConnect.ClientService.exe",
+          "ParentCommandLine": "\"C:\\Program Files (x86)\\ScreenConnect Client (example)\\ScreenConnect.ClientService.exe\""
+        }
+      },
+      {
+        "description": "PowerShell Add-LocalGroupMember adds an account to Schema Admins",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command Add-LocalGroupMember -Group \"Schema Admins\" -Member \"tempadmin\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Read-only listing of the Schema Admins members with no /add switch",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net localgroup \"Schema Admins\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "A user added to the local Administrators group, which is not one of the privileged groups this rule covers",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0188.andes.example.com",
+          "User": "ANDES\\helpdesk01",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net localgroup Administrators ANDES\\lgomez /add",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

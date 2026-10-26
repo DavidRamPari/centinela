@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "81ebd28b-9607-4478-bf06-974ed9d53ed7",
+    "title": "Potential Application Whitelisting Bypass via Dnx.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Beyu Denis, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_dnx_execute_csharp_code.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_dnx_execute_csharp_code.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027.004",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó dnx.exe, el entorno de ejecución heredado de .NET (DNX) que puede compilar y ejecutar código C# desde un directorio de proyecto. Puede usarse para evadir el control de aplicaciones (application whitelisting).",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo campo Image termina en \\dnx.exe, sin importar los argumentos, el proceso padre ni el usuario.",
+      "why_it_matters": "DNX es un binario firmado por Microsoft que compila y ejecuta código fuente C# en el momento. Un atacante puede usarlo para ejecutar código arbitrario sin entregar un ejecutable propio (T1218, ejecución mediante binario firmado; T1027.004, compilación tras la entrega).",
+      "triage_steps": [
+        "Revise Image y la ruta completa: confirme si dnx.exe está en un perfil de usuario (.dnx\\runtimes), en Temp o en una ruta inusual, y valide su firma y su hash.",
+        "Analice CommandLine: identifique el directorio o el comando de proyecto (por ejemplo, 'dnx . run' o 'dnx web') y ubique el project.json y los archivos .cs referenciados.",
+        "Revise ParentImage y ParentCommandLine: un padre como Visual Studio o una consola del desarrollador es esperable; Office, wscript, mshta o un servicio es sospechoso.",
+        "Verifique el User y el host: ¿es un desarrollador con herramientas .NET heredadas? DNX está descontinuado, por lo que en estaciones actuales su uso es raro.",
+        "Pivotee en el mismo host +/- 15 minutos: procesos hijos de dnx.exe, conexiones de red, archivos creados y descargas de project.json o .cs.",
+        "Busque alertas anteriores del mismo usuario o host y ejecuciones de dnx.exe en otros equipos con el mismo hash."
+      ],
+      "false_positives": [
+        "Desarrolladores que usan legítimamente dnx.exe para compilar o ejecutar proyectos ASP.NET 5 o DNX heredados.",
+        "Servidores de build o pipelines de CI antiguos que todavía invocan el runtime de DNX."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o el responsable del equipo si la ejecución era esperada y revise el código C# ejecutado.",
+        "Si es malicioso, aísle el endpoint, termine dnx.exe y sus procesos hijos y conserve el directorio del proyecto como evidencia.",
+        "Elimine los artefactos maliciosos y la persistencia relacionada después de confirmarlos y restablezca las credenciales que pudieron quedar expuestas.",
+        "Bloquee dnx.exe con WDAC o AppLocker en los equipos que no lo necesiten."
+      ],
+      "severity_rationale": "Media: el binario permite ejecutar código arbitrario evadiendo controles, pero la regla solo detecta la ejecución y existe uso legítimo por desarrolladores."
+    },
+    "en": {
+      "summary": "dnx.exe, the legacy .NET Execution Environment that can compile and run C# code from a project directory, was executed. It can be abused to bypass application whitelisting.",
+      "what_it_detects": "Windows process creation events whose Image ends with \\dnx.exe, regardless of arguments, parent process or user.",
+      "why_it_matters": "DNX is a Microsoft-signed binary that compiles and runs C# source on the fly. Attackers can use it to run arbitrary code without dropping their own executable (T1218, signed binary proxy execution; T1027.004, compile after delivery).",
+      "triage_steps": [
+        "Review Image and its full path: check whether dnx.exe sits in a user profile (.dnx\\runtimes), Temp or an unusual folder, and validate signature and hash.",
+        "Analyze CommandLine: identify the project directory or command (e.g. 'dnx . run', 'dnx web') and locate the referenced project.json and .cs files.",
+        "Check ParentImage and ParentCommandLine: Visual Studio or a developer shell is expected; Office, wscript, mshta or a service is suspicious.",
+        "Validate User and host: is this a developer using legacy .NET tooling? DNX is deprecated, so use on modern workstations is rare.",
+        "Pivot on the same host +/- 15 minutes: child processes of dnx.exe, network connections, files written and downloads of project.json or .cs files.",
+        "Look for earlier alerts on the same user or host, and dnx.exe executions on other machines with the same hash."
+      ],
+      "false_positives": [
+        "Developers legitimately using dnx.exe to build or run legacy ASP.NET 5 / DNX projects.",
+        "Old build servers or CI pipelines still invoking the DNX runtime."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether the execution was expected, and review the executed C# code.",
+        "If malicious, isolate the endpoint, terminate dnx.exe and its children, and preserve the project directory as evidence.",
+        "Remove confirmed malicious artifacts and related persistence, and reset credentials that may have been exposed.",
+        "Block dnx.exe with WDAC or AppLocker on machines that do not need it."
+      ],
+      "severity_rationale": "Medium: the binary enables arbitrary code execution that evades controls, but the rule only flags execution and legitimate developer use exists."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "dnx.exe launched from a user's DNX runtime folder by cmd.exe to run a project in a Temp directory",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\.dnx\\runtimes\\dnx-clr-win-x86.1.0.0-rc1-update2\\bin\\dnx.exe",
+          "CommandLine": "dnx.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\proj run",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c dnx.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\proj run",
+          "OriginalFileName": "dnx.exe"
+        }
+      },
+      {
+        "description": "Uppercase DNX.EXE spawned by wscript.exe (case-insensitive match)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\tools\\DNX.EXE",
+          "CommandLine": "DNX.EXE . run",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "CurrentDirectory": "C:\\ProgramData\\tools\\app\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "dotnet.exe running a C# project; different image, no dnx.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\dotnet\\dotnet.exe",
+          "CommandLine": "dotnet run --project C:\\src\\webapp",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\Common7\\IDE\\devenv.exe"
+        }
+      },
+      {
+        "description": "dnvm.exe (DNX version manager), name only partly similar and does not end with \\dnx.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\.dnx\\bin\\dnvm.exe",
+          "CommandLine": "dnvm.exe list",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

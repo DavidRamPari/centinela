@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "40b19fa6-d835-400c-b301-41f3a2baacaf",
+    "title": "VolumeShadowCopy Symlink Creation Via Mklink",
+    "level": "high",
+    "status": "stable",
+    "author": "Teymur Kheirkhabarov, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_cmd_mklink_shadow_copies_access_symlink.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmd_mklink_shadow_copies_access_symlink.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.002",
+      "T1003.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó mklink con una ruta HarddiskVolumeShadowCopy en la línea de comandos, lo que crea un enlace simbólico a una instantánea de volumen (Volume Shadow Copy). Así se pueden leer archivos bloqueados, como SAM, SYSTEM o NTDS.dit, sin pasar por las protecciones del sistema.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene a la vez 'mklink' y 'HarddiskVolumeShadowCopy'. Por ejemplo: cmd.exe /c mklink /d C:\\sc \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy1\\.",
+      "why_it_matters": "Al enlazar una instantánea, un atacante copia los hives SAM/SYSTEM (T1003.002) o la base NTDS.dit de un controlador de dominio (T1003.003) y luego extrae hashes de credenciales sin conexión. En un DC esto equivale a comprometer todo el dominio.",
+      "triage_steps": [
+        "Revise el CommandLine completo: anote la ruta destino del enlace y el número de HarddiskVolumeShadowCopy usado.",
+        "Identifique el host y su rol. Si es un controlador de dominio o un servidor con credenciales sensibles, escale la prioridad de inmediato.",
+        "Revise el ParentImage y el árbol de procesos: el origen puede ser cmd.exe, PowerShell, wmiprvse.exe, psexesvc.exe o una sesión remota inusual.",
+        "Valide el usuario y el tipo de logon: compárelo con cuentas de backup o de administración autorizadas y con ventanas de cambio aprobadas.",
+        "En el mismo host, en un rango de +/- 15 minutos, busque vssadmin create shadow, wmic shadowcopy, ntdsutil, o copy/robocopy de SAM, SYSTEM, SECURITY o NTDS.dit.",
+        "Busque archivos creados en la ruta del enlace o en carpetas temporales, archivos comprimidos y transferencias salientes (SMB, HTTP) posteriores.",
+        "Consulte alertas anteriores del mismo usuario, host o IP de origen, como movimiento lateral o volcado de credenciales."
+      ],
+      "false_positives": [
+        "Un administrador que monta instantáneas para recuperar archivos o revisar backups manualmente.",
+        "Scripts o software de respaldo que acceden a instantáneas mediante enlaces simbólicos (confirme la ruta del binario y la cuenta de servicio).",
+        "Pruebas autorizadas de red team o de auditoría documentadas."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host o del equipo de backup si la actividad estaba autorizada; si no hay justificación, trátela como incidente.",
+        "Aísle el endpoint y preserve evidencia: enlaces creados, archivos copiados, registros de eventos y memoria si es posible.",
+        "Elimine el enlace simbólico y los archivos de hives o NTDS.dit copiados, solo después de preservar la evidencia.",
+        "Si hubo acceso a NTDS.dit, restablezca dos veces la contraseña de krbtgt y la de las cuentas privilegiadas; si fueron SAM/SYSTEM, rote las contraseñas de administradores locales.",
+        "Revise en todo el entorno el uso de credenciales robadas y refuerce el monitoreo de la creación de instantáneas."
+      ],
+      "severity_rationale": "El nivel alto es adecuado: crear enlaces a instantáneas es poco frecuente en la operación normal y es un paso directo para robar hashes de credenciales locales o del dominio."
+    },
+    "en": {
+      "summary": "mklink was run with a HarddiskVolumeShadowCopy path in its command line, which creates a symbolic link to a Volume Shadow Copy. This lets someone read locked files such as SAM, SYSTEM or NTDS.dit without hitting the system's protections.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains both 'mklink' and 'HarddiskVolumeShadowCopy'. Example: cmd.exe /c mklink /d C:\\sc \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy1\\.",
+      "why_it_matters": "With a link to a shadow copy, an attacker can copy the SAM/SYSTEM hives (T1003.002) or a domain controller's NTDS.dit (T1003.003) and crack the credential hashes offline. On a DC, this means the whole domain is compromised.",
+      "triage_steps": [
+        "Read the full CommandLine. Note the link target path and the HarddiskVolumeShadowCopy number used.",
+        "Identify the host and its role. If it is a domain controller or a server holding sensitive credentials, escalate right away.",
+        "Check the ParentImage and process tree. The source may be cmd.exe, PowerShell, wmiprvse.exe, psexesvc.exe or an unusual remote session.",
+        "Check the user and logon type against authorized backup or admin accounts and approved change windows.",
+        "On the same host within +/- 15 minutes, look for vssadmin create shadow, wmic shadowcopy, ntdsutil, or copy/robocopy of SAM, SYSTEM, SECURITY or NTDS.dit.",
+        "Look for files created under the link path or in temp folders, new archives, and outbound SMB or HTTP transfers afterward.",
+        "Check earlier alerts for the same user, host or source IP, such as lateral movement or credential dumping."
+      ],
+      "false_positives": [
+        "An administrator mounting shadow copies to restore files or inspect backups by hand.",
+        "Backup scripts or software that reach shadow copies through symlinks. Confirm the binary path and the service account.",
+        "Documented, authorized red team or audit testing."
+      ],
+      "response_steps": [
+        "Ask the host owner or backup team whether the activity was authorized. If nobody can justify it, treat it as an incident.",
+        "Isolate the endpoint and preserve evidence: created links, copied files, event logs and memory if possible.",
+        "After evidence is preserved, delete the symlink and any copied hive or NTDS.dit files.",
+        "If NTDS.dit was accessed, reset krbtgt twice and rotate privileged account passwords. If SAM/SYSTEM was accessed, rotate local admin passwords.",
+        "Hunt across the environment for use of the stolen credentials, and tighten monitoring of shadow copy creation."
+      ],
+      "severity_rationale": "High fits because linking to shadow copies is rare in normal operations and is a direct step toward stealing local or domain credential hashes."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe creates a directory symlink to shadow copy 1 on a domain controller",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "cmd.exe /c mklink /d C:\\Users\\Public\\sc \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy1\\",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "mklink run from an interactive cmd shell with mixed-case shadow copy path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "cmd /c MKLINK /D C:\\temp\\vss2 \\\\?\\GLOBALROOT\\Device\\harddiskvolumeshadowcopy2\\",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate mklink creating a directory link to a regular data folder, no shadow copy path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "cmd /c mklink /D C:\\Projects\\data D:\\Shares\\data",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Copy from a shadow copy path without mklink",
+        "event": {
+          "EventID": 1,
+          "Computer": "FS-02",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Program Files\\BackupAgent\\agent.exe",
+          "CommandLine": "cmd /c copy \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy3\\Data\\report.xlsx D:\\Restore\\",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

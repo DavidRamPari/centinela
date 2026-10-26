@@ -1,0 +1,138 @@
+{
+  "rule": {
+    "id": "515c8be5-e5df-4c5e-8f6d-a4a2f05e4b48",
+    "title": "CreateDump Process Dump",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_createdump_lolbin_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_createdump_lolbin_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.001",
+      "T1036"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó createdump.exe, una utilidad del runtime de .NET, o una copia renombrada de ella, con parámetros que generan un volcado de memoria de un proceso. Puede indicar un intento de robo de credenciales, por ejemplo volcando LSASS.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\createdump.exe u OriginalFileName es 'FX_VER_INTERNALNAME_STR' (detecta binarios renombrados), y el CommandLine contiene ' -u ', ' --full ', ' -f ', ' --name ' o '.dmp '.",
+      "why_it_matters": "createdump.exe es un binario firmado incluido con .NET y puede volcar la memoria de cualquier proceso accesible. Los atacantes lo usan para volcar LSASS y extraer credenciales (T1003.001) y lo renombran para no ser detectados (T1036).",
+      "triage_steps": [
+        "Identifique en CommandLine el PID de destino (último argumento) y confirme a qué proceso pertenece; un PID de lsass.exe implica severidad crítica.",
+        "Revise Image: una ruta fuera de C:\\Program Files\\dotnet\\shared\\ o un nombre distinto a createdump.exe con OriginalFileName coincidente indica un binario renombrado.",
+        "Analice ParentImage y la línea de comandos del padre: cmd.exe, powershell.exe, wmiprvse.exe o shells web son sospechosos; IDEs o servicios .NET conocidos son menos preocupantes.",
+        "Verifique el usuario y su nivel de privilegios; volcar LSASS requiere administrador o SYSTEM.",
+        "Busque la creación del archivo .dmp indicado en -f/--name y cualquier acceso posterior, compresión o copia por red.",
+        "Pivote en el mismo host +/- 15 minutos: acceso a LSASS (Sysmon evento 10), descargas de herramientas, conexiones salientes y movimiento lateral.",
+        "Revise alertas previas del mismo host y usuario, en especial de acceso a credenciales o ejecución remota."
+      ],
+      "false_positives": [
+        "Desarrolladores o equipos de soporte que generan volcados de aplicaciones .NET propias para depurar fallos.",
+        "Volcados automáticos del runtime de .NET configurados mediante variables como DOTNET_DbgEnableMiniDump.",
+        "Otras herramientas o scripts de diagnóstico que usan los mismos parámetros sobre procesos no sensibles."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del equipo o del usuario si la actividad fue autorizada y qué proceso se volcó.",
+        "Si el destino fue LSASS o la actividad no está justificada, aísle el endpoint y preserve el archivo .dmp y la evidencia forense.",
+        "Restablezca contraseñas de las cuentas con sesión en el host e invalide tickets Kerberos; considere cuentas privilegiadas como comprometidas.",
+        "Elimine binarios renombrados o copiados y revise mecanismos de persistencia antes de reincorporar el host.",
+        "Busque ejecuciones similares de createdump.exe en el resto del entorno y restrinja su uso con reglas de control de aplicaciones."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque volcar memoria con un binario firmado es una técnica directa de robo de credenciales, con pocos usos legítimos fuera de entornos de desarrollo."
+    },
+    "en": {
+      "summary": "createdump.exe, a .NET runtime utility, or a renamed copy of it, ran with arguments that write a process memory dump. This may be a credential theft attempt, for example dumping LSASS.",
+      "what_it_detects": "Process creation events where Image ends with \\createdump.exe or OriginalFileName is 'FX_VER_INTERNALNAME_STR' (catches renamed copies), and CommandLine contains ' -u ', ' --full ', ' -f ', ' --name ' or '.dmp '.",
+      "why_it_matters": "createdump.exe is a signed binary shipped with .NET that can dump memory of any accessible process. Attackers use it to dump LSASS for credentials (T1003.001) and rename it to evade detection (T1036).",
+      "triage_steps": [
+        "Find the target PID in CommandLine (last argument) and map it to a process; an lsass.exe PID makes this critical.",
+        "Check Image: a path outside C:\\Program Files\\dotnet\\shared\\ or a different file name with matching OriginalFileName means a renamed binary.",
+        "Review ParentImage and its command line: cmd.exe, powershell.exe, wmiprvse.exe or web server processes are suspicious; known IDEs or .NET services less so.",
+        "Check the user and privileges; dumping LSASS requires administrator or SYSTEM.",
+        "Look for creation of the .dmp file named in -f/--name and any later access, compression or network copy.",
+        "Pivot on the same host +/- 15 minutes: LSASS access (Sysmon event 10), tool downloads, outbound connections and lateral movement.",
+        "Review earlier alerts for the same host and user, especially credential access or remote execution."
+      ],
+      "false_positives": [
+        "Developers or support staff dumping their own .NET applications to debug crashes.",
+        "Automatic .NET runtime crash dumps configured through variables such as DOTNET_DbgEnableMiniDump.",
+        "Other diagnostic scripts or tools using the same flags against non-sensitive processes."
+      ],
+      "response_steps": [
+        "Confirm with the host or user owner whether the activity was authorized and which process was dumped.",
+        "If LSASS was targeted or the activity is unexplained, isolate the endpoint and preserve the .dmp file and forensic evidence.",
+        "Reset passwords for accounts logged on to the host and invalidate Kerberos tickets; treat privileged accounts as compromised.",
+        "Remove renamed or copied binaries and check for persistence before returning the host to service.",
+        "Hunt for similar createdump.exe executions across the environment and restrict it with application control."
+      ],
+      "severity_rationale": "High fits because dumping memory with a signed binary is a direct credential theft technique with few legitimate uses outside development environments."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "createdump.exe from the .NET runtime folder writing a full dump of the LSASS PID to a public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App\\6.0.5\\createdump.exe",
+          "OriginalFileName": "FX_VER_INTERNALNAME_STR",
+          "CommandLine": "\"C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App\\6.0.5\\createdump.exe\" -u -f C:\\Users\\Public\\out.dmp 652",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed createdump copy detected through OriginalFileName, using long options",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\Temp\\svchelper.exe",
+          "OriginalFileName": "FX_VER_INTERNALNAME_STR",
+          "CommandLine": "C:\\Windows\\Temp\\svchelper.exe --full --name C:\\Windows\\Temp\\x.dmp 712",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "createdump.exe run with only a PID and no dump flags or .dmp path",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App\\8.0.1\\createdump.exe",
+          "OriginalFileName": "FX_VER_INTERNALNAME_STR",
+          "CommandLine": "\"C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App\\8.0.1\\createdump.exe\" 4120",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\devenv.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Unrelated binary using a ' -f ' flag; image and OriginalFileName do not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\shutdown.exe",
+          "OriginalFileName": "shutdown.exe",
+          "CommandLine": "shutdown.exe -r -f -t 0",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

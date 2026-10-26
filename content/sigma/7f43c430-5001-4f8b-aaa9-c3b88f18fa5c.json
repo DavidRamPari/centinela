@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "7f43c430-5001-4f8b-aaa9-c3b88f18fa5c",
+    "title": "Execute From Alternate Data Streams",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_susp_alternate_data_streams.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_alternate_data_streams.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1564.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó una línea de comandos que escribe o copia datos a un Alternate Data Stream (ADS) NTFS adjunto a un archivo .txt con type, makecab, reg, regedit o esentutl. Es probable que alguien esté ocultando un payload o datos dentro de un archivo que parece inofensivo.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene 'txt:' (un ADS en un archivo .txt) junto con alguno de estos patrones: 'type ... > ', 'makecab ... .cab', 'reg ... export ', 'regedit ... /E ' o 'esentutl ... /y ... /d ... /o '. Solo cubre streams en archivos .txt, así que no detecta otras extensiones.",
+      "why_it_matters": "Los ADS guardan contenido que no se ve en el Explorador ni en un dir normal. Los atacantes los usan para esconder ejecutables, scripts o datos exportados y así evadir la detección (MITRE ATT&CK T1564.004, Hide Artifacts: NTFS File Attributes).",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el archivo origen, el archivo .txt host y el nombre del stream que aparece después de 'txt:'.",
+        "Revise ParentImage y el árbol de procesos: cmd.exe o powershell.exe lanzados por Office, un navegador, wscript o un servicio son más sospechosos que una consola interactiva.",
+        "Confirme quién lo ejecutó (User) y si esa cuenta normalmente hace tareas administrativas en ese host.",
+        "En el endpoint, liste los streams con 'Get-Item <ruta> -Stream *' o 'dir /r' y obtenga el hash del contenido del stream.",
+        "Si se usó reg o regedit, identifique qué clave se exportó (SAM, SYSTEM o claves Run) y si los datos parecen preparados para exfiltración.",
+        "Busque en el mismo host, +/- 15 minutos, ejecuciones que referencien el stream (wmic process call create, rundll32, start, cscript con ':').",
+        "Revise alertas anteriores del mismo host y usuario, y busque el mismo nombre de stream o hash en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; es raro que se escriba legítimamente en un ADS con estas herramientas.",
+        "Pruebas autorizadas de red team o de Atomic Red Team (T1564.004) en equipos de laboratorio.",
+        "Scripts de administradores o desarrolladores que usan ADS en archivos .txt para guardar metadatos; valídelo con el responsable."
+      ],
+      "response_steps": [
+        "Valide con el usuario o el responsable del equipo si la actividad estaba autorizada antes de actuar.",
+        "Si no está autorizada, aísle el endpoint y conserve como evidencia el archivo host y el contenido del stream.",
+        "Analice el contenido del stream (hash, sandbox) y busque el mismo indicador en toda la flota.",
+        "Elimine el stream solo después de preservarlo, quite la persistencia relacionada y restablezca las credenciales si se exportaron hives sensibles del registro.",
+        "Documente los hallazgos y considere ampliar la detección a ADS en otras extensiones."
+      ],
+      "severity_rationale": "El nivel medium es adecuado porque es poco común escribir en un ADS desde la línea de comandos y suele indicar evasión, aunque por sí solo no prueba que se ejecutó código malicioso."
+    },
+    "en": {
+      "summary": "A process ran a command line that writes or copies data into an NTFS Alternate Data Stream (ADS) on a .txt file using type, makecab, reg, regedit or esentutl. This likely means someone is hiding a payload or data inside a harmless-looking file.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains 'txt:' (an ADS on a .txt file) plus one of these patterns: 'type ... > ', 'makecab ... .cab', 'reg ... export ', 'regedit ... /E ' or 'esentutl ... /y ... /d ... /o '. It only covers streams on .txt files, so other extensions are missed.",
+      "why_it_matters": "ADS content does not show in Explorer or a plain dir listing. Attackers use it to hide executables, scripts or exported data and evade detection (MITRE ATT&CK T1564.004, Hide Artifacts: NTFS File Attributes).",
+      "triage_steps": [
+        "Read the full CommandLine: find the source file, the host .txt file and the stream name after 'txt:'.",
+        "Check ParentImage and the process tree. cmd.exe or powershell.exe spawned by Office, a browser, wscript or a service is more suspicious than an interactive console.",
+        "Identify the User and whether that account normally does admin work on this host.",
+        "On the endpoint, list streams with 'Get-Item <path> -Stream *' or 'dir /r' and hash the stream content.",
+        "If reg or regedit was used, find out which key was exported (SAM, SYSTEM, Run keys) and whether the data looks staged for exfiltration.",
+        "On the same host within +/- 15 minutes, look for executions that reference the stream (wmic process call create, rundll32, start, cscript with ':').",
+        "Review earlier alerts for the same host and user, and look for the same stream name or hash on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. Legitimate writes to an ADS with these tools are rare.",
+        "Authorized red team or Atomic Red Team (T1564.004) tests on lab machines.",
+        "Admin or developer scripts that keep metadata in ADS on .txt files. Confirm with the owner."
+      ],
+      "response_steps": [
+        "Before acting, confirm with the user or system owner whether the activity was authorized.",
+        "If it was not, isolate the endpoint and keep the host file and the stream content as evidence.",
+        "Analyze the stream content (hash, sandbox) and hunt for the same indicator across the fleet.",
+        "Only after preserving the stream, delete it, remove any related persistence and reset credentials if sensitive registry hives were exported.",
+        "Record the findings and consider extending detection to ADS on other file extensions."
+      ],
+      "severity_rationale": "Medium fits because writing to an ADS from the command line is uncommon and usually points to evasion, but on its own it does not prove malicious code ran."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe uses type to hide an executable in an ADS on a .txt file",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c type C:\\Users\\Public\\payload.exe > C:\\Users\\Public\\readme.txt:payload.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "reg.exe exports the Run key into an ADS on a .txt file",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg export HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run C:\\Users\\Public\\notes.txt:run.reg",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Ordinary file concatenation with type and redirection, no ADS",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c type C:\\logs\\app1.txt > C:\\logs\\combined.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Legitimate registry backup to a normal .reg file",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-02.andes.example.com",
+          "User": "ANDES\\adm.mrojas",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "CommandLine": "reg export HKCU\\Software\\ExampleVendor C:\\backup\\examplevendor.reg /y",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

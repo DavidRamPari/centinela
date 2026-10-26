@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "9847f263-4a81-424f-970c-875dab15b79b",
+    "title": "Suspicious TSCON Start as SYSTEM",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_tscon_localsystem.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_tscon_localsystem.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1219.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó tscon.exe con la cuenta LOCAL SYSTEM. Esto suele indicar un secuestro de sesión RDP: conectarse a la sesión de otro usuario sin conocer su contraseña.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\tscon.exe y User contiene 'AUTHORI' o 'AUTORI' (NT AUTHORITY\\SYSTEM, AUTORIDAD NT\\SYSTEM y equivalentes según el idioma).",
+      "why_it_matters": "Si tscon se ejecuta como SYSTEM, se conecta a cualquier sesión activa o desconectada sin pedir credenciales. Así el atacante hereda el escritorio, los tokens y los recursos abiertos de otro usuario, a menudo un administrador. La regla está etiquetada como ATT&CK T1219.002 (software de escritorio remoto).",
+      "triage_steps": [
+        "Revise CommandLine para ver el ID de sesión de destino y el parámetro /dest (por ejemplo rdp-tcp#N o console). Identifique al dueño de esa sesión con los eventos 4624 de tipo 10.",
+        "Analice ParentImage y la cadena de procesos padres. Es sospechoso que tscon cuelgue de cmd.exe lanzado por services.exe, de PsExec (-s) o de una tarea programada.",
+        "Busque en el mismo host, +/- 15 minutos, servicios creados (7045 o 4697) o tareas programadas (4698) cuyo binPath o acción incluyan tscon.",
+        "Revise TerminalServices-LocalSessionManager (eventos 24 y 25) y los eventos 4778 y 4779 para confirmar que hubo reconexión o desconexión de sesiones.",
+        "Identifique qué cuenta obtuvo privilegios de SYSTEM antes del evento y desde qué IP de origen se conectó por RDP.",
+        "Revise alertas anteriores del mismo host y de la misma cuenta: escalamiento de privilegios, volcado de credenciales o herramientas de movimiento lateral."
+      ],
+      "false_positives": [
+        "La regla indica 'Unknown': un uso legítimo de tscon como SYSTEM es poco común.",
+        "Scripts de automatización de interfaz o de kioscos que, desde una tarea como SYSTEM, devuelven la sesión a la consola para mantenerla desbloqueada.",
+        "Herramientas de soporte remoto o de gestión de VDI que reasignan sesiones con privilegios de SYSTEM, siempre que estén documentadas y aprobadas."
+      ],
+      "response_steps": [
+        "Confirme con el dueño de la sesión y con el equipo de administración si la actividad estaba autorizada.",
+        "Si no estaba autorizada, aísle el endpoint de la red y cierre la sesión secuestrada (logoff) después de preservar la evidencia.",
+        "Elimine los servicios o tareas programadas maliciosas que se hayan identificado y restablezca las credenciales de la cuenta usada para escalar y del usuario cuya sesión se secuestró.",
+        "Busque la misma técnica en otros servidores RDP y restrinja el acceso RDP y los privilegios administrativos locales."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque tscon casi nunca se ejecuta como SYSTEM de forma legítima y este uso permite tomar sesiones de otros usuarios sin credenciales."
+    },
+    "en": {
+      "summary": "tscon.exe ran under the LOCAL SYSTEM account. This usually points to RDP session hijacking: connecting to another user's session without that user's password.",
+      "what_it_detects": "Process creation events where Image ends with \\tscon.exe and User contains 'AUTHORI' or 'AUTORI', which covers NT AUTHORITY\\SYSTEM and its localized forms such as AUTORIDAD NT\\SYSTEM.",
+      "why_it_matters": "When tscon runs as SYSTEM, it can attach to any active or disconnected session without asking for credentials. The attacker inherits another user's desktop, tokens and open resources, often an admin's. The rule is tagged ATT&CK T1219.002 (remote desktop software).",
+      "triage_steps": [
+        "Check CommandLine for the target session ID and the /dest value (for example rdp-tcp#N or console). Use type 10 logons (4624) to find who owns that session.",
+        "Review ParentImage and the parent chain. Treat it as suspicious if tscon comes from cmd.exe started by services.exe, from PsExec -s, or from a scheduled task.",
+        "On the same host, +/- 15 minutes, look for new services (7045/4697) or scheduled tasks (4698) whose binPath or action contains tscon.",
+        "Check TerminalServices-LocalSessionManager events 24/25 and Security events 4778/4779 to confirm session reconnects or disconnects.",
+        "Find out which account gained SYSTEM before this event and which source IP it connected from over RDP.",
+        "Review earlier alerts for the same host and account: privilege escalation, credential dumping or lateral movement tools."
+      ],
+      "false_positives": [
+        "The rule lists 'Unknown'. Legitimate SYSTEM-context tscon use is rare.",
+        "UI-automation or kiosk scripts that run as a SYSTEM task and redirect a session to the console to keep it unlocked.",
+        "Documented, approved remote-support or VDI management tools that reassign sessions with SYSTEM privileges."
+      ],
+      "response_steps": [
+        "Check with the session owner and the admin team whether the activity was authorized.",
+        "If it was not, isolate the endpoint and preserve evidence first. Then log off the hijacked session.",
+        "Remove any malicious services or tasks you found. Reset credentials for the escalating account and for the user whose session was hijacked.",
+        "Hunt for the same technique on other RDP hosts. Restrict RDP access and local admin rights."
+      ],
+      "severity_rationale": "High fits because tscon rarely runs legitimately as SYSTEM, and in that context it allows taking over other users' sessions without credentials."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "tscon launched as NT AUTHORITY\\SYSTEM from cmd.exe spawned by a malicious service, hijacking session 2",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-RDS-01.andes.example.com",
+          "Image": "C:\\Windows\\System32\\tscon.exe",
+          "CommandLine": "tscon.exe 2 /dest:rdp-tcp#5",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "IntegrityLevel": "System",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /k tscon 2 /dest:rdp-tcp#5"
+        }
+      },
+      {
+        "description": "Spanish-localized SYSTEM account running tscon to redirect session 3 to the console",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\tscon.exe",
+          "CommandLine": "tscon 3 /dest:console",
+          "User": "AUTORIDAD NT\\SYSTEM",
+          "IntegrityLevel": "System",
+          "ParentImage": "C:\\Windows\\PSEXESVC.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Regular domain user running tscon in their own context (User does not contain AUTHORI/AUTORI)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\tscon.exe",
+          "CommandLine": "tscon 1 /dest:console",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "High",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "SYSTEM running qwinsta.exe to enumerate sessions, not tscon.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-RDS-01.andes.example.com",
+          "Image": "C:\\Windows\\System32\\qwinsta.exe",
+          "CommandLine": "qwinsta.exe",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "IntegrityLevel": "System",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:57:07+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

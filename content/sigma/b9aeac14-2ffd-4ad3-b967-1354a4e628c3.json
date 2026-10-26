@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "b9aeac14-2ffd-4ad3-b967-1354a4e628c3",
+    "title": "PowerShell Get-Clipboard Cmdlet Via CLI",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_get_clipboard.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_get_clipboard.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1115"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso cuya línea de comandos contiene el cmdlet de PowerShell 'Get-Clipboard', que lee el contenido del portapapeles del usuario. Puede indicar recolección de datos copiados, como contraseñas, tokens o texto sensible.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde CommandLine contiene 'Get-Clipboard' (sin distinguir mayúsculas), normalmente powershell.exe o pwsh.exe invocados con -Command o desde otro proceso.",
+      "why_it_matters": "Leer el portapapeles es una técnica de recolección (ATT&CK T1115, Clipboard Data). Un atacante puede capturar credenciales copiadas desde gestores de contraseñas, claves API o datos internos para exfiltrarlos después.",
+      "triage_steps": [
+        "Revise el CommandLine completo: ¿solo lee el portapapeles o redirige la salida a archivos, variables, bucles (while/Start-Sleep) o solicitudes web?",
+        "Identifique ParentImage y su línea de comandos; cmd.exe, wscript.exe, mshta.exe, Office o procesos remotos (wsmprovhost.exe) son más sospechosos que una consola interactiva.",
+        "Confirme el usuario y el host; valide con el usuario o su área si el uso es esperado (administradores, desarrolladores, scripts conocidos).",
+        "Busque en el mismo host, +/- 15 minutos, creación de archivos en %TEMP% o %APPDATA%, conexiones de red salientes y otros comandos de PowerShell.",
+        "Revise los procesos hijos y si el comando corre de forma repetida o programada (tareas programadas, claves Run, servicios).",
+        "Consulte alertas previas para el mismo usuario y host, especialmente de ejecución, persistencia o exfiltración."
+      ],
+      "false_positives": [
+        "Scripts administrativos o de automatización que procesan texto copiado por el usuario.",
+        "Desarrolladores o administradores que usan Get-Clipboard en consolas interactivas para su trabajo diario.",
+        "Herramientas internas o módulos de PowerShell que integran el portapapeles en flujos de productividad."
+      ],
+      "response_steps": [
+        "Verifique la legitimidad con el propietario del host o el usuario antes de actuar.",
+        "Si es malicioso, aísle el endpoint y conserve evidencia: script, archivos de salida, transcripciones y logs de PowerShell (4104).",
+        "Termine el proceso y elimine la persistencia asociada tras confirmar su origen.",
+        "Asuma exposición del contenido copiado: rote contraseñas, tokens y claves que el usuario pudo haber copiado recientemente.",
+        "Busque el mismo patrón en otros hosts y ajuste exclusiones solo para scripts legítimos verificados."
+      ],
+      "severity_rationale": "Nivel medio: la lectura del portapapeles por CLI es poco común y puede exponer secretos, pero también tiene usos administrativos legítimos que requieren contexto."
+    },
+    "en": {
+      "summary": "A process was created whose command line contains the PowerShell 'Get-Clipboard' cmdlet, which reads the user's clipboard. This may indicate collection of copied data such as passwords, tokens or sensitive text.",
+      "what_it_detects": "Windows process creation events where CommandLine contains 'Get-Clipboard' (case-insensitive), typically powershell.exe or pwsh.exe launched with -Command or spawned by another process.",
+      "why_it_matters": "Reading the clipboard is a collection technique (ATT&CK T1115, Clipboard Data). Attackers can capture credentials copied from password managers, API keys or internal data for later exfiltration.",
+      "triage_steps": [
+        "Read the full CommandLine: does it only read the clipboard, or write output to files, variables, loops (while/Start-Sleep) or web requests?",
+        "Identify ParentImage and its command line; cmd.exe, wscript.exe, mshta.exe, Office apps or remoting hosts (wsmprovhost.exe) are more suspicious than an interactive console.",
+        "Confirm the user and host; check with the user or their team whether this use is expected (admins, developers, known scripts).",
+        "On the same host within +/- 15 minutes, look for files written to %TEMP% or %APPDATA%, outbound network connections and other PowerShell commands.",
+        "Review child processes and whether the command runs repeatedly or on a schedule (scheduled tasks, Run keys, services).",
+        "Check earlier alerts for the same user and host, especially execution, persistence or exfiltration."
+      ],
+      "false_positives": [
+        "Administrative or automation scripts that process text the user copied.",
+        "Developers or admins using Get-Clipboard in interactive consoles for daily work.",
+        "Internal tools or PowerShell modules that integrate the clipboard into productivity workflows."
+      ],
+      "response_steps": [
+        "Verify legitimacy with the host owner or user before acting.",
+        "If malicious, isolate the endpoint and preserve evidence: script, output files, transcripts and PowerShell logs (4104).",
+        "Kill the process and remove related persistence after confirming its origin.",
+        "Assume copied content is exposed: rotate passwords, tokens and keys the user may have recently copied.",
+        "Hunt for the same pattern on other hosts and add exclusions only for verified legitimate scripts."
+      ],
+      "severity_rationale": "Medium fits because CLI clipboard reads are uncommon and can expose secrets, yet have legitimate administrative uses that need context."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell spawned by cmd.exe reading the clipboard in a loop and appending to a temp file",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -c \"while($true){Get-Clipboard | Out-File -Append $env:TEMP\\cb.txt; Start-Sleep 30}\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start.bat"
+        }
+      },
+      {
+        "description": "pwsh with lowercase cmdlet name (case-insensitive match)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "CommandLine": "pwsh.exe -Command get-clipboard -Raw",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "PowerShell using Set-Clipboard, not reading the clipboard",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -c \"Get-Date | Set-Clipboard\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Interactive PowerShell launched without any clipboard cmdlet in its command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

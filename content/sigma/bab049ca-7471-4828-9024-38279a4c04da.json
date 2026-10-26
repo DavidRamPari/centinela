@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "bab049ca-7471-4828-9024-38279a4c04da",
+    "title": "Virtualbox Driver Installation or Starting of VMs",
+    "level": "low",
+    "status": "test",
+    "author": "Janantha Marasinghe",
+    "path": "windows/process_creation/proc_creation_win_virtualbox_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_virtualbox_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1564",
+      "T1564.006"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso cuya línea de comandos registra componentes del driver de VirtualBox (VBoxRT.dll, VBoxC.dll, VBoxDrv.sys) o inicia o controla una VM (startvm, controlvm). Puede ser uso legítimo o un intento de ejecutar código dentro de una VM para evadir la seguridad del host.",
+      "what_it_detects": "Eventos process_creation de Windows cuyo CommandLine contiene 'VBoxRT.dll,RTR3Init', 'VBoxC.dll' o 'VBoxDrv.sys' (registro del driver o de la DLL), o 'startvm' o 'controlvm' (arranque o control de una VM con VirtualBox.exe o VBoxManage.exe).",
+      "why_it_matters": "Corresponde a ATT&CK T1564.006 (Run Virtual Instance): el adversario ejecuta su payload dentro de una VM, fuera de la vista del EDR del host. Las referencias de la regla describen ransomware que desplegó VirtualBox para cifrar recursos compartidos desde una VM.",
+      "triage_steps": [
+        "Revise CommandLine, Image y ParentImage: ¿es VBoxManage.exe o VirtualBox.exe en Program Files, o rundll32, regsvr32 o sc.exe cargando componentes de VirtualBox?",
+        "Verifique la ruta: VirtualBox o VBoxDrv.sys en ProgramData, Temp o carpetas de usuario es mucho más sospechoso que C:\\Program Files\\Oracle\\VirtualBox.",
+        "Confirme si el host y el usuario tienen VirtualBox autorizado según inventario o CMDB, por ejemplo equipos de desarrollo o laboratorio.",
+        "Pivote en el mismo host +/- 15 minutos: creación de servicios (sc create VBoxDRV), instaladores MSI, copias de imágenes .vdi/.vmdk y opciones de VM headless.",
+        "Busque en la línea de comandos opciones de VM ocultas (--type headless) y carpetas compartidas que mapeen unidades locales o de red.",
+        "Revise la actividad del mismo usuario y si existen alertas previas de ese host: borrado de shadow copies, detención de servicios o movimiento lateral.",
+        "Calcule el hash de los binarios y del archivo de imagen de la VM y compárelo con la distribución oficial de VirtualBox."
+      ],
+      "false_positives": [
+        "Hosts donde VirtualBox se usa legítimamente: estaciones de desarrolladores, laboratorios de QA o entornos de capacitación.",
+        "Instalación o actualización autorizada de VirtualBox que registra VBoxDrv.sys y VBoxC.dll.",
+        "Automatización de VM con Vagrant, Packer o scripts de CI que ejecutan VBoxManage startvm o controlvm."
+      ],
+      "response_steps": [
+        "Verifique con el usuario y el responsable del equipo si el uso de VirtualBox está aprobado antes de actuar.",
+        "Si no está autorizado, aísle el endpoint de la red y detenga la VM, preservando la imagen de disco para análisis forense.",
+        "Desinstale el servicio VBoxDRV y los archivos no autorizados después de recolectar la evidencia, y revise las carpetas compartidas expuestas a la VM.",
+        "Busque el mismo patrón en otros hosts, restablezca las credenciales comprometidas y restaure los datos afectados desde respaldos verificados."
+      ],
+      "severity_rationale": "El nivel low es adecuado porque VirtualBox es común en entornos legítimos; la alerta solo gana peso con rutas inusuales, VM headless o actividad de ransomware correlacionada."
+    },
+    "en": {
+      "summary": "A process was created whose command line registers VirtualBox driver components (VBoxRT.dll, VBoxC.dll, VBoxDrv.sys) or starts or controls a VM (startvm, controlvm). This may be legitimate use or an attempt to run code inside a VM to evade host security.",
+      "what_it_detects": "Windows process_creation events where CommandLine contains 'VBoxRT.dll,RTR3Init', 'VBoxC.dll' or 'VBoxDrv.sys' (driver or DLL registration), or 'startvm' or 'controlvm' (starting or controlling a VM through VirtualBox.exe or VBoxManage.exe).",
+      "why_it_matters": "Maps to ATT&CK T1564.006 (Run Virtual Instance): the adversary runs the payload inside a VM, out of sight of the host EDR. The rule's references describe ransomware deploying VirtualBox to encrypt shared drives from within a VM.",
+      "triage_steps": [
+        "Review CommandLine, Image and ParentImage: is it VBoxManage.exe or VirtualBox.exe under Program Files, or rundll32, regsvr32 or sc.exe loading VirtualBox components?",
+        "Check paths: VirtualBox or VBoxDrv.sys in ProgramData, Temp or user folders is far more suspicious than C:\\Program Files\\Oracle\\VirtualBox.",
+        "Confirm whether the host and user are approved for VirtualBox per inventory or CMDB, such as developer or lab machines.",
+        "Pivot on the same host +/- 15 minutes: service creation (sc create VBoxDRV), MSI installs, .vdi/.vmdk image copies and headless VM options.",
+        "Look for hidden VM options (--type headless) and shared folders mapping local or network drives into the VM.",
+        "Review the same user's activity and earlier alerts for the host: shadow copy deletion, service stopping or lateral movement.",
+        "Hash the binaries and VM image file and compare them with the official VirtualBox distribution."
+      ],
+      "false_positives": [
+        "Hosts where VirtualBox is used legitimately: developer workstations, QA labs or training environments.",
+        "Authorized VirtualBox installation or upgrade registering VBoxDrv.sys and VBoxC.dll.",
+        "VM automation with Vagrant, Packer or CI scripts running VBoxManage startvm or controlvm."
+      ],
+      "response_steps": [
+        "Verify with the user and asset owner whether VirtualBox use is approved before acting.",
+        "If unauthorized, isolate the endpoint and stop the VM, preserving the disk image for forensics.",
+        "Remove the VBoxDRV service and unauthorized files after collecting evidence, and review shared folders exposed to the VM.",
+        "Hunt for the same pattern on other hosts, reset compromised credentials and restore affected data from verified backups."
+      ],
+      "severity_rationale": "Low fits because VirtualBox is common in legitimate environments; the alert gains weight only with unusual paths, headless VMs or correlated ransomware activity."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "rundll32 initializing VirtualBox runtime from a non-standard ProgramData folder (matches selection_1 'VBoxRT.dll,RTR3Init').",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe C:\\ProgramData\\VirtualBox\\VBoxRT.dll,RTR3Init",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\ProgramData\\VirtualBox\\install.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "VBoxManage starting a headless VM (matches selection_2 'startvm').",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\ProgramData\\VirtualBox\\VBoxManage.exe",
+          "CommandLine": "\"C:\\ProgramData\\VirtualBox\\VBoxManage.exe\" startvm \"micro\" --type headless",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\ProgramData\\VirtualBox\\install.bat",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "VBoxManage listing running VMs; no driver component, startvm or controlvm in the command line.",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files\\Oracle\\VirtualBox\\VBoxManage.exe",
+          "CommandLine": "\"C:\\Program Files\\Oracle\\VirtualBox\\VBoxManage.exe\" list runningvms",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "VirtualBox GUI opened by a user without arguments.",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files\\Oracle\\VirtualBox\\VirtualBox.exe",
+          "CommandLine": "\"C:\\Program Files\\Oracle\\VirtualBox\\VirtualBox.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

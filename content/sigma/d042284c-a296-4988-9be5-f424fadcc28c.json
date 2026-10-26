@@ -1,0 +1,125 @@
+{
+  "rule": {
+    "id": "d042284c-a296-4988-9be5-f424fadcc28c",
+    "title": "Suspicious Execution of InstallUtil Without Log",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_instalutil_no_log_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_instalutil_no_log_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó InstallUtil.exe del .NET Framework con un archivo de log vacío y sin salida a consola. Esto suele indicar que se usa InstallUtil para cargar un ensamblado sin dejar registro de la instalación.",
+      "what_it_detects": "Creación de procesos en los que Image termina en \\InstallUtil.exe dentro de una ruta Microsoft.NET\\Framework y CommandLine contiene a la vez '/logfile= ' (valor vacío) y '/LogToConsole=false'.",
+      "why_it_matters": "InstallUtil es un binario firmado por Microsoft que ejecuta código de las clases instaladoras de un ensamblado .NET. Los atacantes lo usan como proxy para ejecutar payloads y evadir controles de aplicaciones (T1218.004, System Binary Proxy Execution: InstallUtil). Desactivar el log reduce las evidencias.",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique el ensamblado (.dll o .exe) que se pasa como argumento y si se usa /U, que invoca el método Uninstall.",
+        "Verifique la ruta y el hash del ensamblado cargado; búsquelo en inteligencia de amenazas y confirme si está firmado y quién lo creó.",
+        "Analice ParentImage y la cadena de procesos padre: Office, scripts, cmd o PowerShell desde rutas de usuario son indicios fuertes de abuso.",
+        "Valide el usuario y el host: ¿corresponde a un administrador o a una herramienta de despliegue conocida?",
+        "Busque en el mismo host, +/- 15 minutos, procesos hijos de InstallUtil, conexiones de red salientes y escritura de archivos en Temp, AppData o Public.",
+        "Revise alertas previas del mismo host, usuario y hash del ensamblado, y búsquelos en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Scripts de instalación internos o herramientas de despliegue que instalan servicios .NET y desactivan el log a propósito; confirme con el equipo responsable."
+      ],
+      "response_steps": [
+        "Confirme la legitimidad con el dueño del sistema o del software antes de actuar.",
+        "Si es malicioso, aísle el endpoint y termine el proceso InstallUtil y sus procesos hijos.",
+        "Ponga en cuarentena el ensamblado, bloquee su hash y busque la persistencia creada (servicios, tareas programadas, claves Run).",
+        "Revise y restablezca las credenciales del usuario afectado y busque el mismo hash en toda la flota.",
+        "Restaure el host desde un estado confiable y considere restringir InstallUtil con WDAC o AppLocker."
+      ],
+      "severity_rationale": "Medium es adecuado: la combinación de parámetros es poco común en el uso legítimo y sugiere evasión, pero se necesita contexto del ensamblado y del proceso padre para confirmar que es malicioso."
+    },
+    "en": {
+      "summary": "The .NET Framework InstallUtil.exe ran with an empty log file and console logging disabled. This usually means InstallUtil is being used to load an assembly without leaving an installation log.",
+      "what_it_detects": "Process creation where Image ends with \\InstallUtil.exe under a Microsoft.NET\\Framework path and CommandLine contains both '/logfile= ' (empty value) and '/LogToConsole=false'.",
+      "why_it_matters": "InstallUtil is a Microsoft-signed binary that runs code in a .NET assembly's installer classes. Attackers use it as a proxy to execute payloads and bypass application control (T1218.004, System Binary Proxy Execution: InstallUtil). Suppressing logs removes evidence.",
+      "triage_steps": [
+        "Read the full CommandLine: identify the assembly (.dll or .exe) passed as an argument and whether /U is used, which invokes the Uninstall method.",
+        "Check the assembly's path and hash; look it up in threat intelligence and confirm its signature and who created it.",
+        "Review ParentImage and the process ancestry: Office, scripts, cmd or PowerShell running from user paths strongly suggest abuse.",
+        "Validate the user and host: is this an administrator or a known deployment tool?",
+        "On the same host, +/- 15 minutes, look for InstallUtil child processes, outbound network connections and file writes to Temp, AppData or Public.",
+        "Check earlier alerts for the same host, user and assembly hash, and search for them on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Internal install scripts or deployment tools that install .NET services and deliberately disable logging; confirm with the owning team."
+      ],
+      "response_steps": [
+        "Confirm legitimacy with the system or software owner before acting.",
+        "If malicious, isolate the endpoint and terminate InstallUtil and its child processes.",
+        "Quarantine the assembly, block its hash and hunt for persistence it created (services, scheduled tasks, Run keys).",
+        "Review and reset the affected user's credentials and sweep the fleet for the same hash.",
+        "Restore the host from a trusted state and consider restricting InstallUtil with WDAC or AppLocker."
+      ],
+      "severity_rationale": "Medium fits: this parameter combination is rare in legitimate use and suggests evasion, but the assembly and parent process context are needed to confirm malice."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "64-bit InstallUtil launched from PowerShell with an empty log file and console logging off, loading a DLL from a public folder via /U",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\InstallUtil.exe",
+          "CommandLine": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\InstallUtil.exe /logfile= /LogToConsole=false /U C:\\Users\\Public\\update.dll",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      },
+      {
+        "description": "32-bit InstallUtil with mixed-case parameters launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\InstallUtil.exe",
+          "CommandLine": "InstallUtil.exe /LOGFILE= /logtoconsole=FALSE C:\\Users\\mrojas\\AppData\\Local\\Temp\\svc.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate service install with a real log file path, so '/logfile= ' with an empty value is not present",
+        "event": {
+          "EventID": 1,
+          "Computer": "APP-SRV-03.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\InstallUtil.exe",
+          "CommandLine": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\InstallUtil.exe /logfile=C:\\Deploy\\logs\\install.log /LogToConsole=false C:\\Program Files\\Contoso\\ContosoService.exe",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe"
+        }
+      },
+      {
+        "description": "Standard InstallUtil run with default logging, no log-suppression parameters",
+        "event": {
+          "EventID": 1,
+          "Computer": "APP-SRV-03.andes.example.com",
+          "User": "ANDES\\admin.lgomez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\InstallUtil.exe",
+          "CommandLine": "InstallUtil.exe C:\\Program Files\\Contoso\\ContosoAgent.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

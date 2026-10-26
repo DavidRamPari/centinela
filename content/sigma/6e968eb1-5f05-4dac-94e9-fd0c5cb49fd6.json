@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "6e968eb1-5f05-4dac-94e9-fd0c5cb49fd6",
+    "title": "Uncommon Link.EXE Parent Process",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_link_uncommon_parent_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_link_uncommon_parent_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso llamado link.exe con la línea de comandos fija \"LINK /\" que usan herramientas de Visual C++ como dumpbin.exe, editbin.exe o lib.exe, pero el proceso padre no está en una carpeta estándar VC\\bin o VC\\Tools de Visual Studio. Puede tratarse de un link.exe falso cargado mediante sideloading por una herramienta de Microsoft copiada.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\link.exe y CommandLine contiene \"LINK /\", salvo que ParentImage empiece por C:\\Program Files\\ o C:\\Program Files (x86)\\Microsoft Visual Studio\\ y contenga \\VC\\bin\\ o \\VC\\Tools\\.",
+      "why_it_matters": "Herramientas como dumpbin.exe invocan \"link.exe\" por nombre sin validarlo. Un atacante puede copiar una herramienta firmada de Microsoft junto a un link.exe malicioso para que un binario confiable ejecute el payload (T1218, ejecución mediante binarios del sistema como proxy) y así evadir la detección.",
+      "triage_steps": [
+        "Revise ParentImage: qué herramienta es (dumpbin, editbin, lib) y desde dónde se ejecuta (perfil de usuario, Temp, Descargas, recurso compartido).",
+        "Verifique la ruta de Image, el hash y la firma de link.exe. El linker legítimo está firmado por Microsoft y suele estar junto a las herramientas VC.",
+        "Analice la CommandLine completa, en especial los archivos y opciones que siguen a \"LINK /\".",
+        "Revise los procesos hijos de link.exe, sus conexiones de red y los archivos o claves de registro que creó en el mismo host en +/- 15 minutos.",
+        "Determine cómo llegaron la herramienta padre y link.exe a esa carpeta: eventos de creación de archivos, descompresión, descargas y el usuario responsable.",
+        "Confirme si el usuario es desarrollador y si Visual Studio o Build Tools están instalados en una ruta no estándar.",
+        "Busque alertas previas y el mismo hash de link.exe en otros endpoints."
+      ],
+      "false_positives": [
+        "Visual Studio o Build Tools instalados en otra unidad o en una ruta personalizada fuera de C:\\Program Files.",
+        "Toolchains MSVC portables o copiados en agentes de CI/build, por ejemplo en un workspace o una carpeta de herramientas.",
+        "Desarrolladores o analistas que copiaron dumpbin.exe o editbin.exe junto con el link.exe legítimo a una carpeta de trabajo."
+      ],
+      "response_steps": [
+        "Valide el hash y la firma de link.exe. Si es el linker legítimo de Microsoft y proviene de un toolchain conocido, documente el caso y ajuste el filtro.",
+        "Si no está firmado o es desconocido, aísle el endpoint y recolecte link.exe, la herramienta padre y el contenido de la carpeta para análisis.",
+        "Bloquee el hash malicioso, elimine los archivos plantados y busque persistencia creada por el payload.",
+        "Si el payload se ejecutó, restablezca las credenciales del usuario afectado y busque el mismo hash o patrón de carpeta en otros hosts."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque el patrón es poco común e indica ejecución por proxy de binarios, aunque toolchains legítimos en rutas no estándar también pueden activarlo."
+    },
+    "en": {
+      "summary": "A process named link.exe started with the hardcoded \"LINK /\" command line used by Visual C++ tools such as dumpbin.exe, editbin.exe or lib.exe, but its parent is not in a standard Visual Studio VC\\bin or VC\\Tools folder. This can mean a fake link.exe was sideloaded by a copied Microsoft tool.",
+      "what_it_detects": "Process creation where Image ends with \\link.exe and CommandLine contains \"LINK /\", unless ParentImage starts with C:\\Program Files\\ or C:\\Program Files (x86)\\Microsoft Visual Studio\\ and contains \\VC\\bin\\ or \\VC\\Tools\\.",
+      "why_it_matters": "Tools like dumpbin.exe call \"link.exe\" by name without checking it. An attacker can copy a signed Microsoft tool next to a malicious link.exe and run it, so a trusted binary launches the payload (T1218, System Binary Proxy Execution), which helps evade detection.",
+      "triage_steps": [
+        "Review ParentImage: which tool (dumpbin, editbin, lib) and where it runs from, such as a user profile, Temp, Downloads or a share.",
+        "Check the Image path, hash and signature of link.exe. A real Microsoft linker is signed by Microsoft and normally sits next to the VC tools.",
+        "Read the full CommandLine. Look at the target files and options passed after \"LINK /\".",
+        "List link.exe child processes, network connections, and files or registry keys it wrote on the same host within +/- 15 minutes.",
+        "Find out how the parent tool and link.exe got into that folder: file creation events, archive extraction, downloads, the user who did it.",
+        "Check whether the user is a developer and whether Visual Studio or Build Tools are installed in a non-default location.",
+        "Search for earlier alerts and the same link.exe hash on other endpoints."
+      ],
+      "false_positives": [
+        "Visual Studio or Build Tools installed on another drive or in a custom path outside C:\\Program Files.",
+        "Portable or copied MSVC toolchains on CI/build agents, for example in a workspace or tools folder.",
+        "Developers or analysts who copied dumpbin.exe or editbin.exe together with the real link.exe into a working folder."
+      ],
+      "response_steps": [
+        "Verify the link.exe hash and signature. If it is the real Microsoft linker from a known toolchain, document it and tune the filter.",
+        "If it is unsigned or unknown, isolate the endpoint and collect link.exe, the parent tool and the folder contents for analysis.",
+        "Block the malicious hash, remove the planted files and look for persistence created by the payload.",
+        "Reset credentials of the affected user if the payload ran, and hunt for the same hash or folder pattern on other hosts."
+      ],
+      "severity_rationale": "Medium fits because the pattern is rare and points to binary proxy execution, but legitimate toolchains in non-standard paths can also trigger it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "dumpbin.exe copied to a user Temp folder calls a planted link.exe from that same folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\vt\\link.exe",
+          "CommandLine": "link /dump /headers C:\\Users\\jperez\\Documents\\report.dll",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\vt\\dumpbin.exe",
+          "ParentCommandLine": "dumpbin.exe /headers C:\\Users\\jperez\\Documents\\report.dll",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\vt\\",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "editbin.exe run from a public folder launches a link.exe in the same directory",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\Libraries\\link.exe",
+          "CommandLine": "LINK /EDIT /NXCOMPAT C:\\Users\\Public\\Libraries\\app.exe",
+          "ParentImage": "C:\\Users\\Public\\Libraries\\editbin.exe",
+          "ParentCommandLine": "editbin.exe /NXCOMPAT C:\\Users\\Public\\Libraries\\app.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate dumpbin.exe in the default Visual Studio 2022 VC\\Tools path calls the real linker; the filter excludes it",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\Hostx64\\x64\\link.exe",
+          "CommandLine": "link /DUMP /HEADERS C:\\src\\app\\x64\\Release\\app.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\Hostx64\\x64\\dumpbin.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Normal MSBuild link step with a full-path command line that does not contain 'LINK /'",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-02.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "Image": "D:\\BuildTools\\VC\\Tools\\MSVC\\14.38.33130\\bin\\Hostx64\\x64\\link.exe",
+          "CommandLine": "\"D:\\BuildTools\\VC\\Tools\\MSVC\\14.38.33130\\bin\\Hostx64\\x64\\link.exe\" /ERRORREPORT:QUEUE /OUT:D:\\agent\\_work\\1\\s\\bin\\app.exe /NOLOGO @C:\\Windows\\Temp\\tmp4F2A.rsp",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\BuildTools\\MSBuild\\Current\\Bin\\amd64\\MSBuild.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "3e8207c5-fcd2-4ea6-9418-15d45b4890e4",
+    "title": "Potential Data Stealing Via Chromium Headless Debugging",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_browsers_chromium_headless_debugging.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_browsers_chromium_headless_debugging.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1185",
+      "T1564.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un navegador basado en Chromium (Chrome, Edge, Brave, etc.) en modo headless, con depuración remota habilitada y apuntando a un perfil de usuario. Así se puede robar cookies y sesiones o controlar el navegador a distancia.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene a la vez '--remote-debugging-' (port, address, pipe, socket-name), '--user-data-dir' y '--headless'.",
+      "why_it_matters": "Un atacante puede abrir el perfil real de la víctima sin ventana visible y usar el protocolo DevTools para extraer cookies, tokens y contenido de las páginas sin la contraseña. Corresponde a secuestro de sesión del navegador (T1185) y ventana oculta (T1564.003).",
+      "triage_steps": [
+        "Revise el CommandLine: ¿--user-data-dir apunta al perfil real (p. ej. AppData\\Local\\Google\\Chrome\\User Data) o a un directorio temporal de automatización?",
+        "Anote el puerto o la dirección de depuración; '--remote-debugging-address=0.0.0.0' o una IP no local indica exposición a la red y es más grave.",
+        "Analice ParentImage y ParentCommandLine: PowerShell, cmd, wscript, mshta o binarios en carpetas temporales son sospechosos; Puppeteer o Selenium conocidos son menos preocupantes.",
+        "Valide si el usuario y el host usan herramientas de automatización o de pruebas aprobadas y si el binario del navegador está en su ruta legítima.",
+        "Busque en el mismo host, +/- 15 minutos, la terminación forzada del navegador (taskkill chrome.exe/msedge.exe), scripts descargados o nuevos archivos con cookies o JSON.",
+        "Revise las conexiones de red al puerto de depuración (p. ej. 127.0.0.1:9222) desde otros procesos y el tráfico saliente posterior hacia destinos desconocidos.",
+        "Consulte alertas previas del mismo usuario y host, y busque la misma línea de comandos en otros endpoints."
+      ],
+      "false_positives": [
+        "Automatización legítima con Puppeteer, Playwright o Selenium que reutiliza un perfil para pruebas, scraping o RPA.",
+        "Servicios internos que generan PDF o capturas de pantalla con Chrome headless y depuración remota.",
+        "Desarrolladores que depuran extensiones o aplicaciones web en sus estaciones de trabajo."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable de la herramienta si la ejecución era esperada; documente el proceso padre y el hash.",
+        "Si no está justificado, aísle el endpoint y termine el proceso headless tras preservar evidencia (árbol de procesos, memoria si es posible).",
+        "Revoque las sesiones web y los tokens del usuario afectado, cierre sesión en todos los servicios críticos y restablezca credenciales.",
+        "Elimine scripts, tareas programadas o persistencia relacionados y busque la misma actividad en otros hosts.",
+        "Restaure el endpoint a un estado limpio y vigile en los días siguientes los inicios de sesión anómalos con las cookies robadas."
+      ],
+      "severity_rationale": "Es nivel high porque la combinación de headless, depuración remota y perfil de usuario rara vez es benigna fuera de entornos de automatización conocidos y permite robar sesiones directamente."
+    },
+    "en": {
+      "summary": "A Chromium-based browser (Chrome, Edge, Brave, etc.) was started headless, with remote debugging enabled and pointed at a user profile. This can be used to steal cookies and sessions or to control the browser remotely.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains all of '--remote-debugging-' (port, address, pipe, socket-name), '--user-data-dir' and '--headless'.",
+      "why_it_matters": "An attacker can open the victim's real profile with no visible window and use the DevTools protocol to dump cookies, tokens and page content without the password. This is browser session hijacking (T1185) and a hidden window (T1564.003).",
+      "triage_steps": [
+        "Inspect CommandLine: does --user-data-dir point to the real profile (e.g. AppData\\Local\\Google\\Chrome\\User Data) or to a temporary automation directory?",
+        "Note the debugging port or address; '--remote-debugging-address=0.0.0.0' or a non-local IP means network exposure and is more severe.",
+        "Review ParentImage and ParentCommandLine: PowerShell, cmd, wscript, mshta or binaries in temp folders are suspicious; known Puppeteer or Selenium tooling is less so.",
+        "Check whether the user and host run approved automation or testing tools and whether the browser binary sits in its legitimate path.",
+        "On the same host, +/- 15 minutes, look for forced browser termination (taskkill chrome.exe/msedge.exe), downloaded scripts, or new cookie or JSON dump files.",
+        "Review connections to the debugging port (e.g. 127.0.0.1:9222) from other processes and later outbound traffic to unknown destinations.",
+        "Check earlier alerts for the same user and host, and hunt for the same command line on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate Puppeteer, Playwright or Selenium automation that reuses a profile for testing, scraping or RPA.",
+        "Internal services generating PDFs or screenshots with headless Chrome and remote debugging.",
+        "Developers debugging extensions or web apps on their workstations."
+      ],
+      "response_steps": [
+        "Confirm with the user or tool owner whether the run was expected; record the parent process and hash.",
+        "If unjustified, isolate the endpoint and kill the headless process after preserving evidence (process tree, memory if possible).",
+        "Revoke the affected user's web sessions and tokens, sign out of all critical services and reset credentials.",
+        "Remove related scripts, scheduled tasks or persistence, and hunt for the same activity on other hosts.",
+        "Restore the endpoint to a clean state and watch for anomalous logins using stolen cookies over the next days."
+      ],
+      "severity_rationale": "Level high fits because headless mode, remote debugging and a user profile together are rarely benign outside known automation and allow direct session theft."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell launches Chrome headless on the user's real profile with remote debugging on port 9222",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+          "CommandLine": "\"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" --headless --remote-debugging-port=9222 --user-data-dir=\"C:\\Users\\jperez\\AppData\\Local\\Google\\Chrome\\User Data\" https://example.com",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden -File C:\\Users\\jperez\\AppData\\Local\\Temp\\run.ps1",
+          "ProcessId": 6412
+        }
+      },
+      {
+        "description": "Edge started headless with a remote debugging address bound to all interfaces on the user's profile",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+          "CommandLine": "msedge.exe --user-data-dir=C:\\Users\\mrojas\\AppData\\Local\\Microsoft\\Edge\\User Data --remote-debugging-address=0.0.0.0 --remote-debugging-port=9333 --headless=new",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start.bat",
+          "ProcessId": 3388
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Headless Chrome PDF generation with a temp profile but no remote debugging flag",
+        "event": {
+          "EventID": 1,
+          "Computer": "APP-REPORT-01.andes.example.com",
+          "User": "ANDES\\svc_reports",
+          "Image": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+          "CommandLine": "chrome.exe --headless --disable-gpu --user-data-dir=C:\\Temp\\chrome-report --print-to-pdf=C:\\Reports\\out.pdf https://intranet.example.com/report",
+          "ParentImage": "C:\\Program Files\\ReportService\\reportsvc.exe",
+          "ProcessId": 5120
+        }
+      },
+      {
+        "description": "Developer runs Chrome with remote debugging and a custom profile, but not in headless mode",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+          "CommandLine": "chrome.exe --remote-debugging-port=9222 --user-data-dir=C:\\dev\\chrome-debug-profile",
+          "ParentImage": "C:\\Program Files\\Microsoft VS Code\\Code.exe",
+          "ProcessId": 7744
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

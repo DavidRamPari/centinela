@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "68bcd73b-37ef-49cb-95fc-edc809730be6",
+    "title": "Potential Unquoted Service Path Reconnaissance Via Wmic.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wmic_recon_unquoted_service_search.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmic_recon_unquoted_service_search.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1047"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó wmic.exe con una consulta que lista nombre, nombre visible, ruta y modo de inicio de los servicios, técnica clásica para buscar rutas de servicio sin comillas. Suele indicar enumeración para escalar privilegios en el endpoint.",
+      "what_it_detects": "Creación de un proceso cuyo Image termina en \\WMIC.exe u OriginalFileName es wmic.exe, y cuyo CommandLine contiene ' service get ' y 'name,displayname,pathname,startmode'. Esta consulta aparece en scripts de enumeración como redsnarf y jaws-enum.",
+      "why_it_matters": "Usa WMI (T1047) para encontrar servicios con rutas sin comillas y con espacios. Si el usuario puede escribir en una carpeta intermedia, puede colocar un ejecutable que el servicio arranque como SYSTEM.",
+      "triage_steps": [
+        "Revise el CommandLine completo: busque filtros como findstr /i \"auto\" o /v \"C:\\Windows\\\", típicos de scripts que buscan rutas sin comillas.",
+        "Identifique el usuario y el ParentImage. Un padre cmd.exe o powershell.exe lanzado desde un usuario estándar, Office o un webshell es más sospechoso que una consola de administración.",
+        "Revise los procesos hermanos e hijos del mismo padre en +/- 15 minutos: whoami, net user, systeminfo, accesschk o icacls indican enumeración automatizada.",
+        "Busque en el mismo host la creación de ejecutables en rutas como C:\\Program.exe o C:\\Program Files\\<Carpeta>.exe después de la alerta.",
+        "Liste los servicios del host con rutas sin comillas y revise los permisos de escritura de sus carpetas intermedias.",
+        "Busque alertas previas del mismo usuario o host, en especial ejecución de scripts de PowerShell o la variante PowerShell relacionada de esta regla.",
+        "Confirme con el equipo de TI si hay un pentest, una auditoría de vulnerabilidades o un script de inventario programado."
+      ],
+      "false_positives": [
+        "Pentests o ejercicios de red team autorizados que usan scripts de enumeración.",
+        "Auditorías de hardening o scripts de administradores que revisan rutas de servicio sin comillas.",
+        "Herramientas de evaluación de vulnerabilidades o inventario que ejecutan esta consulta WMI."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del host y el usuario si la ejecución fue legítima antes de actuar.",
+        "Si no se autorizó, aísle el endpoint y conserve la memoria y la línea de tiempo de procesos del usuario.",
+        "Revise y elimine con verificación cualquier ejecutable plantado en rutas intermedias; restablezca las credenciales comprometidas.",
+        "Corrija las rutas de servicio agregando comillas en ImagePath y restrinja los permisos de escritura en las carpetas afectadas."
+      ],
+      "severity_rationale": "Media porque es reconocimiento y no explotación, pero coincide con una consulta específica de herramientas ofensivas que rara vez aparece en uso normal."
+    },
+    "en": {
+      "summary": "wmic.exe ran a query that lists service name, display name, path and start mode, a classic way to hunt for unquoted service paths. It usually means privilege-escalation enumeration on the endpoint.",
+      "what_it_detects": "Process creation where Image ends with \\WMIC.exe or OriginalFileName is wmic.exe, and CommandLine contains both ' service get ' and 'name,displayname,pathname,startmode'. This query appears in enumeration scripts such as redsnarf and jaws-enum.",
+      "why_it_matters": "It uses WMI (T1047) to find services whose paths contain spaces and no quotes. If a user can write to an intermediate folder, they can plant an executable the service launches as SYSTEM.",
+      "triage_steps": [
+        "Read the full CommandLine: look for filters such as findstr /i \"auto\" or /v \"C:\\Windows\\\", typical of unquoted-path hunting scripts.",
+        "Identify the user and ParentImage. A cmd.exe or powershell.exe parent from a standard user, Office or a web shell is more suspicious than an admin console.",
+        "Review sibling and child processes of the same parent within +/- 15 minutes: whoami, net user, systeminfo, accesschk or icacls suggest automated enumeration.",
+        "Search the same host for executables created afterwards in paths like C:\\Program.exe or C:\\Program Files\\<Folder>.exe.",
+        "List the host's unquoted service paths and check write permissions on their intermediate folders.",
+        "Check earlier alerts for the same user or host, especially PowerShell script execution or the related PowerShell variant of this rule.",
+        "Confirm with IT whether a pentest, vulnerability audit or scheduled inventory script was running."
+      ],
+      "false_positives": [
+        "Authorized penetration tests or red team exercises using enumeration scripts.",
+        "Hardening audits or administrator scripts that check for unquoted service paths.",
+        "Vulnerability assessment or inventory tools that run this WMI query."
+      ],
+      "response_steps": [
+        "Confirm with the host owner and user whether the execution was legitimate before acting.",
+        "If unauthorized, isolate the endpoint and preserve memory and the user's process timeline.",
+        "Review and, after verification, remove any executable planted in intermediate paths; reset compromised credentials.",
+        "Fix service paths by quoting ImagePath and restrict write permissions on affected folders."
+      ],
+      "severity_rationale": "Medium because it is reconnaissance rather than exploitation, yet it matches a specific offensive-tool query rarely seen in normal use."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Unquoted service path hunt via wmic piped to findstr, launched from cmd.exe by a standard user",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic  service get name,displayname,pathname,startmode |findstr /i \"auto\" |findstr /i /v \"C:\\Windows\\\\\" |findstr /i /v \"\"\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c wmic service get name,displayname,pathname,startmode |findstr /i \"auto\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed wmic binary detected via OriginalFileName, spawned by PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\svc.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "svc.exe service get name,displayname,pathname,startmode",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin lists services with wmic but without the pathname field combination",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic service get name,state,startmode",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Same field list queried through sc.exe/PowerShell, not wmic.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -c \"Get-CimInstance Win32_Service | Select name,displayname,pathname,startmode\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

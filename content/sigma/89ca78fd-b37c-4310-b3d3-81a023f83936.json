@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "89ca78fd-b37c-4310-b3d3-81a023f83936",
+    "title": "Schtasks Creation Or Modification With SYSTEM Privileges",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_schtasks_system.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_schtasks_system.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1053.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó schtasks.exe para crear o modificar una tarea programada que se ejecuta como NT AUTHORITY\\SYSTEM. Puede indicar persistencia o escalamiento de privilegios con el nivel más alto del sistema local.",
+      "what_it_detects": "Procesos cuyo Image termina en \\schtasks.exe y cuyo CommandLine contiene ' /create ' o ' /change ', el parámetro '/ru ' y 'NT AUT' o ' SYSTEM '. Se excluyen tareas conocidas de TeamViewer (TVInstallRestore), Office Subscription Heartbeat y Avira System Speedup.",
+      "why_it_matters": "Las tareas programadas como SYSTEM (ATT&CK T1053.005) permiten a un atacante ejecutar un payload de forma recurrente con privilegios máximos, sobrevivir a reinicios y escalar desde una cuenta administrativa. Familias como QBot han usado esta técnica.",
+      "triage_steps": [
+        "Revise el CommandLine completo: nombre de la tarea (/tn), acción (/tr), disparador (/sc) y si se usa /xml; anote la ruta del binario o script que ejecutará la tarea.",
+        "Verifique la ruta de /tr: rutas en AppData, Temp, C:\\Users\\Public, ProgramData o uso de powershell, cmd, rundll32 o mshta son muy sospechosos.",
+        "Identifique el ParentImage y el usuario que ejecutó schtasks; confirme si corresponde a un instalador, GPO, SCCM u otra herramienta de gestión aprobada.",
+        "Obtenga el hash del binario referenciado en /tr, revise su firma digital y consulte su reputación en su plataforma de threat intelligence.",
+        "Pivote en el mismo host +/- 15 minutos: procesos hijos del padre, descargas, conexiones de red y otros eventos de persistencia (servicios, claves Run).",
+        "Revise el evento 4698/4702 del Security log o el XML en C:\\Windows\\System32\\Tasks para confirmar la definición final de la tarea.",
+        "Busque el mismo nombre de tarea o la misma ruta de /tr en otros endpoints y alertas previas para el mismo usuario o host."
+      ],
+      "false_positives": [
+        "Instaladores o actualizadores de software legítimo que registran tareas de mantenimiento como SYSTEM.",
+        "Scripts de administración, GPO o herramientas como SCCM o Intune que despliegan tareas programadas.",
+        "Agentes de seguridad, respaldo o monitoreo que crean tareas de autorreparación con privilegios elevados."
+      ],
+      "response_steps": [
+        "Valide con el dueño del sistema o el equipo de TI si la tarea es esperada; documente y ajuste exclusiones si es legítima.",
+        "Si es maliciosa, aísle el endpoint y deshabilite la tarea (schtasks /change /tn <nombre> /disable) preservando su XML como evidencia.",
+        "Recolecte el binario de /tr y artefactos relacionados; tras el análisis, elimine la tarea y el payload.",
+        "Restablezca credenciales de la cuenta que creó la tarea y busque movimiento lateral desde el host.",
+        "Barra la flota buscando el mismo nombre de tarea, hash o ruta y restaure el equipo a un estado limpio verificado."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque una tarea como SYSTEM otorga persistencia con privilegios máximos y los filtros ya excluyen los casos benignos conocidos."
+    },
+    "en": {
+      "summary": "schtasks.exe was used to create or modify a scheduled task that runs as NT AUTHORITY\\SYSTEM. This may indicate persistence or privilege escalation at the highest local privilege level.",
+      "what_it_detects": "Processes whose Image ends with \\schtasks.exe and whose CommandLine contains ' /create ' or ' /change ', the '/ru ' parameter and 'NT AUT' or ' SYSTEM '. Known TeamViewer (TVInstallRestore), Office Subscription Heartbeat and Avira System Speedup tasks are excluded.",
+      "why_it_matters": "SYSTEM scheduled tasks (ATT&CK T1053.005) let an attacker run a payload repeatedly with full privileges, survive reboots and escalate from an admin account. Malware such as QBot has used this technique.",
+      "triage_steps": [
+        "Read the full CommandLine: task name (/tn), action (/tr), trigger (/sc) and any /xml; note the binary or script the task will run.",
+        "Check the /tr path: AppData, Temp, C:\\Users\\Public, ProgramData, or powershell, cmd, rundll32 or mshta are highly suspicious.",
+        "Identify the ParentImage and the user who ran schtasks; confirm whether it is an installer, GPO, SCCM or another approved management tool.",
+        "Hash the binary referenced in /tr, check its signature and look up its reputation in your threat intelligence platform.",
+        "Pivot on the same host +/- 15 minutes: sibling and child processes, downloads, network connections and other persistence (services, Run keys).",
+        "Review Security event 4698/4702 or the XML in C:\\Windows\\System32\\Tasks to confirm the final task definition.",
+        "Search for the same task name or /tr path on other endpoints and in earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "Legitimate software installers or updaters registering maintenance tasks as SYSTEM.",
+        "Admin scripts, GPO, or tools such as SCCM or Intune deploying scheduled tasks.",
+        "Security, backup or monitoring agents creating self-repair tasks with elevated privileges."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or IT whether the task is expected; document and tune exclusions if legitimate.",
+        "If malicious, isolate the endpoint and disable the task (schtasks /change /tn <name> /disable), preserving its XML as evidence.",
+        "Collect the /tr binary and related artifacts; after analysis, delete the task and the payload.",
+        "Reset credentials of the account that created the task and hunt for lateral movement from the host.",
+        "Sweep the fleet for the same task name, hash or path and restore the host to a verified clean state."
+      ],
+      "severity_rationale": "High fits because a SYSTEM task grants persistence with full privileges and the filters already remove known benign installers."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Task created to run a binary from C:\\Users\\Public at logon as NT AUTHORITY\\SYSTEM.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "schtasks.exe /create /tn \"WinUpdateCheck\" /tr \"C:\\Users\\Public\\updchk.exe\" /sc onlogon /ru \"NT AUTHORITY\\SYSTEM\" /f",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Existing task modified to run as SYSTEM with a PowerShell action.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\adm.rgomez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "schtasks /change /tn \"\\Microsoft\\Windows\\MaintTask\" /ru SYSTEM /tr \"powershell.exe -w hidden -f C:\\ProgramData\\m.ps1\"",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Office Subscription Heartbeat task as SYSTEM, excluded by filter_optional_office.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "ParentImage": "C:\\Program Files\\Common Files\\Microsoft Shared\\ClickToRun\\OfficeClickToRun.exe",
+          "CommandLine": "schtasks.exe /create /tn \"\\Microsoft\\Office\\Office 15 Subscription Heartbeat\" /xml \"C:\\Program Files\\Common Files\\Microsoft Shared\\OFFICE16\\HeartbeatConfig.xml\" /ru \"NT AUTHORITY\\SYSTEM\" /f",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Task created to run under a regular domain user, not SYSTEM.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\schtasks.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "schtasks.exe /create /tn \"BackupDocs\" /tr \"C:\\Tools\\backup.cmd\" /sc daily /st 18:00 /ru ANDES\\jperez",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

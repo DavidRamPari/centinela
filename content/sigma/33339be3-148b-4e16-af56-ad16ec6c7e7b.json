@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "33339be3-148b-4e16-af56-ad16ec6c7e7b",
+    "title": "Findstr Launching .lnk File",
+    "level": "medium",
+    "status": "test",
+    "author": "Trent Liffick",
+    "path": "windows/process_creation/proc_creation_win_findstr_lnk.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_findstr_lnk.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027.003",
+      "T1036",
+      "T1202"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó find.exe o findstr.exe con una línea de comandos que termina en un archivo .lnk. Los accesos directos maliciosos usan esta técnica para localizarse a sí mismos en el disco y extraer o ejecutar un payload oculto en el propio acceso directo.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\find.exe o \\findstr.exe, u OriginalFileName es FIND.EXE o FINDSTR.EXE, y CommandLine termina en .lnk, .lnk\" o .lnk'. Corresponde al patrón visto en la campaña de phishing que abusó de la redirección abierta de HHS.",
+      "why_it_matters": "Un acceso directo manipulado puede llevar contenido de script o binario oculto dentro del .lnk. Luego invoca findstr mediante cmd para localizarlo y extraerlo. Esto es ejecución indirecta de comandos (T1202), enmascaramiento (T1036) y ocultamiento de datos dentro de otro archivo (T1027.003). Suele terminar en la descarga y ejecución de malware.",
+      "triage_steps": [
+        "Revise CommandLine: identifique la cadena buscada, modificadores como /m o /v, y la ruta y el nombre completos del .lnk referenciado.",
+        "Revise ParentImage y su línea de comandos. Si explorer.exe lanzó cmd.exe o powershell.exe desde un acceso directo, el usuario probablemente abrió el .lnk.",
+        "Determine el origen del .lnk: Downloads, Temp, un archivo comprimido extraído o una carpeta de adjuntos. Correlacione con los logs de correo y proxy del mismo usuario.",
+        "Busque procesos hijos o hermanos en el mismo host en +/- 15 minutos, como cscript, wscript, mshta, rundll32, certutil o ejecutables nuevos.",
+        "Revise los archivos creados y las conexiones salientes del host en esa ventana, en especial en %TEMP% y %APPDATA%.",
+        "Obtenga el hash y el destino del .lnk. Busque el mismo nombre o hash en otros endpoints y revise alertas previas del usuario y del host."
+      ],
+      "false_positives": [
+        "Scripts administrativos o de inicio de sesión que usan findstr para inventariar o corregir destinos de accesos directos, por ejemplo durante migraciones de software.",
+        "Personal de TI que diagnostica accesos directos dañados buscando manualmente en el contenido de los .lnk."
+      ],
+      "response_steps": [
+        "Verifique la actividad maliciosa revisando el contenido del .lnk y los procesos posteriores. Cierre la alerta como benigna si la ejecutó un script administrativo conocido.",
+        "Si es maliciosa, aísle el endpoint y conserve como evidencia el .lnk, los archivos extraídos y el árbol de procesos.",
+        "Bloquee los hashes, el remitente y las URL identificados. Elimine el mismo adjunto de otros buzones.",
+        "Elimine los payloads descargados y la persistencia. Restablezca las credenciales del usuario si hubo ejecución, luego restaure el host y vigile si se repite."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque usar findstr sobre un acceso directo es poco común y coincide con un patrón conocido de entrega de malware, pero por sí solo no confirma que se haya ejecutado un payload."
+    },
+    "en": {
+      "summary": "find.exe or findstr.exe ran with a command line that ends in a .lnk file. Malicious shortcuts use this to find themselves on disk and pull out or run a payload hidden inside the shortcut.",
+      "what_it_detects": "A process creation event where Image ends in \\find.exe or \\findstr.exe, or OriginalFileName is FIND.EXE or FINDSTR.EXE, and CommandLine ends in .lnk, .lnk\" or .lnk'. This matches the pattern from the HHS open-redirect phishing campaign.",
+      "why_it_matters": "A booby-trapped shortcut can hide script or binary content inside the .lnk file. The shortcut then calls findstr through cmd to locate and extract it. This is indirect command execution (T1202), masquerading (T1036) and hiding data inside another file (T1027.003). It often leads to malware being dropped and run.",
+      "triage_steps": [
+        "Read CommandLine: note the search string, switches such as /m or /v, and the full path and name of the .lnk file it targets.",
+        "Check ParentImage and its command line. If cmd.exe or powershell.exe was started by explorer.exe from a shortcut, the user probably opened the .lnk.",
+        "Find out where the .lnk came from: Downloads, Temp, an extracted archive or a mail attachment folder. Check email and proxy logs for the same user.",
+        "Look at child and sibling processes on the same host within +/- 15 minutes, such as cscript, wscript, mshta, rundll32, certutil or new executables.",
+        "Look for files created and outbound connections from the host in the same window, especially in %TEMP% and %APPDATA%.",
+        "Get the .lnk hash and target. Search for the same file name or hash on other endpoints, and check earlier alerts for this user and host."
+      ],
+      "false_positives": [
+        "Admin or login scripts that use findstr to inventory or fix shortcut targets, for example during software migrations.",
+        "IT staff troubleshooting broken shortcuts by searching .lnk contents manually."
+      ],
+      "response_steps": [
+        "Confirm malice by checking the .lnk contents and any follow-on processes. Close as benign if a known admin script ran it.",
+        "If malicious, isolate the endpoint and keep the .lnk, extracted files and process tree as evidence.",
+        "Block the hashes, sender and URLs you found. Remove the same attachment from other mailboxes.",
+        "Remove dropped payloads and persistence. Reset the user's credentials if code ran, then restore the host and watch for recurrence."
+      ],
+      "severity_rationale": "Medium fits because using findstr on a shortcut is unusual and matches a known malware delivery pattern, but on its own it does not prove a payload ran."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe launched from a malicious shortcut runs findstr to locate the quoted .lnk file in the Downloads folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "OriginalFileName": "FINDSTR.EXE",
+          "CommandLine": "findstr.exe /m \"PK\" \"C:\\Users\\jperez\\Downloads\\Factura_COVID19.lnk\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\cmd.exe\" /c findstr.exe /m \"PK\" \"C:\\Users\\jperez\\Downloads\\Factura_COVID19.lnk\"",
+          "CurrentDirectory": "C:\\Users\\jperez\\Downloads\\"
+        }
+      },
+      {
+        "description": "Renamed find.exe identified by OriginalFileName searching an unquoted .lnk file in Temp",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\svc.exe",
+          "OriginalFileName": "FIND.EXE",
+          "CommandLine": "svc.exe /v \"zzz\" C:\\Users\\mrojas\\AppData\\Local\\Temp\\Notice.lnk",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "findstr searching a text report that lists shortcut names; the command line ends in .txt, not .lnk",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\soporte",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "OriginalFileName": "FINDSTR.EXE",
+          "CommandLine": "findstr.exe /i \".lnk\" C:\\IT\\reports\\shortcuts_inventory.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Explorer opening a .lnk shortcut directly; the image is not find or findstr",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\explorer.exe",
+          "OriginalFileName": "EXPLORER.EXE",
+          "CommandLine": "C:\\Windows\\explorer.exe C:\\Users\\Public\\Desktop\\Outlook.lnk",
+          "ParentImage": "C:\\Windows\\System32\\userinit.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

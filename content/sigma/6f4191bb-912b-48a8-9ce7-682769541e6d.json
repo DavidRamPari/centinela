@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "6f4191bb-912b-48a8-9ce7-682769541e6d",
+    "title": "Suspicious Msiexec Execute Arbitrary DLL",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_msiexec_execute_dll.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_msiexec_execute_dll.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.007"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "msiexec.exe se ejecutó con la opción /Y (o -Y), que carga una DLL y llama a su función DllRegisterServer, y la DLL no está en Program Files, System32 ni SysWOW64. Esto puede ser ejecución de código por proxy mediante un binario firmado de Windows.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\msiexec.exe y CommandLine contiene ' /Y' con cualquier variante de guion. Se excluyen las líneas de comando que registran DLL desde Program Files, Program Files (x86), System32 o SysWOW64.",
+      "why_it_matters": "Los atacantes usan msiexec.exe, un binario firmado por Microsoft, para cargar DLL maliciosas y evadir controles basados en listas de aplicaciones permitidas (MITRE ATT&CK T1218.007, System Binary Proxy Execution: Msiexec). El código de la DLL se ejecuta en un proceso de confianza.",
+      "triage_steps": [
+        "Revise CommandLine e identifique la ruta completa de la DLL. Las rutas en Temp, AppData, ProgramData, Downloads, Public o recursos UNC/WebDAV son muy sospechosas.",
+        "Examine ParentImage y la línea de comandos del padre. Desconfíe si es Office, un navegador, wscript, cscript, mshta, powershell o cmd lanzado desde un documento.",
+        "Obtenga el hash, la firma, la fecha de creación y el origen (Zone.Identifier) de la DLL, y consúltelos en la inteligencia de amenazas interna.",
+        "Identifique el usuario y si la sesión es interactiva. Valide con el usuario o el área de TI si hubo una instalación o un script legítimo.",
+        "Revise el mismo host en una ventana de +/- 15 minutos: procesos hijos de msiexec.exe, conexiones de red, archivos escritos y claves Run o de servicios nuevas.",
+        "Busque la misma DLL o un CommandLine similar en otros endpoints, y revise alertas previas del mismo host y del mismo usuario."
+      ],
+      "false_positives": [
+        "Scripts legítimos de administración o de despliegue que registran DLL con msiexec /Y desde rutas no estándar, como carpetas de paquetes de SCCM o Intune.",
+        "Instaladores de software de terceros que registran componentes desde un directorio temporal de extracción durante la instalación."
+      ],
+      "response_steps": [
+        "Si la DLL no es legítima, aísle el endpoint con el EDR y conserve una copia de la DLL y de la memoria del proceso.",
+        "Ponga la DLL en cuarentena, bloquee su hash y elimine la persistencia relacionada solo después de confirmarla.",
+        "Revise las credenciales del usuario afectado y restablézcalas si hay indicios de robo de credenciales o de movimiento lateral.",
+        "Si es legítimo, documente el script o la ruta y cree una exclusión acotada por ruta y hash, no por la opción /Y en general."
+      ],
+      "severity_rationale": "Media: msiexec /Y con DLL fuera de rutas del sistema es poco común y sirve para ejecución por proxy, pero algunos scripts e instaladores legítimos lo usan."
+    },
+    "en": {
+      "summary": "msiexec.exe ran with the /Y (or -Y) switch, which loads a DLL and calls its DllRegisterServer function, and the DLL is outside Program Files, System32 and SysWOW64. This may be proxy code execution through a signed Windows binary.",
+      "what_it_detects": "Process creation events where Image ends with \\msiexec.exe and CommandLine contains ' /Y' with any dash variant. Command lines that register DLLs from Program Files, Program Files (x86), System32 or SysWOW64 are excluded.",
+      "why_it_matters": "Attackers use msiexec.exe, a Microsoft-signed binary, to load malicious DLLs and get past application allowlisting (MITRE ATT&CK T1218.007, System Binary Proxy Execution: Msiexec). The DLL's code runs inside a trusted process.",
+      "triage_steps": [
+        "Read CommandLine and find the full DLL path. Paths in Temp, AppData, ProgramData, Downloads, Public, or on UNC/WebDAV shares are highly suspicious.",
+        "Check ParentImage and the parent's command line. Be wary of Office apps, browsers, wscript, cscript, mshta, PowerShell, or cmd launched from a document.",
+        "Get the DLL's hash, signature, creation time and origin (Zone.Identifier), and check them against internal threat intelligence.",
+        "Identify the user and whether the session is interactive. Ask the user or IT whether an installation or legitimate script ran.",
+        "Look at the same host within +/- 15 minutes: msiexec.exe child processes, network connections, written files, and new Run keys or services.",
+        "Search other endpoints for the same DLL or a similar CommandLine, and check earlier alerts for this host and user."
+      ],
+      "false_positives": [
+        "Legitimate admin or deployment scripts that register DLLs with msiexec /Y from non-standard paths, such as SCCM or Intune package folders.",
+        "Third-party installers that register components from a temporary extraction folder during setup."
+      ],
+      "response_steps": [
+        "If the DLL is not legitimate, isolate the endpoint through EDR and keep a copy of the DLL and the process memory.",
+        "Quarantine the DLL, block its hash, and remove related persistence only after you confirm it.",
+        "Review the affected user's credentials and reset them if there are signs of credential theft or lateral movement.",
+        "If the activity is legitimate, document the script or path and add a narrow exclusion by path and hash, not for the /Y switch in general."
+      ],
+      "severity_rationale": "Medium: msiexec /Y with a DLL outside system paths is uncommon and enables proxy execution, but some legitimate scripts and installers use it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "msiexec registers a DLL from the user's Temp folder, launched by cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\msiexec.exe",
+          "CommandLine": "msiexec.exe /y C:\\Users\\jperez\\AppData\\Local\\Temp\\update.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c msiexec.exe /y C:\\Users\\jperez\\AppData\\Local\\Temp\\update.dll",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Hyphen variant (-Y) that loads a DLL from ProgramData, launched by wscript",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\SysWOW64\\msiexec.exe",
+          "CommandLine": "\"C:\\Windows\\SysWOW64\\msiexec.exe\" -Y C:\\ProgramData\\cache\\svc.dll",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate DLL registration from Program Files, excluded by the filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\msiexec.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\MsiExec.exe\" /Y \"C:\\Program Files\\Contoso\\Agent\\contoso.dll\"",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Standard silent MSI installation without the /Y switch",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\msiexec.exe",
+          "CommandLine": "msiexec.exe /i C:\\Users\\jperez\\Downloads\\setup.msi /qn",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

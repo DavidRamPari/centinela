@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "503d581c-7df0-4bbe-b9be-5840c0ecc1fc",
+    "title": "UAC Bypass Using ChangePK and SLUI",
+    "level": "high",
+    "status": "test",
+    "author": "Christian Burkard (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_uac_bypass_changepk_slui.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_uac_bypass_changepk_slui.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1548.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó changepk.exe como hijo de slui.exe con integridad High o System. Este patrón coincide con el método 61 de UACMe para evadir el Control de cuentas de usuario (UAC).",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\changepk.exe, ParentImage termina en \\slui.exe e IntegrityLevel es High, System, S-1-16-12288 o S-1-16-16384. slui.exe se eleva automáticamente y puede abusarse para que changepk.exe lance contenido elevado sin mostrar el aviso de UAC.",
+      "why_it_matters": "Corresponde a ATT&CK T1548.002, Bypass User Account Control. Un atacante que ya ejecuta código como usuario administrador con integridad media obtiene integridad alta sin interacción. Con eso puede desactivar defensas, instalar persistencia o volcar credenciales.",
+      "triage_steps": [
+        "Revise Image, ParentImage, CommandLine, User e IntegrityLevel del evento. Confirme que ambos binarios están en C:\\Windows\\System32 y que su hash y firma son de Microsoft.",
+        "Identifique los procesos hijos de changepk.exe. Cualquier hijo que no sea un componente de Windows (cmd.exe, powershell.exe, rundll32.exe, binarios en carpetas del usuario) es el payload probable.",
+        "Examine quién inició slui.exe. Un padre inusual, como un script, un proceso de Office o un ejecutable en %TEMP% o %APPDATA%, indica abuso.",
+        "Busque cambios en el registro del mismo usuario bajo HKCU\\Software\\Classes, por ejemplo Launcher.SystemSettings\\shell\\open\\command, en un rango de +/- 15 minutos.",
+        "Pivote en el mismo host dentro de +/- 15 minutos: conexiones de red, archivos nuevos, servicios o tareas programadas creadas por procesos elevados.",
+        "Consulte alertas previas del mismo usuario y del mismo host, en especial por ejecución inicial o por otros métodos de bypass de UAC."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos. Un administrador que cambia la clave de producto desde la interfaz de activación podría generar el patrón, pero es poco común y no debería tener hijos sospechosos.",
+        "Pruebas autorizadas de red team o de validación de detecciones con UACMe. Confírmelas con el equipo responsable."
+      ],
+      "response_steps": [
+        "Verifique con el usuario y con el equipo de TI si hubo una gestión de licencias legítima en ese momento.",
+        "Si se confirma el abuso, aísle el endpoint desde el EDR y conserve la memoria y los artefactos de los procesos involucrados.",
+        "Termine el payload y sus descendientes. Elimine las claves de registro manipuladas en HKCU solo después de exportarlas como evidencia.",
+        "Busque persistencia creada con privilegios elevados y revóquela. Restablezca las credenciales del usuario afectado y de las cuentas usadas en ese host.",
+        "Considere configurar UAC en «Notificar siempre» y retirar los derechos de administrador local que no sean necesarios."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque esta cadena padre-hijo con integridad elevada casi nunca aparece en uso normal e indica una escalada de privilegios activa."
+    },
+    "en": {
+      "summary": "changepk.exe ran as a child of slui.exe at High or System integrity. This pattern matches UACMe method 61, a bypass of User Account Control (UAC).",
+      "what_it_detects": "Process creation events where Image ends with \\changepk.exe, ParentImage ends with \\slui.exe, and IntegrityLevel is High, System, S-1-16-12288 or S-1-16-16384. slui.exe auto-elevates, and it can be abused so that changepk.exe launches attacker content elevated with no UAC prompt.",
+      "why_it_matters": "This maps to ATT&CK T1548.002, Bypass User Account Control. An attacker already running as an admin user at medium integrity gets high integrity silently. That access lets them disable defenses, install persistence or dump credentials.",
+      "triage_steps": [
+        "Review Image, ParentImage, CommandLine, User and IntegrityLevel. Confirm both binaries are in C:\\Windows\\System32 and that their hashes and signatures are Microsoft's.",
+        "List the child processes of changepk.exe. Any child that is not a Windows component, such as cmd.exe, powershell.exe, rundll32.exe or a binary in a user folder, is the likely payload.",
+        "Find what launched slui.exe. An unusual parent, such as a script, an Office process or an executable in %TEMP% or %APPDATA%, points to abuse.",
+        "Look for registry changes by the same user under HKCU\\Software\\Classes, for example Launcher.SystemSettings\\shell\\open\\command, within +/- 15 minutes.",
+        "Pivot on the same host within +/- 15 minutes: network connections, new files, and services or scheduled tasks created by elevated processes.",
+        "Check earlier alerts for the same user and host, especially initial-execution alerts or other UAC bypass methods."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. An admin changing the product key through the activation UI might produce this pattern, but that is rare and should spawn no suspicious children.",
+        "Authorized red-team or detection-validation tests that use UACMe. Confirm them with the team that owns the test."
+      ],
+      "response_steps": [
+        "Check with the user and IT whether legitimate licensing work happened at that time.",
+        "If abuse is confirmed, isolate the endpoint with the EDR and preserve memory and the artifacts of the processes involved.",
+        "Kill the payload and its descendants. Remove the tampered HKCU registry keys only after exporting them as evidence.",
+        "Find and remove any persistence created with elevated rights. Reset credentials for the affected user and for any accounts used on the host.",
+        "Consider setting UAC to 'Always notify' and removing local admin rights that are not needed."
+      ],
+      "severity_rationale": "High fits because this parent-child chain at elevated integrity almost never appears in normal use and indicates active privilege escalation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "UACMe method 61: auto-elevated slui.exe spawns changepk.exe at High integrity",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\changepk.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\changepk.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\slui.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\slui.exe\"",
+          "IntegrityLevel": "High",
+          "ProcessId": 6412,
+          "ParentProcessId": 5980
+        }
+      },
+      {
+        "description": "Same chain logged with the integrity level as a SID (S-1-16-12288, High)",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\changepk.exe",
+          "ParentImage": "C:\\Windows\\System32\\slui.exe",
+          "IntegrityLevel": "S-1-16-12288",
+          "CommandLine": "changepk.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "changepk.exe started by slui.exe at Medium integrity, so not elevated",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\changepk.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\changepk.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\slui.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Admin opens changepk.exe at High integrity from the Settings app, not from slui.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\admin.lgarcia",
+          "Image": "C:\\Windows\\System32\\changepk.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\changepk.exe\"",
+          "ParentImage": "C:\\Windows\\ImmersiveControlPanel\\SystemSettings.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

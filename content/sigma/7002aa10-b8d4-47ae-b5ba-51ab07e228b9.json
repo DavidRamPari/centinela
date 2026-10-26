@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "7002aa10-b8d4-47ae-b5ba-51ab07e228b9",
+    "title": "Potential Mpclient.DLL Sideloading Via Defender Binaries",
+    "level": "high",
+    "status": "test",
+    "author": "Bhabesh Raj",
+    "path": "windows/process_creation/proc_creation_win_mpcmdrun_dll_sideload_defender.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_mpcmdrun_dll_sideload_defender.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1574.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó MpCmdRun.exe o NisSrv.exe, binarios de Microsoft Defender, desde una ruta que no es su directorio de instalación habitual. Esto suele indicar que alguien copió el binario legítimo para cargar un mpclient.dll malicioso mediante DLL sideloading.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\MpCmdRun.exe o \\NisSrv.exe y no empieza por las rutas conocidas de Defender (Program Files\\Windows Defender, ProgramData\\Microsoft\\Windows Defender\\Platform, Microsoft Security Client o WinSxS).",
+      "why_it_matters": "Un binario firmado por Microsoft que corre fuera de su ruta puede cargar un mpclient.dll falso desde su propio directorio (T1574.001, DLL search order hijacking). Así el código malicioso queda oculto tras un proceso confiable; la referencia de la regla describe cómo se usó esta técnica para cargar Cobalt Strike en un ataque de ransomware.",
+      "triage_steps": [
+        "Revise el campo Image: carpeta exacta (Temp, Public, AppData, ProgramData en la raíz) y si el host tiene Defender instalado en una ruta no estándar.",
+        "Verifique el hash y la firma del ejecutable; una copia legítima de Microsoft fuera de su ruta es la señal más típica de sideloading.",
+        "Busque mpclient.dll en el mismo directorio: obtenga su hash, firma, fecha de creación y el proceso que lo escribió.",
+        "Analice ParentImage y CommandLine: un padre como cmd.exe, powershell.exe, rundll32 o una herramienta de acceso remoto es sospechoso.",
+        "Pivotee en el mismo host +/- 15 minutos: archivos creados en esa carpeta, conexiones de red y procesos hijos del binario.",
+        "Revise el usuario que ejecutó el proceso, sus inicios de sesión recientes y las alertas previas del host y del usuario.",
+        "Busque el mismo hash de mpclient.dll o la misma ruta de Image en otros endpoints para medir el alcance."
+      ],
+      "false_positives": [
+        "Poco probable según la regla.",
+        "Instalaciones de Defender o del cliente de seguridad en una unidad o ruta no estándar (por ejemplo, Program Files en D:).",
+        "Analistas o laboratorios de malware que copian binarios de Defender para pruebas o investigación.",
+        "Herramientas de escaneo sin conexión o imágenes de recuperación que ejecutan Defender desde medios temporales."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa validando la firma y el origen de mpclient.dll antes de actuar.",
+        "Si se confirma, aísle el endpoint de la red y preserve la carpeta, el DLL y la memoria del proceso para análisis forense.",
+        "Termine el proceso y ponga en cuarentena el ejecutable copiado y el DLL; bloquee sus hashes en el EDR.",
+        "Revise la persistencia (servicios, tareas programadas, claves Run) y las cuentas usadas; restablezca credenciales comprometidas.",
+        "Busque el mismo indicador en toda la flota y restaure el equipo desde una fuente confiable si hubo compromiso."
+      ],
+      "severity_rationale": "El nivel high se justifica porque los binarios de Defender casi nunca se ejecutan fuera de sus rutas y este patrón es un método conocido para ocultar cargas maliciosas."
+    },
+    "en": {
+      "summary": "A Microsoft Defender binary, MpCmdRun.exe or NisSrv.exe, ran from outside its normal install directory. This usually means the legitimate binary was copied so it would sideload a malicious mpclient.dll.",
+      "what_it_detects": "Process creation events where Image ends with \\MpCmdRun.exe or \\NisSrv.exe and does not start with a known Defender path (Program Files\\Windows Defender, ProgramData\\Microsoft\\Windows Defender\\Platform, Microsoft Security Client or WinSxS).",
+      "why_it_matters": "A Microsoft-signed binary running from another folder can load a fake mpclient.dll placed next to it (T1574.001, DLL search order hijacking), hiding malicious code behind a trusted process. The rule's reference describes this technique being used to load Cobalt Strike during a ransomware attack.",
+      "triage_steps": [
+        "Check the Image field: exact folder (Temp, Public, AppData, root of ProgramData), and whether this host has Defender installed in a non-standard path.",
+        "Verify the executable's hash and signature; a genuine Microsoft copy outside its path is the classic sideloading pattern.",
+        "Look for mpclient.dll in the same folder: get its hash, signature, creation time and the process that wrote it.",
+        "Review ParentImage and CommandLine; parents like cmd.exe, powershell.exe, rundll32 or remote access tools are suspicious.",
+        "Pivot on the same host within +/- 15 minutes: files created in that folder, network connections and child processes of the binary.",
+        "Review the executing user, their recent logons and earlier alerts for the host and user.",
+        "Search for the same mpclient.dll hash or Image path on other endpoints to scope the incident."
+      ],
+      "false_positives": [
+        "Unlikely, per the rule.",
+        "Defender or Security Client installed on a non-standard drive or path (for example Program Files on D:).",
+        "Malware analysts or labs copying Defender binaries for testing or research.",
+        "Offline scanning tools or recovery images running Defender from temporary media."
+      ],
+      "response_steps": [
+        "Confirm malicious activity by validating the signature and origin of mpclient.dll before acting.",
+        "If confirmed, isolate the endpoint and preserve the folder, DLL and process memory for forensics.",
+        "Kill the process, quarantine the copied executable and DLL, and block their hashes in the EDR.",
+        "Check persistence (services, scheduled tasks, Run keys) and accounts used; reset compromised credentials.",
+        "Hunt for the same indicators fleet-wide and rebuild the host from a trusted source if compromised."
+      ],
+      "severity_rationale": "High fits because Defender binaries almost never run outside their install paths and this pattern is a known way to hide malicious payloads."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "MpCmdRun.exe copied to C:\\Users\\Public and launched by cmd.exe, typical sideloading setup with mpclient.dll in the same folder.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\MpCmdRun.exe",
+          "OriginalFileName": "MpCmdRun.exe",
+          "CommandLine": "C:\\Users\\Public\\MpCmdRun.exe",
+          "CurrentDirectory": "C:\\Users\\Public\\",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\MpCmdRun.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "NisSrv.exe running from a user's Temp folder.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-03.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\svc_backup\\AppData\\Local\\Temp\\NisSrv.exe",
+          "CommandLine": "\"C:\\Users\\svc_backup\\AppData\\Local\\Temp\\NisSrv.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate MpCmdRun.exe signature update from the Defender platform directory, excluded by the known-locations filter.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18.23050.5-0\\MpCmdRun.exe",
+          "CommandLine": "\"C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18.23050.5-0\\MpCmdRun.exe\" -SignatureUpdate",
+          "ParentImage": "C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18.23050.5-0\\MsMpEng.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "NisSrv.exe running from Program Files\\Windows Defender, its default path.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "NT AUTHORITY\\LOCAL SERVICE",
+          "Image": "C:\\Program Files\\Windows Defender\\NisSrv.exe",
+          "CommandLine": "\"C:\\Program Files\\Windows Defender\\NisSrv.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "d797268e-28a9-49a7-b9a8-2f5039011c5c",
+    "title": "Bypass UAC via WSReset.exe",
+    "level": "high",
+    "status": "test",
+    "author": "E.M. Anhaus (originally from Atomic Blue Detections, Tony Lambert), oscd.community, Florian Roth",
+    "path": "windows/process_creation/proc_creation_win_uac_bypass_wsreset.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_uac_bypass_wsreset.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1548.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "WSReset.exe, la herramienta de restablecimiento de Microsoft Store, inició un proceso hijo distinto de conhost.exe. Esto suele indicar que alguien abusó de su autoelevación para saltarse el UAC y ejecutar código con privilegios elevados.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage termina en \\wsreset.exe y el proceso hijo (Image u OriginalFileName) no es conhost.exe.",
+      "why_it_matters": "WSReset.exe se autoeleva sin mostrar el aviso de UAC y lee un comando de una clave del registro en HKCU que el usuario puede modificar. Un atacante con una sesión de administrador sin elevar la usa para ejecutar un payload con integridad alta (ATT&CK T1548.002, Bypass User Account Control).",
+      "triage_steps": [
+        "Revise Image, CommandLine, IntegrityLevel y User del proceso hijo. Un cmd.exe, powershell.exe o un binario en una ruta que el usuario puede escribir es muy sospechoso.",
+        "Confirme que ParentImage es C:\\Windows\\System32\\WSReset.exe y revise qué proceso lanzó WSReset.exe y con qué línea de comandos.",
+        "Busque cambios en el registro bajo HKCU\\Software\\Classes\\AppX82a6gwre4fdg3bt635tn5ctqjf8msdd2\\Shell\\open\\command en el mismo host, en una ventana de +/- 15 minutos.",
+        "Obtenga el hash del binario hijo y consúltelo en inteligencia de amenazas. Verifique también su firma digital.",
+        "Revise los procesos hijos del payload elevado, las conexiones de red, los servicios o tareas creados y el volcado de credenciales en el host en +/- 15 minutos.",
+        "Busque alertas previas del mismo usuario y del mismo host, y otros hosts donde WSReset.exe tenga hijos poco comunes."
+      ],
+      "false_positives": [
+        "Procesos hijos legítimos de WSReset.exe que aún no se conocen, como componentes de Microsoft Store tras una actualización de Windows.",
+        "Ejercicios de red team o pruebas de Atomic Red Team autorizados que simulan este bypass de UAC."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y con el equipo de TI si la actividad era esperada o si es parte de una prueba autorizada.",
+        "Si es maliciosa, aísle el endpoint desde el EDR y suspenda la sesión de la cuenta afectada.",
+        "Termine el payload, elimine la clave del registro manipulada y retire la persistencia que encuentre. Conserve evidencia antes de borrar.",
+        "Restablezca las credenciales expuestas, retire derechos de administrador local innecesarios y configure el UAC en \"Notificar siempre\" donde sea viable."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque WSReset.exe casi nunca genera hijos legítimos aparte de conhost.exe, y un acierto indica una escalada de privilegios exitosa."
+    },
+    "en": {
+      "summary": "WSReset.exe, the Microsoft Store reset tool, started a child process other than conhost.exe. This usually means someone abused its auto-elevation to bypass UAC and run code with elevated privileges.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\wsreset.exe and the child process (Image or OriginalFileName) is not conhost.exe.",
+      "why_it_matters": "WSReset.exe auto-elevates without a UAC prompt and reads a command from a user-writable HKCU registry key. An attacker with a non-elevated admin session can use it to run a payload at high integrity (ATT&CK T1548.002, Bypass User Account Control).",
+      "triage_steps": [
+        "Review the child process Image, CommandLine, IntegrityLevel and User. A cmd.exe, powershell.exe or binary in a user-writable path is highly suspicious.",
+        "Confirm ParentImage is C:\\Windows\\System32\\WSReset.exe, then check which process launched WSReset.exe and with what command line.",
+        "Look for registry changes under HKCU\\Software\\Classes\\AppX82a6gwre4fdg3bt635tn5ctqjf8msdd2\\Shell\\open\\command on the same host within +/- 15 minutes.",
+        "Get the child binary hash and check it against threat intelligence. Verify its digital signature too.",
+        "Review the elevated payload's child processes, network connections, new services or tasks, and any credential access on the host within +/- 15 minutes.",
+        "Search for earlier alerts on the same user and host, and for other hosts where WSReset.exe has unusual children."
+      ],
+      "false_positives": [
+        "Legitimate WSReset.exe child processes that are not yet known, such as Microsoft Store components after a Windows update.",
+        "Authorized red team exercises or Atomic Red Team tests that simulate this UAC bypass."
+      ],
+      "response_steps": [
+        "Check with the user and IT whether the activity was expected or part of an authorized test.",
+        "If it is malicious, isolate the endpoint through EDR and suspend the affected account's sessions.",
+        "Kill the payload, delete the tampered registry key and remove any persistence you find. Preserve evidence before deleting anything.",
+        "Reset exposed credentials, remove unnecessary local admin rights and set UAC to \"Always notify\" where practical."
+      ],
+      "severity_rationale": "High fits because WSReset.exe rarely has legitimate children other than conhost.exe, so a match points to a successful privilege escalation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WSReset.exe spawns an elevated PowerShell payload after the AppX shell\\open\\command key was hijacked",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\WSReset.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\WSReset.exe\"",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -nop -w hidden -File C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.ps1",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "WSReset.exe launches cmd.exe at high integrity",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "ParentImage": "C:\\Windows\\System32\\wsreset.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c C:\\Users\\Public\\svc.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal Microsoft Store cache reset: WSReset.exe spawns conhost.exe, which the filter excludes",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\WSReset.exe",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "OriginalFileName": "CONHOST.EXE",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "A user starts WSReset.exe from Explorer; WSReset.exe is the child, not the parent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\WSReset.exe",
+          "OriginalFileName": "wsreset.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\WSReset.exe\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

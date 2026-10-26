@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "129966c9-de17-4334-a123-8b58172e664d",
+    "title": "Potential Windows Defender AV Bypass Via Dump64.EXE Rename",
+    "level": "high",
+    "status": "test",
+    "author": "Austin Songer @austinsonger, Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_dump64_defender_av_bypass_rename.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_dump64_defender_av_bypass_rename.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un binario llamado dump64.exe desde la carpeta de Microsoft Visual Studio que en realidad es ProcDump o usa sus opciones de volcado completo (-ma) o mini plus (-mp). Es probable que alguien intente volcar memoria de procesos, como LSASS, sin que Defender lo bloquee.",
+      "what_it_detects": "Eventos de creación de procesos donde Image está bajo Program Files, contiene \\Microsoft Visual Studio\\ y termina en \\dump64.exe, y además OriginalFileName es 'procdump' o CommandLine contiene ' -ma ' o ' -mp '. Nota: tal como está escrito, Image|startswith ':\\Program Files' no incluye la letra de unidad. Revise si su backend admite rutas tipo C:\\.",
+      "why_it_matters": "dump64.exe es un binario legítimo de Visual Studio y Defender confía en él. Si se renombra ProcDump con ese nombre, es posible volcar la memoria de LSASS sin que salten alertas y robar credenciales (T1003.001, OS Credential Dumping: LSASS Memory).",
+      "triage_steps": [
+        "Revise Image, OriginalFileName, CommandLine y el hash. Confirme si los metadatos del PE corresponden a ProcDump de Sysinternals y no al dump64.exe firmado de Visual Studio.",
+        "Identifique el proceso objetivo en CommandLine (PID o nombre). Si es lsass.exe o un proceso de seguridad, trate el caso como robo de credenciales.",
+        "Busque la ruta del archivo .dmp en CommandLine y verifique si existe en el disco, cuánto pesa y la hora en que se creó.",
+        "Analice ParentImage y la cadena de procesos padre. Una consola, un script o una herramienta remota (PsExec, WMI) aumentan la sospecha.",
+        "Verifique si Visual Studio está instalado de forma legítima en el host y si el usuario es desarrollador.",
+        "Pivote en el mismo host +/- 15 minutos: creación del archivo dump64.exe, compresión o exfiltración del .dmp, y conexiones de red salientes.",
+        "Busque alertas anteriores del mismo usuario y del mismo hash en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Un desarrollador o administrador que usa ProcDump renombrado para depurar procesos propios de una aplicación, siempre que no sean LSASS ni procesos de seguridad. Confírmelo con el usuario y un ticket.",
+        "Pruebas autorizadas de red team o de validación de controles."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y el responsable del equipo si la actividad estaba autorizada antes de tomar medidas.",
+        "Si no estaba autorizada, aísle el endpoint, conserve el dump64.exe y el .dmp como evidencia y luego elimínelos del disco.",
+        "Si se volcó LSASS, restablezca las contraseñas de las cuentas que tenían sesión en el host e invalide sus tickets Kerberos y tokens.",
+        "Busque el hash y el patrón de renombrado en toda la flota y bloquee el hash mediante la política de control de aplicaciones.",
+        "Active la protección de LSASS (RunAsPPL o Credential Guard) y revise las exclusiones de Defender."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque renombrar ProcDump como un binario de confianza de Visual Studio no tiene un uso legítimo habitual y suele terminar en robo de credenciales."
+    },
+    "en": {
+      "summary": "A binary named dump64.exe ran from the Microsoft Visual Studio folder, but it is actually ProcDump or uses its full (-ma) or mini plus (-mp) dump options. Someone is likely dumping process memory, such as LSASS, while trying to avoid Defender blocks.",
+      "what_it_detects": "Process creation events where Image sits under Program Files, contains \\Microsoft Visual Studio\\ and ends with \\dump64.exe, and either OriginalFileName is 'procdump' or CommandLine contains ' -ma ' or ' -mp '. Note: as written, Image|startswith ':\\Program Files' leaves out the drive letter. Check whether your backend matches paths like C:\\.",
+      "why_it_matters": "dump64.exe is a legitimate Visual Studio binary that Defender trusts. If ProcDump is renamed to that name, attackers can dump LSASS memory without alerts and steal credentials (T1003.001, OS Credential Dumping: LSASS Memory).",
+      "triage_steps": [
+        "Review Image, OriginalFileName, CommandLine and the hash. Check whether the PE metadata matches Sysinternals ProcDump rather than the signed Visual Studio dump64.exe.",
+        "Find the target process in CommandLine (PID or name). If it is lsass.exe or a security process, treat the case as credential theft.",
+        "Find the .dmp output path in CommandLine. Check whether the file exists, its size and when it was created.",
+        "Review ParentImage and the process tree. A shell, a script or a remote tool (PsExec, WMI) parent makes it more suspicious.",
+        "Confirm whether Visual Studio is legitimately installed on the host and whether the user is a developer.",
+        "Pivot on the same host +/- 15 minutes: when dump64.exe was written, any archiving or exfiltration of the .dmp, and outbound network connections.",
+        "Check for earlier alerts on the same user and the same hash on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "A developer or admin using renamed ProcDump to debug their own application processes, as long as the target is not LSASS or a security process. Confirm with the user and a ticket.",
+        "Authorized red team or control validation tests."
+      ],
+      "response_steps": [
+        "Confirm with the user and the host owner whether the activity was authorized before acting.",
+        "If it was not authorized, isolate the endpoint. Keep dump64.exe and the .dmp as evidence, then remove them from disk.",
+        "If LSASS was dumped, reset passwords for accounts that had sessions on the host and revoke their Kerberos tickets and tokens.",
+        "Search the whole fleet for the hash and the rename pattern, and block the hash in your application control policy.",
+        "Turn on LSASS protection (RunAsPPL or Credential Guard) and review Defender exclusions."
+      ],
+      "severity_rationale": "High fits because renaming ProcDump as a trusted Visual Studio binary has almost no legitimate use and usually leads to credential theft."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "ProcDump renamed to dump64.exe in the Visual Studio Installer folder dumping LSASS with -ma. Image follows the rule's literal startswith value (':\\Program Files').",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": ":\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\Feedback\\dump64.exe",
+          "OriginalFileName": "procdump",
+          "CommandLine": "dump64.exe -accepteula -ma lsass.exe C:\\Users\\Public\\out.dmp",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000001"
+        }
+      },
+      {
+        "description": "Renamed dump tool in the Visual Studio folder with a different OriginalFileName, matched by the -mp option in CommandLine.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": ":\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\dump64.exe",
+          "OriginalFileName": "dumptool.exe",
+          "CommandLine": "dump64.exe -mp 672 C:\\Windows\\Temp\\d.dmp",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Visual Studio dump64.exe called by the feedback tool with a PID and an output file, without ProcDump metadata or -ma/-mp options.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": ":\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\Feedback\\dump64.exe",
+          "OriginalFileName": "dump64.exe",
+          "CommandLine": "\"dump64.exe\" 15432 \"C:\\Users\\jperez\\AppData\\Local\\Temp\\devenv.dmp\"",
+          "ParentImage": "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\Feedback\\feedback.exe"
+        }
+      },
+      {
+        "description": "ProcDump run under its own name from a tools folder outside Visual Studio. Other rules cover this, but this one does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\admin.ops",
+          "Image": "C:\\Tools\\Sysinternals\\procdump64.exe",
+          "OriginalFileName": "procdump",
+          "CommandLine": "procdump64.exe -accepteula -ma w3wp.exe C:\\Dumps\\w3wp.dmp",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

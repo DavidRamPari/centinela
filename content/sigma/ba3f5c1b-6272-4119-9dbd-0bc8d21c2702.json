@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "ba3f5c1b-6272-4119-9dbd-0bc8d21c2702",
+    "title": "Potential WinAPI Calls Via CommandLine",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_inline_win_api_access.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_inline_win_api_access.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1106"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso cuya línea de comandos menciona funciones o bibliotecas de WinAPI (por ejemplo kernel32, VirtualAlloc, OpenProcess). Puede indicar llamadas directas a la API desde la línea de comandos con winapiexec o con PowerShell inline.",
+      "what_it_detects": "Eventos process_creation de Windows en los que CommandLine contiene alguno de unos 45 nombres de funciones o DLL de WinAPI, como manejo de memoria, tokens, hilos remotos o MiniDumpWriteDump. Se excluyen MpCmdRun.exe con GetLoadLibraryWAddress32 y los procesos hijos de CompatTelRunner.exe que usan ciertas funciones de Marshal.",
+      "why_it_matters": "Llamar a la Native API (T1106) desde la línea de comandos le permite al atacante inyectar código, robar tokens o volcar LSASS sin dejar binarios en disco y saltándose controles basados en ejecutables conocidos.",
+      "triage_steps": [
+        "Lea el CommandLine completo e identifique qué funciones aparecen: VirtualAlloc, WriteProcessMemory o CreateRemoteThread juntas sugieren inyección; MiniDumpWriteDump sugiere volcado de credenciales.",
+        "Revise Image: winapiexec.exe, powershell.exe, rundll32.exe o binarios ubicados en rutas de usuario son más sospechosos que el software instalado y firmado.",
+        "Analice ParentImage y la cadena de procesos padre. Busque Office, navegadores, wmiprvse.exe o servicios remotos como origen.",
+        "Decodifique el contenido en Base64 o con ofuscación y busque Add-Type, DllImport o GetDelegateForFunctionPointer en los logs de PowerShell (4104) del mismo host.",
+        "Revise en el mismo host, entre 15 minutos antes y 15 minutos después, los procesos hijos, el acceso a lsass.exe, los archivos .dmp creados y las conexiones de red salientes.",
+        "Identifique al usuario, confirme si su rol justifica esta actividad y revise si hubo alertas anteriores para él o para el host.",
+        "Calcule el hash de Image y compruebe su firma y su reputación."
+      ],
+      "false_positives": [
+        "Herramientas legítimas de administración, depuración o desarrollo que invocan WinAPI mediante PowerShell Add-Type.",
+        "Agentes de inventario, telemetría o EDR que no cubren los filtros existentes.",
+        "Pruebas autorizadas de red team o de validación de detecciones."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con el dueño del sistema si la ejecución era esperada y documente la evidencia.",
+        "Si hay indicios de inyección o de volcado, aísle el endpoint y conserve la memoria y los artefactos antes de terminar procesos.",
+        "Termine los procesos maliciosos verificados, elimine los archivos y la persistencia relacionados y bloquee el hash.",
+        "Si hubo acceso a LSASS o manipulación de tokens, restablezca las credenciales expuestas y revise los inicios de sesión posteriores.",
+        "Si se confirma un falso positivo, cree una exclusión específica que combine Image, ParentImage y CommandLine."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque estas cadenas rara vez aparecen en líneas de comandos legítimas y suelen acompañar inyección, robo de tokens o volcado de credenciales."
+    },
+    "en": {
+      "summary": "A process started with a command line that references WinAPI functions or libraries such as kernel32, VirtualAlloc or OpenProcess. This may mean direct API calls from the command line through winapiexec or inline PowerShell.",
+      "what_it_detects": "Windows process_creation events where CommandLine contains one of about 45 WinAPI function or DLL names covering memory, tokens, remote threads and MiniDumpWriteDump. Two cases are excluded: MpCmdRun.exe with GetLoadLibraryWAddress32, and CompatTelRunner.exe children that use certain Marshal functions.",
+      "why_it_matters": "Calling the Native API (T1106) from the command line lets attackers inject code, steal tokens or dump LSASS without dropping binaries. It also gets around controls that only check for known executables.",
+      "triage_steps": [
+        "Read the full CommandLine and note which functions appear. VirtualAlloc, WriteProcessMemory and CreateRemoteThread together suggest injection. MiniDumpWriteDump suggests a credential dump.",
+        "Check Image. winapiexec.exe, powershell.exe, rundll32.exe or binaries in user-writable paths are more suspicious than signed, installed software.",
+        "Review ParentImage and the full process ancestry. Look for Office, browsers, wmiprvse.exe or remote services as the origin.",
+        "Decode any Base64 or obfuscated content. Search PowerShell 4104 logs on the host for Add-Type, DllImport or GetDelegateForFunctionPointer.",
+        "On the same host, within 15 minutes before or after, check for child processes, lsass.exe access, new .dmp files and outbound connections.",
+        "Identify the user and check whether their role explains the activity. Look for earlier alerts on that user or host.",
+        "Hash the Image file, then check its signature and reputation."
+      ],
+      "false_positives": [
+        "Legitimate admin, debugging or development tools that call WinAPI through PowerShell Add-Type.",
+        "Inventory, telemetry or EDR agents that the existing filters do not cover.",
+        "Authorized red-team exercises or detection-validation tests."
+      ],
+      "response_steps": [
+        "Ask the user or system owner whether the execution was expected, and document the evidence.",
+        "If injection or dumping is indicated, isolate the endpoint. Preserve memory and artifacts before killing any processes.",
+        "Kill confirmed malicious processes, remove related files and persistence, and block the hash.",
+        "If LSASS was accessed or tokens were tampered with, reset the exposed credentials and review later logons.",
+        "If you confirm a false positive, add a narrow exclusion that combines Image, ParentImage and CommandLine."
+      ],
+      "severity_rationale": "High fits because these strings rarely appear in legitimate command lines, and they usually come with injection, token theft or credential dumping."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "winapiexec run from a user-writable folder that calls a kernel32 function directly from the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\winapiexec.exe",
+          "CommandLine": "winapiexec.exe kernel32@WinExec calc.exe 1",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat"
+        }
+      },
+      {
+        "description": "PowerShell inline Add-Type that imports GetProcAddress from kernel32.dll",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoP -c \"$k=Add-Type -MemberDefinition '[DllImport(\\\"kernel32.dll\\\")] public static extern IntPtr GetProcAddress(IntPtr h, string n);' -Name K -Namespace W -PassThru\"",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Microsoft Defender MpCmdRun.exe with GetLoadLibraryWAddress32. It contains LoadLibrary, but filter_optional_mpcmdrun excludes it.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18.24090.11-0\\MpCmdRun.exe",
+          "CommandLine": "\"C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18.24090.11-0\\MpCmdRun.exe\" GetLoadLibraryWAddress32",
+          "ParentImage": "C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18.24090.11-0\\MsMpEng.exe"
+        }
+      },
+      {
+        "description": "Telemetry PowerShell started by CompatTelRunner.exe that uses PtrToString and FreeHGlobal. filter_optional_compatTelRunner excludes it.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -ExecutionPolicy Restricted -Command \"$m=[System.Runtime.InteropServices.Marshal]; $p=$m::StringToHGlobalUni('x'); $m::PtrToStringUni($p); $m::FreeHGlobal($p)\"",
+          "ParentImage": "C:\\Windows\\System32\\CompatTelRunner.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

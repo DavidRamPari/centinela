@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "431a1fdb-4799-4f3b-91c3-a683b003fc49",
+    "title": "New Kernel Driver Via SC.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_sc_new_kernel_driver.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sc_new_kernel_driver.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1543.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó sc.exe para crear o reconfigurar un servicio de tipo kernel, es decir, para registrar un driver del kernel. Puede ser una instalación legítima, pero también una forma de cargar un driver malicioso o vulnerable.",
+      "what_it_detects": "Procesos sc.exe (Image termina en \\sc.exe) cuyo CommandLine contiene 'create' o 'config' junto con 'binPath', 'type' y 'kernel'. Se excluyen dos instalaciones conocidas de drivers de Avira (netprotection_network_filter y avelam).",
+      "why_it_matters": "Registrar un driver como servicio (T1543.003, servicio de Windows) da persistencia y ejecución en el kernel. Los atacantes cargan drivers firmados pero vulnerables (BYOVD) para desactivar el EDR o escalar privilegios.",
+      "triage_steps": [
+        "Revise el CommandLine completo: nombre del servicio, ruta de binPath, start= (boot, system, auto, demand) y si se usó create o config.",
+        "Verifique la ruta del .sys: las rutas en carpetas de usuario, Temp, ProgramData o Public son sospechosas; lo normal es System32\\drivers.",
+        "Obtenga el hash del driver y compárelo con listas de drivers vulnerables conocidos, firma digital, editor y reputación interna.",
+        "Analice ParentImage y la cadena de procesos: un instalador firmado es esperable; cmd, PowerShell, scripts o binarios desconocidos no lo son.",
+        "Identifique al usuario y confirme si es administrador autorizado y si hay un cambio o ticket asociado.",
+        "Pivote en el mismo host +/- 15 minutos: evento 7045 del System log, Sysmon 6 (driver cargado), sc start, y la detención de servicios de seguridad.",
+        "Busque el mismo nombre de servicio o hash del driver en otros endpoints y alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "Instalación legítima y poco frecuente de drivers del kernel vía sc.exe por software de seguridad, VPN, virtualización o hardware.",
+        "Scripts de despliegue de TI o herramientas de soporte del fabricante que registran drivers con sc.exe.",
+        "Desarrolladores de drivers probando en equipos de laboratorio."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del equipo o el área de TI si la instalación estaba autorizada antes de actuar.",
+        "Si es sospechosa, aísle el endpoint y preserve el archivo .sys y la clave HKLM\\SYSTEM\\CurrentControlSet\\Services del servicio.",
+        "Verifique que el EDR y el antivirus sigan activos; si fueron deshabilitados, trate el caso como incidente de alta prioridad.",
+        "Tras validar, deshabilite y elimine el servicio, bloquee el hash del driver y reinicie el equipo de forma controlada.",
+        "Revise credenciales del usuario implicado y busque el mismo driver en toda la organización."
+      ],
+      "severity_rationale": "Medium es adecuado porque instalar drivers con sc.exe es poco común pero tiene usos legítimos; la severidad debe subir si el driver es vulnerable o está en una ruta inusual."
+    },
+    "en": {
+      "summary": "sc.exe was used to create or reconfigure a service of type kernel, i.e. to register a kernel driver. This may be a legitimate install or a way to load a malicious or vulnerable driver.",
+      "what_it_detects": "sc.exe processes (Image ends with \\sc.exe) whose CommandLine contains 'create' or 'config' plus 'binPath', 'type' and 'kernel'. Two known Avira driver installs (netprotection_network_filter and avelam) are excluded.",
+      "why_it_matters": "Registering a driver as a service (T1543.003, Windows Service) gives persistence and kernel-level execution. Attackers load signed but vulnerable drivers (BYOVD) to kill EDR or escalate privileges.",
+      "triage_steps": [
+        "Read the full CommandLine: service name, binPath location, start= value (boot, system, auto, demand) and whether create or config was used.",
+        "Check the .sys path: user folders, Temp, ProgramData or Public are suspicious; System32\\drivers is typical.",
+        "Hash the driver and check signature, publisher, reputation and known vulnerable driver lists.",
+        "Review ParentImage and the process tree: a signed installer is expected; cmd, PowerShell, scripts or unknown binaries are not.",
+        "Identify the user, confirm they are an authorized admin and look for a matching change ticket.",
+        "Pivot on the same host +/- 15 minutes: System event 7045, Sysmon event 6 (driver loaded), sc start, and security services being stopped.",
+        "Search for the same service name or driver hash on other endpoints and in earlier alerts for this user or host."
+      ],
+      "false_positives": [
+        "Rare legitimate kernel driver installs via sc.exe by security, VPN, virtualization or hardware software.",
+        "IT deployment scripts or vendor support tools that register drivers with sc.exe.",
+        "Driver developers testing on lab machines."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the install was authorized before acting.",
+        "If suspicious, isolate the endpoint and preserve the .sys file and the service key under HKLM\\SYSTEM\\CurrentControlSet\\Services.",
+        "Verify EDR and antivirus are still running; if disabled, escalate as a high-priority incident.",
+        "After validation, disable and delete the service, block the driver hash and reboot in a controlled way.",
+        "Review the involved user's credentials and hunt for the same driver across the fleet."
+      ],
+      "severity_rationale": "Medium fits because sc.exe driver installs are uncommon but have legitimate uses; raise it if the driver is known-vulnerable or sits in an unusual path."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sc.exe creates a kernel driver service pointing to a .sys file in a public user folder, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe create WinNetFlt binPath= C:\\Users\\Public\\drv\\wnetflt.sys type= kernel start= demand",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c install.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "sc.exe reconfigures an existing service to type kernel with a new binPath in ProgramData",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-03.andes.example.com",
+          "User": "ANDES\\admin.rgomez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc config UpdSvcHelper binPath= C:\\ProgramData\\Cache\\hlpdrv.sys type= kernel start= auto",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Avira avelam ELAM driver install, excluded by filter_optional_avira_driver",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe create avelam binpath=C:\\Windows\\system32\\drivers\\avelam.sys type=kernel start=boot error=critical group=Early-Launch",
+          "ParentImage": "C:\\Program Files\\Avira\\Endpoint Protection SDK\\setup.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "sc.exe creates a normal user-mode service (type= own), no 'kernel' in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.rgomez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "OriginalFileName": "sc.exe",
+          "CommandLine": "sc.exe create BackupAgent binPath= \"C:\\Program Files\\ExampleBackup\\agent.exe\" type= own start= auto",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

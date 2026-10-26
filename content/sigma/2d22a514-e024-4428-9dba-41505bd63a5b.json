@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "2d22a514-e024-4428-9dba-41505bd63a5b",
+    "title": "Indirect Command Execution From Script File Via Bash.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_bash_file_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_bash_file_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1202"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó bash.exe, el lanzador de WSL de Microsoft, con un argumento que no empieza con una opción. Esto suele significar que se le pasó un archivo de script para ejecutarlo directamente.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\System32\\bash.exe o \\SysWOW64\\bash.exe, u OriginalFileName es Bash.exe. El CommandLine no está vacío, no es solo 'bash' o 'bash.exe' y no contiene 'bash -' ni 'bash.exe -'. Es decir, el primer argumento no es una opción y probablemente es la ruta de un script.",
+      "why_it_matters": "bash.exe es un binario firmado de Windows y figura en LOLBAS. Puede ejecutar scripts que lanzan binarios de Linux o de Windows y así ocultar el proceso real detrás de un intermediario confiable. Corresponde a la ejecución indirecta de comandos (T1202), una técnica de evasión.",
+      "triage_steps": [
+        "Lea el CommandLine e identifique la ruta del script. Las ubicaciones de escritura del usuario, como Temp, Downloads, Public o AppData, son más sospechosas.",
+        "Revise ParentImage y la línea de comandos del proceso padre. Un padre como Office, wscript, mshta, un navegador o un servicio es más sospechoso que una terminal interactiva.",
+        "Obtenga el script desde el endpoint o desde el sistema de archivos de WSL, revise su contenido y calcule su hash para buscarlo en inteligencia de amenazas.",
+        "Liste los procesos hijos de bash.exe y de wsl.exe en el mismo host en una ventana de +/- 15 minutos. Busque binarios de Windows lanzados a través de /mnt/c.",
+        "Compruebe si el usuario suele trabajar con WSL y si hay una distribución instalada legítimamente en ese host.",
+        "En la misma ventana, busque conexiones de red, archivos nuevos y cambios de persistencia en el host.",
+        "Revise alertas anteriores del mismo usuario y del mismo host, sobre todo las de la regla similar 5edc2273."
+      ],
+      "false_positives": [
+        "Desarrolladores o administradores que ejecutan scripts propios con 'bash script.sh' desde una terminal de Windows.",
+        "Herramientas de build, pipelines de CI o IDE que invocan bash.exe con un script como primer argumento.",
+        "Scripts de aprovisionamiento o configuración de WSL ejecutados por el equipo de TI."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con el dueño del sistema si la ejecución era esperada y si el script es legítimo.",
+        "Si el script es malicioso o desconocido, aísle el endpoint desde el EDR y conserve el script, los procesos y los artefactos de WSL.",
+        "Termine los procesos relacionados y elimine el script y la persistencia que se hayan identificado, siempre después de preservar la evidencia.",
+        "Restablezca las credenciales del usuario si hubo acceso a credenciales o movimiento lateral.",
+        "Si WSL no es necesario en el equipo, considere deshabilitarlo o restringir bash.exe con AppLocker o WDAC."
+      ],
+      "severity_rationale": "La severidad media corresponde a una técnica conocida de evasión con un binario firmado que también tiene usos legítimos de desarrollo, por lo que se necesita contexto antes de escalar."
+    },
+    "en": {
+      "summary": "bash.exe, Microsoft's WSL launcher, ran with an argument that does not start with a flag. This usually means a script file was passed to it for direct execution.",
+      "what_it_detects": "Windows process creation events where Image ends in \\System32\\bash.exe or \\SysWOW64\\bash.exe, or OriginalFileName is Bash.exe. The CommandLine is not empty, is not just 'bash' or 'bash.exe', and does not contain 'bash -' or 'bash.exe -'. In other words, the first argument is not a flag and is probably a script path.",
+      "why_it_matters": "bash.exe is a signed Windows binary listed in LOLBAS. It can run scripts that launch Linux or Windows binaries, which hides the real process behind a trusted proxy. This is indirect command execution (T1202), used to evade defenses.",
+      "triage_steps": [
+        "Read the CommandLine and identify the script path. User-writable locations such as Temp, Downloads, Public or AppData are more suspicious.",
+        "Check ParentImage and the parent's command line. Office, wscript, mshta, a browser or a service is more suspicious than an interactive terminal.",
+        "Collect the script from the endpoint or the WSL filesystem, review its content and hash it for threat intel lookups.",
+        "List child processes of bash.exe and wsl.exe on the same host within +/- 15 minutes. Look for Windows binaries launched through /mnt/c.",
+        "Check whether the user normally works with WSL and whether a distribution is legitimately installed on the host.",
+        "In the same window, look for network connections, new files and persistence changes on the host.",
+        "Review earlier alerts for the same user and host, especially from the similar rule 5edc2273."
+      ],
+      "false_positives": [
+        "Developers or admins running their own scripts with 'bash script.sh' from a Windows terminal.",
+        "Build tools, CI pipelines or IDEs that call bash.exe with a script as the first argument.",
+        "WSL provisioning or setup scripts run by IT."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether the execution was expected and the script is legitimate.",
+        "If the script is malicious or unknown, isolate the endpoint through EDR and preserve the script, process data and WSL artifacts.",
+        "Kill the related processes and remove the script and any persistence found, but only after preserving evidence.",
+        "Reset the user's credentials if there was credential access or lateral movement.",
+        "If the host does not need WSL, consider disabling it or restricting bash.exe with AppLocker or WDAC."
+      ],
+      "severity_rationale": "Medium fits because this is a known evasion technique using a signed binary that also has legitimate developer uses, so context is needed before escalating."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "bash.exe runs a script from the user's Temp folder, spawned by wscript.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\bash.exe",
+          "OriginalFileName": "Bash.exe",
+          "CommandLine": "bash.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\update.sh",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\Downloads\\invoice.vbs",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "Renamed binary identified by OriginalFileName runs a script without any flag",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Users\\Public\\svc.exe",
+          "OriginalFileName": "Bash.exe",
+          "CommandLine": "svc.exe /mnt/c/Users/Public/run.sh",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "bash.exe called with the -c flag first, which filter_main_cli_flag excludes",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\rgomez",
+          "Image": "C:\\Windows\\System32\\bash.exe",
+          "OriginalFileName": "Bash.exe",
+          "CommandLine": "bash.exe -c \"ls -la /home\"",
+          "ParentImage": "C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal\\WindowsTerminal.exe"
+        }
+      },
+      {
+        "description": "Interactive bash launched with no arguments, which filter_main_no_flag excludes",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\rgomez",
+          "Image": "C:\\Windows\\System32\\bash.exe",
+          "OriginalFileName": "Bash.exe",
+          "CommandLine": "bash",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

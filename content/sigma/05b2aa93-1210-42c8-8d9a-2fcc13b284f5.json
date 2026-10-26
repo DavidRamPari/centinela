@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "05b2aa93-1210-42c8-8d9a-2fcc13b284f5",
+    "title": "Service Registry Key Deleted Via Reg.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_reg_delete_services.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reg_delete_services.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó reg.exe (o una copia renombrada) con el argumento \"delete\" sobre una clave bajo HKLM\\SYSTEM\\CurrentControlSet\\services. Esto puede eliminar la configuración de un servicio, a menudo un antivirus o EDR, para que no vuelva a iniciar.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en reg.exe u OriginalFileName es reg.exe, y CommandLine contiene \" delete \" junto con la ruta \\SYSTEM\\CurrentControlSet\\services\\.",
+      "why_it_matters": "Al borrar la clave de un servicio, este deja de cargarse en el siguiente arranque. Los atacantes lo usan para desactivar software de seguridad antes de desplegar ransomware o moverse lateralmente. La regla lo asocia a deterioro de defensas (ATT&CK T1685).",
+      "triage_steps": [
+        "Lea CommandLine e identifique el nombre del servicio borrado; determine si es un antivirus, EDR, agente de respaldo o servicio de registro de eventos.",
+        "Compare Image con OriginalFileName: si reg.exe se ejecuta desde una ruta fuera de System32/SysWOW64 o con otro nombre, considérelo altamente sospechoso.",
+        "Revise ParentImage y la línea de comandos del padre: cmd.exe o powershell.exe lanzados por scripts, macros o binarios en Temp/Public indican actividad maliciosa.",
+        "Verifique el usuario y su nivel de privilegios; borrar claves en HKLM requiere administrador o SYSTEM. Confirme si la cuenta suele administrar ese host.",
+        "Busque en el mismo host, +/- 15 minutos, otros comandos sc stop/delete, taskkill, net stop, vssadmin, bcdedit o cambios en políticas de Defender.",
+        "Confirme si el agente de seguridad del host sigue reportando a la consola; un silencio repentino refuerza la sospecha.",
+        "Revise alertas previas del mismo usuario y host, y si el mismo comando aparece en otros equipos (posible despliegue masivo)."
+      ],
+      "false_positives": [
+        "Desinstaladores o scripts de limpieza de software, incluidos los de antivirus, que eliminan las claves de su propio servicio.",
+        "Administradores o herramientas de gestión (SCCM, Intune, GPO) que retiran servicios obsoletos o controladores huérfanos de forma documentada."
+      ],
+      "response_steps": [
+        "Valide con el dueño del equipo o el área de TI si existía un cambio o desinstalación autorizada.",
+        "Si no está autorizado, aísle el endpoint desde el EDR o la red y preserve evidencias (memoria, registro, logs de eventos).",
+        "Restaure la clave del servicio afectado o reinstale el agente de seguridad, y confirme que vuelve a reportar.",
+        "Restablezca o deshabilite las credenciales usadas y busque persistencia, herramientas adicionales y movimiento lateral desde el host.",
+        "Bloquee los hash y rutas de los binarios o scripts maliciosos identificados en el resto del entorno."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque borrar servicios vía reg.exe es poco habitual en operación normal y suele preceder a la desactivación de defensas y a ataques destructivos."
+    },
+    "en": {
+      "summary": "reg.exe (or a renamed copy) ran with the \"delete\" argument against a key under HKLM\\SYSTEM\\CurrentControlSet\\services. This can remove a service's configuration, often an antivirus or EDR, so it no longer starts.",
+      "what_it_detects": "Process creation events where Image ends with reg.exe or OriginalFileName is reg.exe, and CommandLine contains \" delete \" together with the path \\SYSTEM\\CurrentControlSet\\services\\.",
+      "why_it_matters": "Deleting a service key stops the service from loading at the next boot. Attackers do this to disable security software before ransomware or lateral movement. The rule maps it to defense impairment (ATT&CK T1685).",
+      "triage_steps": [
+        "Read CommandLine and identify the deleted service name; decide whether it belongs to antivirus, EDR, backup, or event logging.",
+        "Compare Image with OriginalFileName: reg.exe running outside System32/SysWOW64 or under another name is highly suspicious.",
+        "Review ParentImage and the parent command line: cmd.exe or powershell.exe spawned by scripts, macros, or binaries in Temp/Public points to malicious activity.",
+        "Check the user and privilege level; HKLM deletion needs admin or SYSTEM. Confirm whether that account normally administers this host.",
+        "On the same host within +/- 15 minutes, look for sc stop/delete, taskkill, net stop, vssadmin, bcdedit, or Defender policy changes.",
+        "Confirm the host's security agent still reports to its console; sudden silence strengthens suspicion.",
+        "Review earlier alerts for the same user and host, and whether the same command appears on other machines (possible mass deployment)."
+      ],
+      "false_positives": [
+        "Uninstallers or cleanup scripts, including antivirus removal tools, deleting their own service keys.",
+        "Administrators or management tools (SCCM, Intune, GPO) retiring obsolete services or orphaned drivers in a documented change."
+      ],
+      "response_steps": [
+        "Verify with the host owner or IT whether an authorized change or uninstall took place.",
+        "If unauthorized, isolate the endpoint via EDR or network controls and preserve evidence (memory, registry, event logs).",
+        "Restore the affected service key or reinstall the security agent, and confirm it reports again.",
+        "Reset or disable the credentials used, and hunt for persistence, additional tooling, and lateral movement from the host.",
+        "Block hashes and paths of identified malicious binaries or scripts across the environment."
+      ],
+      "severity_rationale": "High fits because deleting service keys with reg.exe is rare in normal operations and commonly precedes disabling defenses and destructive attacks."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe deletes the Windows Defender service key, launched from a batch script",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg delete HKLM\\SYSTEM\\CurrentControlSet\\services\\WinDefend /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed reg.exe copy (OriginalFileName still reg.exe) deletes the Sense service key",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Users\\Public\\r.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "r.exe delete \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Sense\" /f",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "reg.exe only queries a service key; no delete argument",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.mrojas",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg query HKLM\\SYSTEM\\CurrentControlSet\\services\\WinDefend /v Start",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "reg.exe deletes a user software key, not a services key",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg delete HKCU\\Software\\ExampleApp\\RecentFiles /f",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

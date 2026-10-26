@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "ded2b07a-d12f-4284-9b76-653e37b6c8b0",
+    "title": "Potentially Suspicious Ping/Copy Command Combination",
+    "level": "medium",
+    "status": "test",
+    "author": "X__Junior (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_cmd_ping_copy_combined_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmd_ping_copy_combined_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1070.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó cmd.exe con una sola línea de comandos que combina ping con conteo (-n) y copy con sobrescritura forzada (/y). Malware suele usar este patrón para esperar unos segundos y luego copiarse o reemplazar archivos.",
+      "what_it_detects": "Creación de un proceso cmd.exe (por Image u OriginalFileName) cuyo CommandLine contiene 'ping', 'copy ', la opción ' -n ' o ' /n ' y la opción ' -y ' o ' /y '.",
+      "why_it_matters": "El ping funciona como un temporizador para que el proceso original termine y libere sus archivos. Después, copy /y los sobrescribe o los mueve a otra ubicación, por ejemplo para persistir, actualizarse o tapar rastros (ATT&CK T1070.004, eliminación de archivos como borrado de indicadores).",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique el archivo de origen y destino de copy, el host al que se hace ping y si hay del, start o encadenamientos con & o &&.",
+        "Revise ParentImage y la línea de comandos del padre; un binario recién descargado, en %TEMP%, %APPDATA% o ProgramData es muy sospechoso.",
+        "Obtenga el hash de los archivos de origen y destino del copy y consúltelos en su plataforma de threat intelligence.",
+        "Busque procesos hijos y eventos de archivo en el mismo host dentro de +/- 15 minutos: ejecución del archivo copiado, borrados, claves Run o tareas programadas.",
+        "Verifique la cuenta (User) y si el host o el usuario tiene alertas previas de descarga, macro o ejecución sospechosa.",
+        "Busque la misma línea de comandos o el mismo hash en otros endpoints para determinar el alcance."
+      ],
+      "false_positives": [
+        "Scripts de instalación o actualización internos que usan ping -n como espera antes de copy /y para reemplazar binarios en uso.",
+        "Herramientas de administración o despliegue de software heredadas que aplican el mismo patrón; valide con el dueño del script."
+      ],
+      "response_steps": [
+        "Confirme la malicia con el hash, el padre y la ubicación de los archivos antes de cualquier acción.",
+        "Si es malicioso, aísle el endpoint desde el EDR y preserve los archivos involucrados y la memoria si es posible.",
+        "Elimine los binarios copiados y los mecanismos de persistencia asociados, y bloquee los hashes identificados.",
+        "Restablezca las credenciales del usuario si hay indicios de robo y vigile que no vuelva a ocurrir en el host.",
+        "Si es legítimo, documente el script y cree una exclusión acotada por ruta del padre y línea de comandos exacta."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque la combinación es poco común y típica de malware, pero algunos scripts legítimos de actualización también la usan."
+    },
+    "en": {
+      "summary": "cmd.exe ran a one-liner that combines ping with a count (-n) and copy with forced overwrite (/y). Malware often uses this pattern to wait a few seconds and then copy itself or replace files.",
+      "what_it_detects": "A cmd.exe process (matched by Image or OriginalFileName) whose CommandLine contains 'ping', 'copy ', the option ' -n ' or ' /n ', and the option ' -y ' or ' /y '.",
+      "why_it_matters": "The ping works as a timer so the original process can exit and release its files. Then copy /y overwrites or relocates them, for persistence, self-update or covering tracks (ATT&CK T1070.004, file deletion as indicator removal).",
+      "triage_steps": [
+        "Read the full CommandLine: note the copy source and destination, the ping target, and any del, start or chaining with & or &&.",
+        "Check ParentImage and its command line; a freshly downloaded binary or one in %TEMP%, %APPDATA% or ProgramData is highly suspicious.",
+        "Hash the copy source and destination files and look them up in your threat intelligence platform.",
+        "Review child processes and file events on the same host within +/- 15 minutes: execution of the copied file, deletions, Run keys or scheduled tasks.",
+        "Check the User account and any earlier alerts for this host or user involving downloads, macros or suspicious execution.",
+        "Search for the same command line or hash on other endpoints to scope the activity."
+      ],
+      "false_positives": [
+        "Internal installer or updater scripts that use ping -n as a delay before copy /y to replace binaries in use.",
+        "Legacy admin or software deployment tools using the same pattern; confirm with the script owner."
+      ],
+      "response_steps": [
+        "Confirm maliciousness using the hash, the parent and the file locations before acting.",
+        "If malicious, isolate the endpoint via EDR and preserve the involved files and, if possible, memory.",
+        "Remove copied binaries and related persistence, and block the identified hashes.",
+        "Reset the user's credentials if theft is suspected and monitor the host for recurrence.",
+        "If legitimate, document the script and add a narrow exclusion on parent path and exact command line."
+      ],
+      "severity_rationale": "Medium fits because the combination is uncommon and typical of malware, but some legitimate update scripts use it too."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Malware-style one-liner: ping as a delay, then copy /y of a dropped binary into ProgramData.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c ping 127.0.0.1 -n 5 > nul & copy /y \"C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.exe\" \"C:\\ProgramData\\svchelper.exe\"",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.exe",
+          "ParentCommandLine": "\"C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.exe\"",
+          "ProcessId": 6412,
+          "ParentProcessId": 5908
+        }
+      },
+      {
+        "description": "Variant with slash-style options (/n) and ping.exe, matched via windash.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\SysWOW64\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd /c ping.exe localhost /n 3 && copy /y C:\\Users\\mrojas\\Downloads\\inv.dat C:\\Users\\mrojas\\AppData\\Roaming\\inv.exe",
+          "ParentImage": "C:\\Users\\mrojas\\Downloads\\invoice_viewer.exe",
+          "ProcessId": 3320,
+          "ParentProcessId": 2984
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "cmd.exe copy /y in a login script with no ping delay; selection_action and selection_cli_1 do not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c copy /y \\\\fs01.example.com\\netlogon\\config.ini C:\\ProgramData\\App\\config.ini",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ProcessId": 4100,
+          "ParentProcessId": 3988
+        }
+      },
+      {
+        "description": "Connectivity check with ping -n via cmd.exe and no copy operation.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-MON-01.andes.example.com",
+          "User": "ANDES\\svc_monitor",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c ping 192.0.2.10 -n 4 > C:\\Logs\\ping.txt",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ProcessId": 7720,
+          "ParentProcessId": 1020
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

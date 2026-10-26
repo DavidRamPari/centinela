@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "221b251a-357a-49a9-920a-271802777cc0",
+    "title": "Potential Process Reconnaissance via Wmic.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_wmic_recon_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmic_recon_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1047",
+      "T1057"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó wmic.exe con un CommandLine que contiene \"process\" y no corresponde a crear ni terminar procesos. Puede ser un reconocimiento de los procesos en ejecución en el equipo local o en uno remoto.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\WMIC.exe u OriginalFileName es wmic.exe, y el CommandLine incluye \"process\" (por ejemplo, \"process list\", \"process get\" o \"path win32_process\"). Se excluyen las líneas que contienen \"call\" junto con \"create\" o con \"terminate\", porque otras reglas las cubren.",
+      "why_it_matters": "Los atacantes listan procesos para encontrar software de seguridad, herramientas de respaldo o procesos con credenciales antes de moverse lateralmente o desactivar defensas. Corresponde a ATT&CK T1057 (Process Discovery) mediante WMI (T1047, Windows Management Instrumentation).",
+      "triage_steps": [
+        "Revise el CommandLine completo: si consulta el equipo local o uno remoto (/node:), qué propiedades pide (CommandLine, ExecutablePath, ProcessId) y si usa /format o redirige la salida a un archivo.",
+        "Identifique ParentImage y la línea de comandos del padre: cmd.exe o powershell.exe lanzados por Office, un navegador o un servicio web resultan sospechosos.",
+        "Valide el usuario y el host: ¿es un administrador o una cuenta de servicio conocida, en un equipo donde suele usarse WMIC?",
+        "Compruebe si Image está fuera de System32\\wbem o SysWOW64\\wbem mientras OriginalFileName es wmic.exe, lo que indica un binario renombrado o copiado.",
+        "Busque en el mismo host, en un rango de +/- 15 minutos, otros comandos de descubrimiento (whoami, net, tasklist, systeminfo, nltest) y archivos de salida creados.",
+        "Si se usó /node:, revise los inicios de sesión de red y la actividad WMI en el equipo destino.",
+        "Consulte alertas previas del mismo usuario y host, y la conectividad de red saliente del proceso padre."
+      ],
+      "false_positives": [
+        "Scripts de inventario o monitoreo y herramientas RMM que consultan procesos mediante WMIC.",
+        "Administradores o personal de soporte que diagnostican procesos de forma manual.",
+        "Instaladores o software heredado que comprueban si un proceso está en ejecución usando WMIC."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del equipo o el equipo de TI si la ejecución estaba autorizada y documente la decisión.",
+        "Si no hay justificación, aísle el endpoint desde el EDR y conserve el árbol de procesos, los archivos de salida y los logs relevantes.",
+        "Investigue el proceso padre y su origen (documento, script, tarea programada) y elimine la persistencia solo después de confirmarla.",
+        "Si la cuenta parece comprometida, restablezca sus credenciales y revise la actividad en los equipos remotos consultados.",
+        "Cuando sea posible, restrinja el uso de WMIC a cuentas administrativas y agregue exclusiones solo para los scripts legítimos ya verificados."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque el listado de procesos es común en la administración, pero también es un paso habitual de reconocimiento que conviene revisar en su contexto."
+    },
+    "en": {
+      "summary": "wmic.exe ran with \"process\" in its CommandLine, and the command did not create or terminate a process. This may be reconnaissance of running processes on the local host or a remote one.",
+      "what_it_detects": "Process creations where Image ends with \\WMIC.exe or OriginalFileName is wmic.exe, and CommandLine contains \"process\" (for example \"process list\", \"process get\" or \"path win32_process\"). Command lines containing \"call\" together with \"create\" or \"terminate\" are excluded because other rules cover them.",
+      "why_it_matters": "Attackers list processes to find security tools, backup agents or credential-holding processes before they move laterally or tamper with defenses. This maps to ATT&CK T1057 (Process Discovery) carried out through WMI (T1047, Windows Management Instrumentation).",
+      "triage_steps": [
+        "Read the full CommandLine. Note whether it queries the local host or a remote one (/node:), which properties it requests, and whether it uses /format or redirects output to a file.",
+        "Identify ParentImage and the parent's command line. Treat cmd.exe or powershell.exe spawned by Office, a browser or a web service as suspicious.",
+        "Validate the user and host. Is this a known admin or service account on a machine where WMIC is normally used?",
+        "Check whether Image sits outside System32\\wbem or SysWOW64\\wbem while OriginalFileName is wmic.exe. That points to a renamed or copied binary.",
+        "On the same host within +/- 15 minutes, look for other discovery commands (whoami, net, tasklist, systeminfo, nltest) and any output files that were created.",
+        "If /node: was used, review network logons and WMI activity on the target host.",
+        "Check earlier alerts for the same user and host, and look at outbound network activity from the parent process."
+      ],
+      "false_positives": [
+        "Inventory or monitoring scripts and RMM tools that query processes through WMIC.",
+        "Administrators or helpdesk staff troubleshooting processes by hand.",
+        "Installers or legacy software that use WMIC to check whether a process is running."
+      ],
+      "response_steps": [
+        "Ask the host owner or IT whether the run was authorized, and record the outcome.",
+        "If it cannot be justified, isolate the endpoint through EDR and preserve the process tree, output files and relevant logs.",
+        "Trace the parent process back to its origin (document, script, scheduled task). Remove persistence only after you have confirmed it.",
+        "If the account looks compromised, reset its credentials and review activity on any remote hosts that were queried.",
+        "Where feasible, restrict WMIC to admin accounts, and add exclusions only for legitimate scripts you have verified."
+      ],
+      "severity_rationale": "Medium fits because process listing is common in administration but is also a typical reconnaissance step, so each case needs a contextual review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WMIC from System32\\wbem lists process details, launched by cmd.exe under a regular user.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic process get caption,executablepath,commandline /format:csv",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c recon.bat"
+        }
+      },
+      {
+        "description": "Renamed WMIC binary (matched by OriginalFileName) that lists processes on a remote host.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\svc.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "svc.exe /node:SRV-FS01 process list brief",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "WMIC process creation (call create). The filter_main_creation filter excludes it.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic process call create \"notepad.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "WMIC OS query with no 'process' keyword, so selection_cli does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "CommandLine": "wmic os get caption,version",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

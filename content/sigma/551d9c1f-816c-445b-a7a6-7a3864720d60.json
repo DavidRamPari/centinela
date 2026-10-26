@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "551d9c1f-816c-445b-a7a6-7a3864720d60",
+    "title": "Potential Excel.EXE DCOM Lateral Movement Via ActivateMicrosoftApp",
+    "level": "high",
+    "status": "test",
+    "author": "Aaron Stratton",
+    "path": "windows/process_creation/proc_creation_win_office_excel_dcom_lateral_movement.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_office_excel_dcom_lateral_movement.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Excel.exe inició foxprow.exe, schdplus.exe o winproj.exe, el patrón que deja el método ActivateMicrosoftApp del objeto DCOM Excel.Application. Puede indicar movimiento lateral con un binario malicioso que se hace pasar por una aplicación heredada de Microsoft.",
+      "what_it_detects": "Eventos de creación de procesos en los que ParentImage termina en \\excel.exe y el proceso hijo es foxprow.exe, schdplus.exe o winproj.exe, ya sea por Image o por OriginalFileName.",
+      "why_it_matters": "Un atacante con credenciales puede instanciar Excel por DCOM en un equipo remoto, colocar un payload con uno de esos nombres y ejecutarlo con ActivateMicrosoftApp (T1021.003, Distributed Component Object Model). Así logra ejecución remota con un proceso padre de apariencia confiable.",
+      "triage_steps": [
+        "Revise Image, OriginalFileName, el hash y la firma del hijo. FoxPro y Schedule+ son productos obsoletos; un binario sin firmar o una ruta fuera de Program Files es muy sospechosa.",
+        "Compare OriginalFileName con Image: si no coinciden, el ejecutable probablemente fue renombrado para hacerse pasar por la aplicación legítima.",
+        "Examine el proceso padre de excel.exe y su CommandLine. Si aparece svchost.exe (DcomLaunch) con /automation -Embedding, Excel se inició por DCOM y no lo abrió un usuario.",
+        "Busque inicios de sesión de red (4624, tipo 3) en el mismo host +/- 15 minutos e identifique la IP de origen y la cuenta usada.",
+        "Busque escrituras SMB o creación del archivo hijo en el host poco antes de la ejecución, especialmente en rutas del PATH o de Office.",
+        "Revise los procesos hijos y las conexiones de red del binario lanzado, y las alertas previas del host, del usuario y del equipo de origen."
+      ],
+      "false_positives": [
+        "Un usuario con Microsoft Project instalado que lo abre desde una macro o un complemento de Excel que usa ActivateMicrosoftApp.",
+        "Automatizaciones antiguas de Office que todavía invocan FoxPro o Schedule+ en entornos heredados."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y con el área de TI si la ejecución era legítima, y valide la firma y el hash del binario.",
+        "Si es malicioso, aísle el endpoint y también el equipo de origen de la conexión DCOM.",
+        "Restablezca las credenciales de la cuenta usada y revise dónde más inició sesión.",
+        "Elimine el binario malicioso y los mecanismos de persistencia solo después de preservar la evidencia, y busque el mismo hash en todo el entorno.",
+        "Restrinja el acceso DCOM remoto (por ejemplo, con firewall y permisos de DCOMCNFG) y monitoree nuevos intentos."
+      ],
+      "severity_rationale": "Es nivel alto porque Excel rara vez lanza estas aplicaciones de forma legítima y el patrón coincide con una técnica conocida de ejecución remota."
+    },
+    "en": {
+      "summary": "Excel.exe launched foxprow.exe, schdplus.exe or winproj.exe, which is what the ActivateMicrosoftApp method of the Excel.Application DCOM object does. This may be lateral movement using a malicious binary disguised as a legacy Microsoft application.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\excel.exe and the child is foxprow.exe, schdplus.exe or winproj.exe, matched by either Image or OriginalFileName.",
+      "why_it_matters": "An attacker with credentials can start Excel over DCOM on a remote host, drop a payload under one of these names and run it with ActivateMicrosoftApp (T1021.003, Distributed Component Object Model). This gives remote code execution under a parent process that looks trusted.",
+      "triage_steps": [
+        "Check the child's Image, OriginalFileName, hash and signature. FoxPro and Schedule+ are obsolete, so an unsigned binary or a path outside Program Files is highly suspicious.",
+        "Compare OriginalFileName with Image. If they differ, the executable was probably renamed to pose as the real application.",
+        "Look at excel.exe's own parent and CommandLine. If the parent is svchost.exe (DcomLaunch) with /automation -Embedding, DCOM started Excel, not a user.",
+        "Look for network logons (4624, type 3) on the same host within +/- 15 minutes and identify the source IP and account.",
+        "Look for SMB writes or creation of the child file on the host shortly before execution, especially in PATH or Office directories.",
+        "Review the launched binary's child processes and network connections, plus earlier alerts for the host, the user and the source machine."
+      ],
+      "false_positives": [
+        "A user with Microsoft Project installed opens it from an Excel macro or add-in that calls ActivateMicrosoftApp.",
+        "Old Office automation in legacy environments that still calls FoxPro or Schedule+."
+      ],
+      "response_steps": [
+        "Check with the user and IT whether the launch was legitimate, and validate the binary's signature and hash.",
+        "If it is malicious, isolate the endpoint and the source host of the DCOM connection.",
+        "Reset the account's credentials and review where else it logged on.",
+        "Preserve evidence first, then remove the malicious binary and any persistence. Hunt for the same hash across the environment.",
+        "Restrict remote DCOM access (for example with firewall rules and DCOMCNFG permissions) and monitor for new attempts."
+      ],
+      "severity_rationale": "The level is high because Excel rarely launches these applications for legitimate reasons and the pattern matches a known remote-execution technique."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Excel started via DCOM launches an unsigned foxprow.exe dropped in the Office directory",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE\" /automation -Embedding",
+          "Image": "C:\\Program Files\\Microsoft Office\\root\\Office16\\foxprow.exe",
+          "OriginalFileName": "foxprow.exe",
+          "CommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\foxprow.exe\"",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000001"
+        }
+      },
+      {
+        "description": "Renamed payload named winproj.exe spawned by Excel; OriginalFileName differs but Image matches",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Program Files (x86)\\Microsoft Office\\Office16\\excel.exe",
+          "Image": "C:\\Users\\Public\\winproj.exe",
+          "OriginalFileName": "payload.exe",
+          "CommandLine": "C:\\Users\\Public\\winproj.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Microsoft Project launched normally by the user from Explorer, not from Excel",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINPROJ.EXE",
+          "OriginalFileName": "WINPROJ.EXE",
+          "CommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINPROJ.EXE\""
+        }
+      },
+      {
+        "description": "Excel spawning the print spooler helper splwow64.exe, a benign child",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE",
+          "Image": "C:\\Windows\\splwow64.exe",
+          "OriginalFileName": "splwow64.exe",
+          "CommandLine": "C:\\Windows\\splwow64.exe 12288"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

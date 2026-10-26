@@ -1,0 +1,142 @@
+{
+  "rule": {
+    "id": "9d5a1274-922a-49d0-87f3-8c653483b909",
+    "title": "Uncommon System Information Discovery Via Wmic.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "TropChaud",
+    "path": "windows/process_creation/proc_creation_win_wmic_recon_system_info_uncommon.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wmic_recon_system_info_uncommon.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1082"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "WMIC.exe se ejecutó con una consulta para enumerar discos lógicos (nombre, tamaño, espacio libre) o el sistema operativo (versión, arquitectura). Esta combinación exacta de propiedades aparece en el reconocimiento de malware como Aurora Stealer.",
+      "what_it_detects": "La creación de un proceso WMIC, identificado por Image terminado en \\WMIC.exe, OriginalFileName wmic.exe o Description 'WMI Commandline Utility', cuyo CommandLine contiene 'LOGICALDISK get Name,Size,FreeSpace' u 'os get Caption,OSArchitecture,Version'.",
+      "why_it_matters": "Corresponde a ATT&CK T1082 (System Information Discovery). Los stealers y otros implantes perfilan el equipo antes de exfiltrar datos o elegir el siguiente payload. Por sí solo no causa daño, pero suele indicar una ejecución maliciosa ya activa.",
+      "triage_steps": [
+        "Revise CommandLine completo y confirme cuál de las dos consultas se ejecutó y si hubo otras consultas WMIC en la misma línea o en sucesión.",
+        "Analice ParentImage y la línea de comandos del padre: un ejecutable en AppData, Temp o Downloads, o cmd/powershell lanzado por uno, es muy sospechoso.",
+        "Busque en el mismo host, dentro de +/- 15 minutos, otras ejecuciones de WMIC (cpu, path win32_videocontroller, baseboard, bios, memorychip) típicas de Aurora Stealer.",
+        "Obtenga el hash del proceso padre y consúltelo en su plataforma de threat intelligence; verifique firma digital y ruta.",
+        "Revise conexiones de red del proceso padre en ese intervalo, en especial hacia IP o dominios poco comunes o recién registrados.",
+        "Identifique al usuario (User) y confirme si es administrador, personal de soporte o una cuenta estándar sin motivo para inventariar el equipo.",
+        "Consulte alertas previas del mismo host y usuario: descargas, ejecución desde correo, acceso a almacenes de credenciales del navegador."
+      ],
+      "false_positives": [
+        "Scripts de inventario o soporte técnico que recopilan información de disco y sistema operativo con WMIC.",
+        "Herramientas de gestión de activos o monitoreo que invocan WMIC con estas propiedades.",
+        "Administradores que ejecutan manualmente estas consultas durante diagnóstico; verifique con el usuario y el ticket asociado."
+      ],
+      "response_steps": [
+        "Verifique la legitimidad con el dueño del equipo o el equipo de TI; si corresponde a una herramienta aprobada, documente y ajuste una exclusión por ParentImage.",
+        "Si el padre es desconocido o sospechoso, aísle el endpoint desde el EDR y preserve memoria y artefactos del proceso.",
+        "Recolecte el binario padre, su hash y persistencia asociada (Run keys, tareas programadas) antes de eliminar nada.",
+        "Ante sospecha de stealer, restablezca credenciales y sesiones del usuario, incluidas las guardadas en navegadores, y revoque tokens.",
+        "Erradique el malware, valide limpieza con un escaneo completo y busque el mismo hash o padre en otros hosts."
+      ],
+      "severity_rationale": "Medium es adecuado: la consulta es poco común y está asociada a stealers, pero el descubrimiento por sí solo no implica impacto y existen usos administrativos legítimos."
+    },
+    "en": {
+      "summary": "WMIC.exe ran a query enumerating logical disks (name, size, free space) or the operating system (caption, architecture, version). This exact property set is used in host reconnaissance by malware such as Aurora Stealer.",
+      "what_it_detects": "Process creation of WMIC, identified by Image ending in \\WMIC.exe, OriginalFileName wmic.exe or Description 'WMI Commandline Utility', with CommandLine containing 'LOGICALDISK get Name,Size,FreeSpace' or 'os get Caption,OSArchitecture,Version'.",
+      "why_it_matters": "Maps to ATT&CK T1082 (System Information Discovery). Stealers and other implants profile the host before exfiltrating data or choosing a next-stage payload. Harmless alone, but often signals active malicious execution.",
+      "triage_steps": [
+        "Read the full CommandLine; confirm which query ran and whether other WMIC queries were chained or run in sequence.",
+        "Inspect ParentImage and the parent command line; an executable in AppData, Temp or Downloads, or cmd/powershell spawned by one, is highly suspicious.",
+        "On the same host within +/- 15 minutes, look for other WMIC queries (cpu, win32_videocontroller, baseboard, bios, memorychip) typical of Aurora Stealer.",
+        "Get the parent process hash, check reputation in threat intelligence, and verify its signature and path.",
+        "Review the parent's network connections in that window, especially to rare or newly registered domains or IPs.",
+        "Identify the User; decide whether an admin or support account or a standard user with no reason to inventory the host.",
+        "Check earlier alerts for the same host and user: downloads, email-launched execution, browser credential store access."
+      ],
+      "false_positives": [
+        "Inventory or helpdesk scripts collecting disk and OS details through WMIC.",
+        "Asset management or monitoring tools invoking WMIC with these properties.",
+        "Administrators running these queries manually during troubleshooting; confirm with the user and the related ticket."
+      ],
+      "response_steps": [
+        "Confirm legitimacy with the host owner or IT; if an approved tool, document it and tune an exclusion by ParentImage.",
+        "If the parent is unknown or suspicious, isolate the endpoint via EDR and preserve memory and process artifacts.",
+        "Collect the parent binary, its hash and related persistence (Run keys, scheduled tasks) before removing anything.",
+        "If a stealer is suspected, reset the user's credentials and sessions, including browser-saved ones, and revoke tokens.",
+        "Eradicate the malware, validate with a full scan, and hunt for the same hash or parent on other hosts."
+      ],
+      "severity_rationale": "Medium fits: the query is uncommon and tied to stealers, but discovery alone has no direct impact and legitimate admin use exists."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Unsigned binary in AppData spawns WMIC to query OS caption, architecture and version (stealer-style recon).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "Description": "WMI Commandline Utility",
+          "CommandLine": "wmic os get Caption,OSArchitecture,Version",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\setup_x64.exe",
+          "ParentCommandLine": "\"C:\\Users\\jperez\\AppData\\Local\\Temp\\setup_x64.exe\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "cmd.exe launched by a suspicious process runs WMIC to list logical disks with name, size and free space.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "Description": "WMI Commandline Utility",
+          "CommandLine": "wmic  LOGICALDISK get Name,Size,FreeSpace",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c wmic  LOGICALDISK get Name,Size,FreeSpace",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "WMIC disk query with a different property list and order; does not contain 'LOGICALDISK get Name,Size,FreeSpace'.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\soporte01",
+          "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+          "OriginalFileName": "wmic.exe",
+          "Description": "WMI Commandline Utility",
+          "CommandLine": "wmic logicaldisk get caption,size,freespace",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell queries OS info via Get-CimInstance; the process is not WMIC and the command line differs.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "Description": "Windows PowerShell",
+          "CommandLine": "powershell.exe -Command \"Get-CimInstance Win32_OperatingSystem | Select Caption,OSArchitecture,Version\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

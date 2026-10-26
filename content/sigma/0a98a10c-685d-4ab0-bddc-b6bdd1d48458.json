@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "0a98a10c-685d-4ab0-bddc-b6bdd1d48458",
+    "title": "Uncommon Userinit Child Process",
+    "level": "high",
+    "status": "test",
+    "author": "Tom Ueltschi (@c_APT_ure), Tim Shelton",
+    "path": "windows/process_creation/proc_creation_win_userinit_uncommon_child_processes.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_userinit_uncommon_child_processes.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1037.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "userinit.exe inició un proceso hijo que no es explorer.exe ni otro hijo legítimo conocido. Puede indicar un logon script o un shell personalizado configurado para persistencia.",
+      "what_it_detects": "Eventos de creación de procesos cuyo ParentImage termina en \\userinit.exe y cuyo Image no es explorer.exe, proquota.exe ni un binario de Citrix. También excluye CommandLine con netlogon.bat o UsrLogon.cmd y el shell PowerShell.exe de Server Core.",
+      "why_it_matters": "userinit.exe ejecuta lo que indican el valor Userinit o Shell de Winlogon y el valor UserInitMprLogonScript de HKCU\\Environment. Un atacante puede abusar de estos valores para ejecutar código en cada inicio de sesión (T1037.001, Logon Script de Windows).",
+      "triage_steps": [
+        "Revise Image, CommandLine y el hash del hijo. Anote la ruta: los binarios en AppData, Temp o C:\\Users\\Public son muy sospechosos.",
+        "Confirme el usuario y el tipo de sesión, y verifique si el inicio de sesión fue esperado en ese host.",
+        "Consulte HKCU\\Environment\\UserInitMprLogonScript y HKLM\\...\\Winlogon\\Userinit y Shell para identificar quién configuró el comando.",
+        "Busque procesos hijos, conexiones de red y escrituras de archivos del proceso en el mismo host dentro de +/- 15 minutos.",
+        "Busque cuándo y con qué proceso se modificaron esas claves de registro (Sysmon EventID 13 o equivalente).",
+        "Compare con otros hosts: si el mismo Image aparece como hijo de userinit en toda la flota, probablemente lo distribuyó TI.",
+        "Busque alertas anteriores para el mismo usuario y host, y consulte la reputación del hash."
+      ],
+      "false_positives": [
+        "Logon scripts legítimos asignados por GPO o por el atributo scriptPath del usuario con nombres distintos de netlogon.bat.",
+        "Shells personalizados en quioscos, terminales o equipos dedicados.",
+        "Agentes de VDI o acceso remoto distintos de Citrix que se lanzan desde userinit.",
+        "Servidores Core con un CommandLine de PowerShell que trae argumentos adicionales."
+      ],
+      "response_steps": [
+        "Verifique con el usuario y con TI si el script o el shell es legítimo antes de actuar.",
+        "Si es malicioso, aísle el endpoint y conserve el binario, las claves de registro y la memoria si se puede.",
+        "Restaure los valores Userinit, Shell y UserInitMprLogonScript a su estado legítimo y elimine el payload.",
+        "Restablezca las credenciales del usuario afectado y busque el mismo hash o la misma ruta en otros hosts.",
+        "Documente las excepciones legítimas y agréguelas como filtros específicos de ruta y CommandLine."
+      ],
+      "severity_rationale": "Es alta porque userinit casi siempre inicia solo explorer.exe, así que un hijo inesperado suele indicar persistencia en el inicio de sesión que se ejecuta para cada usuario."
+    },
+    "en": {
+      "summary": "userinit.exe started a child process that is not explorer.exe or another known legitimate child. This can mean a logon script or custom shell was set up for persistence.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\userinit.exe and Image is not explorer.exe, proquota.exe or a Citrix binary. It also excludes CommandLine values containing netlogon.bat or UsrLogon.cmd, and the Server Core shell PowerShell.exe.",
+      "why_it_matters": "userinit.exe runs whatever the Winlogon Userinit or Shell value and the HKCU\\Environment UserInitMprLogonScript value point to. Attackers abuse these values to run code at every logon (T1037.001, Windows Logon Script).",
+      "triage_steps": [
+        "Review the child's Image, CommandLine and hash. Note the path: binaries in AppData, Temp or C:\\Users\\Public are highly suspicious.",
+        "Confirm the user and the session type, and check whether that logon was expected on this host.",
+        "Check HKCU\\Environment\\UserInitMprLogonScript and HKLM\\...\\Winlogon\\Userinit and Shell to find what configured the command.",
+        "Look for the process's child processes, network connections and file writes on the same host within +/- 15 minutes.",
+        "Find when these registry keys were changed and by which process (Sysmon EventID 13 or equivalent).",
+        "Compare across hosts: if the same Image runs as a userinit child fleet-wide, IT probably deployed it.",
+        "Look for earlier alerts on the same user and host, and check the hash's reputation."
+      ],
+      "false_positives": [
+        "Legitimate logon scripts assigned by GPO or by the user's scriptPath attribute, with names other than netlogon.bat.",
+        "Custom shells on kiosks, terminals or dedicated machines.",
+        "VDI or remote access agents other than Citrix that are launched by userinit.",
+        "Server Core hosts where the PowerShell CommandLine includes extra arguments."
+      ],
+      "response_steps": [
+        "Confirm with the user and IT whether the script or shell is legitimate before you act.",
+        "If it is malicious, isolate the endpoint and preserve the binary, the registry keys and memory if possible.",
+        "Restore the Userinit, Shell and UserInitMprLogonScript values to their legitimate state and remove the payload.",
+        "Reset the affected user's credentials and search other hosts for the same hash or path.",
+        "Document legitimate exceptions and add them as narrow path and CommandLine filters."
+      ],
+      "severity_rationale": "High fits because userinit almost always starts only explorer.exe, so an unexpected child usually means logon persistence that runs for every user."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "userinit launches a hidden PowerShell script from a public folder, configured through UserInitMprLogonScript",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\userinit.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\userinit.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File C:\\Users\\Public\\sync.ps1",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "userinit launches an unknown executable from the user's AppData",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Windows\\System32\\userinit.exe",
+          "Image": "C:\\Users\\mrojas\\AppData\\Roaming\\Updater\\updsvc.exe",
+          "CommandLine": "\"C:\\Users\\mrojas\\AppData\\Roaming\\Updater\\updsvc.exe\" /silent",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal logon: userinit starts explorer.exe (excluded by filter_main_explorer)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\userinit.exe",
+          "Image": "C:\\Windows\\explorer.exe",
+          "CommandLine": "C:\\Windows\\Explorer.EXE",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Domain logon script netlogon.bat run through cmd.exe (excluded by filter_optional_logonscripts)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0150.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "ParentImage": "C:\\Windows\\System32\\userinit.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\system32\\cmd.exe /c \"\\\\andes.example.com\\NETLOGON\\netlogon.bat\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

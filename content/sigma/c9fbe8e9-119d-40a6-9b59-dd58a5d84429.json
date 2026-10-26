@@ -1,0 +1,140 @@
+{
+  "rule": {
+    "id": "c9fbe8e9-119d-40a6-9b59-dd58a5d84429",
+    "title": "Potential Ransomware or Unauthorized MBR Tampering Via Bcdedit.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "@neu5ron",
+    "path": "windows/process_creation/proc_creation_win_bcdedit_susp_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_bcdedit_susp_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1070",
+      "T1542.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó bcdedit.exe con una línea de comandos que elimina, importa o modifica entradas de arranque, o que configura arranque en Modo seguro o por red. El ransomware y los bootkits usan esto para dificultar la recuperación o evadir herramientas de seguridad.",
+      "what_it_detects": "Creación del proceso bcdedit.exe (por ruta en Image u OriginalFileName) cuyo CommandLine contiene 'delete', 'deletevalue', 'import', 'safeboot' o 'network'.",
+      "why_it_matters": "Modificar el Boot Configuration Data permite forzar un reinicio en Modo seguro, donde muchos agentes EDR no se ejecutan, eliminar entradas de recuperación o reemplazar el almacén de arranque. Corresponde a eliminación de indicadores (T1070) y persistencia previa al sistema operativo mediante bootkits (T1542.003).",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique el switch (/set safeboot, /delete, /deletevalue, /import) y la entrada afectada ({default}, {current}, {bootmgr}, un GUID).",
+        "Verifique ParentImage y su línea de comandos. cmd.exe, powershell.exe, wscript.exe o binarios sin firma en carpetas de usuario o temporales son más sospechosos que un agente de despliegue.",
+        "Identifique el usuario y el nivel de integridad. Confirme si esa cuenta suele hacer tareas administrativas en ese equipo.",
+        "Revise el mismo host +/- 15 minutos: borrado de shadow copies con vssadmin o wmic, wbadmin, recoveryenabled no, renombrado masivo de archivos o notas de rescate.",
+        "Busque comandos de reinicio (shutdown /r) o servicios agregados en las claves de registro SafeBoot cerca de la alerta.",
+        "Consulte alertas previas del mismo usuario y host, y si el mismo comando se ejecutó en otros endpoints, lo que indicaría propagación.",
+        "Si hubo /import, determine el origen del archivo BCD y obtenga su hash."
+      ],
+      "false_positives": [
+        "Administradores o soporte técnico que inician un equipo en Modo seguro para diagnóstico y después eliminan el valor safeboot.",
+        "Herramientas de despliegue, imágenes de sistema o arranque dual que eliminan o importan entradas BCD.",
+        "Configuración de depuración de kernel o por red hecha por desarrolladores de drivers.",
+        "Scripts de reparación que eliminan entradas de arranque obsoletas tras migrar un disco."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con el responsable del cambio si estaba planificado. Si nadie puede explicarlo, trátelo como hostil.",
+        "Si aparecen señales de ransomware, aísle el host de la red de inmediato y detenga cualquier reinicio pendiente.",
+        "Ejecute bcdedit /enum all y guarde la salida como evidencia. Restaure la configuración de arranque eliminando safeboot y recreando las entradas borradas desde una línea base conocida.",
+        "Identifique y elimine el proceso padre o el payload, restablezca las credenciales comprometidas y busque la misma actividad en otros hosts.",
+        "Restaure desde respaldos si hubo cifrado y documente las lecciones aprendidas para las detecciones de ransomware."
+      ],
+      "severity_rationale": "Medium es adecuado porque estos comandos suelen usarse con fines maliciosos antes de ejecutar ransomware, pero los administradores también los usan habitualmente, así que el contexto es lo que define el caso."
+    },
+    "en": {
+      "summary": "bcdedit.exe ran with a command line that deletes, imports or changes boot configuration entries, or sets Safe Mode or network boot options. Ransomware and bootkits use this to weaken recovery or evade security tools.",
+      "what_it_detects": "Process creation of bcdedit.exe (by Image path or OriginalFileName) where CommandLine contains 'delete', 'deletevalue', 'import', 'safeboot' or 'network'.",
+      "why_it_matters": "Changing the Boot Configuration Data can force a reboot into Safe Mode, where many EDR agents do not run, remove recovery entries, or replace the boot store. This maps to indicator removal (T1070) and pre-OS boot persistence through bootkits (T1542.003).",
+      "triage_steps": [
+        "Read the full CommandLine: note the switch (/set safeboot, /delete, /deletevalue, /import) and the target entry ({default}, {current}, {bootmgr}, a GUID).",
+        "Check ParentImage and the parent command line. cmd.exe, powershell.exe, wscript.exe or an unsigned binary from a user or temp folder is more suspicious than a deployment agent.",
+        "Identify the user and integrity level. Confirm whether that account normally does admin work on this host.",
+        "Review the same host +/- 15 minutes for vssadmin or wmic shadowcopy deletion, wbadmin, recoveryenabled no, mass file renames or ransom notes.",
+        "Look for reboot commands (shutdown /r) or Safe Mode services added under SafeBoot registry keys around the alert.",
+        "Check for earlier alerts on the same user and host, and whether the same command ran on other endpoints, which would suggest spread.",
+        "For /import, find where the BCD file came from and hash it."
+      ],
+      "false_positives": [
+        "Administrators or support staff booting a machine into Safe Mode for troubleshooting, then removing the safeboot value afterwards.",
+        "OS deployment, imaging or dual-boot tools that delete or import BCD entries.",
+        "Network or kernel debugging setups configured by developers or driver engineers.",
+        "Repair scripts that remove stale boot entries after a disk migration."
+      ],
+      "response_steps": [
+        "Confirm with the user or the change owner whether the change was planned. If nobody can explain it, treat it as hostile.",
+        "If ransomware signs show up, isolate the host from the network right away and stop any pending reboot.",
+        "Run bcdedit /enum all and save the output as evidence. Restore the boot settings by removing safeboot and recreating deleted entries from a known-good baseline.",
+        "Find and remove the parent process or payload, reset any compromised credentials, and look for the same activity on other hosts.",
+        "Restore from backups if files were encrypted, and add the case to lessons learned for ransomware detections."
+      ],
+      "severity_rationale": "Medium fits because the commands are often used maliciously before ransomware runs, but administrators also use them routinely, so the context decides."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "bcdedit launched from cmd.exe by a suspicious binary to force the next boot into Safe Mode minimal",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\bcdedit.exe",
+          "OriginalFileName": "bcdedit.exe",
+          "CommandLine": "bcdedit.exe /set {default} safeboot minimal",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\upd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed bcdedit binary identified by OriginalFileName importing a BCD store from a public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\bc.exe",
+          "OriginalFileName": "bcdedit.exe",
+          "CommandLine": "C:\\Users\\Public\\bc.exe /import C:\\Users\\Public\\bcd.bak",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator listing boot entries with bcdedit; no delete, import, safeboot or network keyword",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin_mrojas",
+          "Image": "C:\\Windows\\System32\\bcdedit.exe",
+          "OriginalFileName": "bcdedit.exe",
+          "CommandLine": "bcdedit.exe /enum all",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Keyword 'delete' in a command line, but the process is not bcdedit",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe delete HKCU\\Software\\ExampleApp /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

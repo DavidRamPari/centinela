@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "347906f3-e207-4d18-ae5b-a9403d6bcdef",
+    "title": "Netsh Allow Group Policy on Microsoft Defender Firewall",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_netsh_fw_enable_group_rule.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_netsh_fw_enable_group_rule.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1686.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó netsh.exe para habilitar un grupo completo de reglas del Firewall de Microsoft Defender (por ejemplo, Escritorio remoto o Compartir archivos e impresoras). Puede ser administración legítima o un atacante abriendo puertos para acceso remoto o movimiento lateral.",
+      "what_it_detects": "Procesos netsh.exe (por Image u OriginalFileName) cuyo CommandLine contiene 'advfirewall firewall set rule group=... new enable=Yes', es decir, la activación de un grupo de reglas de firewall integrado.",
+      "why_it_matters": "Habilitar grupos como RDP o SMB expone servicios que el firewall bloqueaba y facilita el acceso remoto, el movimiento lateral y la propagación. Corresponde a la técnica de debilitamiento de defensas mediante la modificación del firewall del sistema (attack.t1686.003).",
+      "triage_steps": [
+        "Revise CommandLine e identifique el grupo habilitado (Remote Desktop, File and Printer Sharing, WMI, etc.) y el perfil afectado.",
+        "Verifique el usuario que ejecutó netsh, su nivel de privilegios y si pertenece al equipo de TI o es una cuenta de servicio esperada.",
+        "Analice ParentImage y la cadena de procesos: cmd.exe o powershell.exe lanzados desde Office, navegadores, wscript o servicios web son sospechosos.",
+        "Busque en el mismo host, +/- 15 minutos, otros cambios: reg add sobre fDenyTSConnections, net user /add, sc config o desactivación de Defender.",
+        "Correlacione conexiones entrantes posteriores al cambio en los puertos habilitados (3389, 445) y sus IP de origen.",
+        "Compruebe si existe un ticket de cambio, GPO o script de despliegue que justifique la ejecución.",
+        "Revise alertas previas para el mismo host y usuario, y si el mismo comando aparece en otros endpoints."
+      ],
+      "false_positives": [
+        "Administradores que habilitan RDP o uso compartido de archivos manualmente durante soporte o configuración inicial.",
+        "Scripts de aprovisionamiento, imágenes de sistema o herramientas de gestión (SCCM, Intune) que configuran el firewall.",
+        "Instaladores de software que activan grupos de reglas necesarios para su funcionamiento."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del equipo si el cambio fue autorizado antes de actuar.",
+        "Si no está autorizado, deshabilite el grupo con netsh advfirewall firewall set rule group=\"<grupo>\" new enable=No y documente el estado previo.",
+        "Aísle el endpoint si hay conexiones entrantes sospechosas o indicios de compromiso adicional.",
+        "Investigue y elimine la persistencia o las cuentas creadas; restablezca credenciales expuestas.",
+        "Restaure la política de firewall corporativa mediante GPO y monitoree reincidencias."
+      ],
+      "severity_rationale": "Nivel medio porque el comando es habitual en administración legítima, pero abre servicios de red sensibles y es un paso común previo al movimiento lateral."
+    },
+    "en": {
+      "summary": "netsh.exe was used to enable an entire built-in Microsoft Defender Firewall rule group, such as Remote Desktop or File and Printer Sharing. This can be legitimate administration or an attacker opening ports for remote access or lateral movement.",
+      "what_it_detects": "netsh.exe processes (matched by Image or OriginalFileName) whose CommandLine contains 'advfirewall firewall set rule group=... new enable=Yes', i.e. activation of a firewall rule group.",
+      "why_it_matters": "Enabling groups like RDP or SMB exposes services the firewall was blocking, enabling remote access, lateral movement and spread. It maps to defense impairment by modifying the system firewall (attack.t1686.003).",
+      "triage_steps": [
+        "Read CommandLine and identify the enabled group (Remote Desktop, File and Printer Sharing, WMI, etc.) and any profile specified.",
+        "Check the executing user, its privileges, and whether it is an IT admin or expected service account.",
+        "Review ParentImage and the process tree: cmd.exe or powershell.exe spawned by Office, browsers, wscript or web services is suspicious.",
+        "On the same host within +/- 15 minutes, look for related changes: fDenyTSConnections registry edits, net user /add, sc config, Defender tampering.",
+        "Correlate inbound connections to the newly opened ports (3389, 445) after the change and their source IPs.",
+        "Check for a change ticket, GPO or deployment script that explains the execution.",
+        "Review earlier alerts for the same host and user, and whether the same command ran on other endpoints."
+      ],
+      "false_positives": [
+        "Administrators manually enabling RDP or file sharing during support or initial setup.",
+        "Provisioning scripts, system images or management tools (SCCM, Intune) configuring the firewall.",
+        "Software installers enabling rule groups they require."
+      ],
+      "response_steps": [
+        "Confirm with the user or asset owner whether the change was authorized before acting.",
+        "If unauthorized, disable the group with netsh advfirewall firewall set rule group=\"<group>\" new enable=No and record the prior state.",
+        "Isolate the endpoint if suspicious inbound connections or other signs of compromise exist.",
+        "Hunt for and remove persistence or created accounts; reset exposed credentials.",
+        "Reapply the corporate firewall policy via GPO and monitor for recurrence."
+      ],
+      "severity_rationale": "Medium because the command is common in legitimate administration, yet it opens sensitive network services and often precedes lateral movement."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "netsh enabling the Remote Desktop rule group from a PowerShell parent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh advfirewall firewall set rule group=\"remote desktop\" new enable=Yes",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed netsh binary (matched by OriginalFileName) enabling File and Printer Sharing",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc_temp",
+          "Image": "C:\\Users\\Public\\nt.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "nt.exe advfirewall firewall set rule group=\"file and printer sharing\" new enable=Yes",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "netsh disabling the Remote Desktop group (enable=No), so 'enable=Yes' is absent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin_it",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh advfirewall firewall set rule group=\"remote desktop\" new enable=No",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "netsh only listing rules of a group, no set/new/enable",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\netsh.exe",
+          "OriginalFileName": "netsh.exe",
+          "CommandLine": "netsh advfirewall firewall show rule name=all",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,138 @@
+{
+  "rule": {
+    "id": "1816994b-42e1-4fb1-afd2-134d88184f71",
+    "title": "PowerShell Base64 Encoded WMI Classes",
+    "level": "high",
+    "status": "test",
+    "author": "Christian Burkard (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_base64_wmi_classes.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_base64_wmi_classes.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "PowerShell se ejecutó con una línea de comandos que contiene el nombre de una clase WMI sensible (Win32_ShadowCopy, Win32_Process, Win32_ScheduledJob, Win32_UserAccount o Win32_LoggedOnUser) codificado en base64. Ocultar el nombre de la clase es una técnica habitual de evasión y rara vez tiene un motivo legítimo.",
+      "what_it_detects": "Procesos powershell.exe o pwsh.exe (por Image u OriginalFileName) cuyo CommandLine contiene fragmentos base64, en UTF-16LE o ASCII y con sus tres desplazamientos posibles, de los nombres de esas cinco clases WMI.",
+      "why_it_matters": "Los atacantes codifican los nombres de clases WMI para evadir firmas (T1027) mientras usan PowerShell (T1059.001) para borrar shadow copies antes de cifrar, lanzar procesos, crear tareas o enumerar usuarios. El patrón proviene de firmas de ransomware REvil.",
+      "triage_steps": [
+        "Decodifique el base64 del CommandLine (pruebe UTF-16LE y ASCII) e identifique qué clase WMI se usa y con qué método (Get, Delete, Create).",
+        "Revise ParentImage y la cadena de procesos: Office, wscript, mshta, w3wp o un servicio como padre aumentan mucho la sospecha.",
+        "Valide el usuario y el host: ¿es una cuenta de servicio, un administrador o un usuario estándar? ¿El horario es habitual?",
+        "Si es Win32_ShadowCopy, busque en el mismo host, +/- 15 minutos, vssadmin, wbadmin, bcdedit o el evento 524 de VSS y señales de cifrado masivo.",
+        "Si es Win32_Process o Win32_ScheduledJob, busque procesos hijos de WmiPrvSE.exe y tareas o jobs nuevos en el host.",
+        "Consulte los ScriptBlock logs de PowerShell (4104) y las conexiones de red del proceso para recuperar el payload completo.",
+        "Busque el mismo CommandLine o hash en otros endpoints y alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Scripts internos de administración o de herramientas RMM que ofuscan comandos en base64; confirme con el equipo dueño y el origen del script.",
+        "Ejercicios autorizados de red team o pentest."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa con el payload decodificado y el contexto del proceso padre antes de actuar.",
+        "Si hay borrado de shadow copies o ejecución remota, aísle el endpoint de la red de inmediato y preserve memoria y logs.",
+        "Termine el proceso PowerShell y sus hijos; elimine tareas, jobs o binarios creados por el atacante.",
+        "Restablezca las credenciales de la cuenta implicada y revise movimiento lateral hacia otros hosts.",
+        "Recupere datos desde respaldos fuera de línea si hubo cifrado y agregue los IOC a las listas de bloqueo."
+      ],
+      "severity_rationale": "Es alta porque codificar nombres de clases WMI críticas en PowerShell es casi siempre malicioso y suele preceder al ransomware o a la ejecución remota."
+    },
+    "en": {
+      "summary": "PowerShell ran with a command line containing a base64-encoded name of a sensitive WMI class (Win32_ShadowCopy, Win32_Process, Win32_ScheduledJob, Win32_UserAccount or Win32_LoggedOnUser). Hiding the class name is an evasion technique with few legitimate uses.",
+      "what_it_detects": "powershell.exe or pwsh.exe processes (by Image or OriginalFileName) whose CommandLine contains base64 fragments, UTF-16LE or ASCII at all three offsets, of those five WMI class names.",
+      "why_it_matters": "Attackers encode WMI class names to evade signatures (T1027) while using PowerShell (T1059.001) to delete shadow copies before encryption, spawn processes, create jobs or enumerate users. The pattern comes from REvil ransomware signatures.",
+      "triage_steps": [
+        "Decode the base64 in CommandLine (try UTF-16LE and ASCII) and identify the WMI class and method used (Get, Delete, Create).",
+        "Review ParentImage and the process tree; Office, wscript, mshta, w3wp or a service as parent strongly raises suspicion.",
+        "Validate the user and host: service account, admin or standard user? Is the timing normal?",
+        "For Win32_ShadowCopy, search the same host +/- 15 minutes for vssadmin, wbadmin, bcdedit, VSS event 524 and mass file encryption.",
+        "For Win32_Process or Win32_ScheduledJob, look for WmiPrvSE.exe child processes and new tasks or jobs on the host.",
+        "Pull PowerShell ScriptBlock logs (4104) and the process's network connections to recover the full payload.",
+        "Hunt for the same CommandLine or hash on other endpoints and earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Internal admin or RMM scripts that obfuscate commands in base64; confirm with the owning team and the script source.",
+        "Authorized red team or penetration testing exercises."
+      ],
+      "response_steps": [
+        "Confirm malicious intent from the decoded payload and parent process context before acting.",
+        "If shadow copies were deleted or remote execution occurred, isolate the endpoint immediately and preserve memory and logs.",
+        "Kill the PowerShell process and children; remove attacker-created tasks, jobs or binaries.",
+        "Reset credentials for the involved account and check for lateral movement to other hosts.",
+        "Restore data from offline backups if encryption occurred and add IOCs to blocklists."
+      ],
+      "severity_rationale": "High fits because encoding critical WMI class names in PowerShell is almost always malicious and often precedes ransomware or remote execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "powershell.exe decodes a UTF-16LE base64 string for Win32_Shadowcopy and deletes shadow copies, launched from a script host.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoP -W Hidden -c \"$c=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('VwBpAG4AMwAyAF8AUwBoAGEAZABvAHcAYwBvAHAAeQA='));Get-WmiObject $c | ForEach-Object { $_.Delete() }\"",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\invoice.js",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "pwsh.exe identified by OriginalFileName uses an ASCII base64 string for Win32_Process to create a process.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "pwsh.exe -c \"$n=[Text.Encoding]::ASCII.GetString([Convert]::FromBase64String('V2luMzJfUHJvY2Vzcw=='));Invoke-CimMethod -ClassName $n -MethodName Create -Arguments @{CommandLine='notepad.exe'}\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator lists shadow copies with the WMI class name in plain text; no base64 fragment is present.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Get-WmiObject Win32_ShadowCopy | Select-Object ID,InstallDate\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell with an encoded command that only runs Get-Date; the base64 holds no monitored WMI class.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -EncodedCommand RwBlAHQALQBEAGEAdABlAA==",
+          "ParentImage": "C:\\Program Files\\ManageAgent\\agent.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

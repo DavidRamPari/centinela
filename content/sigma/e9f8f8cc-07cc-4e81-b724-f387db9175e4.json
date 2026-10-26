@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "e9f8f8cc-07cc-4e81-b724-f387db9175e4",
+    "title": "Potentially Suspicious Execution Of Regasm/Regsvcs With Uncommon Extension",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_regasm_regsvcs_uncommon_extension_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_regasm_regsvcs_uncommon_extension_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.009"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Regasm.exe o Regsvcs.exe con una línea de comandos que hace referencia a un archivo con extensión poco común (.dat, .gif, .jpg, .jpeg, .png o .txt). Esto puede indicar que se carga un ensamblado .NET malicioso disfrazado de imagen o texto.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\Regasm.exe o \\Regsvcs.exe, u OriginalFileName es RegAsm.exe o RegSvcs.exe, y CommandLine contiene .dat, .gif, .jpeg, .jpg, .png o .txt.",
+      "why_it_matters": "Regasm y Regsvcs son binarios firmados de .NET que se pueden abusar para ejecutar código de un ensamblado mediante atributos de registro y así evadir controles de aplicaciones (ATT&CK T1218.009, ejecución de proxy mediante binarios del sistema). Si el ensamblado tiene extensión de imagen o texto, lo más probable es que se quiera ocultar.",
+      "triage_steps": [
+        "Revise CommandLine completa: identifique la ruta del archivo .dat/.gif/.jpg/.png/.txt y los parámetros, como /U.",
+        "Compare Image con OriginalFileName para detectar binarios renombrados o ubicados fuera de C:\\Windows\\Microsoft.NET\\Framework*.",
+        "Examine ParentImage y su línea de comandos. Un padre como Office, wscript, powershell o mshta es muy sospechoso.",
+        "Obtenga el archivo referenciado, calcule su hash y verifique si tiene cabecera MZ o es un ensamblado .NET aunque tenga extensión de imagen.",
+        "Pivote en el mismo host +/- 15 minutos: procesos hijo, conexiones de red de Regasm/Regsvcs, descargas y archivos creados.",
+        "Revise el usuario que ejecutó el proceso y alertas previas del mismo usuario, host o hash."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Instaladores o scripts internos que registran ensamblados COM con extensiones no estándar, o que escriben logs .txt en la misma línea de comandos; valide con el equipo responsable."
+      ],
+      "response_steps": [
+        "Confirme si el archivo referenciado es un ensamblado .NET y si su ejecución estaba autorizada.",
+        "Si es malicioso, aísle el endpoint y termine el proceso Regasm/Regsvcs y sus procesos hijo.",
+        "Ponga en cuarentena el archivo, bloquee su hash y cualquier destino de red observado.",
+        "Busque el mismo hash o un patrón de línea de comandos similar en otros hosts y elimine el mecanismo de persistencia o de entrega.",
+        "Restablezca las credenciales del usuario afectado si hay indicios de compromiso y monitoree el host tras recuperarlo."
+      ],
+      "severity_rationale": "El nivel medio es adecuado: el patrón es poco habitual y está asociado a evasión, pero hace falta revisar el archivo y el contexto del proceso padre para confirmarlo."
+    },
+    "en": {
+      "summary": "Regasm.exe or Regsvcs.exe ran with a command line pointing to a file with an uncommon extension (.dat, .gif, .jpg, .jpeg, .png or .txt). This may mean a malicious .NET assembly disguised as an image or text file is being loaded.",
+      "what_it_detects": "Process creation events where Image ends with \\Regasm.exe or \\Regsvcs.exe, or OriginalFileName is RegAsm.exe or RegSvcs.exe, and CommandLine contains .dat, .gif, .jpeg, .jpg, .png or .txt.",
+      "why_it_matters": "Regasm and Regsvcs are signed .NET binaries. They can be abused to run code from an assembly through registration attributes and get past application control (ATT&CK T1218.009, system binary proxy execution). An assembly with an image or text extension is likely meant to stay hidden.",
+      "triage_steps": [
+        "Read the full CommandLine. Note the path of the .dat/.gif/.jpg/.png/.txt file and any switches, such as /U.",
+        "Compare Image with OriginalFileName to spot renamed binaries or copies outside C:\\Windows\\Microsoft.NET\\Framework*.",
+        "Check ParentImage and its command line. Office, wscript, powershell or mshta as the parent is highly suspicious.",
+        "Collect the referenced file and hash it. Check whether it has an MZ header or is a .NET assembly despite its extension.",
+        "Pivot on the same host within +/- 15 minutes: child processes, network connections from Regasm/Regsvcs, downloads and dropped files.",
+        "Review the executing user and earlier alerts for the same user, host or hash."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Internal installers or scripts that register COM assemblies with non-standard extensions or write .txt logs in the same command line. Confirm with the owning team."
+      ],
+      "response_steps": [
+        "Confirm whether the referenced file is a .NET assembly and whether running it was authorized.",
+        "If it is malicious, isolate the endpoint and kill the Regasm/Regsvcs process and its children.",
+        "Quarantine the file and block its hash and any network destinations you observed.",
+        "Hunt for the same hash or a similar command line on other hosts. Remove the persistence or delivery mechanism.",
+        "Reset the affected user's credentials if there are signs of compromise, and monitor the host after recovery."
+      ],
+      "severity_rationale": "Medium fits because the pattern is unusual and tied to defense evasion, but you need to review the file and the parent process before you can confirm it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "RegAsm loading a .NET assembly disguised as a PNG from the user's AppData, launched by PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\RegAsm.exe",
+          "OriginalFileName": "RegAsm.exe",
+          "CommandLine": "\"C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\RegAsm.exe\" /U C:\\Users\\jperez\\AppData\\Local\\Temp\\logo.png",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -w hidden -c Start-Process RegAsm.exe"
+        }
+      },
+      {
+        "description": "Renamed RegSvcs binary (matched via OriginalFileName) running a .dat payload",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "RegSvcs.exe",
+          "CommandLine": "C:\\Users\\Public\\svchelper.exe C:\\Users\\Public\\update.dat",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate RegAsm registration of a DLL assembly with a typelib export",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\RegAsm.exe",
+          "OriginalFileName": "RegAsm.exe",
+          "CommandLine": "\"C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\RegAsm.exe\" /codebase /tlb:Contoso.Interop.tlb C:\\Program Files\\Contoso\\Contoso.Interop.dll",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe"
+        }
+      },
+      {
+        "description": "Notepad opening a .txt file: uncommon extension present but the binary is not Regasm/Regsvcs",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "OriginalFileName": "NOTEPAD.EXE",
+          "CommandLine": "notepad.exe C:\\Users\\jperez\\Documents\\notes.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

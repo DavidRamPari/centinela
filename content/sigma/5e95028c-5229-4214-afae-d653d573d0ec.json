@@ -1,0 +1,138 @@
+{
+  "rule": {
+    "id": "5e95028c-5229-4214-afae-d653d573d0ec",
+    "title": "Security Service Disabled Via Reg.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), John Lambert (idea), elhoim",
+    "path": "windows/process_creation/proc_creation_win_reg_disable_sec_services.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reg_disable_sec_services.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó reg.exe (o un comando con \"reg add\") para fijar en 4 (Disabled) el valor Start de un servicio de seguridad o actualización de Windows. El cambio desactiva el servicio a partir del próximo reinicio.",
+      "what_it_detects": "Un proceso cuya CommandLine contiene \"reg\", \"add\", \"v Start\" y \"d 4\", y además la ruta de un servicio como WinDefend, WdFilter, WdBoot, Sense, SecurityHealthService, wscsvc, wuauserv, UsoSvc o AppIDSvc.",
+      "why_it_matters": "Desactivar Defender, Defender for Endpoint (Sense), el Centro de seguridad, Windows Update o AppLocker (AppIDSvc) le permite al atacante operar sin detección ni parches. Corresponde a debilitamiento de defensas (T1685), un paso habitual antes de desplegar ransomware o herramientas de acceso.",
+      "triage_steps": [
+        "Lea la CommandLine completa: identifique el servicio afectado, la clave de registro (HKLM\\SYSTEM\\CurrentControlSet\\Services) y si se modificaron varios servicios en serie.",
+        "Revise ParentImage y la cadena de procesos: cmd.exe, powershell.exe, wscript.exe o un binario desde carpetas temporales es más sospechoso que una herramienta de gestión conocida.",
+        "Verifique la cuenta (User) y el IntegrityLevel; confirme si es un administrador autorizado o una cuenta de servicio con tareas documentadas.",
+        "Busque en el mismo host, +/- 15 minutos, otros reg.exe, sc.exe config, Set-MpPreference, bcdedit, vssadmin o borrado de logs.",
+        "Compruebe en el endpoint el valor actual de Start del servicio y el estado de Defender; revise eventos 5001/5007 de Defender y 7040 del Service Control Manager.",
+        "Pivotee por el usuario y el hash del proceso padre en otros hosts para detectar ejecución masiva vía GPO, PsExec o scripts remotos.",
+        "Consulte alertas previas del host y del usuario: credenciales robadas, movimiento lateral o descargas de payload recientes."
+      ],
+      "false_positives": [
+        "Scripts de \"debloat\" u optimización de Windows (por ejemplo, Windows-On-Reins) ejecutados por un usuario o técnico.",
+        "Imágenes de laboratorio, kioscos o equipos aislados donde se desactiva Windows Update o Defender de forma documentada.",
+        "Migración a otro antivirus o EDR cuyo instalador desactiva Defender mediante el registro; verifique el cambio aprobado."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del equipo o el ticket de cambio si la modificación fue autorizada; si no lo fue, trate el caso como incidente.",
+        "Aísle el endpoint desde el EDR o la red si hay otros indicadores de compromiso, preservando memoria y logs.",
+        "Restaure el valor Start original del servicio (por ejemplo, 2 o 3), reactive la protección y ejecute un análisis completo.",
+        "Identifique y elimine el mecanismo de ejecución (script, tarea programada, GPO); restablezca credenciales de la cuenta usada y revise hosts relacionados."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque desactivar servicios de seguridad mediante el registro rara vez es legítimo y suele preceder a acciones de mayor impacto."
+    },
+    "en": {
+      "summary": "reg.exe (or a command containing \"reg add\") set the Start value of a Windows security or update service to 4 (Disabled). The service will stay off after the next reboot.",
+      "what_it_detects": "A process whose CommandLine contains \"reg\", \"add\", \"v Start\" and \"d 4\", plus a service path such as WinDefend, WdFilter, WdBoot, Sense, SecurityHealthService, wscsvc, wuauserv, UsoSvc or AppIDSvc.",
+      "why_it_matters": "Disabling Defender, Defender for Endpoint (Sense), Security Center, Windows Update or AppLocker (AppIDSvc) lets an attacker operate undetected and unpatched. This is defense impairment (T1685), often seen before ransomware or tooling deployment.",
+      "triage_steps": [
+        "Read the full CommandLine: identify the targeted service, the registry key (HKLM\\SYSTEM\\CurrentControlSet\\Services) and whether several services were changed in sequence.",
+        "Review ParentImage and the process tree: cmd.exe, powershell.exe, wscript.exe or a binary in temp folders is more suspicious than a known management agent.",
+        "Check User and IntegrityLevel; confirm whether it is an authorized admin or a service account with documented tasks.",
+        "Search the same host +/- 15 minutes for more reg.exe, sc.exe config, Set-MpPreference, bcdedit, vssadmin or log clearing.",
+        "On the endpoint, check the service's current Start value and Defender status; review Defender events 5001/5007 and Service Control Manager event 7040.",
+        "Pivot on the user and parent process hash across other hosts to spot mass execution via GPO, PsExec or remote scripts.",
+        "Look for earlier alerts on the host and user: credential theft, lateral movement or recent payload downloads."
+      ],
+      "false_positives": [
+        "Windows debloat or tuning scripts (for example Windows-On-Reins) run by a user or technician.",
+        "Lab images, kiosks or isolated systems where Windows Update or Defender is disabled by documented design.",
+        "Migration to another AV or EDR whose installer disables Defender via the registry; verify the approved change."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or change ticket whether the change was authorized; if not, handle it as an incident.",
+        "Isolate the endpoint via EDR or network if other compromise indicators exist, preserving memory and logs.",
+        "Restore the service's original Start value (for example 2 or 3), re-enable protection and run a full scan.",
+        "Find and remove the execution mechanism (script, scheduled task, GPO); reset credentials of the account used and review related hosts."
+      ],
+      "severity_rationale": "High fits because disabling security services through the registry is rarely legitimate and usually precedes higher-impact actions."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe launched from cmd.exe disables the WinDefend service by setting Start to 4",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "IntegrityLevel": "High",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\WinDefend\" /v Start /t REG_DWORD /d 4 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\setup.bat"
+        }
+      },
+      {
+        "description": "PowerShell spawns cmd to disable Windows Update (wuauserv) via reg add",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "IntegrityLevel": "System",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c reg add HKLM\\SYSTEM\\CurrentControlSet\\Services\\wuauserv /v Start /t REG_DWORD /d 4 /f",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\ProgramData\\upd.ps1"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator re-enables WinDefend by setting Start to 2 (Automatic); no 'd 4' in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.mrojas",
+          "IntegrityLevel": "High",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\WinDefend\" /v Start /t REG_DWORD /d 2 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe"
+        }
+      },
+      {
+        "description": "Inventory script only queries the Start value of the Sense service; no 'add' or 'd 4'",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0230.andes.example.com",
+          "User": "ANDES\\svc_inventory",
+          "IntegrityLevel": "High",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe query \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Sense\" /v Start",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -File C:\\Scripts\\inventory.ps1"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

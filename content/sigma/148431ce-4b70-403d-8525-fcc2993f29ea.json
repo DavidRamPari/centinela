@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "148431ce-4b70-403d-8525-fcc2993f29ea",
+    "title": "Potential DLL Injection Or Execution Using Tracker.exe",
+    "level": "medium",
+    "status": "test",
+    "author": "Avneet Singh @v3t0_, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_lolbin_tracker.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_tracker.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1055.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Tracker.exe, o un binario cuya Description es 'Tracker', con los parámetros /d o /c fuera de una compilación de MSBuild. Esto puede indicar que se usó para inyectar una DLL en un proceso que el mismo binario inicia.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\tracker.exe o Description es 'Tracker', y CommandLine contiene ' /d ' (DLL a inyectar) o ' /c ' (comando a ejecutar). Se excluyen las ejecuciones con ' /ERRORREPORT:PROMPT ' y las que tienen como ParentImage a MSBuild.exe de Visual Studio.",
+      "why_it_matters": "Tracker.exe es una herramienta firmada de Microsoft para el seguimiento de archivos en MSBuild. Un atacante puede usarla para cargar una DLL arbitraria en un proceso nuevo (T1055.001, inyección de DLL) y ocultar su código detrás de binarios confiables, lo que le permite evadir defensas o escalar privilegios.",
+      "triage_steps": [
+        "Revise CommandLine: identifique la ruta de la DLL indicada en /d y el ejecutable indicado en /c. Las rutas en Temp, AppData, ProgramData o Public son sospechosas.",
+        "Compruebe la ruta de Image. Tracker.exe legítimo se encuentra en carpetas de Visual Studio o del Windows SDK. Si Image no se llama tracker.exe pero Description es 'Tracker', el binario fue renombrado.",
+        "Analice ParentImage y ParentCommandLine: los padres cmd.exe, powershell.exe, wscript.exe o los documentos de Office no son normales en una compilación.",
+        "Obtenga el hash de la DLL y del binario, verifique la firma y consulte su reputación en su plataforma de threat intelligence.",
+        "Revise los procesos hijos y las cargas de imágenes (ImageLoad) del proceso indicado en /c, así como sus conexiones de red y escrituras de archivos.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, la creación de la DLL, descargas, ejecución de scripts y alertas previas.",
+        "Valide con el usuario si es desarrollador y si el equipo tiene Visual Studio o Build Tools instalados."
+      ],
+      "false_positives": [
+        "Compilaciones de Visual Studio o Build Tools lanzadas desde un padre distinto de MSBuild.exe, como devenv.exe, sistemas de CI o versiones antiguas de MSBuild en otras rutas.",
+        "Scripts de compilación personalizados de desarrolladores que invocan Tracker.exe directamente con /c."
+      ],
+      "response_steps": [
+        "Verifique la legitimidad comparando la DLL y el comando con los proyectos de compilación conocidos del usuario o del agente de CI.",
+        "Si se confirma actividad maliciosa, aísle el endpoint desde el EDR y preserve la DLL, el binario y la memoria del proceso destino.",
+        "Detenga los procesos implicados, elimine la DLL y los mecanismos de persistencia asociados después de recolectar la evidencia.",
+        "Busque el mismo hash y patrón de CommandLine en otros hosts. Restablezca las credenciales del usuario si hubo exposición.",
+        "Considere bloquear Tracker.exe con WDAC o AppLocker en equipos que no sean de desarrollo."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque la técnica permite ejecutar código de forma sigilosa, pero Tracker.exe también tiene usos legítimos en entornos de desarrollo que la regla no excluye por completo."
+    },
+    "en": {
+      "summary": "Tracker.exe, or a binary whose Description is 'Tracker', ran with /d or /c outside an MSBuild build. This may mean it was used to inject a DLL into a process it launched.",
+      "what_it_detects": "Process creation events where Image ends with \\tracker.exe or Description is 'Tracker', and CommandLine contains ' /d ' (DLL to inject) or ' /c ' (command to run). Runs that include ' /ERRORREPORT:PROMPT ' and runs whose ParentImage is Visual Studio's MSBuild.exe are excluded.",
+      "why_it_matters": "Tracker.exe is a signed Microsoft file-tracking tool that MSBuild uses. Attackers can use it to load an arbitrary DLL into a new process (T1055.001, DLL injection). This hides their code behind trusted binaries, which helps them evade defenses or escalate privileges.",
+      "triage_steps": [
+        "Inspect CommandLine: find the DLL path after /d and the executable after /c. Paths under Temp, AppData, ProgramData or Public are suspicious.",
+        "Check the Image path. Legitimate Tracker.exe lives in Visual Studio or Windows SDK folders. If Image is not named tracker.exe but Description is 'Tracker', the binary was renamed.",
+        "Review ParentImage and ParentCommandLine. Parents such as cmd.exe, powershell.exe, wscript.exe or Office are not typical of a build.",
+        "Hash the DLL and the binary, check their signatures, and look up their reputation in your threat intelligence platform.",
+        "Review child processes and image loads of the process launched with /c, along with its network connections and file writes.",
+        "Pivot on the same host within +/- 15 minutes for the DLL's creation, downloads, script execution and earlier alerts.",
+        "Confirm whether the user is a developer and whether the host has Visual Studio or Build Tools installed."
+      ],
+      "false_positives": [
+        "Visual Studio or Build Tools builds launched from a parent other than MSBuild.exe, such as devenv.exe, CI agents or older MSBuild versions in other paths.",
+        "Custom developer build scripts that call Tracker.exe directly with /c."
+      ],
+      "response_steps": [
+        "Verify the activity by comparing the DLL and command with the user's or the CI agent's known build projects.",
+        "If it is malicious, isolate the endpoint through the EDR and preserve the DLL, the binary and the target process memory.",
+        "After collecting evidence, stop the processes involved and remove the DLL and any related persistence.",
+        "Hunt for the same hash and CommandLine pattern on other hosts. Reset the user's credentials if they were exposed.",
+        "Consider blocking Tracker.exe with WDAC or AppLocker on hosts that are not used for development."
+      ],
+      "severity_rationale": "Medium fits because this technique gives stealthy code execution, but Tracker.exe also has legitimate development uses that the rule does not fully exclude."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Tracker.exe copied to a public folder and launched from cmd.exe to inject a DLL from Temp into write.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\Tracker.exe",
+          "Description": "Tracker",
+          "OriginalFileName": "Tracker.exe",
+          "CommandLine": "Tracker.exe /d C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.dll /c C:\\Windows\\write.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat"
+        }
+      },
+      {
+        "description": "Tracker renamed to svchelper.exe, matched by Description, injecting a DLL into notepad.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svchelper.exe",
+          "Description": "Tracker",
+          "OriginalFileName": "Tracker.exe",
+          "CommandLine": "svchelper.exe /d C:\\ProgramData\\core.dll /c C:\\Windows\\System32\\notepad.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Visual Studio build: MSBuild.exe launches Tracker.exe with /c to run Lib.exe, which filter_msbuild2 excludes",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\Tracker.exe",
+          "Description": "Tracker",
+          "CommandLine": "\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\Tracker.exe\" @\"C:\\Users\\lgomez\\AppData\\Local\\Temp\\tmp05c7789b.tmp\" /c \"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX86\\x64\\Lib.exe\"",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe\" /nologo /nodemode:1 /nodeReuse:true /low:false"
+        }
+      },
+      {
+        "description": "Tracker.exe run with only /? for help, with neither /d nor /c, so selection_cli does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\Tracker.exe",
+          "Description": "Tracker",
+          "CommandLine": "Tracker.exe /?",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

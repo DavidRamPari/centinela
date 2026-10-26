@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "646bc99f-6682-4b47-a73a-17b1b64c9d34",
+    "title": "Execute Files with Msdeploy.exe",
+    "level": "medium",
+    "status": "test",
+    "author": "Beyu Denis, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_lolbin_msdeploy.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_msdeploy.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "msdeploy.exe (Microsoft Web Deploy) ejecutó una sincronización usando el proveedor RunCommand como origen y como destino. Con esto se ejecuta un comando arbitrario a través de un binario firmado por Microsoft.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\msdeploy.exe y CommandLine contiene 'verb:sync', '-source:RunCommand' y '-dest:runCommand', los tres a la vez. Es el patrón documentado en LOLBAS para ejecutar archivos o comandos mediante Web Deploy.",
+      "why_it_matters": "Los atacantes usan binarios firmados para ejecutar payloads y así evadir listas de aplicaciones permitidas y el monitoreo básico (MITRE ATT&CK T1218, System Binary Proxy Execution). Web Deploy suele estar solo en servidores IIS o de compilación, así que este patrón en otros equipos es inusual.",
+      "triage_steps": [
+        "Revise el CommandLine completo e identifique el comando o archivo indicado en -dest:runCommand. Anote su ruta, sobre todo si es una ubicación con permisos de escritura del usuario como %TEMP%, %APPDATA%, Downloads o C:\\Users\\Public.",
+        "Verifique ParentImage y la línea de comandos del proceso padre. Lo esperable son herramientas de despliegue o una consola administrativa, no Office, intérpretes de scripts ni navegadores.",
+        "Confirme el usuario y la sesión. Valide que la cuenta sea de administración IIS/despliegue o una cuenta de servicio, y que el equipo sea un servidor web o de compilación.",
+        "Enumere los procesos hijos de msdeploy.exe y lo que estos hayan lanzado. Busque cmd, powershell, rundll32 o binarios sin firma.",
+        "Obtenga el hash y la firma del archivo ejecutado y consúltelos en inteligencia de amenazas y en los datos de prevalencia del EDR.",
+        "Revise el mismo host en +/- 15 minutos: conexiones de red, escritura de archivos, servicios o tareas programadas nuevas y acceso a credenciales.",
+        "Busque alertas previas del mismo host y usuario, y verifique si esta línea de comandos ya se ejecutó antes como parte de un cambio conocido."
+      ],
+      "false_positives": [
+        "Administradores o pipelines de despliegue que usan el proveedor RunCommand de Web Deploy para ejecutar scripts posteriores al despliegue en servidores IIS.",
+        "Agentes de CI/CD (servidores de compilación) que ejecutan tareas de sincronización de msdeploy con runCommand durante liberaciones aprobadas."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del sistema o con el registro de cambios si la ejecución estaba planificada. Si lo estaba, documéntela y evalúe una exclusión acotada.",
+        "Si no estaba autorizada, aísle el endpoint desde el EDR y conserve el archivo ejecutado, el árbol de procesos y los logs relevantes.",
+        "Deshabilite o restablezca las credenciales de la cuenta utilizada si pudo verse comprometida. Busque la misma actividad en otros equipos.",
+        "Elimine los archivos maliciosos y cualquier persistencia solo después de recolectar la evidencia. Si Web Deploy no es necesario, restrínjalo o desinstálelo, y restaure el equipo bajo monitoreo."
+      ],
+      "severity_rationale": "Medium es adecuado porque se trata de una técnica conocida de ejecución por proxy, pero los administradores también la usan de forma legítima en servidores web y de despliegue, así que hace falta contexto para decidir."
+    },
+    "en": {
+      "summary": "msdeploy.exe (Microsoft Web Deploy) ran a sync with the RunCommand provider as both source and destination. This runs an arbitrary command through a signed Microsoft binary.",
+      "what_it_detects": "Process creation events where Image ends with \\msdeploy.exe and CommandLine contains all of 'verb:sync', '-source:RunCommand' and '-dest:runCommand'. This is the documented LOLBAS pattern for running a file or command through Web Deploy.",
+      "why_it_matters": "Attackers use signed binaries to run payloads and get past application allowlisting and basic monitoring (MITRE ATT&CK T1218, System Binary Proxy Execution). Web Deploy is usually only on IIS or build servers, so this pattern on other hosts is unusual.",
+      "triage_steps": [
+        "Read the full CommandLine and find the command or file named in -dest:runCommand. Note its path, especially user-writable locations like %TEMP%, %APPDATA%, Downloads or C:\\Users\\Public.",
+        "Check ParentImage and the parent command line. Expect deployment tooling or an admin shell, not Office apps, script hosts or browsers.",
+        "Check the User and logon session. Confirm the account is an IIS/deployment admin or service account and that the host is a web or build server.",
+        "List child processes of msdeploy.exe and anything they spawned. Look for cmd, powershell, rundll32 or unsigned binaries.",
+        "Get the hash and signature of the executed file and look them up in threat intelligence and in your EDR's prevalence data.",
+        "Look at the same host within +/- 15 minutes for network connections, file writes, new services or scheduled tasks, and credential access.",
+        "Look for earlier alerts on the same host and user, and check whether this command line has run before as part of a known change."
+      ],
+      "false_positives": [
+        "Administrators or deployment pipelines that use Web Deploy's RunCommand provider to run post-deployment scripts on IIS servers.",
+        "CI/CD agents (build servers) that run msdeploy sync tasks with runCommand during approved releases."
+      ],
+      "response_steps": [
+        "Check with the system owner or the change record whether the execution was planned. If it was, document it and consider a narrow tuning exclusion.",
+        "If it was not authorized, isolate the endpoint through EDR and keep the executed file, the process tree and the relevant logs.",
+        "Disable or reset credentials for the account that was used if it may be compromised. Look for the same activity on other hosts.",
+        "Remove the malicious files and any persistence only after you have collected the evidence. If Web Deploy is not needed, restrict or uninstall it, then bring the host back while monitoring it."
+      ],
+      "severity_rationale": "Medium fits because this is a known proxy-execution technique, but admins also use it legitimately on web and deployment servers, so you need context to decide."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "msdeploy.exe runs a batch file from the user's temp folder through the RunCommand provider, launched from cmd.exe by a standard user.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\IIS\\Microsoft Web Deploy V3\\msdeploy.exe",
+          "CommandLine": "\"C:\\Program Files\\IIS\\Microsoft Web Deploy V3\\msdeploy.exe\" -verb:sync -source:RunCommand -dest:runCommand=\"C:\\Users\\jperez\\AppData\\Local\\Temp\\update.bat\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c msdeploy.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Mixed-case variant: matching is case-insensitive and still meets all three CommandLine substrings.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-WEB-03",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Program Files (x86)\\IIS\\Microsoft Web Deploy V3\\MSDeploy.exe",
+          "CommandLine": "MSDeploy.exe -Verb:Sync -Source:RunCommand -Dest:RunCommand=\"C:\\Users\\Public\\payload.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal Web Deploy content sync between folders. It does not use the RunCommand provider, so the CommandLine substrings are missing.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-WEB-03",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Program Files\\IIS\\Microsoft Web Deploy V3\\msdeploy.exe",
+          "CommandLine": "\"C:\\Program Files\\IIS\\Microsoft Web Deploy V3\\msdeploy.exe\" -verb:sync -source:contentPath=\"D:\\build\\site\" -dest:contentPath=\"Default Web Site/app\"",
+          "ParentImage": "C:\\agent\\bin\\Agent.Worker.exe"
+        }
+      },
+      {
+        "description": "Same arguments, but the image is not msdeploy.exe (a renamed wrapper called msdeploy-helper.exe), so Image|endswith fails.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Tools\\msdeploy-helper.exe",
+          "CommandLine": "msdeploy-helper.exe -verb:sync -source:RunCommand -dest:runCommand=\"C:\\Tools\\test.bat\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

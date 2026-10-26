@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "0ea52357-cd59-4340-9981-c46c7e900428",
+    "title": "Potentially Suspicious Rundll32.EXE Execution of UDL File",
+    "level": "medium",
+    "status": "test",
+    "author": "@kostastsale",
+    "path": "windows/process_creation/proc_creation_win_rundll32_udl_exec.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_rundll32_udl_exec.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1071",
+      "T1218.011"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un usuario abrió desde el Explorador de Windows un archivo .udl ubicado en su carpeta Downloads, lo que lanzó rundll32.exe con oledb32.dll,OpenDSLFile. Puede ser un archivo de phishing diseñado para capturar credenciales o forzar una conexión a un servidor del atacante.",
+      "what_it_detects": "Creación de rundll32.exe (por Image u OriginalFileName) con ParentImage explorer.exe y un CommandLine que contiene oledb32.dll, ',OpenDSLFile ' y una ruta \\Users\\<usuario>\\Downloads\\, y que termina en .udl.",
+      "why_it_matters": "Los archivos UDL (Universal Data Link) abren el diálogo de Propiedades de vínculo de datos y pueden apuntar a un servidor controlado por el atacante, lo que permite capturar credenciales o datos sensibles. Corresponde a ejecución por proxy con Rundll32 (T1218.011) y comunicación de comando y control por protocolo de aplicación (T1071).",
+      "triage_steps": [
+        "Revise el CommandLine: anote el nombre y la ruta completa del .udl y confirme que el usuario lo abrió con doble clic (ParentImage explorer.exe).",
+        "Obtenga el .udl del endpoint y ábralo como texto (es UTF-16): revise Provider, Data Source, User ID e Integrated Security para identificar el servidor de destino.",
+        "Determine el origen del archivo: Zone.Identifier (HostUrl, ReferrerUrl), historial del navegador y adjuntos de correo recibidos por el usuario en las horas previas.",
+        "Busque conexiones de red de rundll32.exe en el mismo host +/- 15 minutos, en especial a IP externas por puertos 1433, 445, 389 o 80/443.",
+        "Revise procesos hijos de rundll32.exe y archivos creados por él; un UDL legítimo no debería generar procesos adicionales.",
+        "Pivote por el hash o el nombre del .udl y por el servidor de destino en otros endpoints y usuarios para medir el alcance de la campaña.",
+        "Consulte alertas previas del mismo usuario y host, y eventos de inicio de sesión inusuales con su cuenta después de la ejecución."
+      ],
+      "false_positives": [
+        "Desarrolladores o DBA que crean y prueban cadenas de conexión con archivos .udl descargados de repositorios internos o del proveedor.",
+        "Instaladores o documentación de aplicaciones de negocio que entregan un .udl para configurar el acceso a una base de datos interna."
+      ],
+      "response_steps": [
+        "Valide con el usuario si esperaba el archivo y si ingresó credenciales en el diálogo de vínculo de datos.",
+        "Si el destino es externo o desconocido, aísle el endpoint, bloquee el dominio o IP en proxy y firewall, y elimine el .udl tras preservarlo como evidencia.",
+        "Si se ingresaron o se enviaron credenciales, restablezca la contraseña del usuario, revoque sesiones y revise accesos posteriores de la cuenta.",
+        "Retire el correo o enlace de origen de los demás buzones y bloquee el remitente; agregue el hash a la lista de bloqueo."
+      ],
+      "severity_rationale": "Medium es adecuado porque el patrón es poco común y apunta a phishing de credenciales, pero los UDL también tienen usos administrativos legítimos que requieren verificación."
+    },
+    "en": {
+      "summary": "A user opened a .udl file from their Downloads folder through Windows Explorer, launching rundll32.exe with oledb32.dll,OpenDSLFile. This may be a phishing file built to capture credentials or force a connection to an attacker server.",
+      "what_it_detects": "Creation of rundll32.exe (by Image or OriginalFileName) with ParentImage explorer.exe and a CommandLine containing oledb32.dll, ',OpenDSLFile ' and a \\Users\\<user>\\Downloads\\ path, ending in .udl.",
+      "why_it_matters": "UDL (Universal Data Link) files open the Data Link Properties dialog and can point to an attacker-controlled server, exposing credentials or sensitive data. Maps to Rundll32 proxy execution (T1218.011) and application-layer protocol C2 (T1071).",
+      "triage_steps": [
+        "Read the CommandLine: record the .udl name and full path, and confirm the user double-clicked it (ParentImage explorer.exe).",
+        "Collect the .udl from the endpoint and read it as text (UTF-16): check Provider, Data Source, User ID and Integrated Security to identify the target server.",
+        "Establish the file's origin: Zone.Identifier (HostUrl, ReferrerUrl), browser history and email attachments the user received in the preceding hours.",
+        "Look for network connections from rundll32.exe on the same host within +/- 15 minutes, especially to external IPs on 1433, 445, 389 or 80/443.",
+        "Check child processes and files created by rundll32.exe; a legitimate UDL should not spawn further processes.",
+        "Pivot on the .udl hash or name and the target server across other endpoints and users to scope the campaign.",
+        "Review earlier alerts for the same user and host, and unusual sign-ins with the account after execution."
+      ],
+      "false_positives": [
+        "Developers or DBAs creating and testing connection strings with .udl files downloaded from internal repositories or vendors.",
+        "Business application installers or documentation that ship a .udl to configure access to an internal database."
+      ],
+      "response_steps": [
+        "Confirm with the user whether the file was expected and whether they entered credentials in the data link dialog.",
+        "If the target is external or unknown, isolate the endpoint, block the domain or IP at proxy and firewall, and remove the .udl after preserving it as evidence.",
+        "If credentials were entered or sent, reset the user's password, revoke sessions and review subsequent account activity.",
+        "Purge the source email or link from other mailboxes, block the sender and add the hash to the blocklist."
+      ],
+      "severity_rationale": "Medium fits because the pattern is uncommon and suggests credential phishing, yet UDL files also have legitimate administrative uses that need verification."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "User double-clicks a downloaded .udl file in Explorer, launching rundll32 with oledb32.dll,OpenDSLFile",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "\"C:\\Windows\\system32\\rundll32.exe\" \"C:\\Program Files\\Common Files\\System\\Ole DB\\oledb32.dll\",OpenDSLFile C:\\Users\\jperez\\Downloads\\Invoice_Portal_Access.udl",
+          "CurrentDirectory": "C:\\Users\\jperez\\Downloads\\",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed rundll32 identified by OriginalFileName opening a .udl from Downloads",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\rdl.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rdl.exe \"C:\\Program Files (x86)\\Common Files\\System\\Ole DB\\oledb32.dll\",OpenDSLFile C:\\Users\\mrojas\\Downloads\\hr_database.udl",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "DBA opens a .udl stored in Documents, not Downloads, so the path condition fails",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "\"C:\\Windows\\system32\\rundll32.exe\" \"C:\\Program Files\\Common Files\\System\\Ole DB\\oledb32.dll\",OpenDSLFile C:\\Users\\jperez\\Documents\\Connections\\erp_test.udl",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Same .udl launched by a development tool rather than Explorer, so the parent condition fails",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\Common7\\IDE\\devenv.exe",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "\"C:\\Windows\\system32\\rundll32.exe\" \"C:\\Program Files\\Common Files\\System\\Ole DB\\oledb32.dll\",OpenDSLFile C:\\Users\\lgomez\\Downloads\\staging_db.udl",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "8cbc9475-8d05-4e27-9c32-df960716c701",
+    "title": "Potentially Suspicious Desktop Background Change Using Reg.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Stephen Lincoln @slincoln-aiq (AttackIQ)",
+    "path": "windows/process_creation/proc_creation_win_reg_desktop_background_change.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reg_desktop_background_change.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1112",
+      "T1491.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó reg.exe con 'add' para modificar claves del fondo de escritorio (Wallpaper, WallpaperStyle o NoChangingWallpaper). Es un comportamiento típico del ransomware al mostrar la nota de rescate como fondo de pantalla.",
+      "what_it_detects": "Procesos reg.exe (por Image u OriginalFileName) cuyo CommandLine contiene 'add', una de las rutas 'Control Panel\\Desktop', 'CurrentVersion\\Policies\\ActiveDesktop' o 'CurrentVersion\\Policies\\System', y además define Wallpaper como REG_SZ, WallpaperStyle con '/d 2' o NoChangingWallpaper con '/d 1'.",
+      "why_it_matters": "Corresponde a T1112 (modificación del registro) y T1491.001 (defacement interno). Ransomware como Rhysida cambia el fondo para mostrar la nota de rescate y bloquea su modificación; suele indicar que el cifrado ya ocurrió o está en curso.",
+      "triage_steps": [
+        "Revisar el CommandLine completo: valor modificado, ruta del archivo de imagen en '/d' y si se usa HKCU o HKLM.",
+        "Identificar ParentImage y ParentCommandLine: cmd.exe, PowerShell o un binario desconocido en Temp o ProgramData es sospechoso; GPO o herramientas de gestión es esperado.",
+        "Verificar el usuario y si la cuenta es administrativa o de servicio; contrastar con cambios aprobados en el equipo.",
+        "Inspeccionar el archivo de imagen referenciado: ubicación, fecha de creación, hash y contenido (posible nota de rescate).",
+        "Buscar en el mismo host +/- 15 minutos: borrado de shadow copies (vssadmin, wmic), creación masiva de archivos con extensiones nuevas o notas de rescate.",
+        "Pivotar por el mismo usuario y el mismo hash del proceso padre en otros endpoints para detectar propagación.",
+        "Consultar alertas previas del host o usuario: acceso remoto, PsExec, volcado de credenciales o movimiento lateral."
+      ],
+      "false_positives": [
+        "Scripts administrativos o GPO que configuran el fondo corporativo con el logotipo de la empresa.",
+        "Herramientas de gestión de endpoints (SCCM, Intune, RMM) que aplican configuración de escritorio estándar.",
+        "Imágenes de kioscos o salas de capacitación que bloquean el cambio de fondo con NoChangingWallpaper."
+      ],
+      "response_steps": [
+        "Confirmar con el equipo de TI si existe un cambio autorizado; si no, escalar como posible incidente de ransomware.",
+        "Aislar el endpoint de la red mediante el EDR, preservando memoria y artefactos antes de apagarlo.",
+        "Recolectar la imagen referenciada, el binario padre y sus hashes; buscarlos en toda la flota.",
+        "Revisar recursos compartidos accesibles desde el host para detectar cifrado y bloquear las cuentas comprometidas.",
+        "Erradicar el malware, restaurar desde respaldos verificados y revertir las claves de registro modificadas."
+      ],
+      "severity_rationale": "Nivel medio: el patrón es característico de ransomware, pero los scripts corporativos de fondo de pantalla generan coincidencias legítimas que requieren verificación."
+    },
+    "en": {
+      "summary": "reg.exe was run with 'add' to change desktop background keys (Wallpaper, WallpaperStyle or NoChangingWallpaper). Ransomware commonly does this to display its ransom note as the wallpaper.",
+      "what_it_detects": "reg.exe processes (by Image or OriginalFileName) whose CommandLine contains 'add', one of 'Control Panel\\Desktop', 'CurrentVersion\\Policies\\ActiveDesktop' or 'CurrentVersion\\Policies\\System', and sets Wallpaper as REG_SZ, WallpaperStyle with '/d 2', or NoChangingWallpaper with '/d 1'.",
+      "why_it_matters": "Maps to T1112 (Modify Registry) and T1491.001 (Internal Defacement). Ransomware such as Rhysida swaps the wallpaper for a ransom note and locks it; this often means encryption has happened or is underway.",
+      "triage_steps": [
+        "Read the full CommandLine: which value is set, the image path in '/d', and whether HKCU or HKLM is targeted.",
+        "Check ParentImage and ParentCommandLine: cmd.exe, PowerShell or an unknown binary in Temp/ProgramData is suspicious; GPO or management agents are expected.",
+        "Validate the user and whether it is an admin or service account; compare with approved changes for the host.",
+        "Inspect the referenced image file: location, creation time, hash and content (possible ransom note).",
+        "Search the same host +/- 15 minutes for shadow copy deletion (vssadmin, wmic), mass file renames, new extensions or ransom note drops.",
+        "Pivot on the same user and parent process hash across other endpoints to spot spread.",
+        "Review earlier alerts for the host or user: remote access, PsExec, credential dumping or lateral movement."
+      ],
+      "false_positives": [
+        "Admin scripts or GPOs that set a corporate wallpaper or company logo.",
+        "Endpoint management tools (SCCM, Intune, RMM) applying a standard desktop configuration.",
+        "Kiosk or training-room builds that lock the wallpaper with NoChangingWallpaper."
+      ],
+      "response_steps": [
+        "Confirm with IT whether an authorized change exists; if not, escalate as a possible ransomware incident.",
+        "Isolate the endpoint via EDR, preserving memory and artifacts before any shutdown.",
+        "Collect the referenced image, the parent binary and their hashes; hunt for them fleet-wide.",
+        "Check shares reachable from the host for encryption and disable compromised accounts.",
+        "Eradicate the malware, restore from verified backups and revert the modified registry values."
+      ],
+      "severity_rationale": "Medium: the pattern is characteristic of ransomware, but corporate wallpaper scripts produce legitimate matches that need verification."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe launched from cmd.exe sets the Wallpaper value to an image dropped in Public, as ransomware does with its note.",
+        "event": {
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe add \"HKCU\\Control Panel\\Desktop\" /v Wallpaper /t REG_SZ /d \"C:\\Users\\Public\\bg.jpg\" /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\ProgramData\\run.bat",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.andes.example.com",
+          "EventID": 1
+        }
+      },
+      {
+        "description": "reg.exe sets the ActiveDesktop policy NoChangingWallpaper to 1 to block the user from changing the background.",
+        "event": {
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\ActiveDesktop\" /v NoChangingWallpaper /t REG_DWORD /d 1 /f",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.andes.example.com",
+          "EventID": 1
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "reg.exe adds a screensaver timeout under Control Panel\\Desktop; no wallpaper value is touched.",
+        "event": {
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe add \"HKCU\\Control Panel\\Desktop\" /v ScreenSaveTimeOut /t REG_SZ /d 600 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\mrojas",
+          "Computer": "WS-0201.andes.example.com",
+          "EventID": 1
+        }
+      },
+      {
+        "description": "Helpdesk queries the current Wallpaper value with reg query; nothing is written.",
+        "event": {
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe query \"HKCU\\Control Panel\\Desktop\" /v Wallpaper",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\soporte01",
+          "Computer": "WS-0142.andes.example.com",
+          "EventID": 1
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "rule": {
+    "id": "cc268ac1-42d9-40fd-9ed3-8c4e1a5b87e6",
+    "title": "Devtoolslauncher.exe Executes Specified Binary",
+    "level": "high",
+    "status": "test",
+    "author": "Beyu Denis, oscd.community (rule), @_felamos (idea)",
+    "path": "windows/process_creation/proc_creation_win_lolbin_devtoolslauncher.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_devtoolslauncher.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó devtoolslauncher.exe con el argumento LaunchForDeploy, que hace que este binario firmado por Microsoft lance otro ejecutable indicado en la línea de comandos. Puede ser un intento de ejecutar un payload a través de un binario de confianza.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\devtoolslauncher.exe y CommandLine contiene 'LaunchForDeploy'. LOLBAS documenta este modo como una forma de ejecutar un binario arbitrario con argumentos.",
+      "why_it_matters": "Corresponde a ATT&CK T1218 (System Binary Proxy Execution). Si un atacante lanza su payload mediante una herramienta de desarrollo de Microsoft firmada, puede evadir controles de aplicaciones y engañar a los analistas, que ven un proceso padre de confianza.",
+      "triage_steps": [
+        "Revise CommandLine y extraiga la ruta del binario que se lanza después de LaunchForDeploy y sus argumentos.",
+        "Revise el proceso hijo creado por devtoolslauncher.exe: obtenga su ruta, hash, firma y si reside en una carpeta de escritura del usuario (AppData, Temp, Downloads, Public).",
+        "Examine ParentImage y la línea de comandos del padre: ¿lo inició Visual Studio o un IDE, o lo lanzó cmd.exe, powershell.exe, wscript.exe, Office o un servicio?",
+        "Confirme si el host es una estación de desarrollo con Visual Studio instalado y si el usuario tiene un rol de desarrollo.",
+        "Pivote en el mismo host +/- 15 minutos: descargas, conexiones de red del proceso hijo, archivos creados, tareas programadas o claves Run nuevas.",
+        "Busque otras ejecuciones de devtoolslauncher.exe en la flota y alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "Uso legítimo de devtoolslauncher.exe por desarrolladores durante el despliegue o la depuración desde Visual Studio.",
+        "Pipelines de compilación o pruebas en agentes de build que invocan las herramientas de despliegue de Visual Studio."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o con el equipo de desarrollo si la ejecución era esperada y si el binario lanzado forma parte de un proyecto legítimo.",
+        "Si el binario hijo es desconocido o está en una ruta sospechosa, aísle el endpoint y conserve el binario y su hash para analizarlo.",
+        "Termine los procesos maliciosos y elimine la persistencia identificada solo después de documentar la evidencia.",
+        "Restablezca las credenciales del usuario si hay indicios de compromiso y considere bloquear devtoolslauncher.exe en equipos que no sean de desarrollo."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque LaunchForDeploy ejecuta binarios arbitrarios mediante un binario firmado, y fuera de las estaciones de desarrollo su uso legítimo es poco frecuente."
+    },
+    "en": {
+      "summary": "devtoolslauncher.exe ran with the LaunchForDeploy argument, which makes this Microsoft-signed binary launch another executable named on the command line. This may be an attempt to run a payload through a trusted binary.",
+      "what_it_detects": "Windows process creation events where Image ends with \\devtoolslauncher.exe and CommandLine contains 'LaunchForDeploy'. LOLBAS documents this mode as a way to run an arbitrary binary with arguments.",
+      "why_it_matters": "This maps to ATT&CK T1218 (System Binary Proxy Execution). An attacker who starts a payload through a signed Microsoft developer tool can get past application control and fool analysts, who see a trusted parent process.",
+      "triage_steps": [
+        "Read the CommandLine and pull out the binary path and arguments that follow LaunchForDeploy.",
+        "Check the child process that devtoolslauncher.exe created: its path, hash and signature, and whether it sits in a user-writable folder (AppData, Temp, Downloads, Public).",
+        "Look at the ParentImage and the parent's command line. Did Visual Studio or another IDE start it, or did cmd.exe, powershell.exe, wscript.exe, Office or a service?",
+        "Confirm whether the host is a developer workstation with Visual Studio installed and whether the user works in development.",
+        "Pivot on the same host within +/- 15 minutes: downloads, child network connections, dropped files, new scheduled tasks or Run keys.",
+        "Search the fleet for other devtoolslauncher.exe executions, and check earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "Developers using devtoolslauncher.exe legitimately to deploy or debug from Visual Studio.",
+        "Build or test pipelines on build agents that call the Visual Studio deployment tooling."
+      ],
+      "response_steps": [
+        "Ask the user or the development team whether the run was expected and whether the launched binary belongs to a legitimate project.",
+        "If the child binary is unknown or sits in a suspicious path, isolate the endpoint and keep the binary and its hash for analysis.",
+        "Document the evidence first, then kill malicious processes and remove any persistence you found.",
+        "If you see signs of compromise, reset the user's credentials. Consider blocking devtoolslauncher.exe on machines that are not used for development."
+      ],
+      "severity_rationale": "High fits because LaunchForDeploy runs arbitrary binaries through a signed binary, and legitimate use outside developer workstations is uncommon."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "devtoolslauncher.exe started from cmd.exe uses LaunchForDeploy to run a binary from the user's Temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\devtoolslauncher.exe",
+          "OriginalFileName": "DevToolsLauncher.exe",
+          "CommandLine": "devtoolslauncher.exe LaunchForDeploy C:\\Users\\jperez\\AppData\\Local\\Temp\\update.exe \"-silent\" test",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c devtoolslauncher.exe LaunchForDeploy C:\\Users\\jperez\\AppData\\Local\\Temp\\update.exe \"-silent\" test",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "devtoolslauncher.exe started by Visual Studio in debug mode, without the LaunchForDeploy argument",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\devtoolslauncher.exe",
+          "OriginalFileName": "DevToolsLauncher.exe",
+          "CommandLine": "devtoolslauncher.exe LaunchForDebug C:\\src\\Inventario\\bin\\Debug\\Inventario.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\Common7\\IDE\\devenv.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:29+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

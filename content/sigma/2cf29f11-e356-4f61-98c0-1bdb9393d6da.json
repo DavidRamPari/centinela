@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "2cf29f11-e356-4f61-98c0-1bdb9393d6da",
+    "title": "Renamed Visual Studio Code Tunnel Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_vscode_tunnel_renamed_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_vscode_tunnel_renamed_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1071.001",
+      "T1219"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó la función tunnel de la CLI de Visual Studio Code desde un binario cuyo nombre no es code.exe ni code-tunnel.exe, o lo lanzó un proceso padre renombrado. Esto puede indicar un canal C2 encubierto a través de los túneles de Microsoft.",
+      "what_it_detects": "Eventos de creación de procesos donde CommandLine contiene '.exe tunnel', '--accept-server-license-terms' o el modo de servicio interno ('internal-run', 'tunnel-service.log'), o un cmd.exe que lanza code-server.cmd desde '\\servers\\Stable-' con un padre cuyo ParentCommandLine termina en ' tunnel', y en todos los casos sin que Image o ParentImage sean code.exe o code-tunnel.exe.",
+      "why_it_matters": "VS Code Tunnels da acceso remoto interactivo (terminal, archivos) a través de infraestructura legítima de Microsoft sobre HTTPS. Un atacante puede renombrar el binario firmado para evadir controles y usarlo como software de acceso remoto y canal C2 (T1219, T1071.001).",
+      "triage_steps": [
+        "Revise Image, OriginalFileName, el hash y la firma: un binario firmado por Microsoft con OriginalFileName code o code-tunnel en una ruta como Temp o ProgramData es muy sospechoso.",
+        "Analice CommandLine completo: el nombre del túnel (--name), '--accept-server-license-terms' y si se instaló como servicio ('tunnel service install' o 'internal-run').",
+        "Identifique ParentImage y ParentCommandLine, y reconstruya el árbol de procesos: ¿quién descargó o lanzó el binario? Busque PowerShell, scripts u Office como origen.",
+        "Valide con el usuario y su responsable si usa VS Code Remote Tunnels legítimamente y por qué el binario está renombrado.",
+        "Busque conexiones del host a dominios *.tunnels.api.visualstudio.com y *.devtunnels.ms, y la cuenta de GitHub o Microsoft usada para autenticar el túnel.",
+        "Revise el mismo host en +/- 15 minutos: procesos hijos de cmd.exe o code-server, creación de servicios, descargas y accesos a archivos sensibles.",
+        "Busque el mismo hash o nombre de binario en otros endpoints y alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Desarrolladores o administradores que copian o renombran la CLI de VS Code (por ejemplo, versiones portables) para usar Remote Tunnels.",
+        "Herramientas internas de empaquetado que distribuyen la CLI con otro nombre de archivo."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y el área de TI si el uso está autorizado; si no lo está, trate el caso como acceso remoto no autorizado.",
+        "Aísle el endpoint de la red y finalice el proceso del túnel tras preservar evidencia (binario, hash, carpeta .vscode\\cli y logs).",
+        "Elimine el servicio del túnel y el binario renombrado una vez verificados, y revoque las sesiones de la cuenta de GitHub o Microsoft vinculada.",
+        "Revise la actividad realizada a través del túnel, rote credenciales expuestas y considere bloquear los dominios de túneles si no se usan en la organización."
+      ],
+      "severity_rationale": "Nivel alto porque ejecutar un túnel de VS Code con un binario o padre renombrado tiene pocos usos legítimos y otorga acceso remoto interactivo al equipo."
+    },
+    "en": {
+      "summary": "The Visual Studio Code CLI tunnel feature ran from a binary not named code.exe or code-tunnel.exe, or was spawned by a renamed parent. This may be a covert C2 channel over Microsoft tunnel infrastructure.",
+      "what_it_detects": "Process creation where CommandLine contains '.exe tunnel', '--accept-server-license-terms' or the internal service mode ('internal-run', 'tunnel-service.log'), or cmd.exe launching code-server.cmd from '\\servers\\Stable-' under a parent whose ParentCommandLine ends with ' tunnel', with Image or ParentImage not being code.exe or code-tunnel.exe.",
+      "why_it_matters": "VS Code Tunnels gives interactive remote access (terminal, files) through legitimate Microsoft infrastructure over HTTPS. Attackers can rename the signed binary to evade controls and use it as remote access software and C2 (T1219, T1071.001).",
+      "triage_steps": [
+        "Check Image, OriginalFileName, hash and signature: a Microsoft-signed binary with OriginalFileName code or code-tunnel in Temp or ProgramData is highly suspicious.",
+        "Read the full CommandLine: tunnel name (--name), '--accept-server-license-terms', and whether it was installed as a service ('tunnel service install' or 'internal-run').",
+        "Identify ParentImage and ParentCommandLine and rebuild the process tree: what dropped or launched the binary? Look for PowerShell, scripts or Office as origin.",
+        "Ask the user and their manager whether they legitimately use VS Code Remote Tunnels and why the binary is renamed.",
+        "Look for host connections to *.tunnels.api.visualstudio.com and *.devtunnels.ms, and the GitHub or Microsoft account used to authenticate the tunnel.",
+        "Review the same host within +/- 15 minutes: children of cmd.exe or code-server, service creation, downloads, and access to sensitive files.",
+        "Search for the same hash or file name on other endpoints and earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Developers or admins who copy or rename the VS Code CLI (for example portable builds) to use Remote Tunnels.",
+        "Internal packaging tools that ship the CLI under a different file name."
+      ],
+      "response_steps": [
+        "Confirm with the user and IT whether the use is authorized; if not, handle it as unauthorized remote access.",
+        "Isolate the endpoint and stop the tunnel process after preserving evidence (binary, hash, .vscode\\cli folder and logs).",
+        "After verification, remove the tunnel service and renamed binary, and revoke sessions of the linked GitHub or Microsoft account.",
+        "Review activity performed through the tunnel, rotate exposed credentials, and consider blocking tunnel domains if the organization does not use them."
+      ],
+      "severity_rationale": "High because running a VS Code tunnel from a renamed binary or parent has few legitimate uses and grants interactive remote access to the host."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Renamed VS Code CLI in a Temp folder starts a tunnel and accepts the license terms",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\msupdate.exe",
+          "OriginalFileName": "code-tunnel.exe",
+          "CommandLine": "C:\\Users\\jperez\\AppData\\Local\\Temp\\msupdate.exe tunnel --accept-server-license-terms --name ws0142-dev",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden -File C:\\Users\\jperez\\AppData\\Local\\Temp\\run.ps1"
+        }
+      },
+      {
+        "description": "cmd.exe launches code-server.cmd under a renamed parent running the tunnel",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "C:\\Windows\\system32\\cmd.exe /d /c \"C:\\Users\\jperez\\.vscode\\cli\\servers\\Stable-0a1b2c3d4e\\server\\bin\\code-server.cmd\" --start-server --enable-remote-auto-shutdown",
+          "ParentImage": "C:\\ProgramData\\SvcHelper\\svchelper.exe",
+          "ParentCommandLine": "C:\\ProgramData\\SvcHelper\\svchelper.exe tunnel"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate code-tunnel.exe from the VS Code install folder starts a tunnel (excluded by the Image filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files\\Microsoft VS Code\\bin\\code-tunnel.exe",
+          "OriginalFileName": "code-tunnel.exe",
+          "CommandLine": "\"C:\\Program Files\\Microsoft VS Code\\bin\\code-tunnel.exe\" tunnel --accept-server-license-terms",
+          "ParentImage": "C:\\Program Files\\Microsoft VS Code\\Code.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft VS Code\\Code.exe\""
+        }
+      },
+      {
+        "description": "cmd.exe launching code-server.cmd from the genuine code-tunnel.exe parent (excluded by the ParentImage filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "C:\\Windows\\system32\\cmd.exe /d /c \"C:\\Users\\mrojas\\.vscode\\cli\\servers\\Stable-0a1b2c3d4e\\server\\bin\\code-server.cmd\" --start-server",
+          "ParentImage": "C:\\Program Files\\Microsoft VS Code\\bin\\code-tunnel.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft VS Code\\bin\\code-tunnel.exe\" tunnel"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

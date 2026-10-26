@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "b1ec66c6-f4d1-4b5c-96dd-af28ccae7727",
+    "title": "New Generic Credentials Added Via Cmdkey.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_cmdkey_adding_generic_creds.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmdkey_adding_generic_creds.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó cmdkey.exe con los parámetros /generic, /user y /pass, lo que guarda una credencial genérica en el Administrador de credenciales de Windows. Puede ser una tarea administrativa o la preparación de movimiento lateral, por ejemplo por RDP.",
+      "what_it_detects": "Eventos de creación de proceso donde Image termina en \\cmdkey.exe u OriginalFileName es cmdkey.exe, y CommandLine incluye ' -g', ' -u' y ' -p' (o sus variantes con '/'), es decir, el alta de una credencial genérica con usuario y contraseña en texto claro.",
+      "why_it_matters": "Un atacante con credenciales robadas puede guardarlas con cmdkey para abrir sesiones RDP (T1021.001) o acceder a recursos sin escribir la contraseña. La regla la etiqueta como acceso a credenciales (T1003.005). La contraseña además queda expuesta en la línea de comandos.",
+      "triage_steps": [
+        "Revise CommandLine: identifique el destino de /generic (p. ej. TERMSRV/host indica RDP), la cuenta de /user y si es privilegiada o de dominio.",
+        "Identifique al usuario que ejecutó el proceso y el host; confirme si es un administrador que hace este tipo de tareas habitualmente.",
+        "Analice ParentImage y la cadena de procesos padre: cmd.exe o powershell.exe lanzados desde Office, navegador, script o servicio remoto son sospechosos.",
+        "Busque en el mismo host, +/- 15 minutos, ejecuciones de mstsc.exe, net use, PsExec u otras conexiones salientes hacia el destino indicado.",
+        "En el host destino, revise inicios de sesión (4624 tipo 10 o 3) con la cuenta de /user poco después de la alerta.",
+        "Verifique si la cuenta de /user pertenece al usuario que ejecutó cmdkey; una cuenta ajena sugiere credenciales robadas.",
+        "Revise alertas previas del mismo usuario y host, especialmente volcado de credenciales o reconocimiento."
+      ],
+      "false_positives": [
+        "Administradores que guardan credenciales para RDP o recursos compartidos con fines legítimos.",
+        "Scripts de despliegue, inicio de sesión o herramientas de soporte que configuran credenciales con cmdkey.",
+        "Pruebas de Atomic Red Team o ejercicios de red team autorizados."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o su responsable si la acción fue legítima y documentada.",
+        "Si no lo fue, aísle el endpoint y revise sesiones activas de la cuenta indicada en /user.",
+        "Restablezca la contraseña de la cuenta expuesta en CommandLine, ya que quedó en texto claro en los logs.",
+        "Elimine la credencial guardada (cmdkey /delete) tras preservar evidencia, y busque persistencia o movimiento lateral en los hosts destino.",
+        "Recomiende usar mecanismos sin contraseña en línea de comandos para tareas administrativas."
+      ],
+      "severity_rationale": "Nivel medio: cmdkey tiene usos administrativos legítimos, pero guardar credenciales con contraseña en claro es una técnica conocida previa al movimiento lateral y requiere revisión."
+    },
+    "en": {
+      "summary": "cmdkey.exe ran with /generic, /user and /pass, storing a generic credential in Windows Credential Manager. This may be admin work or preparation for lateral movement, for example over RDP.",
+      "what_it_detects": "Process creation events where Image ends with \\cmdkey.exe or OriginalFileName is cmdkey.exe, and CommandLine contains ' -g', ' -u' and ' -p' (or '/' variants): adding a generic credential with a cleartext password.",
+      "why_it_matters": "An attacker holding stolen credentials can store them with cmdkey to open RDP sessions (T1021.001) or reach resources without typing the password. The rule is tagged credential access (T1003.005). The password is also exposed in the command line.",
+      "triage_steps": [
+        "Read CommandLine: note the /generic target (TERMSRV/host means RDP), the /user account and whether it is privileged or a domain account.",
+        "Identify the executing user and host; confirm whether this admin routinely does such tasks.",
+        "Check ParentImage and the process tree: cmd.exe or powershell.exe spawned by Office, a browser, a script or a remote service is suspicious.",
+        "On the same host within +/- 15 minutes, look for mstsc.exe, net use, PsExec or outbound connections to the target.",
+        "On the target host, review logons (4624 type 10 or 3) by the /user account shortly after the alert.",
+        "Check whether the /user account belongs to the executing user; a different person's account suggests stolen credentials.",
+        "Review earlier alerts for the same user and host, especially credential dumping or discovery."
+      ],
+      "false_positives": [
+        "Administrators saving credentials for RDP or file shares for legitimate reasons.",
+        "Deployment, logon scripts or support tools that configure credentials with cmdkey.",
+        "Atomic Red Team tests or authorized red team exercises."
+      ],
+      "response_steps": [
+        "Confirm with the user or their manager whether the action was legitimate and documented.",
+        "If not, isolate the endpoint and review active sessions of the /user account.",
+        "Reset the password exposed in CommandLine, since it is now in cleartext in logs.",
+        "After preserving evidence, remove the stored credential (cmdkey /delete) and hunt for persistence or lateral movement on target hosts.",
+        "Recommend admin methods that avoid passwords on the command line."
+      ],
+      "severity_rationale": "Medium: cmdkey has legitimate admin uses, but storing credentials with a cleartext password is a known precursor to lateral movement and warrants review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmdkey stores a generic RDP credential for a domain controller, as in the Atomic Red Team test",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmdkey.exe",
+          "OriginalFileName": "cmdkey.exe",
+          "CommandLine": "cmdkey.exe /generic:TERMSRV/DC-01.andes.example.com /user:ANDES\\adm-rlopez /pass:PlaceholderPass1",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c rdp_connect.bat"
+        }
+      },
+      {
+        "description": "Renamed cmdkey binary detected via OriginalFileName with dash-style options",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mgarcia",
+          "Image": "C:\\Users\\Public\\ck.exe",
+          "OriginalFileName": "cmdkey.exe",
+          "CommandLine": "ck.exe -generic:fileserv01.example.com -user:ANDES\\svc-backup -pass:PlaceholderPass2",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "cmdkey adds a domain (non-generic) credential with /add, so no ' /g' option is present",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmdkey.exe",
+          "OriginalFileName": "cmdkey.exe",
+          "CommandLine": "cmdkey.exe /add:fileserv01.example.com /user:ANDES\\jperez /pass:PlaceholderPass3",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "cmdkey used only to list stored credentials",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0305.andes.example.com",
+          "User": "ANDES\\helpdesk01",
+          "Image": "C:\\Windows\\System32\\cmdkey.exe",
+          "OriginalFileName": "cmdkey.exe",
+          "CommandLine": "cmdkey.exe /list",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

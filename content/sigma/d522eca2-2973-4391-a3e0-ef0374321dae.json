@@ -1,0 +1,143 @@
+{
+  "rule": {
+    "id": "d522eca2-2973-4391-a3e0-ef0374321dae",
+    "title": "Abused Debug Privilege by Arbitrary Parent Processes",
+    "level": "high",
+    "status": "test",
+    "author": "Semanur Guneysu @semanurtg, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_susp_abusing_debug_privilege.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_abusing_debug_privilege.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1548"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso crítico del sistema (winlogon, services, lsass, csrss, smss, wininit, spoolsv o SearchIndexer) inició cmd.exe o PowerShell como SYSTEM. Suele indicar abuso de SeDebugPrivilege para obtener una shell con privilegios máximos.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage termina en un proceso del sistema, User contiene 'AUTHORI' o 'AUTORI' (NT AUTHORITY en varios idiomas) e Image u OriginalFileName corresponde a cmd.exe, powershell.exe o pwsh. Se excluyen las líneas de comando con ' route ' y ' ADD '.",
+      "why_it_matters": "Un atacante con SeDebugPrivilege puede abrir el handle de un proceso SYSTEM y crear un hijo bajo él (suplantación del proceso padre), obteniendo una shell SYSTEM. Corresponde a T1548, abuso de mecanismos de control de elevación.",
+      "triage_steps": [
+        "Revisar ParentImage, Image, CommandLine y User; confirmar que el padre está en C:\\Windows\\System32 y no es un binario homónimo en otra ruta.",
+        "Analizar CommandLine: buscar whoami, net user, descargas, comandos codificados (-enc) o volcado de credenciales.",
+        "Identificar qué proceso tenía SeDebugPrivilege: buscar en el mismo host +/- 15 minutos procesos elevados de usuarios interactivos o herramientas como psexec o scripts de token.",
+        "Revisar procesos hijos de la shell y conexiones de red salientes asociadas al ProcessId.",
+        "Si el padre es services.exe, consultar eventos 7045/4697 para servicios recién creados con binPath cmd o powershell.",
+        "Buscar alertas previas en el host y del usuario que inició sesión, incluidos inicios de sesión 4624 recientes.",
+        "Verificar el hash de la imagen y del padre contra la línea base del sistema."
+      ],
+      "false_positives": [
+        "Servicios legítimos cuyo binPath ejecuta cmd /c o PowerShell, como agentes de gestión, backup o monitoreo.",
+        "Instaladores o herramientas de despliegue de software que crean servicios temporales con scripts.",
+        "Controladores o utilidades de impresión que lanzan scripts desde spoolsv.exe.",
+        "Clientes VPN que configuran rutas con comandos distintos a 'route ADD' no cubiertos por el filtro."
+      ],
+      "response_steps": [
+        "Validar con el dueño del sistema si existe un servicio o tarea legítima que explique la ejecución.",
+        "Si no hay justificación, aislar el endpoint de la red preservando memoria y registros.",
+        "Identificar y detener el proceso origen con SeDebugPrivilege, y eliminar servicios o artefactos maliciosos tras documentarlos.",
+        "Restablecer credenciales de cuentas que iniciaron sesión en el host y revisar movimiento lateral.",
+        "Restaurar el sistema desde una imagen confiable si se confirma compromiso a nivel SYSTEM."
+      ],
+      "severity_rationale": "Nivel alto porque una shell SYSTEM bajo un proceso crítico rara vez es legítima y otorga control total del host."
+    },
+    "en": {
+      "summary": "A critical system process (winlogon, services, lsass, csrss, smss, wininit, spoolsv or SearchIndexer) launched cmd.exe or PowerShell as SYSTEM. This often means SeDebugPrivilege was abused to get a top-privilege shell.",
+      "what_it_detects": "Process creation events where ParentImage ends with a system process, User contains 'AUTHORI' or 'AUTORI' (NT AUTHORITY in several languages), and Image or OriginalFileName is cmd.exe, powershell.exe or pwsh. Command lines containing ' route ' and ' ADD ' are excluded.",
+      "why_it_matters": "An attacker holding SeDebugPrivilege can open a handle to a SYSTEM process and spawn a child under it (parent spoofing), gaining a SYSTEM shell. This maps to T1548, abuse of elevation control mechanisms.",
+      "triage_steps": [
+        "Review ParentImage, Image, CommandLine and User; confirm the parent lives in C:\\Windows\\System32 and is not a lookalike elsewhere.",
+        "Inspect CommandLine for whoami, net user, downloads, encoded commands (-enc) or credential dumping.",
+        "Find which process held SeDebugPrivilege: check the same host +/- 15 minutes for elevated interactive processes, psexec or token-manipulation tools.",
+        "Review child processes of the shell and outbound network connections tied to its ProcessId.",
+        "If the parent is services.exe, check events 7045/4697 for newly created services with cmd or powershell binPath.",
+        "Search earlier alerts for the host and for recently logged-on users, including 4624 logons.",
+        "Compare image and parent hashes against the system baseline."
+      ],
+      "false_positives": [
+        "Legitimate services whose binPath runs cmd /c or PowerShell, such as management, backup or monitoring agents.",
+        "Installers or software deployment tools creating temporary script-based services.",
+        "Print drivers or utilities launching scripts from spoolsv.exe.",
+        "VPN clients configuring routes with commands other than 'route ADD', not covered by the filter."
+      ],
+      "response_steps": [
+        "Confirm with the system owner whether a legitimate service or task explains the execution.",
+        "If unexplained, isolate the endpoint while preserving memory and logs.",
+        "Identify and stop the originating SeDebugPrivilege process; remove malicious services or artifacts after documenting them.",
+        "Reset credentials of accounts logged on to the host and hunt for lateral movement.",
+        "Rebuild from a trusted image if SYSTEM-level compromise is confirmed."
+      ],
+      "severity_rationale": "High, because a SYSTEM shell under a critical process is rarely legitimate and grants full control of the host."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "winlogon.exe spawning cmd.exe as NT AUTHORITY\\SYSTEM running whoami",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "ParentImage": "C:\\Windows\\System32\\winlogon.exe",
+          "ParentCommandLine": "winlogon.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c whoami /priv",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "IntegrityLevel": "System",
+          "ProcessId": 6412,
+          "ParentProcessId": 712
+        }
+      },
+      {
+        "description": "spoolsv.exe spawning PowerShell under a French-locale SYSTEM account",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-PRINT-02",
+          "ParentImage": "C:\\Windows\\System32\\spoolsv.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -nop -w hidden -c Get-LocalUser",
+          "User": "AUTORITE NT\\Système",
+          "IntegrityLevel": "System",
+          "ProcessId": 4120,
+          "ParentProcessId": 2280
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "services.exe launching cmd.exe to add a route as SYSTEM, excluded by the route ADD filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c route ADD 198.51.100.0 MASK 255.255.255.0 192.0.2.1",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "services.exe launching cmd.exe under a domain service account, not an NT AUTHORITY user",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-BKP-01",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c C:\\Scripts\\backup_prep.bat",
+          "User": "ANDES\\svc_backup",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

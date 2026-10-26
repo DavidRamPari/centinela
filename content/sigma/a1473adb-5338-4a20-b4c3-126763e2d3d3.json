@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "a1473adb-5338-4a20-b4c3-126763e2d3d3",
+    "title": "Suspicious Advpack Call Via Rundll32.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_rundll32_advpack_obfuscated_ordinal_call.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_rundll32_advpack_obfuscated_ordinal_call.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "rundll32.exe cargó advpack.dll usando un ordinal ofuscado (por ejemplo #+12 o un valor negativo #-), muy probablemente para invocar RegisterOCX evadiendo detecciones basadas en el nombre de la función.",
+      "what_it_detects": "Creación de procesos donde la imagen es rundll32 (por ruta, OriginalFileName o línea de comandos), la CommandLine menciona advpack y el ordinal se escribe con signo '+' junto a '12' o con signo '-'.",
+      "why_it_matters": "La función RegisterOCX de advpack.dll permite que rundll32 ejecute una DLL o programa arbitrario. Llamarla con un ordinal con relleno o negativo oculta el nombre: ejecución sigilosa mediante binario del sistema (Rundll32).",
+      "triage_steps": [
+        "Revise la CommandLine completa: identifique la forma del ordinal (#+12, #-...) y el archivo objetivo que le sigue; anote su ruta y si está en una carpeta escribible por el usuario.",
+        "Verifique ParentImage y ParentCommandLine: Office, intérpretes de scripts, mshta, wscript o navegadores como proceso padre sugieren una entrega maliciosa.",
+        "Obtenga hash, firma y fecha de creación del archivo objetivo; consulte su reputación y si llegó recientemente por descarga o correo.",
+        "Revise procesos hijos de rundll32 y conexiones de red del host en un rango de +/- 15 minutos.",
+        "Confirme que Image es el rundll32.exe legítimo de System32/SysWOW64 y que OriginalFileName coincide; una copia renombrada eleva la gravedad.",
+        "Pivotee por usuario y host buscando alertas previas, persistencia (claves Run, tareas programadas, servicios) e inicios de sesión cercanos.",
+        "Busque en toda la flota el mismo patrón de CommandLine o el hash del archivo objetivo."
+      ],
+      "false_positives": [
+        "La regla considera improbables los falsos positivos; el software legítimo invoca advpack por nombre (LaunchINFSection, RegisterOCX), no por ordinal ofuscado.",
+        "Pruebas autorizadas de red team o de detección que reproducen la técnica de Hexacorn; confírmelo con el calendario de pruebas."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa analizando el archivo objetivo y el árbol de procesos antes de actuar.",
+        "Si se confirma, aísle el endpoint y detenga el proceso rundll32 y sus hijos.",
+        "Ponga en cuarentena el payload, elimine la persistencia asociada y bloquee su hash y los dominios o IP contactados.",
+        "Restablezca las credenciales del usuario afectado si la ejecución ocurrió en su sesión y busque el mismo patrón en otros hosts.",
+        "Reinstale o restaure el host si no puede garantizarse su integridad; documente los hallazgos."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque las llamadas a advpack con ordinales ofuscados prácticamente no tienen uso legítimo e indican evasión deliberada al ejecutar código."
+    },
+    "en": {
+      "summary": "rundll32.exe loaded advpack.dll using an obfuscated ordinal (for example #+12 or a negative #- value), most likely to call RegisterOCX in a way that evades name-based detections.",
+      "what_it_detects": "Process creation where the image is rundll32 (by path, OriginalFileName or command line), the CommandLine references advpack, and the ordinal is written with a '+' sign plus '12' or with a '-' sign.",
+      "why_it_matters": "advpack.dll's RegisterOCX function can make rundll32 run an arbitrary DLL or program. Calling it by a padded or negative ordinal hides the function name, a stealthy form of system binary proxy execution through Rundll32.",
+      "triage_steps": [
+        "Read the full CommandLine: identify the ordinal form (#+12, #-...) and the target file passed after it; note its path and whether it is in a user-writable folder.",
+        "Check ParentImage and ParentCommandLine: Office apps, script hosts, mshta, wscript or browsers as parent strongly suggest malicious delivery.",
+        "Collect the hash, signature and creation time of the target file; check reputation and whether it appeared recently via download or email.",
+        "Review child processes of rundll32 and network connections from the host within +/- 15 minutes.",
+        "Confirm Image is the genuine System32/SysWOW64 rundll32.exe and that OriginalFileName matches; a renamed copy raises severity.",
+        "Pivot on the user and host for earlier alerts, persistence changes (Run keys, scheduled tasks, services) and logons around the event.",
+        "Search the fleet for the same CommandLine pattern or target file hash."
+      ],
+      "false_positives": [
+        "The rule lists false positives as unlikely; legitimate software calls advpack by name (LaunchINFSection, RegisterOCX), not by obfuscated ordinal.",
+        "Authorized red team or detection testing reproducing the Hexacorn technique; confirm with the testing schedule."
+      ],
+      "response_steps": [
+        "Verify maliciousness by analyzing the target file and process tree before acting.",
+        "If confirmed, isolate the endpoint and stop the rundll32 process and its children.",
+        "Quarantine the target payload, remove related persistence and block its hash and any contacted domains or IPs.",
+        "Reset credentials of the affected user if execution occurred under their session, and hunt for the same pattern on other hosts.",
+        "Reimage or restore the host if integrity cannot be assured; document findings."
+      ],
+      "severity_rationale": "High fits because obfuscated advpack ordinal calls have essentially no legitimate use and indicate deliberate evasion while executing code."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "rundll32 calls advpack.dll with a plus-padded ordinal #+12 (RegisterOCX) to run a payload from Public, spawned by Word",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe advpack.dll,#+12 C:\\Users\\Public\\update.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n C:\\Users\\jperez\\Downloads\\factura.docm"
+        }
+      },
+      {
+        "description": "rundll32 calls advpack with a negative ordinal (#-) to hide the RegisterOCX call, launched from wscript",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\SysWOW64\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32 advpack,#-4294967284 C:\\Users\\mrojas\\AppData\\Local\\Temp\\lib.dll",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\mrojas\\Downloads\\doc.js"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate INF installation through advpack LaunchINFSection by name, no obfuscated ordinal",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe advpack.dll,LaunchINFSection C:\\Program Files\\ExampleApp\\setup.inf,DefaultInstall",
+          "ParentImage": "C:\\Program Files\\ExampleApp\\installer.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\ExampleApp\\installer.exe\" /quiet"
+        }
+      },
+      {
+        "description": "Plain ordinal #12 without '+' or '-' obfuscation does not satisfy the ordinal selection",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe advpack.dll,#12 C:\\Program Files\\ExampleApp\\control.ocx",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

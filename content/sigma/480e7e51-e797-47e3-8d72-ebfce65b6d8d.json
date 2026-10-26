@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "480e7e51-e797-47e3-8d72-ebfce65b6d8d",
+    "title": "Python Spawning Pretty TTY on Windows",
+    "level": "high",
+    "status": "test",
+    "author": "Nextron Systems",
+    "path": "windows/process_creation/proc_creation_win_python_pty_spawn.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_python_pty_spawn.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso de Python en Windows se ejecutó con una línea de comandos que usa el módulo pty para generar una shell interactiva («pretty TTY»). Esto suele indicar a un operador con acceso interactivo que intenta mejorar una reverse shell.",
+      "what_it_detects": "Creación de procesos cuya Image termina en python.exe, python3.exe o python2.exe y cuya CommandLine contiene 'import pty' junto con '.spawn(', o bien 'from pty import spawn'.",
+      "why_it_matters": "pty.spawn es un truco habitual tras obtener una shell básica, por ejemplo tras explotar una aplicación web, para conseguir una terminal interactiva (ATT&CK T1059, intérprete de comandos y scripts). El módulo pty solo funciona en Unix, así que en Windows el comando suele fallar. Aun así, indica actividad manual de un atacante que usa técnicas propias de Linux.",
+      "triage_steps": [
+        "Revise la CommandLine completa: qué proceso se pasa a spawn (cmd.exe, powershell.exe, /bin/bash) y si hay otros comandos encadenados con ';'.",
+        "Identifique ParentImage y la cadena de procesos padre. Un padre de servidor web o de aplicación (java.exe, w3wp.exe, tomcat, httpd) apunta a explotación remota.",
+        "Verifique el usuario y la cuenta de servicio que ejecutó Python, y si esa cuenta suele usar Python en este host.",
+        "Busque procesos hijos de python.exe y las conexiones de red salientes del mismo host durante +/- 15 minutos, sobre todo conexiones hacia IP externas poco comunes.",
+        "Revise los procesos ejecutados en el mismo host +/- 15 minutos: whoami, net, ipconfig, descargas con certutil o curl, creación de archivos en directorios web.",
+        "Consulte los logs del servidor web o de la aplicación de ese momento para detectar solicitudes anómalas o intentos de explotación.",
+        "Busque alertas anteriores del mismo host, usuario o IP origen, y la misma CommandLine en otros endpoints."
+      ],
+      "false_positives": [
+        "Sin falsos positivos conocidos según la regla.",
+        "Pruebas de penetración o ejercicios de red team autorizados que reutilizan comandos de Linux.",
+        "Desarrolladores que prueban scripts multiplataforma que importan pty, aunque es poco común en Windows."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host o con el equipo de pentesting si la actividad estaba autorizada.",
+        "Si no lo estaba, aísle el endpoint desde el EDR y preserve la memoria, los logs y los artefactos del proceso.",
+        "Identifique y corrija el vector de entrada (aplicación vulnerable o credenciales comprometidas) y elimine las webshells o la persistencia encontradas.",
+        "Restablezca las credenciales de las cuentas implicadas y revise el movimiento lateral desde el host antes de devolverlo a producción."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque spawn de pty casi nunca tiene un uso legítimo en Windows y suele indicar que un atacante interactúa con una shell obtenida."
+    },
+    "en": {
+      "summary": "A Python process on Windows ran a command line that uses the pty module to spawn an interactive \"pretty TTY\" shell. This usually means a hands-on operator is trying to upgrade a reverse shell.",
+      "what_it_detects": "Process creation where Image ends with python.exe, python3.exe or python2.exe and CommandLine contains both 'import pty' and '.spawn(', or contains 'from pty import spawn'.",
+      "why_it_matters": "pty.spawn is a common trick after getting a basic shell, for example by exploiting a web application, to get an interactive terminal (ATT&CK T1059, Command and Scripting Interpreter). The pty module only works on Unix, so on Windows the command usually fails. It still shows manual attacker activity using Linux tradecraft.",
+      "triage_steps": [
+        "Read the full CommandLine: what is passed to spawn (cmd.exe, powershell.exe, /bin/bash) and whether other commands are chained with ';'.",
+        "Identify ParentImage and the parent chain. A web or application server parent (java.exe, w3wp.exe, tomcat, httpd) suggests remote exploitation.",
+        "Check which user or service account ran Python and whether that account normally uses Python on this host.",
+        "Look for child processes of python.exe and outbound network connections from the host within +/- 15 minutes, especially to unusual external IPs.",
+        "Review other processes on the same host within +/- 15 minutes: whoami, net, ipconfig, certutil or curl downloads, files written to web directories.",
+        "Check web server or application logs from the same time for anomalous requests or exploitation attempts.",
+        "Search for earlier alerts on the same host, user or source IP, and for the same CommandLine on other endpoints."
+      ],
+      "false_positives": [
+        "No known false positives, per the rule.",
+        "Authorized penetration tests or red team exercises that reuse Linux commands.",
+        "Developers testing cross-platform scripts that import pty, which is rare on Windows."
+      ],
+      "response_steps": [
+        "Ask the host owner or the pentest team whether the activity was authorized.",
+        "If it was not, isolate the endpoint through EDR and preserve memory, logs and process artifacts.",
+        "Find and fix the entry vector (vulnerable application or compromised credentials), and remove any webshells or persistence you find.",
+        "Reset credentials for the accounts involved and check for lateral movement from the host before returning it to production."
+      ],
+      "severity_rationale": "High fits because spawning a pty from Python has almost no legitimate use on Windows and usually means an attacker is interacting with a shell they obtained."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "python.exe spawned by a Java application server runs import pty plus pty.spawn",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\svc-confluence",
+          "Image": "C:\\Program Files\\Python39\\python.exe",
+          "CommandLine": "python.exe -c \"import pty;pty.spawn('cmd.exe')\"",
+          "ParentImage": "C:\\Program Files\\Atlassian\\Confluence\\jre\\bin\\java.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Atlassian\\Confluence\\jre\\bin\\java.exe\" -classpath bootstrap.jar org.apache.catalina.startup.Bootstrap start",
+          "CurrentDirectory": "C:\\Program Files\\Atlassian\\Confluence\\bin\\"
+        }
+      },
+      {
+        "description": "python3.exe uses the 'from pty import spawn' form",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Programs\\Python\\Python311\\python3.exe",
+          "CommandLine": "python3.exe -c \"from pty import spawn; spawn('/bin/bash')\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c python3.exe -c \"from pty import spawn; spawn('/bin/bash')\"",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "python.exe imports pty but never calls spawn, so selection_cli_1 is incomplete",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Python39\\python.exe",
+          "CommandLine": "python.exe -c \"import pty; print(pty.__file__)\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "Normal developer use of python.exe running a script and installing ptyprocess, without the pty spawn pattern",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Program Files\\Python311\\python.exe",
+          "CommandLine": "python.exe -m pip install ptyprocess",
+          "ParentImage": "C:\\Program Files\\Microsoft VS Code\\Code.exe",
+          "CurrentDirectory": "C:\\dev\\proyecto\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

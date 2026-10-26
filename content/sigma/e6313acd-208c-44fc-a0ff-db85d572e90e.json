@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "e6313acd-208c-44fc-a0ff-db85d572e90e",
+    "title": "Network Reconnaissance Activity",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_nslookup_domain_discovery.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_nslookup_domain_discovery.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1082",
+      "T1087"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó nslookup para consultar el registro SRV _ldap._tcp.dc._msdcs, que lista los controladores de dominio de Active Directory. Es una técnica de reconocimiento habitual tras un acceso inicial.",
+      "what_it_detects": "Creación de procesos en Windows cuya CommandLine contiene a la vez 'nslookup' y '_ldap._tcp.dc._msdcs.', es decir, una consulta DNS manual para localizar los controladores de dominio.",
+      "why_it_matters": "Encontrar los controladores de dominio suele preceder al movimiento lateral, la enumeración de cuentas y el robo de credenciales (descubrimiento, ATT&CK T1087 y T1082). La referencia de la regla documenta este patrón en una intrusión con QBot.",
+      "triage_steps": [
+        "Revise la CommandLine completa: dominio consultado, opciones como -querytype=ALL o -timeout y si la salida se redirige a un archivo.",
+        "Identifique ParentImage y ParentCommandLine; es sospechoso que el padre sea cmd.exe o powershell.exe lanzado por Office, rundll32, regsvr32 o un proceso inyectado.",
+        "Confirme el usuario y el host: ¿es una cuenta de administración de TI o un usuario estándar en una estación de trabajo?",
+        "Busque en el mismo host, +/- 15 minutos, otros comandos de descubrimiento: nltest /dclist, net group \"domain admins\", whoami /all, ipconfig /all, arp -a.",
+        "Revise la actividad de red del host: conexiones salientes a IP externas, beaconing o conexiones SMB/LDAP inusuales hacia los controladores de dominio.",
+        "Consulte alertas previas del mismo host y usuario, en especial de ejecución de macros, scripts o persistencia."
+      ],
+      "false_positives": [
+        "Scripts o herramientas de administración que verifican la resolución DNS de los controladores de dominio.",
+        "Técnicos de soporte o administradores de AD que diagnostican problemas de unión al dominio o de replicación.",
+        "Herramientas de inventario o monitoreo que validan registros SRV de Active Directory."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del host o el equipo de TI si la ejecución fue legítima y está documentada.",
+        "Si no se justifica, aísle el endpoint mediante el EDR y conserve memoria y artefactos del proceso padre.",
+        "Restablezca las credenciales de los usuarios que iniciaron sesión en el host y vigile su uso en otros sistemas.",
+        "Elimine el mecanismo de acceso inicial o la persistencia encontrada y busque el mismo patrón en toda la flota.",
+        "Si es legítimo, documente la excepción por host, usuario o script específico, nunca de forma global."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque usar nslookup a mano para localizar controladores de dominio es poco común en usuarios normales y suele indicar reconocimiento activo dentro de una intrusión."
+    },
+    "en": {
+      "summary": "A process ran nslookup to query the _ldap._tcp.dc._msdcs SRV record, which lists Active Directory domain controllers. This is common reconnaissance after initial access.",
+      "what_it_detects": "Windows process creation where CommandLine contains both 'nslookup' and '_ldap._tcp.dc._msdcs.', meaning a manual DNS lookup to locate domain controllers.",
+      "why_it_matters": "Locating domain controllers often comes before lateral movement, account enumeration and credential theft (discovery, ATT&CK T1087 and T1082). The rule's reference documents this pattern in a QBot intrusion.",
+      "triage_steps": [
+        "Read the full CommandLine: queried domain, options such as -querytype=ALL or -timeout, and whether output is redirected to a file.",
+        "Check ParentImage and ParentCommandLine; cmd.exe or powershell.exe spawned by Office, rundll32, regsvr32 or an injected process is suspicious.",
+        "Confirm user and host: IT admin account on an admin workstation, or a standard user on an endpoint?",
+        "On the same host within +/- 15 minutes, look for other discovery: nltest /dclist, net group \"domain admins\", whoami /all, ipconfig /all, arp -a.",
+        "Review host network activity: outbound connections to external IPs, beaconing, or unusual SMB/LDAP traffic to domain controllers.",
+        "Check earlier alerts for the same host and user, especially macro execution, scripting or persistence."
+      ],
+      "false_positives": [
+        "Admin scripts or tools that verify DNS resolution of domain controllers.",
+        "Help desk or AD administrators troubleshooting domain join or replication issues.",
+        "Inventory or monitoring tools validating Active Directory SRV records."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT team whether the execution was legitimate and documented.",
+        "If unexplained, isolate the endpoint via EDR and preserve memory and parent process artifacts.",
+        "Reset credentials of users logged on to the host and monitor their use elsewhere.",
+        "Remove the initial access vector or persistence found and hunt for the same pattern fleet-wide.",
+        "If legitimate, scope the exception to the specific host, user or script, never globally."
+      ],
+      "severity_rationale": "High fits because manually locating domain controllers with nslookup is rare for normal users and usually signals active reconnaissance during an intrusion."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "nslookup querying DC SRV records from a cmd.exe spawned by rundll32, as in a post-compromise recon chain",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\nslookup.exe",
+          "CommandLine": "nslookup -querytype=ALL -timeout=12 _ldap._tcp.dc._msdcs.andes.example.com",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c nslookup -querytype=ALL -timeout=12 _ldap._tcp.dc._msdcs.andes.example.com",
+          "OriginalFileName": "nslookup.exe"
+        }
+      },
+      {
+        "description": "cmd.exe wrapper whose command line contains the nslookup DC query with output redirected",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c NSLOOKUP -type=SRV _LDAP._TCP.DC._MSDCS.andes.example.com > C:\\Users\\Public\\dc.txt",
+          "ParentImage": "C:\\Windows\\System32\\rundll32.exe",
+          "ParentCommandLine": "rundll32.exe C:\\Users\\mrojas\\AppData\\Local\\Temp\\upd.dll,Start"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Ordinary nslookup of a web host, no DC SRV record",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\nslookup.exe",
+          "CommandLine": "nslookup www.example.com",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\cmd.exe\""
+        }
+      },
+      {
+        "description": "nltest locating DCs without nslookup; also an nslookup of a non-DC LDAP SRV record would not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-01.andes.example.com",
+          "User": "ANDES\\adm.lgomez",
+          "Image": "C:\\Windows\\System32\\nltest.exe",
+          "CommandLine": "nltest /dsgetdc:andes.example.com",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

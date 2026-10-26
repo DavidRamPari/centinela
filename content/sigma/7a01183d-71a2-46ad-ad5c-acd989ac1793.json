@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "7a01183d-71a2-46ad-ad5c-acd989ac1793",
+    "title": "UAC Bypass Abusing Winsat Path Parsing - Process",
+    "level": "high",
+    "status": "test",
+    "author": "Christian Burkard (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_uac_bypass_winsat.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_uac_bypass_winsat.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1548.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso se inició con integridad High o System y su proceso padre es una copia de winsat.exe ubicada en la carpeta Temp\\system32 del usuario, lanzada mediante la ruta falsa \"C:\\Windows \\system32\". Este patrón corresponde al bypass de UAC del método 52 de UACMe.",
+      "what_it_detects": "Eventos de creación de procesos con IntegrityLevel High o System (o los SID S-1-16-12288 / S-1-16-16384), ParentImage que termina en \\AppData\\Local\\Temp\\system32\\winsat.exe y ParentCommandLine que contiene 'C:\\Windows \\system32\\winsat.exe' (con un espacio después de Windows).",
+      "why_it_matters": "winsat.exe se autoeleva. El atacante crea un directorio falso 'C:\\Windows ' con un espacio al final, copia ahí winsat.exe junto con una DLL plantada y obtiene ejecución elevada sin que aparezca el aviso de UAC. Esto corresponde a ATT&CK T1548.002, Bypass User Account Control, y permite escalar privilegios.",
+      "triage_steps": [
+        "Revise Image, CommandLine y User del proceso hijo. Si es una shell, un intérprete de scripts o un binario desconocido, la intención maliciosa queda confirmada.",
+        "Confirme ParentImage y ParentCommandLine, y verifique si en el host existen 'C:\\Windows \\' (con espacio final) y %LOCALAPPDATA%\\Temp\\system32.",
+        "Liste los archivos de ambas carpetas, sobre todo las DLL junto a winsat.exe. Obtenga sus hashes y firmas y consulte su reputación.",
+        "Identifique qué proceso creó esas carpetas y archivos: busque eventos de creación de archivos en el mismo host dentro de +/- 15 minutos.",
+        "Reconstruya el árbol de procesos por encima de winsat.exe para hallar el vector inicial (documento, script o descarga).",
+        "Revise la actividad del proceso hijo: conexiones de red, servicios nuevos, tareas programadas y acceso a credenciales.",
+        "Busque alertas previas para el mismo usuario y host, y el mismo hash de DLL en otros equipos."
+      ],
+      "false_positives": [
+        "La regla no indica falsos positivos conocidos. El software legítimo no ejecuta winsat.exe desde la carpeta Temp de un usuario.",
+        "Ejercicios autorizados de red team o pruebas de penetración con UACMe. Confírmelos con el calendario de pruebas."
+      ],
+      "response_steps": [
+        "Antes de actuar, verifique la actividad con el usuario y compárela con las pruebas aprobadas.",
+        "Si es maliciosa, aísle el endpoint y finalice el proceso hijo elevado y sus descendientes.",
+        "Preserve el contenido del directorio falso. Después elimine los artefactos de 'C:\\Windows \\' y Temp\\system32, junto con cualquier persistencia encontrada.",
+        "Restablezca las credenciales del usuario y de las cuentas usadas en el host. Evalúe configurar UAC en 'Notificar siempre' y retirar los permisos de administrador local."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque el patrón es muy específico de un bypass de UAC conocido e indica que un atacante obtuvo ejecución elevada en el host."
+    },
+    "en": {
+      "summary": "A process started with High or System integrity whose parent is a winsat.exe copy in the user's Temp\\system32 folder, launched through the fake path \"C:\\Windows \\system32\". This matches the UACMe method 52 UAC bypass.",
+      "what_it_detects": "Process creation events where IntegrityLevel is High or System (or SIDs S-1-16-12288 / S-1-16-16384), ParentImage ends with \\AppData\\Local\\Temp\\system32\\winsat.exe and ParentCommandLine contains 'C:\\Windows \\system32\\winsat.exe' (note the space after Windows).",
+      "why_it_matters": "winsat.exe auto-elevates. Attackers build a fake 'C:\\Windows ' directory with a trailing space, copy winsat.exe there with a planted DLL, and get elevated code without a UAC prompt. This is ATT&CK T1548.002, Bypass User Account Control, and leads to privilege escalation.",
+      "triage_steps": [
+        "Review Image, CommandLine and User of the child process; shells, script hosts or unknown binaries confirm malicious intent.",
+        "Confirm ParentImage and ParentCommandLine, and check whether 'C:\\Windows \\' (trailing space) and %LOCALAPPDATA%\\Temp\\system32 exist on the host.",
+        "List files in both folders, especially DLLs next to winsat.exe; collect hashes and signatures and check reputation.",
+        "Find the process that created those folders and files: file creation events on the same host within +/- 15 minutes.",
+        "Build the process tree above winsat.exe to find the initial execution vector (document, script, download).",
+        "Check child process activity: network connections, new services, scheduled tasks, credential access.",
+        "Search for earlier alerts for the same user and host, and for the same DLL hash elsewhere in the fleet."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; legitimate software does not run winsat.exe from a user Temp folder.",
+        "Authorized red team or penetration tests using UACMe; confirm with the engagement schedule."
+      ],
+      "response_steps": [
+        "Verify the activity with the user and against any approved test before acting.",
+        "Isolate the endpoint if malicious; terminate the elevated child process and its descendants.",
+        "Preserve the fake directory contents, then remove 'C:\\Windows \\' and Temp\\system32 artifacts and any persistence found.",
+        "Reset credentials of the user and any accounts used on the host; consider setting UAC to 'Always notify' and removing local admin rights."
+      ],
+      "severity_rationale": "High fits because the pattern is very specific to a known UAC bypass and indicates an attacker obtaining elevated execution on the host."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe spawned at High integrity by a winsat.exe copy in Temp\\system32 launched via the fake 'C:\\Windows ' path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\cmd.exe\"",
+          "IntegrityLevel": "High",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\system32\\winsat.exe",
+          "ParentCommandLine": "\"C:\\Windows \\system32\\winsat.exe\" formal"
+        }
+      },
+      {
+        "description": "Unknown binary spawned with integrity level shown as SID S-1-16-12288 (High)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\upd.exe",
+          "CommandLine": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\upd.exe",
+          "IntegrityLevel": "S-1-16-12288",
+          "ParentImage": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\system32\\winsat.exe",
+          "ParentCommandLine": "C:\\Windows \\system32\\winsat.exe formal"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate winsat.exe from the real System32 folder spawning a child at High integrity",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "IntegrityLevel": "High",
+          "ParentImage": "C:\\Windows\\System32\\winsat.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\winsat.exe formal"
+        }
+      },
+      {
+        "description": "Same fake path pattern but the child runs at Medium integrity, so elevation did not succeed",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\cmd.exe\"",
+          "IntegrityLevel": "Medium",
+          "ParentImage": "C:\\Users\\lgomez\\AppData\\Local\\Temp\\system32\\winsat.exe",
+          "ParentCommandLine": "\"C:\\Windows \\system32\\winsat.exe\" formal"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

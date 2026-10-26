@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "8202070f-edeb-4d31-a010-a26c72ac5600",
+    "title": "Suspicious Process By Web Server Process",
+    "level": "high",
+    "status": "test",
+    "author": "Thomas Patzke, Florian Roth (Nextron Systems), Zach Stanford @svch0st, Tim Shelton, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_webshell_susp_process_spawned_from_webserver.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_webshell_susp_process_spawned_from_webserver.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1190",
+      "T1505.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso de servidor web (IIS w3wp.exe, Tomcat, Apache, nginx, PHP, Exchange UM) inició un shell o una herramienta de reconocimiento o administración. Puede indicar un web shell activo o la explotación exitosa de una aplicación web.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage es un proceso de servidor web conocido, o java.exe/javaw.exe de Tomcat (ruta con tomcat o ParentCommandLine con CATALINA_HOME, catalina.home o catalina.jar), e Image es una utilidad como cmd.exe, powershell.exe, certutil.exe, net.exe, whoami vía cmd, reg.exe, wmic.exe o rundll32.exe. Excluye dos comportamientos conocidos de ManageEngine ADManager Plus.",
+      "why_it_matters": "Los servidores web rara vez necesitan iniciar shells. Este patrón es típico de un web shell (T1505.003, persistencia en componentes de servidor) o de la explotación de una aplicación expuesta (T1190), y suele preceder al reconocimiento, robo de credenciales y movimiento lateral.",
+      "triage_steps": [
+        "Revise Image y CommandLine: comandos como whoami, net user, nltest, certutil -urlcache o PowerShell codificado indican actividad maliciosa probable.",
+        "Confirme ParentImage y ParentCommandLine para identificar el sitio, el application pool de IIS o la instancia de Tomcat involucrada.",
+        "Correlacione con los logs del servidor web del mismo host +/- 15 minutos: busque solicitudes POST a archivos .aspx, .jsp o .php inusuales y la IP de origen.",
+        "Busque archivos web creados o modificados recientemente en el directorio raíz del sitio (webroot) y calcule su hash.",
+        "Liste los procesos hijos y nietos del proceso cmd/powershell, y conexiones de red salientes del mismo host.",
+        "Revise el usuario de ejecución (cuenta del application pool o servicio) y alertas previas para el mismo host o IP de origen.",
+        "Verifique con el dueño de la aplicación si esta ejecuta comandos del sistema como parte de su funcionamiento normal."
+      ],
+      "false_positives": [
+        "Aplicaciones web que invocan legítimamente cmd.exe o PowerShell para tareas de mantenimiento, reportes o integraciones.",
+        "Software empresarial basado en Tomcat (consolas de administración, herramientas de monitoreo) que consulta servicios con sc.exe o net.exe.",
+        "Scripts de despliegue o health checks ejecutados por el propio servidor web."
+      ],
+      "response_steps": [
+        "Valide la legitimidad con el dueño de la aplicación y documente el hallazgo antes de actuar.",
+        "Si se confirma actividad maliciosa, aísle el endpoint o retírelo del balanceador, preservando memoria y logs.",
+        "Identifique y respalde el web shell como evidencia, luego elimínelo y corrija la vulnerabilidad explotada.",
+        "Rote las credenciales de cuentas de servicio y de usuarios usados desde el host; busque movimiento lateral.",
+        "Restaure el contenido web desde una fuente confiable y aumente el monitoreo del servidor."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque un shell iniciado por un servidor web es un fuerte indicador de compromiso de un activo expuesto, con pocas causas legítimas."
+    },
+    "en": {
+      "summary": "A web server process (IIS w3wp.exe, Tomcat, Apache, nginx, PHP, Exchange UM) started a shell or a reconnaissance/admin utility. This may indicate an active web shell or successful exploitation of a web application.",
+      "what_it_detects": "Process creation events where ParentImage is a known web server process, or a Tomcat java.exe/javaw.exe (tomcat in the path or CATALINA_HOME, catalina.home or catalina.jar in ParentCommandLine), and Image is a tool such as cmd.exe, powershell.exe, certutil.exe, net.exe, reg.exe, wmic.exe or rundll32.exe. Two known ManageEngine ADManager Plus behaviors are excluded.",
+      "why_it_matters": "Web servers rarely need to spawn shells. This pattern is typical of a web shell (T1505.003, server software component persistence) or exploitation of a public-facing application (T1190), often followed by reconnaissance, credential theft and lateral movement.",
+      "triage_steps": [
+        "Review Image and CommandLine: whoami, net user, nltest, certutil -urlcache or encoded PowerShell strongly suggest malicious activity.",
+        "Check ParentImage and ParentCommandLine to identify the site, IIS application pool or Tomcat instance involved.",
+        "Correlate with web server logs on the same host +/- 15 minutes: look for POST requests to unusual .aspx, .jsp or .php files and the source IP.",
+        "Search the webroot for recently created or modified web files and hash them.",
+        "List child and grandchild processes of the spawned shell and outbound network connections from the host.",
+        "Check the executing user (app pool or service account) and earlier alerts for the same host or source IP.",
+        "Confirm with the application owner whether the app runs system commands as normal behavior."
+      ],
+      "false_positives": [
+        "Web applications that legitimately call cmd.exe or PowerShell for maintenance, reporting or integrations.",
+        "Tomcat-based enterprise software (admin consoles, monitoring tools) querying services with sc.exe or net.exe.",
+        "Deployment scripts or health checks run by the web server itself."
+      ],
+      "response_steps": [
+        "Validate legitimacy with the application owner and document findings before acting.",
+        "If malicious, isolate the endpoint or pull it from the load balancer, preserving memory and logs.",
+        "Collect the web shell as evidence, then remove it and patch the exploited vulnerability.",
+        "Rotate service and user credentials used on the host; hunt for lateral movement.",
+        "Restore web content from a trusted source and increase monitoring of the server."
+      ],
+      "severity_rationale": "High fits because a shell spawned by a web server is a strong indicator of compromise of an exposed asset with few legitimate causes."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "IIS worker process spawns cmd.exe running whoami, typical web shell behavior",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-01.andes.example.com",
+          "User": "IIS APPPOOL\\DefaultAppPool",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+          "ParentCommandLine": "c:\\windows\\system32\\inetsrv\\w3wp.exe -ap \"DefaultAppPool\" -v \"v4.0\"",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami /all"
+        }
+      },
+      {
+        "description": "Tomcat java.exe (path contains \\Tomcat) spawns PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "APP-TC-02.andes.example.com",
+          "User": "NT AUTHORITY\\LOCAL SERVICE",
+          "ParentImage": "C:\\Program Files\\Apache Software Foundation\\Tomcat 9.0\\jre\\bin\\java.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Apache Software Foundation\\Tomcat 9.0\\jre\\bin\\java.exe\" -Dcatalina.home=\"C:\\Program Files\\Apache Software Foundation\\Tomcat 9.0\" org.apache.catalina.startup.Bootstrap start",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -c Get-LocalUser"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "IIS worker process launches csc.exe for ASP.NET compilation; child not in the suspicious list",
+        "event": {
+          "EventID": 1,
+          "Computer": "WEB-IIS-01.andes.example.com",
+          "User": "IIS APPPOOL\\DefaultAppPool",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+          "ParentCommandLine": "c:\\windows\\system32\\inetsrv\\w3wp.exe -ap \"DefaultAppPool\"",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe",
+          "CommandLine": "\"C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe\" /noconfig /fullpaths @\"C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\Temporary ASP.NET Files\\root\\a1b2c3\\x.cmdline\""
+        }
+      },
+      {
+        "description": "ManageEngine ADManager Plus Tomcat java.exe queries its own service with sc; excluded by filter_main_fp_2",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-SRV-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\ManageEngine\\ADManager Plus\\jre\\bin\\java.exe",
+          "ParentCommandLine": "\"C:\\ManageEngine\\ADManager Plus\\jre\\bin\\java.exe\" -Dcatalina.home=\"C:\\ManageEngine\\ADManager Plus\" org.apache.catalina.startup.Bootstrap start",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "CommandLine": "sc query \"ADManager Plus\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

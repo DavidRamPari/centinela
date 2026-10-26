@@ -1,0 +1,109 @@
+{
+  "rule": {
+    "id": "1edd77db-0669-4fef-9598-165bda82826d",
+    "title": "Guacamole Two Users Sharing Session Anomaly",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "linux/builtin/guacamole/lnx_guacamole_susp_guacamole.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/linux/builtin/guacamole/lnx_guacamole_susp_guacamole.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1212"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "guacd registró que un segundo usuario se unió a una conexión de escritorio remoto que ya estaba activa. Puede tratarse de un uso compartido legítimo o de alguien que entró sin autorización a la sesión de otra persona.",
+      "what_it_detects": "Busca la cadena literal '(2 users now present)' en los logs del servicio guacd de Apache Guacamole. guacd escribe ese texto cuando un usuario se une a una conexión existente y quedan dos participantes. Solo coincide con exactamente dos usuarios; si se suma un tercero, el mensaje no coincide.",
+      "why_it_matters": "Cuando alguien se une a una sesión ve todo lo que se escribe y se muestra, incluidas las credenciales. La investigación de Check Point de 2020 sobre Guacamole describe ataques contra el gateway. Corresponde a ATT&CK T1212, explotación para acceso a credenciales.",
+      "triage_steps": [
+        "En el campo message, extraiga el ID de usuario ('@...') y el ID de conexión ('$...'), junto con el host del gateway y la marca de tiempo.",
+        "En los logs de guacamole-client (Tomcat) del mismo momento, ±15 minutos, identifique qué cuentas autenticadas y qué IP de origen corresponden a los dos participantes.",
+        "En Configuración > Historial o en Sesiones activas, revise si el segundo usuario entró mediante un enlace o perfil de uso compartido, o mediante la función de administrador para unirse a sesiones.",
+        "Verifique que las IP de origen sean esperadas: geolocalización, horario y otras alertas previas sobre esa IP o esa cuenta.",
+        "Busque en guacd otros mensajes 'joined connection' o 'users now present' para la misma conexión. Un tercer participante no dispara esta regla.",
+        "Revise en el host de destino qué se hizo durante la sesión compartida: comandos, accesos a credenciales y transferencias de archivos.",
+        "Confirme con el dueño de la sesión si invitó a alguien o si sabía que otra persona estaba conectada."
+      ],
+      "false_positives": [
+        "Uso compartido legítimo mediante enlaces o perfiles de sharing para soporte, capacitación o trabajo en pareja.",
+        "Administradores que se unen a sesiones activas o las observan desde la consola de Guacamole como parte de su trabajo de supervisión o soporte.",
+        "Pruebas o demostraciones internas de la función de sesiones compartidas."
+      ],
+      "response_steps": [
+        "Valide con el dueño de la sesión y con el equipo de soporte si el segundo participante estaba autorizado antes de tomar cualquier acción.",
+        "Si no estaba autorizado, termine la sesión desde la consola de administración y revoque los enlaces y perfiles de uso compartido de esa conexión.",
+        "Desactive o restablezca las credenciales de la cuenta involucrada y rote las credenciales que se usaron dentro de la sesión.",
+        "Conserve los logs de guacd, guacamole-client y del host de destino. Actualice Guacamole a una versión soportada y restrinja quién puede compartir sesiones."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque un tercero dentro de una sesión remota puede capturar credenciales y actividad privilegiada en tiempo real, y el uso compartido legítimo debería ser poco frecuente y fácil de confirmar."
+    },
+    "en": {
+      "summary": "guacd logged that a second user joined a remote desktop connection that was already active. This can be legitimate sharing, or someone getting into another person's session without authorization.",
+      "what_it_detects": "Looks for the literal string '(2 users now present)' in Apache Guacamole guacd logs. guacd writes this when a user joins an existing connection and two participants remain. It matches exactly two users only; if a third joins, the message no longer matches.",
+      "why_it_matters": "Anyone who joins a session sees everything typed and shown, credentials included. Check Point's 2020 Guacamole research describes attacks against the gateway. Maps to ATT&CK T1212, Exploitation for Credential Access.",
+      "triage_steps": [
+        "From the message field, pull the joining user ID ('@...') and connection ID ('$...'), plus the gateway host and timestamp.",
+        "In guacamole-client (Tomcat) logs within ±15 minutes, find which authenticated accounts and source IPs match both participants.",
+        "Check Settings > History or Active Sessions to see whether the second user came in through a sharing link or profile, or through the admin join feature.",
+        "Check that the source IPs are expected: geolocation, time of day and earlier alerts for that IP or account.",
+        "Search guacd for other 'joined connection' or 'users now present' messages for the same connection. A third participant does not trigger this rule.",
+        "On the target host, review what happened during the shared window: commands, credential access and file transfers.",
+        "Ask the session owner whether they invited anyone or knew another person was connected."
+      ],
+      "false_positives": [
+        "Legitimate sharing through sharing links or profiles for support, training or pair work.",
+        "Administrators who join or watch active sessions from the Guacamole console as part of supervision or support.",
+        "Internal tests or demos of the session sharing feature."
+      ],
+      "response_steps": [
+        "Before acting, confirm with the session owner and support team whether the second participant was authorized.",
+        "If not authorized, end the session from the admin console and revoke the connection's sharing links and profiles.",
+        "Disable the involved account or reset its credentials, and rotate any credentials used inside the session.",
+        "Keep the guacd, guacamole-client and target host logs. Update Guacamole to a supported version and limit who can share sessions."
+      ],
+      "severity_rationale": "High fits because a third party inside a remote session can capture credentials and privileged activity in real time, and legitimate sharing should be rare and easy to confirm."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "guacd syslog line: a second user joins an existing RDP connection, so 2 users are now present",
+        "event": {
+          "message": "Oct 25 14:03:12 guac-01 guacd[11507]: INFO:\tUser \"@7f3c2a91-5b1e-4d2a-9c8e-0a1b2c3d4e5f\" joined connection \"$c1d2e3f4-a5b6-4c7d-8e9f-001122334455\" (2 users now present)",
+          "host": "guac-01",
+          "program": "guacd",
+          "pid": 11507
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "guacd logs the first user joining a new connection, so only 1 user is present",
+        "event": {
+          "message": "Oct 25 13:58:40 guac-01 guacd[11507]: INFO:\tUser \"@2a9e8d7c-6b5a-4f3e-8d2c-1b0a99887766\" joined connection \"$c1d2e3f4-a5b6-4c7d-8e9f-001122334455\" (1 users now present)",
+          "host": "guac-01",
+          "program": "guacd",
+          "pid": 11507
+        }
+      },
+      {
+        "description": "guacd logs a user disconnecting from a shared connection, so the keyword is absent",
+        "event": {
+          "message": "Oct 25 14:20:05 guac-01 guacd[11507]: INFO:\tUser \"@7f3c2a91-5b1e-4d2a-9c8e-0a1b2c3d4e5f\" disconnected (1 users remain)",
+          "host": "guac-01",
+          "program": "guacd",
+          "pid": 11507
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

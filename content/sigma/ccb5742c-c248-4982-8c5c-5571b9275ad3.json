@@ -1,0 +1,120 @@
+{
+  "rule": {
+    "id": "ccb5742c-c248-4982-8c5c-5571b9275ad3",
+    "title": "Recon Command Output Piped To Findstr.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), frack113",
+    "path": "windows/process_creation/proc_creation_win_findstr_recon_pipe_output.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_findstr_recon_pipe_output.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1057"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un comando de reconocimiento (ipconfig, net, netstat, ping, systeminfo, tasklist o whoami) cuya salida se envió por pipe a find o findstr para filtrar datos concretos. Suele verse en llamadas inline de cmd.exe /c o /k lanzadas por un atacante o una herramienta.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene uno de esos comandos de reconocimiento seguido de '|' y 'find'. Se excluye el arranque de Tomcat de XAMPP (catalina_start.bat con TASKLIST /V | FIND /I).",
+      "why_it_matters": "Los atacantes filtran la salida para encontrar rápido lo que necesitan: procesos de seguridad o LSASS, administradores locales, puertos en escucha, la versión del sistema. Corresponde a descubrimiento (T1057, descubrimiento de procesos) y suele aparecer tras un acceso inicial, por ejemplo mediante web shells.",
+      "triage_steps": [
+        "Lea el CommandLine completo: qué comando se ejecutó y qué cadena se buscó con find/findstr (lsass, admin, puertos, nombres de EDR).",
+        "Revise ParentImage y la cadena de procesos: w3wp.exe, java.exe, tomcat, sqlservr.exe u Office como padre de cmd.exe indican compromiso probable.",
+        "Identifique al usuario y el tipo de sesión: cuentas de servicio o SYSTEM ejecutando reconocimiento interactivo resultan sospechosas.",
+        "Busque en el mismo host, dentro de +/- 15 minutos, otros comandos de descubrimiento, descargas, creación de cuentas o acceso a LSASS.",
+        "Revise los procesos hijos y la actividad de red posterior del mismo padre, en especial conexiones salientes a IP desconocidas.",
+        "Compruebe si hay alertas anteriores para el mismo host o usuario y si el comando coincide con scripts conocidos de administración o monitoreo."
+      ],
+      "false_positives": [
+        "Scripts de administradores o herramientas de soporte que filtran la salida de tasklist, ipconfig o netstat para revisar el estado del equipo.",
+        "Agentes de monitoreo, instaladores o scripts de arranque de aplicaciones que verifican con tasklist | find si un proceso ya está corriendo.",
+        "Coincidencias amplias de 'net' (netsh, rutas con 'internet') antes de un pipe a find en scripts legítimos."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del host o con el equipo de TI si la ejecución estaba prevista; si es legítima, documente y ajuste la exclusión para ese script concreto.",
+        "Si el padre es un servidor web o una aplicación expuesta, aísle el endpoint y busque web shells o archivos recientes en los directorios de la aplicación.",
+        "Recopile el árbol de procesos, los hash de los binarios y la línea de tiempo; restablezca las credenciales de las cuentas implicadas si hay indicios de compromiso.",
+        "Elimine los artefactos maliciosos solo después de verificarlos, aplique parches a la aplicación vulnerable y vigile el host por si vuelve la actividad."
+      ],
+      "severity_rationale": "Medium es adecuado porque el patrón es común en el reconocimiento posterior al acceso, aunque los scripts administrativos también lo usan y hay que revisar el contexto."
+    },
+    "en": {
+      "summary": "A recon command (ipconfig, net, netstat, ping, systeminfo, tasklist or whoami) ran with its output piped to find or findstr to pull out specific data. This usually shows up as an inline cmd.exe /c or /k call started by an attacker or a tool.",
+      "what_it_detects": "Windows process creation events where CommandLine contains one of those recon commands followed by '|' and 'find'. The XAMPP Tomcat startup (catalina_start.bat running TASKLIST /V | FIND /I) is excluded.",
+      "why_it_matters": "Attackers filter output so they can quickly find what they need, such as security processes, LSASS, local admins, listening ports or the OS version. This is Discovery (T1057, Process Discovery) and often follows initial access, for example through web shells.",
+      "triage_steps": [
+        "Read the full CommandLine: which command ran and what string find/findstr searched for (lsass, admin, ports, EDR names).",
+        "Check ParentImage and the process chain. If w3wp.exe, java.exe, tomcat, sqlservr.exe or Office spawned cmd.exe, compromise is likely.",
+        "Identify the user and session type. Service accounts or SYSTEM running interactive recon are suspicious.",
+        "On the same host within +/- 15 minutes, look for other discovery commands, downloads, account creation or LSASS access.",
+        "Review child processes and later network activity from the same parent, especially outbound connections to unknown IPs.",
+        "Check for earlier alerts on the same host or user, and whether the command matches known admin or monitoring scripts."
+      ],
+      "false_positives": [
+        "Admin scripts or support tools that filter tasklist, ipconfig or netstat output to check machine state.",
+        "Monitoring agents, installers or app startup scripts that run tasklist | find to see whether a process is already running.",
+        "Broad 'net' matches (netsh, paths containing 'internet') before a pipe to find in legitimate scripts."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the run was expected. If it was legitimate, document it and tune an exclusion for that specific script.",
+        "If the parent is a web server or an exposed application, isolate the endpoint and hunt for web shells and recently added files in the app directories.",
+        "Collect the process tree, binary hashes and a timeline. Reset credentials for the accounts involved if there are signs of compromise.",
+        "Remove malicious artifacts only after verifying them. Patch the vulnerable application and watch the host for recurring activity."
+      ],
+      "severity_rationale": "Medium fits because the pattern is common in post-access recon, but admin scripts use it too, so context review is needed."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "An IIS worker process spawns cmd.exe, which runs tasklist piped to findstr to look for lsass.",
+        "event": {
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c \"tasklist /v | findstr /i lsass\"",
+          "ParentImage": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+          "User": "IIS APPPOOL\\DefaultAppPool",
+          "Computer": "WEB-0107.andes.example.com"
+        }
+      },
+      {
+        "description": "Java spawns cmd.exe, which lists local administrators and filters the output with find.",
+        "event": {
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c net localgroup administrators | find /i \"admin\"",
+          "ParentImage": "C:\\Program Files\\Java\\jre\\bin\\java.exe",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Computer": "APP-0033.andes.example.com"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "The XAMPP Tomcat startup script checks for a running process. The filter_optional_xampp exclusion applies.",
+        "event": {
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c TASKLIST /V | FIND /I \"C:\\xampp\\tomcat\\catalina_start.bat\"",
+          "ParentImage": "C:\\xampp\\xampp-control.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142"
+        }
+      },
+      {
+        "description": "findstr filters a log file without any recon command before the pipe.",
+        "event": {
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c type C:\\logs\\app.log | findstr /i ERROR",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

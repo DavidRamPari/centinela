@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "8e3c7994-131e-4ba5-b6ea-804d49113a26",
+    "title": "Uncommon Child Process Spawned By Odbcconf.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Harjot Singh @cyb3rjy0t",
+    "path": "windows/process_creation/proc_creation_win_odbcconf_uncommon_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_odbcconf_uncommon_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.008"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "odbcconf.exe, la utilidad de Windows para configurar controladores ODBC, inició un proceso hijo. Normalmente no genera procesos hijos, así que puede indicar que una DLL cargada mediante odbcconf está ejecutando código.",
+      "what_it_detects": "Eventos de creación de procesos en los que ParentImage termina en \\odbcconf.exe, es decir, cualquier proceso hijo de odbcconf.exe, sin filtros ni exclusiones.",
+      "why_it_matters": "Los atacantes abusan de odbcconf.exe (T1218.008, ejecución mediante un binario de sistema como proxy) para cargar DLL maliciosas con acciones como REGSVR o archivos de respuesta .rsp. Así ejecutan código bajo un binario firmado por Microsoft y evaden controles de aplicaciones.",
+      "triage_steps": [
+        "Revise Image y CommandLine del proceso hijo. Un cmd.exe, powershell.exe, rundll32.exe o un binario en una ruta de usuario es mucho más sospechoso que werfault.exe.",
+        "Examine ParentCommandLine de odbcconf.exe: busque REGSVR, /A {...}, -f con archivo .rsp y DLL ubicadas en AppData, Temp, ProgramData o recursos compartidos de red.",
+        "Identifique quién inició odbcconf.exe (el abuelo del proceso): Office, wscript, mshta o un navegador indican intrusión; msiexec o un instalador de controladores puede ser legítimo.",
+        "Obtenga el hash, la firma y la fecha de creación de la DLL o del archivo .rsp; consulte la carga de imágenes (Sysmon evento 7) de odbcconf.exe.",
+        "Revise el mismo host +/- 15 minutos: conexiones de red, archivos creados, claves Run, tareas programadas y servicios nuevos creados por el proceso hijo.",
+        "Valide el usuario: si es un usuario estándar, en qué horario actuó y qué alertas previas existen para ese usuario o endpoint.",
+        "Busque en toda la flota el mismo hash de DLL o la misma línea de comandos de odbcconf para dimensionar el alcance."
+      ],
+      "false_positives": [
+        "odbcconf.exe falla y Windows lanza werfault.exe para el reporte de errores.",
+        "Instaladores legítimos de controladores ODBC que registran DLL con REGSVR, cuando esas DLL invocan procesos externos.",
+        "Herramientas de despliegue de software del área de TI que configuran DSN u orígenes de datos durante la instalación."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa revisando el hash, la firma y el origen de la DLL, y coordine con el dueño del equipo antes de actuar.",
+        "Si se confirma, aísle el endpoint y termine el árbol de procesos de odbcconf.exe y de sus hijos.",
+        "Preserve y luego ponga en cuarentena la DLL, el archivo .rsp y los artefactos de persistencia; bloquee los hashes y dominios relacionados.",
+        "Restablezca las credenciales del usuario afectado y revise movimientos laterales desde el host.",
+        "Si el caso es benigno y está verificado, agregue un filtro específico (ruta del instalador o hash) en lugar de deshabilitar la regla."
+      ],
+      "severity_rationale": "Es media porque odbcconf.exe casi nunca crea procesos hijos y eso apunta a ejecución por proxy, pero los fallos con werfault y algunos instaladores generan ruido legítimo."
+    },
+    "en": {
+      "summary": "odbcconf.exe, the Windows ODBC driver configuration utility, started a child process. It normally has no children, so this may mean a DLL loaded through odbcconf is running code.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\odbcconf.exe. Any child of odbcconf.exe matches, with no filters or exclusions.",
+      "why_it_matters": "Attackers abuse odbcconf.exe (T1218.008, system binary proxy execution) to load malicious DLLs through REGSVR actions or .rsp response files. This runs their code under a Microsoft-signed binary and gets around application controls.",
+      "triage_steps": [
+        "Review the child's Image and CommandLine. A child such as cmd.exe, powershell.exe, rundll32.exe or a binary in a user path is far more suspicious than werfault.exe.",
+        "Inspect the odbcconf.exe ParentCommandLine for REGSVR, /A {...}, -f with an .rsp file, or DLLs in AppData, Temp, ProgramData or network shares.",
+        "Identify what launched odbcconf.exe (the grandparent). Office, wscript, mshta or a browser suggest intrusion. msiexec or a driver installer may be legitimate.",
+        "Collect the hash, signature and creation time of the DLL or .rsp file. Check odbcconf.exe image loads (Sysmon event 7).",
+        "Review the same host within +/- 15 minutes for network connections, dropped files, Run keys, scheduled tasks or new services from the child.",
+        "Validate the user: whether it is a standard user, the time of activity, and any earlier alerts for that user or endpoint.",
+        "Hunt fleet-wide for the same DLL hash or odbcconf command line to gauge scope."
+      ],
+      "false_positives": [
+        "odbcconf.exe crashes and Windows launches werfault.exe for error reporting.",
+        "Legitimate ODBC driver installers registering DLLs with REGSVR, where those DLLs call external processes.",
+        "IT software deployment tools configuring DSNs or data sources during installation."
+      ],
+      "response_steps": [
+        "Verify maliciousness from the DLL's hash, signature and origin. Coordinate with the asset owner before acting.",
+        "If confirmed, isolate the endpoint and terminate the odbcconf.exe process tree.",
+        "Preserve, then quarantine, the DLL, the .rsp file and any persistence artifacts. Block the related hashes and domains.",
+        "Reset the affected user's credentials and look for lateral movement from the host.",
+        "For verified benign cases, add a narrow filter (installer path or hash) instead of disabling the rule."
+      ],
+      "severity_rationale": "Medium fits because odbcconf.exe rarely spawns children, which points to proxy execution, but werfault crashes and some installers cause legitimate noise."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "odbcconf.exe registers a DLL from the user's Temp folder via REGSVR and spawns cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami /all > C:\\Users\\jperez\\AppData\\Local\\Temp\\o.txt",
+          "ParentImage": "C:\\Windows\\System32\\odbcconf.exe",
+          "ParentCommandLine": "odbcconf.exe /a {REGSVR C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.dll}",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "32-bit odbcconf.exe running a response file spawns PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -c Get-Process",
+          "ParentImage": "C:\\Windows\\SysWOW64\\odbcconf.exe",
+          "ParentCommandLine": "odbcconf.exe -f C:\\ProgramData\\cfg.rsp",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "odbcconf.exe is the child (launched by msiexec to configure a driver), not the parent",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-DB-03.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\odbcconf.exe",
+          "CommandLine": "odbcconf.exe /a {CONFIGSYSDSN \"SQL Server\" \"DSN=Ventas|SERVER=db01.example.com\"}",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\msiexec.exe /V",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Parent path only partially matches (renamed backup copy), so endswith \\odbcconf.exe fails",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "CommandLine": "notepad.exe C:\\Tools\\readme.txt",
+          "ParentImage": "C:\\Tools\\odbcconf.exe.bak",
+          "ParentCommandLine": "C:\\Tools\\odbcconf.exe.bak",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

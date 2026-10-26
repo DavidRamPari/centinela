@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "9248c7e1-2bf3-4661-a22c-600a8040b446",
+    "title": "Potential Rundll32 Execution With DLL Stored In ADS",
+    "level": "high",
+    "status": "test",
+    "author": "Harjot Singh, '@cyb3rjy0t'",
+    "path": "windows/process_creation/proc_creation_win_rundll32_ads_stored_dll_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_rundll32_ads_stored_dll_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1564.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó rundll32.exe con una línea de comandos que carga una DLL desde un Alternate Data Stream (ADS) de NTFS, con la forma ruta:stream. Es una técnica conocida para ocultar y ejecutar código malicioso.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\rundll32.exe u OriginalFileName es RUNDLL32.EXE, y CommandLine coincide con una regex de ruta con unidad seguida de un segundo ':', por ejemplo \"C:\\dir\\archivo.txt:payload.dll\",Export.",
+      "why_it_matters": "Guardar una DLL en un ADS la oculta de los listados de directorio y de algunos escáneres. Ejecutarla con rundll32, un binario firmado de Windows, ayuda a evadir controles. Corresponde a MITRE ATT&CK T1564.004 (Hide Artifacts: NTFS File Attributes).",
+      "triage_steps": [
+        "Revise CommandLine: identifique el archivo anfitrión, el nombre del stream y la función exportada u ordinal que aparece después de la coma.",
+        "Revise ParentImage y la línea de comandos del proceso padre. Es sospechoso que el padre sea Office, un script host, mshta, wmiprvse o schtasks.",
+        "Verifique el usuario y la sesión de logon. ¿Es normal que ese usuario ejecute rundll32 en este equipo?",
+        "Liste los streams del archivo anfitrión (dir /r o Get-Item -Stream *). Extraiga el stream, obtenga su hash con Get-FileHash y consúltelo en threat intel.",
+        "Pivotee en el mismo host en una ventana de +/- 15 minutos: creación de archivos, escritura del ADS (type, certutil, Set-Content -Stream), procesos hijos, conexiones de red y carga de DLL.",
+        "Busque el mismo nombre de stream, el mismo archivo anfitrión o el mismo hash en otros endpoints. Revise también alertas previas del usuario o del host.",
+        "Busque persistencia que ejecute el mismo comando: claves Run, tareas programadas, servicios o suscripciones WMI."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos. El software legítimo rara vez carga DLL desde un ADS.",
+        "Ejercicios de red team o purple team y pruebas de LOLBAS. Confírmelo con el calendario de pruebas."
+      ],
+      "response_steps": [
+        "Confirme que la actividad es maliciosa: analice el stream extraído y revise los procesos padre e hijos.",
+        "Si se confirma, aísle el endpoint desde el EDR y preserve la evidencia: memoria, el archivo con sus streams y los logs.",
+        "Una vez recolectada la evidencia, elimine el ADS y la persistencia que lo lanza, y termine los procesos relacionados.",
+        "Restablezca las credenciales del usuario si pudieron verse comprometidas. Bloquee el hash y los indicadores en toda la flota.",
+        "Haga hunting de la misma técnica en otros equipos y restaure el host a un estado confiable."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque cargar una DLL desde un ADS con rundll32 es una técnica deliberada de ocultamiento que el software legítimo casi nunca usa."
+    },
+    "en": {
+      "summary": "rundll32.exe ran with a command line that loads a DLL from an NTFS Alternate Data Stream (path:stream). This is a known way to hide and run malicious code.",
+      "what_it_detects": "Process creation events where Image ends with \\rundll32.exe or OriginalFileName is RUNDLL32.EXE, and CommandLine matches a regex for a drive path followed by a second colon, such as \"C:\\dir\\file.txt:payload.dll\",Export.",
+      "why_it_matters": "Storing a DLL in an ADS hides it from normal directory listings and from some file scanners. Running it through rundll32, a signed Windows binary, helps it get past controls. This is MITRE ATT&CK T1564.004 (Hide Artifacts: NTFS File Attributes).",
+      "triage_steps": [
+        "Read CommandLine: note the host file, the stream name and the exported function or ordinal called after the comma.",
+        "Review ParentImage and the parent command line. Office apps, script hosts, mshta, wmiprvse or schtasks as parent raise suspicion.",
+        "Check the user and logon session. Is this user expected to run rundll32 on this host?",
+        "List the streams on the host file (dir /r or Get-Item -Stream *). Collect the stream and hash it with Get-FileHash, then check the hash against threat intel.",
+        "Pivot on the same host within +/- 15 minutes: file creation, writes to the ADS (type/more/certutil/PowerShell Set-Content -Stream), child processes, network connections and DLL loads.",
+        "Search for the same stream name, host file or hash on other endpoints, and look for earlier alerts for this user or host.",
+        "Look for persistence that runs the same command: Run keys, scheduled tasks, services, WMI subscriptions."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. Legitimate software rarely loads DLLs from ADS.",
+        "Red team or purple team tests and LOLBAS validation exercises. Confirm with the testing schedule."
+      ],
+      "response_steps": [
+        "Confirm the activity is malicious: analyze the extracted stream and check its parent and child processes.",
+        "If it is malicious, isolate the endpoint through EDR and keep the evidence: memory, the host file with its streams, and the event logs.",
+        "Remove the ADS and any persistence that launches it only after you have collected evidence. Terminate related processes.",
+        "Reset the affected user's credentials if they may be compromised. Block the hash and the indicators across the fleet.",
+        "Hunt for the same technique on other hosts, then restore the host to a known good state."
+      ],
+      "severity_rationale": "High fits because loading a DLL from an ADS with rundll32 is a deliberate hiding technique that legitimate software almost never uses."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "rundll32 launched from Word loads a DLL hidden in an ADS of a text file in C:\\Users\\Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe \"C:\\Users\\Public\\notes.txt:payload.dll\",DllMain",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CurrentDirectory": "C:\\Users\\jperez\\Documents\\"
+        }
+      },
+      {
+        "description": "Scheduled task runs a DLL stored in an ADS, called by ordinal",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILES-02",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32 \"C:\\ProgramData\\cache\\log.txt:svc.dll\",#1",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CurrentDirectory": "C:\\Windows\\system32\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate rundll32 opening the display Control Panel applet. The path has no stream colon.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "C:\\Windows\\system32\\rundll32.exe C:\\Windows\\system32\\shell32.dll,Control_RunDLL desk.cpl",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Notepad opening an ADS path. The command line has a stream reference, but the image is not rundll32.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "OriginalFileName": "NOTEPAD.EXE",
+          "CommandLine": "notepad.exe \"C:\\Users\\jperez\\Documents\\report.txt:Zone.Identifier\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

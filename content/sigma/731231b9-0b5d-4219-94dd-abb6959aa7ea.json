@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "731231b9-0b5d-4219-94dd-abb6959aa7ea",
+    "title": "Suspicious Rundll32 Activity Invoking Sys File",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_rundll32_sys.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_rundll32_sys.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.011"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un proceso con una línea de comandos que menciona rundll32.exe y un archivo .sys seguido de coma o espacio. Esto suele indicar que se usa rundll32 para cargar código desde un archivo disfrazado de driver.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene 'rundll32.exe' y además '.sys,' o '.sys '. Coincide con el patrón 'rundll32.exe <archivo>.sys,<export>' o con un .sys que recibe argumentos.",
+      "why_it_matters": "Rundll32 es un binario firmado de Windows que los atacantes abusan para ejecutar DLL maliciosas y evadir controles de aplicaciones (T1218.011, System Binary Proxy Execution: Rundll32). Los drivers reales no se cargan con rundll32, así que la extensión .sys sugiere una DLL renombrada. La referencia de la regla describe este uso por parte de UNC2452.",
+      "triage_steps": [
+        "Lea el CommandLine completo: anote la ruta del .sys, el export u ordinal después de la coma y los argumentos.",
+        "Revise dónde está el .sys. Rutas con permisos de escritura del usuario, como ProgramData, Temp o AppData, son más sospechosas que System32\\drivers.",
+        "Obtenga el hash, la firma, el tipo de PE y la fecha de creación del archivo. Consulte el hash en fuentes de reputación internas y externas.",
+        "Analice el ParentImage y su línea de comandos. Es preocupante si el padre es una tarea programada, WMI, un script u Office.",
+        "En el mismo host, en un rango de +/- 15 minutos, busque conexiones de red de rundll32, archivos nuevos, claves Run, servicios o tareas programadas.",
+        "Busque en todos los endpoints el mismo hash, nombre de archivo o patrón de CommandLine, y revise alertas previas del host y del usuario."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos. Pueden darse con instaladores antiguos de fabricantes o utilidades de drivers que pasan una ruta .sys a rundll32.",
+        "Scripts de administración o diagnóstico cuya línea de comandos menciona rundll32.exe y también una ruta .sys, como pagefile.sys.",
+        "Ejercicios autorizados de red team o pruebas de detección."
+      ],
+      "response_steps": [
+        "Antes de actuar, confirme que la actividad es maliciosa según el hash, la firma, la ubicación y la cadena de procesos padre.",
+        "Si es maliciosa, aísle el endpoint y conserve la memoria y el archivo .sys para analizarlos.",
+        "Elimine el mecanismo de persistencia que lanzó rundll32 y bloquee el hash en el EDR.",
+        "Restablezca las credenciales del usuario afectado y busque movimiento lateral. Si hace falta, restaure el host a un estado confiable."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque el uso legítimo de rundll32 con archivos .sys es raro y el patrón coincide con una técnica de ejecución sigilosa de un actor avanzado."
+    },
+    "en": {
+      "summary": "A process was started with a command line that mentions rundll32.exe and a .sys file followed by a comma or a space. This usually means rundll32 is being used to load code from a file disguised as a driver.",
+      "what_it_detects": "Process creation events where CommandLine contains 'rundll32.exe' and also '.sys,' or '.sys '. This matches the pattern 'rundll32.exe <file>.sys,<export>' or a .sys file passed with arguments.",
+      "why_it_matters": "Rundll32 is a signed Windows binary that attackers abuse to run malicious DLLs and avoid application controls (T1218.011, System Binary Proxy Execution: Rundll32). Real drivers are not loaded through rundll32, so a .sys extension suggests a renamed DLL. The rule's reference describes UNC2452 using this technique.",
+      "triage_steps": [
+        "Read the full CommandLine: note the .sys path, the export or ordinal after the comma, and any arguments.",
+        "Check where the .sys file is. User-writable paths such as ProgramData, Temp or AppData are more suspicious than System32\\drivers.",
+        "Get the file's hash, signature, PE type and creation time. Look the hash up in internal and external reputation sources.",
+        "Review ParentImage and the parent's command line. Scheduled tasks, WMI, scripts or Office parents raise concern.",
+        "Check the same host within +/- 15 minutes for network connections from rundll32, file drops, registry Run keys, services or scheduled tasks.",
+        "Search all endpoints for the same hash, file name or CommandLine pattern, and check earlier alerts for this host and user."
+      ],
+      "false_positives": [
+        "Rule lists unknown false positives. Possible legitimate causes include legacy vendor installers or driver utilities that pass a .sys path to rundll32.",
+        "Admin or diagnostic scripts whose command line mentions rundll32.exe and also passes a .sys path, such as pagefile.sys.",
+        "Authorized red team or detection testing."
+      ],
+      "response_steps": [
+        "Confirm maliciousness from the file hash, signature, location and parent chain before acting.",
+        "If malicious, isolate the endpoint and preserve memory and the .sys file for analysis.",
+        "Remove the persistence mechanism that launched rundll32 and block the hash with EDR.",
+        "Reset credentials for the affected user, look for lateral movement, then restore the host from a known-good state if needed."
+      ],
+      "severity_rationale": "High fits because legitimate use of rundll32 with .sys files is rare and the pattern matches known stealthy execution by an advanced actor."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "rundll32 loads an export from a disguised .sys file in ProgramData (comma form).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "C:\\Windows\\System32\\rundll32.exe C:\\ProgramData\\Microsoft\\netcfg.sys,DllRegisterServer",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule"
+        }
+      },
+      {
+        "description": "cmd launches rundll32 with a .sys file followed by a space and argument.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c rundll32.exe C:\\Users\\mrojas\\AppData\\Local\\Temp\\update.sys Start",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\mrojas\\Downloads\\invoice.vbs"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate rundll32 opening a Control Panel applet from a DLL; no .sys file involved.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\rundll32.exe\" shell32.dll,Control_RunDLL desk.cpl",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Driver service creation referencing a .sys path without rundll32.exe.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-01.andes.example.com",
+          "User": "ANDES\\admin.soporte",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "CommandLine": "sc.exe create vendorflt type= kernel binPath= C:\\Windows\\System32\\drivers\\vendorflt.sys",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

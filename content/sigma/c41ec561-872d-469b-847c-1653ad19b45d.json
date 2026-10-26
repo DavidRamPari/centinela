@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "c41ec561-872d-469b-847c-1653ad19b45d",
+    "title": "HackTool - GoldenDMSA Execution",
+    "level": "high",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_goldendmsa.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_goldendmsa.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1098",
+      "T1110.001",
+      "T1558.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó GoldenDMSA.exe, o un proceso con una línea de comandos propia de sus modos wordlist/bruteforce que indica un SID de dominio, un dominio y una clave raíz KDS. Esto apunta a un intento de derivar las credenciales de cuentas de servicio administradas (dMSA/gMSA).",
+      "what_it_detects": "Creación de procesos cuyo Image termina en \\GoldenDMSA.exe, o cuyo CommandLine contiene 'wordlist' o 'bruteforce' junto con ' -s ', 'S-1-5-21-', ' -d ' y ' -k '. La segunda rama también detecta copias renombradas de la herramienta.",
+      "why_it_matters": "GoldenDMSA usa una clave raíz KDS robada para generar posibles ManagedPasswordId y obtener por fuerza bruta, fuera de línea, las contraseñas de cuentas de servicio administradas (T1110.001). Con ellas el atacante se autentica, solicita tickets Kerberos (T1558.003) y mantiene persistencia (T1098). Suele implicar que ya se expuso un secreto del controlador de dominio.",
+      "triage_steps": [
+        "Revise Image, hash, firma y ruta. Un binario sin firma en una carpeta temporal o con permisos de escritura para el usuario es sospechoso.",
+        "Extraiga del CommandLine el SID de dominio (-s), el dominio (-d) y la clave KDS (-k). Confirme si pertenecen a su bosque.",
+        "Identifique el usuario y el ParentImage. Determine si el origen fue una sesión interactiva, una shell remota, PsExec/WMI o una tarea programada.",
+        "Pivote en el mismo host desde 15 minutos antes hasta 15 minutos después: busque archivos nuevos, consultas LDAP a msDS-ManagedPasswordId y conexiones salientes.",
+        "En los controladores de dominio, busque lecturas de objetos msKds-ProvRootKey (evento 4662) y actividad de DCSync o de respaldo asociada a este usuario.",
+        "Busque eventos Kerberos 4768/4769 de cuentas gMSA/dMSA originados en este host, o en IP de origen nuevas, después de la ejecución.",
+        "Consulte alertas previas del host y del usuario, en especial de volcado de credenciales o escalamiento de privilegios."
+      ],
+      "false_positives": [
+        "Pruebas de red team o pentest autorizadas con GoldenDMSA. Confirme el alcance, el horario y la cuenta del operador.",
+        "Investigadores que trabajan en un dominio de laboratorio. Verifique que el SID y el dominio no sean de producción."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del activo y con el calendario del red team que la ejecución no está autorizada.",
+        "Aísle el host y preserve la memoria, el binario y los archivos de salida que contengan contraseñas o hashes calculados.",
+        "Deshabilite o vigile de cerca la cuenta de usuario involucrada y revoque sus sesiones.",
+        "Considere comprometida la clave raíz KDS: identifique las cuentas gMSA/dMSA afectadas y planifique con los administradores de AD la rotación de la clave y la recreación de las cuentas.",
+        "Busque inicios de sesión de las cuentas de servicio afectadas desde hosts inesperados y elimine la persistencia que encuentre."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque la actividad indica que el atacante ya tiene una clave raíz KDS y está derivando credenciales de cuentas de servicio de todo el dominio."
+    },
+    "en": {
+      "summary": "A process ran either as GoldenDMSA.exe or with a command line matching the tool's wordlist/bruteforce modes, which target a domain SID, a domain and a KDS root key. This points to an attempt to derive delegated or group Managed Service Account (dMSA/gMSA) credentials.",
+      "what_it_detects": "Process creation where Image ends with \\GoldenDMSA.exe, or where CommandLine contains 'wordlist' or 'bruteforce' together with ' -s ', 'S-1-5-21-', ' -d ' and ' -k '. The second branch also catches renamed copies of the tool.",
+      "why_it_matters": "GoldenDMSA uses a stolen KDS root key to generate candidate password IDs and brute-force managed service account passwords offline (T1110.001). The attacker can then authenticate as those accounts, request Kerberos tickets (T1558.003) and keep persistent access (T1098). Running it usually means a domain controller secret was already exposed.",
+      "triage_steps": [
+        "Check Image, file hash, signer and path. Treat an unsigned binary in a user-writable or temp folder as malicious.",
+        "Parse the CommandLine for the domain SID (-s), the domain (-d) and the KDS key (-k). Confirm they belong to your forest.",
+        "Identify the user and the ParentImage. Find out whether the activity came from an interactive session, a remote shell, PsExec/WMI or a scheduled task.",
+        "Pivot on the same host from 15 minutes before to 15 minutes after: look for file drops, LDAP queries for msDS-ManagedPasswordId and outbound connections.",
+        "On domain controllers, look for reads of KDS root key objects (msKds-ProvRootKey, event 4662) and for DCSync or backup access tied to this user.",
+        "Look for Kerberos 4768/4769 events for gMSA/dMSA accounts coming from this host, or from new source IPs, after the execution time.",
+        "Check earlier alerts for this host and user, especially credential dumping or privilege escalation."
+      ],
+      "false_positives": [
+        "Authorized red-team or penetration tests that use GoldenDMSA. Confirm the engagement scope, timing and operator account.",
+        "Security researchers testing in a lab domain. Verify that the SID and domain are not production values."
+      ],
+      "response_steps": [
+        "Confirm the execution is unauthorized with the asset owner and the red-team schedule.",
+        "Isolate the host and preserve memory, the binary and any output files that hold computed passwords or hashes.",
+        "Disable or closely monitor the user account involved, and revoke its sessions.",
+        "Treat the KDS root key as compromised: list the affected gMSA/dMSA accounts and plan key rotation and account recreation with AD administrators.",
+        "Hunt for logons by the affected service accounts from unexpected hosts, then remove any persistence you find."
+      ],
+      "severity_rationale": "High fits because the activity shows a KDS root key is already in attacker hands and service account credentials are being derived across the domain."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "GoldenDMSA.exe run by name from a public folder in wordlist mode",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\GoldenDMSA.exe",
+          "CommandLine": "GoldenDMSA.exe wordlist -s S-1-5-21-1111111111-2222222222-3333333333 -d andes.example.com -f andes.example.com -i 00000000-0000-0000-0000-000000000000",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      },
+      {
+        "description": "Renamed copy of the tool in bruteforce mode; matched by the command-line selection",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\Intel\\dmsvc.exe",
+          "CommandLine": "dmsvc.exe bruteforce -s S-1-5-21-1111111111-2222222222-3333333333 -d andes.example.com -k EXAMPLEKDSKEYPLACEHOLDER== -u dmsa_sql$",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\ProgramData\\Intel\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Renamed binary with the SID, domain and key flags but neither the wordlist nor the bruteforce keyword",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Tools\\dmsainfo.exe",
+          "CommandLine": "dmsainfo.exe compute -s S-1-5-21-1111111111-2222222222-3333333333 -d andes.example.com -k EXAMPLEKDSKEYPLACEHOLDER==",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Administrator listing managed service accounts with PowerShell, a legitimate action",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\adm_mlopez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command Get-ADServiceAccount -Filter * -Server andes.example.com",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

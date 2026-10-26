@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "224f140f-3553-4cd1-af78-13d81bf9f7cc",
+    "title": "Potential RDP Session Hijacking Activity",
+    "level": "medium",
+    "status": "test",
+    "author": "@juju4",
+    "path": "windows/process_creation/proc_creation_win_tscon_rdp_session_hijacking.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_tscon_rdp_session_hijacking.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó tscon.exe con nivel de integridad System. Con privilegios de SYSTEM, tscon puede conectar la sesión RDP de otro usuario a la del atacante sin pedir su contraseña.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\tscon.exe u OriginalFileName es tscon.exe (detecta también binarios renombrados) y además IntegrityLevel es System o S-1-16-16384.",
+      "why_it_matters": "Un atacante con privilegios de SYSTEM puede tomar el control de la sesión RDP de un administrador desconectado o activo y heredar su contexto, sus aplicaciones abiertas y su acceso. Corresponde al secuestro de sesiones RDP (Remote Service Session Hijacking: RDP Hijacking, T1563.002) y facilita el movimiento lateral.",
+      "triage_steps": [
+        "Revise CommandLine: identifique el ID de sesión de destino y el parámetro /dest (por ejemplo, rdp-tcp#N o console) para saber qué sesión se tomó.",
+        "Analice ParentImage y la cadena de procesos: services.exe→cmd.exe, PsExec con -s, schtasks o una herramienta desconocida son señales de abuso.",
+        "Busque eventos 7045 (System) o 4697 (Security) de creación de servicios en el mismo host dentro de ±15 minutos, sobre todo con binPath que contenga tscon.",
+        "Correlacione con los eventos 4778/4779 y los logs de TerminalServices-LocalSessionManager para saber qué usuario era dueño de la sesión y quién la reconectó.",
+        "Compare Image con OriginalFileName: si tscon.exe se ejecuta fuera de C:\\Windows\\System32 o con otro nombre, considérelo altamente sospechoso.",
+        "Revise alertas previas del host y del usuario origen: escalamiento de privilegios, volcado de credenciales o inicios de sesión RDP desde IPs inusuales."
+      ],
+      "false_positives": [
+        "Actividad administrativa: un administrador o una herramienta de soporte gestiona sesiones de Terminal Services con privilegios de SYSTEM.",
+        "Scripts o software de gestión de escritorios remotos/VDI que reconectan sesiones como SYSTEM; verifique que estén documentados y aprobados."
+      ],
+      "response_steps": [
+        "Confirme con el dueño de la sesión y con el equipo de administración si la acción fue autorizada.",
+        "Si no lo fue, aísle el endpoint y cierre la sesión secuestrada; restablezca las credenciales del usuario afectado.",
+        "Elimine servicios o tareas programadas creadas para ejecutar tscon, después de preservarlas como evidencia.",
+        "Investigue cómo se obtuvieron privilegios de SYSTEM y busque movimiento lateral con las credenciales o sesiones comprometidas.",
+        "Configure límites de tiempo para cerrar sesiones RDP desconectadas y restrinja quién puede iniciar sesión por RDP."
+      ],
+      "severity_rationale": "Medium es adecuado porque tscon como SYSTEM es poco habitual e indica posible secuestro de sesión, aunque existe uso administrativo legítimo que requiere verificación."
+    },
+    "en": {
+      "summary": "tscon.exe ran with System integrity level. Running as SYSTEM, tscon can attach another user's RDP session to the attacker's session without that user's password.",
+      "what_it_detects": "Windows process creation events where Image ends with \\tscon.exe or OriginalFileName is tscon.exe (this also catches renamed copies), and IntegrityLevel is System or S-1-16-16384.",
+      "why_it_matters": "An attacker with SYSTEM rights can take over a disconnected or active administrator RDP session and inherit its context, open applications and access. This is RDP session hijacking (Remote Service Session Hijacking: RDP Hijacking, T1563.002). It enables lateral movement.",
+      "triage_steps": [
+        "Review CommandLine: note the target session ID and the /dest value (for example rdp-tcp#N or console) to see which session was taken.",
+        "Check ParentImage and the process tree. services.exe→cmd.exe, PsExec -s, schtasks or an unknown tool point to abuse.",
+        "Look for service creation events 7045 (System) or 4697 (Security) on the same host within ±15 minutes, especially with a binPath containing tscon.",
+        "Correlate with events 4778/4779 and TerminalServices-LocalSessionManager logs to find who owned the session and who reconnected it.",
+        "Compare Image with OriginalFileName. Treat tscon running from outside C:\\Windows\\System32 or under another name as highly suspicious.",
+        "Check earlier alerts for the host and source user, such as privilege escalation, credential dumping or RDP logons from unusual IPs."
+      ],
+      "false_positives": [
+        "Administrative activity: an administrator or support tool manages Terminal Services sessions with SYSTEM privileges.",
+        "Remote desktop/VDI management scripts or software that reconnect sessions as SYSTEM. Check that they are documented and approved."
+      ],
+      "response_steps": [
+        "Ask the session owner and the admin team whether the action was authorized.",
+        "If it was not, isolate the endpoint, log off the hijacked session and reset the affected user's credentials.",
+        "Preserve any services or scheduled tasks created to run tscon as evidence, then remove them.",
+        "Find out how SYSTEM privileges were obtained and hunt for lateral movement using the compromised sessions or credentials.",
+        "Set time limits that log off disconnected RDP sessions and restrict who can log on through RDP."
+      ],
+      "severity_rationale": "Medium fits because tscon running as SYSTEM is unusual and points to possible session hijacking, but legitimate admin use exists and needs to be ruled out."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "tscon launched as SYSTEM from cmd.exe started by a malicious service, attaching session 2 to rdp-tcp#5",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\tscon.exe",
+          "OriginalFileName": "tscon.exe",
+          "CommandLine": "tscon 2 /dest:rdp-tcp#5",
+          "IntegrityLevel": "System",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /k tscon 2 /dest:rdp-tcp#5"
+        }
+      },
+      {
+        "description": "Renamed copy of tscon (matched by OriginalFileName) running with integrity SID S-1-16-16384",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "tscon.exe",
+          "CommandLine": "svchelper.exe 3 /dest:console",
+          "IntegrityLevel": "S-1-16-16384",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\PSEXESVC.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator runs tscon from an elevated prompt (High integrity) to reconnect their own session, so the integrity selection does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\tscon.exe",
+          "OriginalFileName": "tscon.exe",
+          "CommandLine": "tscon 1 /password:********",
+          "IntegrityLevel": "High",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "qwinsta run as SYSTEM to list sessions: System integrity but not tscon",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "Image": "C:\\Windows\\System32\\qwinsta.exe",
+          "OriginalFileName": "qwinsta.exe",
+          "CommandLine": "qwinsta",
+          "IntegrityLevel": "System",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

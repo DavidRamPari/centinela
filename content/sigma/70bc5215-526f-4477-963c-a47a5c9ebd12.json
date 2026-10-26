@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "70bc5215-526f-4477-963c-a47a5c9ebd12",
+    "title": "Potential Active Directory Enumeration Using AD Module - ProcCreation",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_powershell_active_directory_module_dll_import.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_active_directory_module_dll_import.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso de PowerShell (powershell.exe o pwsh.exe) ejecutó Import-Module o ipmo para cargar directamente la DLL Microsoft.ActiveDirectory.Management.dll. Puede ser enumeración de Active Directory sin RSAT instalado.",
+      "what_it_detects": "Eventos de creación de procesos donde Image u OriginalFileName corresponden a PowerShell y el CommandLine contiene 'Import-Module ' o 'ipmo ' junto con 'Microsoft.ActiveDirectory.Management.dll'.",
+      "why_it_matters": "Con esa DLL, herramientas como ADModule permiten usar los cmdlets de Active Directory (Get-ADUser, Get-ADGroup, Get-ADComputer) sin RSAT ni privilegios de administrador. Así un atacante mapea usuarios, grupos y equipos del dominio (descubrimiento y reconocimiento) antes de moverse lateralmente.",
+      "triage_steps": [
+        "Revise CommandLine: ¿la DLL se carga desde una ruta escribible por el usuario (Downloads, Temp, C:\\Users\\Public) o desde la ruta legítima de RSAT/GAC?",
+        "Identifique el usuario y el host. Confirme si el usuario pertenece a TI o administración de AD y si el equipo es una estación de administración.",
+        "Examine ParentImage y la cadena de procesos: cmd.exe, Office, wscript o un shell remoto (wsmprovhost.exe) como padre aumentan la sospecha.",
+        "Busque en el mismo host, dentro de +/- 15 minutos, la creación del archivo DLL, descargas (Invoke-WebRequest, git, navegador) y la extracción de archivos ZIP como ADModule-master.",
+        "Revise los logs de PowerShell (Script Block 4104) para ver qué cmdlets AD se ejecutaron después de la importación y si se exportaron resultados a archivos.",
+        "Calcule el hash de la DLL y compárelo con la versión firmada por Microsoft. Verifique la firma digital.",
+        "Pivote por el usuario y el host en alertas previas: accesos inusuales, Kerberoasting, uso de BloodHound/SharpHound o consultas LDAP masivas."
+      ],
+      "false_positives": [
+        "Administradores que usan la librería de AD para tareas legítimas en equipos sin RSAT completo.",
+        "Scripts de automatización o inventario que importan la DLL por ruta explícita desde una ubicación administrada.",
+        "Ejercicios autorizados de red team o pruebas de penetración."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o su responsable si la actividad estaba autorizada y documentada.",
+        "Si no está autorizada, aísle el endpoint y preserve la DLL, el historial de PowerShell y los logs relevantes.",
+        "Restablezca las credenciales de la cuenta implicada y revise sus sesiones activas y tickets Kerberos.",
+        "Elimine la DLL y las herramientas descargadas después de recolectar evidencia; busque la misma DLL en otros hosts por hash.",
+        "Revise cambios recientes en AD y accesos posteriores originados por la cuenta o el host."
+      ],
+      "severity_rationale": "Nivel medio: la enumeración de AD es una etapa temprana de un ataque, pero los administradores también usan esta librería legítimamente."
+    },
+    "en": {
+      "summary": "A PowerShell process (powershell.exe or pwsh.exe) ran Import-Module or ipmo to load Microsoft.ActiveDirectory.Management.dll directly. This may be Active Directory enumeration without RSAT installed.",
+      "what_it_detects": "Process creation events where Image or OriginalFileName is PowerShell and CommandLine contains 'Import-Module ' or 'ipmo ' together with 'Microsoft.ActiveDirectory.Management.dll'.",
+      "why_it_matters": "With this DLL, tools such as ADModule expose the Active Directory cmdlets (Get-ADUser, Get-ADGroup, Get-ADComputer) without RSAT or admin rights. Attackers use it to map domain users, groups and computers (discovery and reconnaissance) before lateral movement.",
+      "triage_steps": [
+        "Inspect CommandLine: is the DLL loaded from a user-writable path (Downloads, Temp, C:\\Users\\Public) or from the legitimate RSAT/GAC location?",
+        "Identify the user and host. Confirm whether the user is IT/AD staff and the host is an admin workstation.",
+        "Review ParentImage and the process tree: cmd.exe, Office, wscript or a remote shell (wsmprovhost.exe) as parent raises suspicion.",
+        "On the same host within +/- 15 minutes, look for the DLL file creation, downloads (Invoke-WebRequest, git, browser) and extraction of archives like ADModule-master.",
+        "Check PowerShell Script Block logs (4104) for AD cmdlets run after the import and any results exported to files.",
+        "Hash the DLL and compare it to the Microsoft-signed version; verify the digital signature.",
+        "Pivot on the user and host for earlier alerts: unusual logons, Kerberoasting, BloodHound/SharpHound or bulk LDAP queries."
+      ],
+      "false_positives": [
+        "Administrators using the AD library for legitimate tasks on machines without full RSAT.",
+        "Automation or inventory scripts importing the DLL by explicit path from a managed location.",
+        "Authorized red team or penetration testing exercises."
+      ],
+      "response_steps": [
+        "Confirm with the user or their manager whether the activity was authorized and documented.",
+        "If unauthorized, isolate the endpoint and preserve the DLL, PowerShell history and relevant logs.",
+        "Reset the involved account's credentials and review its active sessions and Kerberos tickets.",
+        "Remove the DLL and downloaded tooling after evidence collection; hunt for the same DLL hash on other hosts.",
+        "Review recent AD changes and follow-on access originating from the account or host."
+      ],
+      "severity_rationale": "Medium: AD enumeration is an early attack stage, but administrators also use this library legitimately."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "powershell.exe importing the AD Management DLL from a public user folder (ADModule without RSAT)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -ep bypass -c \"Import-Module C:\\Users\\Public\\ADModule-master\\Microsoft.ActiveDirectory.Management.dll; Get-ADUser -Filter *\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat"
+        }
+      },
+      {
+        "description": "pwsh.exe using the ipmo alias to load the DLL from Temp",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "OriginalFileName": "pwsh.dll",
+          "CommandLine": "pwsh.exe -NoProfile -Command ipmo C:\\Users\\mrojas\\AppData\\Local\\Temp\\Microsoft.ActiveDirectory.Management.dll",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator importing the installed RSAT module by name, without referencing the DLL",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -Command \"Import-Module ActiveDirectory; Get-ADUser lgomez\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "PowerShell only listing the DLL file, no Import-Module or ipmo",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -Command \"Get-ChildItem -Recurse C:\\Windows\\Microsoft.NET\\assembly -Filter Microsoft.ActiveDirectory.Management.dll\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

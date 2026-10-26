@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "8e95e73e-ba02-4a87-b4d7-0929b8053038",
+    "title": "Suspicious ArcSOC.exe Child Process",
+    "level": "high",
+    "status": "experimental",
+    "author": "Micah Babinski",
+    "path": "windows/process_creation/proc_creation_win_arcsoc_susp_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_arcsoc_susp_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059",
+      "T1203"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "El proceso ArcSOC.exe, que aloja los servicios REST de ArcGIS Server, inició un intérprete de scripts o una herramienta de línea de comandos. Esto puede indicar ejecución remota de código mediante una Server Object Extension (SOE) maliciosa.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde ParentImage termina en \\ArcSOC.exe e Image es cmd.exe, cscript.exe, mshta.exe, powershell.exe, pwsh.exe, regsvr32.exe, rundll32.exe, wmic.exe o wscript.exe. Se excluye la consulta benigna exacta 'cmd.exe /c \"ver\"'.",
+      "why_it_matters": "Un atacante con acceso administrativo a ArcGIS Server puede subir una SOE maliciosa y enviar solicitudes al endpoint del servicio para ejecutar comandos como la cuenta de servicio de ArcGIS (T1059 intérpretes de comandos, T1203 explotación para ejecución). Esto da persistencia en un servidor normalmente expuesto.",
+      "triage_steps": [
+        "Revise CommandLine del proceso hijo: busque comandos de reconocimiento (whoami, net, ipconfig), descargas, PowerShell codificado o creación de usuarios y tareas.",
+        "Confirme ParentImage y su ruta: ArcSOC.exe legítimo reside bajo el directorio de instalación de ArcGIS Server; identifique la cuenta de usuario que ejecuta el proceso.",
+        "Construya el árbol de procesos: hijos y nietos del proceso detectado en el mismo host dentro de +/- 15 minutos.",
+        "Correlacione con los logs de ArcGIS Server y del servidor web: solicitudes a endpoints de SOE, IP de origen y user agent en la misma ventana.",
+        "Verifique en ArcGIS Server Manager si se cargaron o actualizaron extensiones (SOE/SOI) recientemente y quién lo hizo.",
+        "Busque archivos nuevos (.soe, .dll, scripts, webshells) en directorios de ArcGIS y conexiones de red salientes desde el host.",
+        "Revise alertas previas del mismo host, de la cuenta de servicio y de la IP de origen, incluyendo inicios de sesión al portal de administración."
+      ],
+      "false_positives": [
+        "Desconocidos según la regla; posibles SOE o SOI legítimas desarrolladas internamente que invocan scripts o comandos del sistema.",
+        "Tareas de administración o diagnóstico de Esri que ejecutan comandos desde servicios publicados; valide con el equipo GIS antes de descartar."
+      ],
+      "response_steps": [
+        "Valide con el equipo responsable de ArcGIS si la extensión y el comando son esperados; documente la evidencia.",
+        "Si es malicioso, aísle el servidor de la red o restrinja el acceso al endpoint afectado, preservando memoria y logs.",
+        "Detenga y elimine la SOE maliciosa tras respaldarla para análisis; rote credenciales del administrador de ArcGIS y de la cuenta de servicio.",
+        "Busque persistencia adicional (tareas, servicios, usuarios nuevos) y movimiento lateral desde el host.",
+        "Restaure desde una configuración confiable, aplique parches y limite el acceso al Server Manager y a la carga de extensiones."
+      ],
+      "severity_rationale": "Nivel alto porque ArcSOC.exe rara vez debe iniciar intérpretes, y hacerlo sugiere ejecución remota de código en un servidor expuesto."
+    },
+    "en": {
+      "summary": "ArcSOC.exe, the process hosting ArcGIS Server REST services, spawned a script interpreter or command-line tool. This may indicate remote code execution through a malicious Server Object Extension (SOE).",
+      "what_it_detects": "Windows process creation events where ParentImage ends with \\ArcSOC.exe and Image is cmd.exe, cscript.exe, mshta.exe, powershell.exe, pwsh.exe, regsvr32.exe, rundll32.exe, wmic.exe or wscript.exe. The exact benign command 'cmd.exe /c \"ver\"' is excluded.",
+      "why_it_matters": "An attacker with ArcGIS Server admin access can upload a malicious SOE and send requests to its service endpoint to run commands as the ArcGIS service account (T1059 command interpreters, T1203 exploitation for execution), gaining a foothold on an often internet-facing server.",
+      "triage_steps": [
+        "Review the child CommandLine for reconnaissance (whoami, net, ipconfig), downloads, encoded PowerShell, or user and scheduled task creation.",
+        "Confirm the ParentImage path is under the ArcGIS Server install directory and identify the account running the process.",
+        "Build the process tree: children and grandchildren of the flagged process on the same host within +/- 15 minutes.",
+        "Correlate with ArcGIS Server and web server logs: requests to SOE endpoints, source IP and user agent in the same window.",
+        "Check ArcGIS Server Manager for recently uploaded or updated extensions (SOE/SOI) and who performed the change.",
+        "Look for new files (.soe, .dll, scripts, webshells) in ArcGIS directories and outbound network connections from the host.",
+        "Review earlier alerts for the same host, service account and source IP, including admin portal logins."
+      ],
+      "false_positives": [
+        "Unknown per the rule; possibly legitimate in-house SOEs or SOIs that call scripts or system commands.",
+        "Esri diagnostic or administrative tasks running commands from published services; confirm with the GIS team before closing."
+      ],
+      "response_steps": [
+        "Confirm with the ArcGIS owners whether the extension and command are expected; record the evidence.",
+        "If malicious, isolate the server or block access to the affected endpoint, preserving memory and logs.",
+        "Back up then remove the malicious SOE; rotate ArcGIS administrator and service account credentials.",
+        "Hunt for further persistence (tasks, services, new users) and lateral movement from the host.",
+        "Restore from a trusted configuration, patch, and restrict access to Server Manager and extension uploads."
+      ],
+      "severity_rationale": "High fits because ArcSOC.exe should rarely spawn interpreters, and doing so suggests remote code execution on an exposed server."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "ArcSOC.exe spawns PowerShell running an encoded command, typical of SOE-based remote execution.",
+        "event": {
+          "EventID": 1,
+          "Computer": "GIS-SRV-01.example.com",
+          "User": "ANDES\\svc_arcgis",
+          "ParentImage": "C:\\Program Files\\ArcGIS\\Server\\bin\\ArcSOC.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\ArcGIS\\Server\\bin\\ArcSOC.exe\" -Dservice=MapServer",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -EncodedCommand dwBoAG8AYQBtAGkA",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "ArcSOC.exe launches cmd.exe for reconnaissance with whoami.",
+        "event": {
+          "EventID": 1,
+          "Computer": "GIS-SRV-01.example.com",
+          "User": "ANDES\\svc_arcgis",
+          "ParentImage": "C:\\Program Files\\ArcGIS\\Server\\bin\\ArcSOC.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami /all",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "ArcSOC.exe runs the benign version check excluded by filter_main_cmd.",
+        "event": {
+          "EventID": 1,
+          "Computer": "GIS-SRV-01.example.com",
+          "User": "ANDES\\svc_arcgis",
+          "ParentImage": "C:\\Program Files\\ArcGIS\\Server\\bin\\ArcSOC.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c \"ver\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "PowerShell launched by explorer.exe for an admin session, not by ArcSOC.exe.",
+        "event": {
+          "EventID": 1,
+          "Computer": "GIS-SRV-01.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe Get-Service ArcGIS*",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

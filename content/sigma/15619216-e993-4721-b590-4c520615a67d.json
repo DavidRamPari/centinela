@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "15619216-e993-4721-b590-4c520615a67d",
+    "title": "Potential Meterpreter/CobaltStrike Activity",
+    "level": "high",
+    "status": "test",
+    "author": "Teymur Kheirkhabarov, Ecco, Florian Roth",
+    "path": "windows/process_creation/proc_creation_win_hktl_meterpreter_getsystem.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_meterpreter_getsystem.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1134.001",
+      "T1134.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "services.exe lanzó un proceso cuya línea de comandos coincide con las técnicas de getsystem de Meterpreter o Cobalt Strike: escritura con echo a un named pipe o rundll32 con una DLL temporal. Es probable que un atacante con acceso local esté escalando a SYSTEM.",
+      "what_it_detects": "Procesos con ParentImage terminado en \\services.exe y CommandLine que contiene 'cmd' o '%COMSPEC%', '/c', 'echo' y '\\pipe\\' (técnica 1), o 'rundll32', '.dll,a' y '/p:' (técnica 2). Las líneas que contienen MpCmdRun se excluyen.",
+      "why_it_matters": "getsystem crea un servicio temporal que se conecta a un named pipe controlado por el atacante. Así el atacante suplanta el token de SYSTEM (T1134.001/T1134.002) y obtiene control total del host, lo que facilita el robo de credenciales y el movimiento lateral.",
+      "triage_steps": [
+        "Revise CommandLine completo: un echo de un valor hexadecimal aleatorio hacia \\\\.\\pipe\\<nombre> o rundll32 con una DLL en %TEMP% y ',a /p:' son indicadores fuertes.",
+        "Busque en el log System el evento 7045 o 7036 del mismo host en ±15 minutos: un servicio con nombre aleatorio creado y eliminado enseguida confirma la técnica.",
+        "Identifique el proceso que creó el pipe o el servicio. Revise procesos de usuario sospechosos (powershell, rundll32, binarios en carpetas temporales) que estuvieran activos en ese momento.",
+        "Si se trata de la técnica 2, obtenga el hash de la DLL referenciada y consúltelo en su plataforma de threat intelligence. Revise también su fecha de creación.",
+        "Determine qué usuario tenía sesión activa y revise sus inicios de sesión recientes, alertas previas y conexiones de red salientes del host.",
+        "Busque la misma línea de comandos o el mismo nombre de pipe en otros endpoints para medir el alcance."
+      ],
+      "false_positives": [
+        "Servicios o tareas legítimas que se ejecutan con cmd /c y cuya línea de comandos contiene por casualidad echo y una ruta \\pipe\\.",
+        "Software de administración o de despliegue que crea servicios temporales con cmd y comunica su estado por named pipes. Valide el proveedor y el cambio aprobado."
+      ],
+      "response_steps": [
+        "Confirme la actividad con los eventos de creación de servicio y el árbol de procesos antes de actuar.",
+        "Si se confirma, aísle el endpoint desde el EDR y conserve la memoria y los artefactos (DLL, eventos 7045).",
+        "Detenga el proceso del implante y elimine los servicios y archivos maliciosos que haya validado.",
+        "Restablezca las credenciales expuestas en el host, incluidas las cuentas privilegiadas con sesión activa.",
+        "Busque el mismo C2 y los mismos indicadores en toda la red antes de reincorporar el equipo."
+      ],
+      "severity_rationale": "El nivel high se justifica porque el patrón es muy específico de un framework de post-explotación y su éxito otorga privilegios de SYSTEM."
+    },
+    "en": {
+      "summary": "services.exe started a process whose command line matches the Meterpreter or Cobalt Strike getsystem techniques: an echo into a named pipe, or rundll32 loading a temporary DLL. An attacker with local access is likely escalating to SYSTEM.",
+      "what_it_detects": "Processes with ParentImage ending in \\services.exe whose CommandLine contains 'cmd' or '%COMSPEC%' plus '/c', 'echo' and '\\pipe\\' (technique 1), or 'rundll32', '.dll,a' and '/p:' (technique 2). Command lines containing MpCmdRun are excluded.",
+      "why_it_matters": "getsystem creates a temporary service that connects to a named pipe the attacker controls. The attacker then impersonates its SYSTEM token (T1134.001/T1134.002) and gets full control of the host, which enables credential theft and lateral movement.",
+      "triage_steps": [
+        "Read the full CommandLine. An echo of a random hex value into \\\\.\\pipe\\<name>, or rundll32 loading a %TEMP% DLL with ',a /p:', is a strong indicator.",
+        "Check the System log on the same host within +/- 15 minutes for event 7045 or 7036. A randomly named service created and quickly removed confirms the technique.",
+        "Find the process that created the pipe or service. Look for suspicious user processes active at that time, such as powershell, rundll32 or binaries in temp folders.",
+        "For technique 2, hash the referenced DLL, check the hash in your threat intelligence platform and review the file's creation time.",
+        "Identify the logged-on user. Review their recent logons, earlier alerts and the host's outbound network connections.",
+        "Hunt for the same command line or pipe name on other endpoints to scope the incident."
+      ],
+      "false_positives": [
+        "Legitimate services or jobs that run through cmd /c and happen to include echo and a \\pipe\\ path.",
+        "Management or deployment software that creates temporary cmd-based services and reports status over named pipes. Confirm the vendor and an approved change."
+      ],
+      "response_steps": [
+        "Confirm the activity with the service creation events and the process tree before you act.",
+        "If confirmed, isolate the endpoint through EDR and preserve memory and artifacts, such as the DLL and the 7045 events.",
+        "Kill the implant process and remove the malicious services and files you have verified.",
+        "Reset credentials exposed on the host, including privileged accounts with active sessions.",
+        "Sweep the network for the same C2 and indicators before you return the host to service."
+      ],
+      "severity_rationale": "High fits because this pattern is very specific to post-exploitation frameworks, and if it succeeds the attacker gains SYSTEM privileges."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Meterpreter getsystem technique 1: a service spawned by services.exe echoes a value into a named pipe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c echo 559891bb017 > \\\\.\\pipe\\5e120a",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\services.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Meterpreter getsystem technique 2: services.exe spawns rundll32 loading a temp DLL with ,a /p:",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\tmexsn.dll,a /p:tmexsn",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\services.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate service running a batch script through cmd /c, with no echo and no pipe path",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c C:\\Scripts\\nightly_backup.bat",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\services.exe",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Same pipe echo command launched by a user from explorer.exe, not by services.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c echo test > \\\\.\\pipe\\devpipe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,147 @@
+{
+  "rule": {
+    "id": "7cce6fc8-a07f-4d84-a53e-96e1879843c9",
+    "title": "Potential Binary Impersonating Sysinternals Tools",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113, Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_sysinternals_tools_masquerading.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sysinternals_tools_masquerading.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036.005",
+      "T1202",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un binario con el nombre de una herramienta Sysinternals, pero sus metadatos PE (Company/Product) no corresponden a Sysinternals. Puede ser malware renombrado para pasar desapercibido.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina con el nombre de una herramienta Sysinternals (x86, x64 o ARM64), Company y Product existen y ninguno corresponde a Sysinternals. Si Company o Product vienen vacíos (null), la regla no genera alerta.",
+      "why_it_matters": "Los atacantes renombran sus herramientas como PsExec, ProcDump o Autoruns para que su ejecución parezca administración legítima (T1036.005, Masquerading). También pueden usarlas para ejecución indirecta o proxy (T1218, T1202).",
+      "triage_steps": [
+        "Compare Image con Company, Product, Description y OriginalFileName. Si los metadatos indican otro producto, se trata de un renombrado.",
+        "Verifique el hash del binario contra las versiones oficiales de Sysinternals y en su plataforma de threat intelligence. Revise la firma digital.",
+        "Revise la ruta de Image. Ubicaciones como AppData, Temp, Users\\Public o ProgramData son más sospechosas que una carpeta de herramientas administrada.",
+        "Analice CommandLine: volcado de lsass, ejecución remota, borrado seguro o argumentos que no corresponden a la herramienta original.",
+        "Revise ParentImage y los procesos hijo. Busque shells, Office, scripts o servicios remotos como origen.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, conexiones de red, archivos creados y servicios instalados.",
+        "Busque el mismo hash o nombre en otros endpoints y alertas previas del usuario."
+      ],
+      "false_positives": [
+        "Herramientas de terceros que comparten nombre genérico, como strings.exe, du.exe, sync.exe o whois.exe de MSYS2, Cygwin o Git.",
+        "Builds internos o empaquetados por software de gestión que modifican los metadatos de versión.",
+        "Versiones antiguas de Sysinternals con metadatos distintos a los esperados."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de TI si la ejecución estaba prevista y de dónde proviene el binario.",
+        "Si el binario es malicioso o no se puede verificar, aísle el endpoint y ponga el archivo en cuarentena para analizarlo.",
+        "Si hubo acceso a lsass o ejecución remota, restablezca las credenciales afectadas.",
+        "Elimine la persistencia y los artefactos relacionados. Bloquee el hash en el EDR.",
+        "Documente las excepciones legítimas por hash o ruta, nunca solo por nombre."
+      ],
+      "severity_rationale": "Media: un nombre que no coincide con los metadatos es un buen indicio de enmascaramiento, aunque algunas herramientas legítimas comparten nombres genéricos."
+    },
+    "en": {
+      "summary": "A binary named like a Sysinternals tool ran, but its PE metadata (Company/Product) is not Sysinternals. It may be malware renamed to blend in.",
+      "what_it_detects": "Process creation events where Image ends with a Sysinternals tool name (x86, x64 or ARM64), Company and Product are both present, and neither matches Sysinternals. The rule does not alert when Company or Product is empty (null).",
+      "why_it_matters": "Attackers rename their tools to names like PsExec, ProcDump or Autoruns so execution looks like normal admin work (T1036.005, Masquerading). They may also use them for proxy or indirect execution (T1218, T1202).",
+      "triage_steps": [
+        "Compare Image with Company, Product, Description and OriginalFileName. Metadata that names a different product means the file was renamed.",
+        "Check the file hash against official Sysinternals releases and threat intelligence. Verify the code signature.",
+        "Review the Image path. AppData, Temp, Users\\Public or ProgramData are more suspicious than a managed tools folder.",
+        "Inspect CommandLine for lsass dumping, remote execution, secure deletion, or arguments that don't fit the real tool.",
+        "Review ParentImage and child processes. Look for shells, Office, scripts or remote services as the launcher.",
+        "On the same host, within +/- 15 minutes, look for network connections, dropped files and service installs.",
+        "Search for the same hash or name on other endpoints and in earlier alerts for the user."
+      ],
+      "false_positives": [
+        "Third-party tools with generic names, such as strings.exe, du.exe, sync.exe or whois.exe from MSYS2, Cygwin or Git.",
+        "Internal builds, or binaries repackaged by management software that change version metadata.",
+        "Older Sysinternals releases with unexpected metadata."
+      ],
+      "response_steps": [
+        "Ask the user or IT whether the run was expected, and find out where the binary came from.",
+        "If the binary is malicious or can't be verified, isolate the endpoint and quarantine the file for analysis.",
+        "Reset affected credentials if lsass was accessed or remote execution occurred.",
+        "Remove persistence and related artifacts. Block the hash in EDR.",
+        "Document legitimate exceptions by hash or path, never by name alone."
+      ],
+      "severity_rationale": "Medium: a name that doesn't match the metadata is a strong sign of masquerading, but some legitimate tools share generic names."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Binary renamed to procdump64.exe in Users\\Public with non-Sysinternals metadata, dumping lsass",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\procdump64.exe",
+          "OriginalFileName": "updhelper.exe",
+          "Description": "Update Helper",
+          "Company": "Contoso Utilities Ltd",
+          "Product": "Update Helper Suite",
+          "CommandLine": "C:\\Users\\Public\\procdump64.exe -accepteula -ma lsass.exe C:\\Users\\Public\\out.dmp",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000001"
+        }
+      },
+      {
+        "description": "ARM64 PsExec name used by a binary that claims Microsoft Windows metadata",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\Cache\\PsExec64a.exe",
+          "OriginalFileName": "svchost.exe",
+          "Description": "Host Process for Windows Services",
+          "Company": "Microsoft Corporation",
+          "Product": "Microsoft Windows Operating System",
+          "CommandLine": "C:\\ProgramData\\Cache\\PsExec64a.exe \\\\SRV-FS01 -s cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Genuine PsExec64 with Sysinternals Company metadata is excluded by filter_valid",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-01.andes.example.com",
+          "User": "ANDES\\admin.lgarcia",
+          "Image": "C:\\Tools\\Sysinternals\\PsExec64.exe",
+          "OriginalFileName": "psexec.c",
+          "Description": "Execute processes remotely",
+          "Company": "Sysinternals - www.sysinternals.com",
+          "Product": "Sysinternals PsExec",
+          "CommandLine": "C:\\Tools\\Sysinternals\\PsExec64.exe \\\\SRV-APP02 ipconfig /all",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Similar but non-listed name (procdump_helper.exe) does not satisfy the Image endswith selection",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Contoso\\procdump_helper.exe",
+          "OriginalFileName": "procdump_helper.exe",
+          "Description": "Crash Report Helper",
+          "Company": "Contoso Utilities Ltd",
+          "Product": "Contoso Crash Reporter",
+          "CommandLine": "\"C:\\Program Files\\Contoso\\procdump_helper.exe\" --upload",
+          "ParentImage": "C:\\Program Files\\Contoso\\contoso.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "82880171-b475-4201-b811-e9c826cd5eaa",
+    "title": "Exports Critical Registry Keys To a File",
+    "level": "high",
+    "status": "test",
+    "author": "Oddvar Moe, Sander Wiebing, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_regedit_export_critical_keys.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_regedit_export_critical_keys.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1012"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó regedit.exe con la opción de exportación (-E o /E) sobre las claves HKLM\\SYSTEM, HKLM\\SAM o HKLM\\SECURITY. Puede indicar un intento de extraer hashes de credenciales o secretos LSA a un archivo .reg.",
+      "what_it_detects": "Creación de procesos de regedit.exe (por Image o OriginalFileName REGEDIT.EXE) cuyo CommandLine contiene la opción de exportación -E (o variantes con '/' y guiones Unicode), hace referencia a HKLM o HKEY_LOCAL_MACHINE y termina en \\system, \\sam o \\security.",
+      "why_it_matters": "Las colmenas SAM y SECURITY, junto con la boot key de SYSTEM, permiten descifrar hashes de cuentas locales, secretos LSA y credenciales en caché fuera de línea. Corresponde a Query Registry (T1012) y a la preparación de datos para exfiltración.",
+      "triage_steps": [
+        "Revise CommandLine completo: clave exportada, ruta y nombre del archivo .reg de destino (carpetas temporales, Public o recursos compartidos son sospechosas).",
+        "Identifique el usuario y el nivel de integridad: exportar SAM/SECURITY con contenido real requiere privilegios de SYSTEM o administrador elevado.",
+        "Examine ParentImage y la cadena de procesos padre: cmd.exe, powershell.exe, psexec, wmiprvse.exe o scripts remotos indican ejecución no interactiva.",
+        "Busque en el mismo host, +/- 15 minutos, otras exportaciones de SYSTEM, SAM o SECURITY, y el uso de reg.exe save o vssadmin.",
+        "Verifique la creación de archivos .reg en el endpoint y si luego fueron comprimidos, copiados por SMB o subidos a un destino externo.",
+        "Revise inicios de sesión del usuario (eventos 4624/4672) y alertas previas de la misma cuenta o host, como herramientas de volcado de credenciales."
+      ],
+      "false_positives": [
+        "Respaldo legítimo de colmenas del registro realizado por administradores o herramientas de backup documentadas.",
+        "Investigaciones forenses o de respuesta a incidentes que recolectan colmenas del sistema con autorización.",
+        "Scripts de soporte o migración que exportan configuración del sistema; validar con el ticket de cambio correspondiente."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del equipo si la exportación estaba autorizada y asociada a un ticket.",
+        "Si no está autorizada, aísle el endpoint de la red y preserve los archivos .reg y la evidencia antes de eliminarlos.",
+        "Considere comprometidas las credenciales locales y secretos LSA: rote contraseñas de administrador local, cuentas de servicio y credenciales en caché.",
+        "Busque movimiento lateral con las cuentas afectadas, elimine el acceso del atacante y restablezca el host desde una imagen confiable si se confirma el compromiso."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque exportar SAM, SECURITY o SYSTEM es raro en operación normal y conduce directamente al robo de credenciales."
+    },
+    "en": {
+      "summary": "regedit.exe was run with the export switch (-E or /E) against HKLM\\SYSTEM, HKLM\\SAM or HKLM\\SECURITY. This may be an attempt to extract credential hashes or LSA secrets to a .reg file.",
+      "what_it_detects": "Process creation of regedit.exe (by Image or OriginalFileName REGEDIT.EXE) whose CommandLine contains the -E export switch (or '/' and Unicode dash variants), references HKLM or HKEY_LOCAL_MACHINE, and ends with \\system, \\sam or \\security.",
+      "why_it_matters": "SAM and SECURITY, combined with the SYSTEM boot key, let an attacker decrypt local account hashes, LSA secrets and cached domain credentials offline. This maps to Query Registry (T1012) and staging data for exfiltration.",
+      "triage_steps": [
+        "Read the full CommandLine: which key was exported, and the destination .reg path (temp folders, Public or network shares are suspicious).",
+        "Identify the user and integrity level; exporting real SAM/SECURITY content requires SYSTEM or elevated administrator rights.",
+        "Inspect ParentImage and the process tree: cmd.exe, powershell.exe, psexec, wmiprvse.exe or remote scripts point to non-interactive execution.",
+        "Search the same host within +/- 15 minutes for other SYSTEM, SAM or SECURITY exports, reg.exe save, or vssadmin activity.",
+        "Check for creation of .reg files on the endpoint and whether they were later compressed, copied over SMB or uploaded externally.",
+        "Review the user's logons (events 4624/4672) and earlier alerts for the same account or host, such as credential dumping tools."
+      ],
+      "false_positives": [
+        "Legitimate registry hive backups by administrators or documented backup tooling.",
+        "Authorized forensic or incident response collection of system hives.",
+        "Support or migration scripts exporting system configuration; validate against the matching change ticket."
+      ],
+      "response_steps": [
+        "Confirm with the user or asset owner whether the export was authorized and tied to a ticket.",
+        "If unauthorized, isolate the endpoint and preserve the .reg files and other evidence before removing anything.",
+        "Treat local credentials and LSA secrets as compromised: rotate local admin, service account and cached credentials.",
+        "Hunt for lateral movement with affected accounts, remove attacker access, and rebuild the host from a trusted image if compromise is confirmed."
+      ],
+      "severity_rationale": "High fits because exporting SAM, SECURITY or SYSTEM is rare in normal operations and leads directly to credential theft."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "regedit.exe exports HKLM\\SAM to a .reg file in the Public folder using the /E switch, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\regedit.exe",
+          "OriginalFileName": "REGEDIT.EXE",
+          "CommandLine": "\"C:\\Windows\\regedit.exe\" /E C:\\Users\\Public\\s.reg HKLM\\SAM",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed regedit binary (matched by OriginalFileName) exporting HKEY_LOCAL_MACHINE\\SECURITY with -E",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\tmp\\rg.exe",
+          "OriginalFileName": "REGEDIT.EXE",
+          "CommandLine": "rg.exe -E C:\\ProgramData\\tmp\\sec.reg HKEY_LOCAL_MACHINE\\SECURITY",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator exports a non-critical HKLM Run key with regedit; command line does not end in \\system, \\sam or \\security",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\regedit.exe",
+          "OriginalFileName": "REGEDIT.EXE",
+          "CommandLine": "\"C:\\Windows\\regedit.exe\" /E C:\\Temp\\run.reg HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "reg.exe save of HKLM\\SAM: critical hive but not regedit.exe and no -E switch, so this rule does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe save HKLM\\SAM C:\\Temp\\sam.hiv",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

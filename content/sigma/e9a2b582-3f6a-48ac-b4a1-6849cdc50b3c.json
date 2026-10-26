@@ -1,0 +1,119 @@
+{
+  "rule": {
+    "id": "e9a2b582-3f6a-48ac-b4a1-6849cdc50b3c",
+    "title": "Apache Threading Error",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "web/product/apache/web_apache_threading_error.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/web/product/apache/web_apache_threading_error.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1190",
+      "T1210"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "El error.log de Apache tiene una falla de aserción de glibc en __pthread_tpp_change_priority. Esto indica que un worker de Apache tuvo un error de hilos o de prioridades y abortó, algo que puede ocurrir tras una corrupción de memoria.",
+      "what_it_detects": "El texto literal de la aserción de glibc 'new_prio == -1 || (new_prio >= fifo_min_prio && new_prio <= fifo_max_prio)' de __pthread_tpp_change_priority, que se escribe en el error.log de Apache cuando un proceso hijo aborta.",
+      "why_it_matters": "La referencia de la regla vincula esta aserción con un use-after-free en Apache. Las solicitudes que provocan corrupción de memoria en un servidor web público pueden llevar a la explotación de una aplicación expuesta (T1190) o de un servicio remoto (T1210). Como mínimo causan denegación de servicio.",
+      "triage_steps": [
+        "Ubique la línea coincidente en error.log y registre el host, la hora y el binario (httpd o apache2).",
+        "Revise las líneas cercanas de error.log, como AH00052 'child pid ... exit signal Aborted (6)' o segfaults, y cuente cuántas veces se repite el error.",
+        "Revise access.log del mismo host en +/- 15 minutos: IP de origen, URI, métodos y user agent de las solicitudes que coinciden con el fallo.",
+        "Busque una misma IP de origen que envíe solicitudes raras, malformadas o a alta tasa justo antes de cada aborto. Ese patrón sugiere sondeo.",
+        "Liste los módulos cargados (apachectl -M) y el MPM. Anote los módulos de terceros y los cambios recientes de paquetes o de configuración.",
+        "Compare las versiones de Apache, APR y glibc con los avisos de seguridad del proveedor.",
+        "Busque indicios de compromiso: procesos hijos nuevos del usuario del servidor web, archivos nuevos en el web root, conexiones salientes inesperadas.",
+        "Revise alertas anteriores de este host y de las IP de origen involucradas."
+      ],
+      "false_positives": [
+        "Módulos de Apache de terceros con errores de hilos pueden provocar esta aserción con tráfico normal (Apache Bugzilla 46185).",
+        "Un módulo compilado contra otra versión de Apache, APR o glibc tras una actualización parcial.",
+        "Pruebas de carga, fuzzing o escaneos de vulnerabilidades autorizados que exigen al servidor."
+      ],
+      "response_steps": [
+        "Confirme si los fallos coinciden con solicitudes de orígenes concretos u ocurren sin importar el tráfico.",
+        "Si los fallos coinciden con solicitudes sospechosas, bloquee o limite esos orígenes en el WAF o el firewall y conserve los logs.",
+        "Actualice Apache, APR y los módulos afectados a versiones con parche del proveedor. Deshabilite los módulos de terceros defectuosos tras verificar que nada depende de ellos.",
+        "Si hay indicios de compromiso, aísle el servidor, preserve core dumps, logs y evidencia de disco, y escale a respuesta a incidentes.",
+        "Restablezca el servicio con una configuración confiable y vigile error.log por nuevas fallas de aserción."
+      ],
+      "severity_rationale": "Media es adecuada porque un aborto de worker por sí solo no prueba una explotación, pero puede indicar intentos de provocar corrupción de memoria en un servicio expuesto a internet."
+    },
+    "en": {
+      "summary": "Apache's error.log has a glibc assertion failure in __pthread_tpp_change_priority. This means an Apache worker hit a threading or priority error and aborted, which can follow memory corruption.",
+      "what_it_detects": "The literal glibc assertion text 'new_prio == -1 || (new_prio >= fifo_min_prio && new_prio <= fifo_max_prio)' from __pthread_tpp_change_priority, written to Apache's error.log when a child process aborts.",
+      "why_it_matters": "The rule's reference ties this assertion to a use-after-free in Apache. Requests that trigger memory corruption in a public web server can lead to exploitation of a public-facing application (T1190) or of a remote service (T1210). At minimum they cause denial of service.",
+      "triage_steps": [
+        "Find the matching error.log line and record the host, timestamp and binary name (httpd or apache2).",
+        "Read the error.log lines around it, such as AH00052 'child pid ... exit signal Aborted (6)' or segfaults, and count how often the error repeats.",
+        "Check access.log on the same host within +/- 15 minutes for source IPs, URIs, methods and user agents of requests that line up with the crash.",
+        "Look for one source IP sending odd, malformed or high-rate requests just before each abort. That pattern suggests probing.",
+        "List the loaded modules (apachectl -M) and the MPM. Note third-party modules and any recent package or configuration changes.",
+        "Compare the Apache, APR and glibc versions with your vendor's security advisories.",
+        "Hunt for signs of compromise: new child processes of the web server user, new files in the web root, unexpected outbound connections.",
+        "Check earlier alerts for this host and for the source IPs involved."
+      ],
+      "false_positives": [
+        "Third-party Apache modules with threading bugs can raise this assertion during normal traffic (Apache Bugzilla 46185).",
+        "A module built against a different Apache, APR or glibc version after a partial upgrade.",
+        "Authorized load tests, fuzzing or vulnerability scans that stress the server."
+      ],
+      "response_steps": [
+        "Confirm whether the crashes line up with requests from specific sources or occur no matter what the traffic is.",
+        "If the crashes match suspicious requests, block or rate-limit those sources at the WAF or firewall and keep the logs.",
+        "Update Apache, APR and the affected modules to vendor-patched versions. Disable faulty third-party modules after checking that nothing depends on them.",
+        "If you find signs of compromise, isolate the server, preserve core dumps, logs and disk evidence, and escalate to incident response.",
+        "Restore service from a known-good configuration and watch error.log for new assertion failures."
+      ],
+      "severity_rationale": "Medium fits because a worker abort alone does not prove exploitation, but it can signal attempts to trigger memory corruption in an internet-facing service."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Debian/Ubuntu apache2 worker aborts with the glibc tpp.c assertion, written raw to error.log",
+        "event": {
+          "message": "/usr/sbin/apache2: ../nptl/tpp.c:82: __pthread_tpp_change_priority: Assertion `new_prio == -1 || (new_prio >= fifo_min_prio && new_prio <= fifo_max_prio)' failed.",
+          "host": "web-01",
+          "log_file": "/var/log/apache2/error.log"
+        }
+      },
+      {
+        "description": "RHEL httpd error_log with the same assertion failure",
+        "event": {
+          "message": "httpd: tpp.c:63: __pthread_tpp_change_priority: Assertion `new_prio == -1 || (new_prio >= fifo_min_prio && new_prio <= fifo_max_prio)' failed.",
+          "host": "web-02",
+          "log_file": "/var/log/httpd/error_log"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Related child abort notice without the assertion text",
+        "event": {
+          "message": "[Tue Jan 22 10:15:32.481920 2019] [core:notice] [pid 1187:tid 140231] AH00052: child pid 5678 exit signal Aborted (6)",
+          "host": "web-01",
+          "log_file": "/var/log/apache2/error.log"
+        }
+      },
+      {
+        "description": "Different glibc mutex assertion that does not contain the tpp priority string",
+        "event": {
+          "message": "/usr/sbin/apache2: ../nptl/pthread_mutex_lock.c:352: __pthread_mutex_lock_full: Assertion `INTERNAL_SYSCALL_ERRNO (e, __err) != ESRCH || !robust' failed.",
+          "host": "web-01",
+          "log_file": "/var/log/apache2/error.log"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

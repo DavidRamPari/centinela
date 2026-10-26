@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "f6d1dd2f-b8ce-40ca-bc23-062efb686b34",
+    "title": "Script Event Consumer Spawning Process",
+    "level": "high",
+    "status": "test",
+    "author": "Sittikorn S",
+    "path": "windows/process_creation/proc_creation_win_scrcons_susp_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_scrcons_susp_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1047"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "scrcons.exe, el host de WMI que ejecuta scripts de ActiveScriptEventConsumer, inició un proceso sensible como PowerShell, mshta, rundll32 o schtasks. Esto suele indicar una suscripción WMI maliciosa que ejecuta código cuando ocurre un evento.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage termina en \\scrcons.exe e Image termina en uno de estos binarios: svchost, dllhost, powershell, pwsh, wscript, cscript, schtasks, regsvr32, mshta, rundll32, msiexec o msbuild.",
+      "why_it_matters": "Los atacantes usan suscripciones a eventos WMI para ejecutar código (T1047, Windows Management Instrumentation) y persistir sin archivos visibles. Que scrcons.exe inicie intérpretes o LOLBins casi nunca es legítimo y puede indicar persistencia activa o movimiento lateral.",
+      "triage_steps": [
+        "Revise CommandLine del proceso hijo (Image): busque payloads codificados, descargas, rutas en %TEMP% o %APPDATA% y URLs externas.",
+        "Identifique el usuario y el host. scrcons.exe normalmente corre como SYSTEM; verifique si la ejecución coincide con alguna tarea administrativa conocida.",
+        "Enumere las suscripciones en root\\subscription: __EventFilter, ActiveScriptEventConsumer y __FilterToConsumerBinding. Documente nombres, consultas WQL y el texto del script.",
+        "Busque eventos Sysmon 19, 20 y 21 y el evento 5861 de WMI-Activity/Operational para saber cuándo y quién creó la suscripción.",
+        "Pivote en el mismo host +/- 15 minutos: procesos nietos, conexiones de red, archivos creados, tareas programadas y cambios en el registro.",
+        "Busque el mismo nombre de consumer o la misma CommandLine en otros endpoints y revise alertas previas para el host y la cuenta."
+      ],
+      "false_positives": [
+        "La regla indica falsos positivos desconocidos; los casos legítimos son raros.",
+        "Software de monitoreo o gestión que usa ActiveScriptEventConsumer para lanzar scripts de mantenimiento documentados.",
+        "Ejercicios autorizados de red team o pruebas de persistencia WMI."
+      ],
+      "response_steps": [
+        "Valide con el responsable del host si la suscripción WMI es conocida y está autorizada.",
+        "Si es maliciosa, aísle el endpoint y termine el proceso hijo y sus descendientes después de recopilar evidencia.",
+        "Exporte y luego elimine el filter, el consumer y el binding maliciosos; elimine también los archivos o tareas que hayan creado.",
+        "Restablezca las credenciales usadas para crear la suscripción y busque el mismo artefacto en toda la flota.",
+        "Monitoree el host para detectar si la suscripción se vuelve a crear antes de restaurarlo a producción."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque scrcons.exe casi nunca inicia estos binarios de forma legítima y la actividad apunta a ejecución o persistencia mediante WMI."
+    },
+    "en": {
+      "summary": "scrcons.exe, the WMI host for ActiveScriptEventConsumer scripts, started a sensitive process such as PowerShell, mshta, rundll32 or schtasks. This usually means a malicious WMI event subscription is running code when an event fires.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\scrcons.exe and Image ends with one of: svchost, dllhost, powershell, pwsh, wscript, cscript, schtasks, regsvr32, mshta, rundll32, msiexec or msbuild.",
+      "why_it_matters": "Attackers use WMI event subscriptions to execute code (T1047, Windows Management Instrumentation) and persist without obvious files. scrcons.exe spawning interpreters or LOLBins is rarely legitimate and may indicate active persistence or lateral movement.",
+      "triage_steps": [
+        "Review the child process CommandLine (Image): look for encoded payloads, downloads, %TEMP% or %APPDATA% paths and external URLs.",
+        "Identify the user and host. scrcons.exe normally runs as SYSTEM; check whether a known administrative task explains the execution.",
+        "Enumerate subscriptions in root\\subscription: __EventFilter, ActiveScriptEventConsumer and __FilterToConsumerBinding. Record names, WQL queries and script text.",
+        "Check Sysmon events 19, 20 and 21 and WMI-Activity/Operational event 5861 to learn when and by whom the subscription was created.",
+        "Pivot on the same host +/- 15 minutes: grandchild processes, network connections, files written, scheduled tasks and registry changes.",
+        "Search other endpoints for the same consumer name or CommandLine and review earlier alerts for the host and account."
+      ],
+      "false_positives": [
+        "The rule lists false positives as unknown; legitimate cases are rare.",
+        "Monitoring or management software using ActiveScriptEventConsumer to launch documented maintenance scripts.",
+        "Authorized red team exercises or WMI persistence testing."
+      ],
+      "response_steps": [
+        "Confirm with the host owner whether the WMI subscription is known and authorized.",
+        "If malicious, isolate the endpoint and terminate the child process and its descendants after collecting evidence.",
+        "Export, then remove the malicious filter, consumer and binding; also remove any files or tasks they created.",
+        "Reset credentials used to create the subscription and hunt for the same artifact across the fleet.",
+        "Monitor the host for re-creation of the subscription before returning it to production."
+      ],
+      "severity_rationale": "High fits because scrcons.exe almost never legitimately launches these binaries and the activity points to WMI-based execution or persistence."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WMI ActiveScriptEventConsumer launches hidden encoded PowerShell",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-03-12 02:14:07.311",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\scrcons.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\wbem\\scrcons.exe -Embedding",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoP -W Hidden -EncodedCommand SQBFAFgA",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "scrcons.exe spawns rundll32 loading a DLL from ProgramData",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-03-12 02:20:41.902",
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\scrcons.exe",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe C:\\ProgramData\\upd\\svc.dll,Start",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "scrcons.exe spawns cmd.exe, which is not in the rule's Image list",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-03-12 03:01:10.115",
+          "Computer": "WS-0187.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\scrcons.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c echo heartbeat > C:\\ProgramData\\Monitor\\hb.txt",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "PowerShell launched by WmiPrvSE.exe, not scrcons.exe",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-03-12 09:45:33.480",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -File C:\\Scripts\\inventory.ps1",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

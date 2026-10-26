@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "36480ae1-a1cb-4eaa-a0d6-29801d7e9142",
+    "title": "Potential Defense Evasion Via Binary Rename",
+    "level": "medium",
+    "status": "test",
+    "author": "Matthew Green @mgreen27, Ecco, James Pemberton @4A616D6573, oscd.community, Andreas Hunkeler (@Karneades)",
+    "path": "windows/process_creation/proc_creation_win_renamed_binary.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_renamed_binary.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un proceso cuyo OriginalFileName del PE corresponde a una herramienta conocida (cmd, conhost, 7-Zip, WinRAR, wevtutil, net, netsh, InstallUtil), pero el Image en disco tiene otro nombre. Esto sugiere que el binario fue renombrado, posiblemente para evadir detecciones basadas en el nombre.",
+      "what_it_detects": "Eventos de creación de procesos donde OriginalFileName coincide con alguna de 11 utilidades y el Image no termina en ninguno de esos nombres esperados. Detecta, por ejemplo, cmd.exe copiado como svchost.exe o 7za.exe como update.exe.",
+      "why_it_matters": "Renombrar una utilidad legítima (MITRE ATT&CK T1036.003, Masquerading: Rename System Utilities) permite abrir shells, comprimir datos para exfiltrar, borrar logs o cambiar el firewall sin activar reglas ni allowlists basadas en nombres de proceso.",
+      "triage_steps": [
+        "Compare Image con OriginalFileName y revise la ruta: las carpetas con escritura de usuario (Users\\Public, AppData, Temp, ProgramData) son más sospechosas que los directorios de instalación de un proveedor.",
+        "Analice el CommandLine para entender la intención: compresión con contraseña, wevtutil cl, net user/localgroup, netsh advfirewall o InstallUtil ejecutando un ensamblado inusual.",
+        "Revise el ParentImage y su línea de comandos. Verifique si el proceso padre es Office, un navegador, un intérprete de scripts o un instalador desconocido.",
+        "Obtenga los Hashes y el firmante del archivo. Verifique si el hash coincide con el binario legítimo de Microsoft o del proveedor, y cuándo y con qué proceso se escribió el archivo.",
+        "Pivotee en el mismo host dentro de +/- 15 minutos: procesos hijos, archivos creados, conexiones de red y archivos comprimidos nuevos.",
+        "Revise el User y las alertas previas del mismo host, usuario o hash. Busque la misma ruta renombrada en el resto de los equipos.",
+        "Tenga en cuenta que el filtro solo valida la terminación del nombre, no el par correcto. Un binario renombrado con otro nombre de la lista (por ejemplo, 7za.exe como net.exe) no genera alerta."
+      ],
+      "false_positives": [
+        "Aplicaciones propias o personalizadas que incluyen una copia renombrada de 7-Zip, cmd u otra herramienta de la lista. Suele tratarse de un cambio leve en el nombre, como 7z64.exe.",
+        "Instaladores y actualizadores (Inno Setup, NSIS, launchers) que extraen utilidades auxiliares con nombres propios.",
+        "Software portable o herramientas de empaquetado que renombran compresores con la marca del proveedor."
+      ],
+      "response_steps": [
+        "Confirme la ubicación, el hash, el firmante y el proceso que creó el binario. Si es una herramienta legítima, documéntela y agregue una exclusión acotada por ruta y hash.",
+        "Si es malicioso o no tiene explicación, aísle el endpoint y recolecte el binario renombrado, su proceso padre y los artefactos relacionados.",
+        "Evalúe el impacto según el CommandLine: datos comprimidos o exfiltrados, logs borrados y cambios en cuentas o en el firewall.",
+        "Elimine la copia renombrada y cualquier mecanismo de persistencia. Restablezca las credenciales afectadas si hubo actividad con net u otras acciones sobre cuentas.",
+        "Busque el mismo hash y la misma ruta en todo el entorno, y restaure la configuración del firewall o de auditoría que se haya modificado."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque renombrar binarios es una señal clara de evasión, pero también hay software legítimo que incluye utilidades renombradas, por lo que se necesita contexto antes de escalar."
+    },
+    "en": {
+      "summary": "A process started whose PE OriginalFileName is a well-known tool (cmd, conhost, 7-Zip, WinRAR, wevtutil, net, netsh, InstallUtil), but the Image on disk has a different name. This suggests the binary was renamed, possibly to hide from name-based detections.",
+      "what_it_detects": "Process creation events where OriginalFileName matches one of 11 utilities and Image does not end with any of those expected file names. This catches copies such as cmd.exe saved as svchost.exe or 7za.exe saved as update.exe.",
+      "why_it_matters": "Renaming a legitimate utility (MITRE ATT&CK T1036.003, Masquerading: Rename System Utilities) lets attackers run shells, archive data for exfiltration, clear logs or change firewall settings while dodging rules and allowlists based on process names.",
+      "triage_steps": [
+        "Compare Image with OriginalFileName. Note the path: user-writable folders (Users\\Public, AppData, Temp, ProgramData) are more suspicious than vendor install directories.",
+        "Review CommandLine for intent: archiving with passwords, wevtutil cl, net user/localgroup, netsh advfirewall, or InstallUtil running an unusual assembly.",
+        "Inspect ParentImage and its command line. Check for Office, browsers, script hosts or unknown installers as the parent.",
+        "Get the file Hashes and signer. Check whether the hash matches the genuine Microsoft or vendor binary, and when and by which process the file was written.",
+        "Pivot on the same host within +/- 15 minutes: child processes, file creation, network connections and new archives.",
+        "Check the User and earlier alerts for the same host, user or hash. Search the fleet for the same renamed Image path.",
+        "Note that the filter checks only the file name ending, not the matching pair. A renamed binary that reuses another listed name (for example 7za.exe saved as net.exe) is missed."
+      ],
+      "false_positives": [
+        "Custom or in-house applications that bundle a renamed copy of 7-Zip, cmd or another listed tool. The name is usually only slightly different, for example 7z64.exe.",
+        "Installers and updaters (Inno Setup, NSIS, game launchers) that extract helper utilities with their own names.",
+        "Portable software or packaging tools that rename archivers, such as 7zG-style or vendor-branded builds."
+      ],
+      "response_steps": [
+        "Confirm the binary's location, hash, signer and creator. If it is a known vendor tool, document it and add a narrow allowlist entry by path and hash.",
+        "If it is malicious or unexplained, isolate the endpoint and collect the renamed binary, its parent and related artifacts.",
+        "Assess the impact based on the command line: check for archived or exfiltrated data, cleared event logs, account changes or firewall changes.",
+        "Remove the renamed copy and any persistence. Reset credentials for affected accounts if net or other credential activity was observed.",
+        "Hunt across the environment for the same hash and path, then restore any modified firewall or logging settings."
+      ],
+      "severity_rationale": "Medium fits because renaming is a strong evasion signal, but legitimate software also bundles renamed utilities, so you need context before escalating."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe copied to a public folder as svchost.exe and launched from a script host",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\svchost.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "C:\\Users\\Public\\svchost.exe /c whoami /all",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000001"
+        }
+      },
+      {
+        "description": "7za.exe renamed to update.exe and used to create a password-protected archive",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\Updates\\update.exe",
+          "OriginalFileName": "7za.exe",
+          "CommandLine": "C:\\ProgramData\\Updates\\update.exe a -pSecret C:\\ProgramData\\Updates\\data.7z C:\\Users\\mrojas\\Documents\\*",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000002"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Genuine cmd.exe running from System32; the Image name matches the filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c dir C:\\Users\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "Legitimate InstallUtil from the .NET Framework directory with its original name",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\InstallUtil.exe",
+          "OriginalFileName": "InstallUtil.exe",
+          "CommandLine": "InstallUtil.exe C:\\Apps\\Inventory\\InventoryService.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

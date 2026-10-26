@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "087790e3-3287-436c-bccf-cbd0184a7db1",
+    "title": "Potential CommandLine Path Traversal Via Cmd.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "xknow @xknow_infosec, Tim Shelton",
+    "path": "windows/process_creation/proc_creation_win_cmd_path_traversal.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmd_path_traversal.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó cmd.exe (o un proceso hijo de cmd.exe) con /c, /k o /r y una secuencia de path traversal '/../../' en la línea de comandos. Puede indicar confusión de comando/argumento para ejecutar un binario distinto al aparente.",
+      "what_it_detects": "Eventos de process_creation donde Image, ParentImage u OriginalFileName corresponden a cmd.exe, el CommandLine o ParentCommandLine contiene /c, /k o /r, y el CommandLine contiene '/../../'. Excluye la ruta conocida de Java de Tasktop Keycloak.",
+      "why_it_matters": "cmd.exe puede resolver una cadena como 'ping 192.0.2.10/../../../Windows/System32/calc.exe' como ruta de ejecutable y lanzar un binario distinto del comando visible (T1059.003, Windows Command Shell). Así un atacante evade revisiones superficiales o listas de permitidos basadas en el comando.",
+      "triage_steps": [
+        "Lee el CommandLine completo y determina qué ruta resuelve tras el traversal; identifica el ejecutable que realmente se lanzaría.",
+        "Busca procesos hijos del cmd.exe en el mismo host dentro de +/- 15 minutos y confirma qué Image se ejecutó realmente.",
+        "Revisa ParentImage y ParentCommandLine: ¿quién lanzó cmd.exe? Desconfía de Office, navegadores, servicios web o scripts en carpetas temporales.",
+        "Valida el usuario y el tipo de sesión; compara con su actividad habitual y con otras alertas previas del mismo usuario o host.",
+        "Obtén el hash del binario destino y compáralo con el inventario y la reputación interna; verifica si está firmado y en una ruta esperada.",
+        "Correlaciona con actividad de red, creación de archivos o persistencia (tareas programadas, claves Run) en el host en la misma ventana.",
+        "Si el comando proviene de una herramienta Java o de un instalador, confirma la ruta del producto y su versión con el responsable del sistema."
+      ],
+      "false_positives": [
+        "Herramientas basadas en Java que cargan librerías o el JRE con rutas relativas como 'bin\\/../../jre' (el filtro solo cubre Tasktop Keycloak).",
+        "Scripts de compilación, instaladores o lanzadores .bat/.cmd que construyen rutas relativas con barras normales.",
+        "Pruebas autorizadas de red team o validación de detecciones que reproducen la técnica cmdhijack."
+      ],
+      "response_steps": [
+        "Verifica con el usuario o el responsable del sistema si el comando es legítimo antes de actuar.",
+        "Si es malicioso, aísla el endpoint desde el EDR y preserva la evidencia del proceso, la línea de comandos y el binario destino.",
+        "Termina los procesos relacionados y elimina binarios o scripts maliciosos y cualquier persistencia identificada, tras documentarlos.",
+        "Revisa y restablece las credenciales del usuario afectado si hay indicios de compromiso de la cuenta.",
+        "Si es un falso positivo recurrente, crea una exclusión específica por ruta completa e Image, no por patrón genérico."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque el path traversal en argumentos de cmd.exe casi nunca aparece en uso administrativo normal y permite ejecutar binarios ocultos tras un comando aparentemente inocuo."
+    },
+    "en": {
+      "summary": "cmd.exe (or a child of cmd.exe) ran with /c, /k or /r and a '/../../' path traversal sequence in its command line. This can indicate command/argument confusion used to execute a binary other than the visible one.",
+      "what_it_detects": "process_creation events where Image, ParentImage or OriginalFileName is cmd.exe, CommandLine or ParentCommandLine contains /c, /k or /r, and CommandLine contains '/../../'. The known Tasktop Keycloak Java path is excluded.",
+      "why_it_matters": "cmd.exe can resolve a string like 'ping 192.0.2.10/../../../Windows/System32/calc.exe' as an executable path and launch a different binary than the apparent command (T1059.003, Windows Command Shell). Attackers use this to evade superficial review or command-based allow lists.",
+      "triage_steps": [
+        "Read the full CommandLine and work out which path resolves after the traversal; identify the executable that would actually run.",
+        "Look for child processes of this cmd.exe on the same host within +/- 15 minutes and confirm which Image really executed.",
+        "Review ParentImage and ParentCommandLine: what launched cmd.exe? Be suspicious of Office, browsers, web servers or scripts in temp folders.",
+        "Check the user and session type; compare with their usual activity and earlier alerts for the same user or host.",
+        "Hash the target binary and check it against inventory and internal reputation; verify signature and expected location.",
+        "Correlate with network connections, file creation or persistence (scheduled tasks, Run keys) on the host in the same window.",
+        "If a Java tool or installer is involved, confirm product path and version with the system owner."
+      ],
+      "false_positives": [
+        "Java-based tools loading libraries or the JRE via relative paths like 'bin\\/../../jre' (the filter only covers Tasktop Keycloak).",
+        "Build scripts, installers or .bat/.cmd launchers that build relative paths with forward slashes.",
+        "Authorized red team or detection validation tests reproducing the cmdhijack technique."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether the command is legitimate before acting.",
+        "If malicious, isolate the endpoint via EDR and preserve the process, command line and target binary as evidence.",
+        "Kill related processes and remove malicious binaries, scripts and identified persistence after documenting them.",
+        "Review and reset the affected user's credentials if account compromise is suspected.",
+        "For recurring false positives, add a narrow exclusion on the full path and Image, not a generic pattern."
+      ],
+      "severity_rationale": "High fits because path traversal in cmd.exe arguments is rare in normal administration and lets a hidden binary run behind a harmless-looking command."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe /c with ping argument that traverses to calc.exe (cmdhijack pattern), launched from a script host",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c \"ping 192.0.2.10/../../../../Windows/System32/calc.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\update.vbs"
+        }
+      },
+      {
+        "description": "Child process of cmd.exe /k whose command line contains a forward-slash traversal",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svc\\helper.exe",
+          "OriginalFileName": "helper.exe",
+          "CommandLine": "C:\\Users\\Public\\svc\\helper.exe --load C:\\Users\\Public\\svc/../../../ProgramData/cache/x.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /k C:\\Users\\Public\\svc\\run.cmd"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Tasktop Keycloak launcher starting its bundled Java runtime; excluded by filter_java",
+        "event": {
+          "EventID": 1,
+          "Computer": "APP-SRV-03.andes.example.com",
+          "User": "ANDES\\svc_keycloak",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c \"C:\\Program Files\\Tasktop\\keycloak\\bin\\/../../jre\\bin\\java\" -jar jboss-modules.jar",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\services.exe"
+        }
+      },
+      {
+        "description": "cmd.exe /c with a normal backslash relative path; no '/../../' sequence",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c ..\\..\\tools\\build.bat release",
+          "ParentImage": "C:\\Program Files\\Microsoft VS Code\\Code.exe",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft VS Code\\Code.exe\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

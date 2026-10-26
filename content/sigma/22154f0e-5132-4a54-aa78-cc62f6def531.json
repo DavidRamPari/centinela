@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "22154f0e-5132-4a54-aa78-cc62f6def531",
+    "title": "Vulnerable Driver Blocklist Registry Tampering Via CommandLine",
+    "level": "high",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_vulnerable_driver_blocklist_registry_tampering.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_vulnerable_driver_blocklist_registry_tampering.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se usó PowerShell o reg.exe para escribir el valor VulnerableDriverBlocklistEnable en HKLM\\SYSTEM\\CurrentControlSet\\Control\\CI\\Config. Lo más probable es que alguien intente desactivar la lista de bloqueo de drivers vulnerables de Microsoft.",
+      "what_it_detects": "Detecta procesos powershell.exe, pwsh.exe o reg.exe (por Image o por OriginalFileName) con un CommandLine que tiene un verbo de escritura ('add ', New-ItemProperty, Set-ItemProperty o el alias 'si ') junto con la ruta \\Control\\CI\\Config y el valor VulnerableDriverBlocklistEnable.",
+      "why_it_matters": "La lista de bloqueo impide que se carguen drivers conocidos por ser vulnerables. Si se desactiva, un atacante puede cargar un driver vulnerable o malicioso (BYOVD) para terminar el EDR o conseguir acceso al kernel. Corresponde a la técnica T1685 de debilitamiento de defensas.",
+      "triage_steps": [
+        "Lea el CommandLine completo y determine el dato escrito: 0 desactiva la protección; 1 la activa, lo que suele ser hardening legítimo.",
+        "Revise el ParentImage y la cadena de procesos padre: un script de despliegue, una consola remota, cmd.exe o un ejecutable no firmado desde una carpeta de usuario.",
+        "Identifique al usuario y la sesión (interactiva, RDP, WinRM o servicio). Confirme si esa cuenta administra el endpoint de forma habitual.",
+        "En el mismo host, busque en +/- 15 minutos creación de servicios de tipo kernel, archivos .sys nuevos y eventos de carga de drivers.",
+        "Revise si el EDR o el antivirus se detuvo, desinstaló o dejó de enviar telemetría después del cambio.",
+        "Consulte alertas anteriores para el mismo host y usuario, y busque el mismo CommandLine en otros equipos para detectar un despliegue masivo.",
+        "Confirme el estado actual del valor en el registro y si hubo un reinicio, ya que el cambio necesita reinicio para aplicarse."
+      ],
+      "false_positives": [
+        "Es muy poco probable que una actividad legítima desactive la lista de bloqueo desde la línea de comandos, así que investigue rápido.",
+        "Scripts de hardening o GPO que ponen VulnerableDriverBlocklistEnable en 1 para activar la protección.",
+        "Pruebas autorizadas de compatibilidad de drivers o ejercicios de red team documentados."
+      ],
+      "response_steps": [
+        "Valide el cambio con el dueño del sistema o con el equipo de TI y con los tickets de cambio vigentes.",
+        "Si no está autorizado, aísle el endpoint en la red y conserve memoria, registro y archivos .sys recientes.",
+        "Vuelva a poner VulnerableDriverBlocklistEnable en 1, elimine los servicios o drivers maliciosos que haya verificado y reinstale el EDR si fue alterado.",
+        "Restablezca las credenciales de la cuenta implicada y revise si hubo movimiento lateral desde el host.",
+        "Haga cumplir la configuración por GPO o Intune y monitoree si vuelve a cambiar."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque desactivar esta protección casi nunca es legítimo y suele preceder a ataques BYOVD contra el EDR."
+    },
+    "en": {
+      "summary": "PowerShell or reg.exe wrote the VulnerableDriverBlocklistEnable value under HKLM\\SYSTEM\\CurrentControlSet\\Control\\CI\\Config. Someone is most likely trying to turn off Microsoft's vulnerable driver blocklist.",
+      "what_it_detects": "It detects powershell.exe, pwsh.exe or reg.exe (matched by Image or OriginalFileName) with a CommandLine that has a write verb ('add ', New-ItemProperty, Set-ItemProperty or the 'si ' alias) plus the \\Control\\CI\\Config path and the VulnerableDriverBlocklistEnable value.",
+      "why_it_matters": "The blocklist stops drivers that are known to be vulnerable from loading. Once it is off, an attacker can load a vulnerable or malicious driver (BYOVD) to kill the EDR or gain kernel access. This maps to T1685, defense impairment.",
+      "triage_steps": [
+        "Read the full CommandLine and find the data written. 0 turns protection off; 1 turns it on, which is usually legitimate hardening.",
+        "Check the ParentImage and the process tree: a deployment script, a remote shell, cmd.exe, or an unsigned binary in a user folder.",
+        "Identify the user and session type (interactive, RDP, WinRM or service). Confirm whether that account normally administers this endpoint.",
+        "On the same host within +/- 15 minutes, look for new kernel-type services, new .sys files and driver load events.",
+        "Check whether the EDR or antivirus was stopped, uninstalled or stopped sending telemetry after the change.",
+        "Look for earlier alerts on the same host and user, and search other hosts for the same CommandLine to spot a mass rollout.",
+        "Confirm the current registry value and whether the host rebooted, because the change only takes effect after a reboot."
+      ],
+      "false_positives": [
+        "Legitimate activity is very unlikely to disable the blocklist from the command line, so investigate promptly.",
+        "Hardening scripts or GPO startup scripts that set VulnerableDriverBlocklistEnable to 1 to turn protection on.",
+        "Authorized driver compatibility testing or documented red team exercises."
+      ],
+      "response_steps": [
+        "Check the change with the system owner or IT and against current change tickets.",
+        "If it was not authorized, isolate the endpoint and keep memory, the registry and recent .sys files.",
+        "Set VulnerableDriverBlocklistEnable back to 1, remove the malicious services or drivers you confirmed, and reinstall the EDR if it was tampered with.",
+        "Reset the involved account's credentials and check for lateral movement from the host.",
+        "Enforce the setting through GPO or Intune and alert if it changes again."
+      ],
+      "severity_rationale": "High fits because disabling this protection is almost never legitimate and usually comes before BYOVD attacks on the EDR."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe disables the vulnerable driver blocklist by setting the value to 0",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\CI\\Config\" /v VulnerableDriverBlocklistEnable /t REG_DWORD /d 0 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell Set-ItemProperty disables the blocklist",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\adm-mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\CI\\Config' -Name VulnerableDriverBlocklistEnable -Value 0",
+          "ParentImage": "C:\\Windows\\System32\\wsmprovhost.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "reg.exe only queries the blocklist value and does not write it",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg.exe query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\CI\\Config\" /v VulnerableDriverBlocklistEnable",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "PowerShell Get-ItemProperty reads the value as part of a compliance audit",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\svc-audit",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\CI\\Config' -Name VulnerableDriverBlocklistEnable",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

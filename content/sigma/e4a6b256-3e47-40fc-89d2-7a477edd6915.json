@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "e4a6b256-3e47-40fc-89d2-7a477edd6915",
+    "title": "System File Execution Location Anomaly",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Patrick Bareiss, Anton Kutepov, oscd.community, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_system_exe_anomaly.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_system_exe_anomaly.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso cuyo nombre coincide con un binario de sistema de Windows (svchost.exe, lsass.exe, rundll32.exe, etc.) desde una ruta fuera de las carpetas de sistema habituales. Suele indicar malware que se hace pasar por un proceso legítimo.",
+      "what_it_detects": "Eventos process_creation donde Image termina en uno de unos 55 nombres de binarios de sistema, pero no empieza por C:\\Windows\\System32\\, SysWOW64, WinSxS, SoftwareDistribution, SystemTemp, uus, $WINDOWS.~BT o $WinREAgent. Se excluyen las ubicaciones legítimas de PowerShell 7 (pwsh.exe) y WSL (wsl.exe).",
+      "why_it_matters": "Corresponde a MITRE ATT&CK T1036 (Masquerading). El atacante pone a su malware un nombre de confianza para no llamar la atención de analistas y herramientas. Un svchost.exe o lsass.exe en AppData, ProgramData o Public casi nunca es legítimo.",
+      "triage_steps": [
+        "Revise la ruta completa en Image: carpetas como AppData, Temp, ProgramData, Users\\Public o rutas de red aumentan la sospecha.",
+        "Compare Hashes y OriginalFileName con el binario real de System32. Verifique la firma digital y consulte el hash en su plataforma de threat intelligence.",
+        "Analice ParentImage y ParentCommandLine. Un instalador, script, documento de Office o navegador como padre indica cadena de infección.",
+        "Revise CommandLine y User: argumentos inusuales, cuentas no privilegiadas ejecutando nombres de procesos de sistema, o -k sin servicio válido.",
+        "En el mismo host, revise de -15 a +15 minutos: procesos hijos, conexiones de red, creación de archivos, tareas programadas, servicios y claves Run.",
+        "Busque el mismo hash o la misma ruta en otros endpoints y revise alertas previas del host y del usuario."
+      ],
+      "false_positives": [
+        "Windows instalado en otra unidad (D:\\Windows\\System32), ya que los filtros solo contemplan C:\\.",
+        "Copias de sistema en C:\\Windows.old o en imágenes montadas durante migraciones o mantenimiento.",
+        "Herramientas de desarrollo, sandbox, forenses o kits portátiles que incluyen copias de binarios de sistema, como PowerShell portátil.",
+        "Pruebas autorizadas de red team o simulaciones de ataque."
+      ],
+      "response_steps": [
+        "Verifique la firma y el hash antes de actuar. Si el binario no es de Microsoft o no está firmado, trátelo como malicioso.",
+        "Aísle el endpoint desde el EDR y preserve el binario y la memoria del proceso para análisis.",
+        "Identifique y elimine la persistencia (servicios, tareas, claves Run) y el binario, una vez confirmado el alcance.",
+        "Restablezca las credenciales del usuario afectado si hubo acceso a credenciales o ejecución con privilegios.",
+        "Busque IOCs en toda la flota y restaure el equipo desde una imagen limpia si el compromiso es profundo."
+      ],
+      "severity_rationale": "El nivel high es adecuado: un nombre de binario de sistema fuera de las rutas de sistema es un indicador fuerte de suplantación y tiene pocas causas legítimas."
+    },
+    "en": {
+      "summary": "A process named like a Windows system binary (svchost.exe, lsass.exe, rundll32.exe, etc.) ran from outside the normal system folders. This usually means malware disguised as a legitimate process.",
+      "what_it_detects": "process_creation events where Image ends with one of about 55 system binary names but does not start with C:\\Windows\\System32\\, SysWOW64, WinSxS, SoftwareDistribution, SystemTemp, uus, $WINDOWS.~BT or $WinREAgent. Legitimate PowerShell 7 (pwsh.exe) and WSL (wsl.exe) install paths are excluded.",
+      "why_it_matters": "This maps to MITRE ATT&CK T1036 (Masquerading). Attackers give malware a trusted name so analysts and tools overlook it. A svchost.exe or lsass.exe in AppData, ProgramData or Public is almost never legitimate.",
+      "triage_steps": [
+        "Review the full Image path. AppData, Temp, ProgramData, Users\\Public or network paths raise suspicion.",
+        "Compare Hashes and OriginalFileName with the real System32 binary. Check the digital signature and look up the hash in threat intelligence.",
+        "Examine ParentImage and ParentCommandLine. An installer, script, Office document or browser as parent suggests an infection chain.",
+        "Check CommandLine and User for unusual arguments or non-privileged accounts running system process names.",
+        "On the same host within +/- 15 minutes, review child processes, network connections, file writes, scheduled tasks, services and Run keys.",
+        "Search for the same hash or path on other endpoints and review earlier alerts for the host and user."
+      ],
+      "false_positives": [
+        "Windows installed on a different drive (D:\\Windows\\System32), since filters only cover C:\\.",
+        "System copies in C:\\Windows.old or mounted images during migrations or maintenance.",
+        "Developer, sandbox, forensic or portable toolkits that bundle copies of system binaries, such as portable PowerShell.",
+        "Authorized red team exercises or attack simulations."
+      ],
+      "response_steps": [
+        "Verify signature and hash before acting. If the binary is unsigned or not Microsoft-signed, treat it as malicious.",
+        "Isolate the endpoint via EDR and preserve the binary and process memory for analysis.",
+        "Once scope is confirmed, remove persistence (services, tasks, Run keys) and the binary.",
+        "Reset the affected user's credentials if credential access or privileged execution occurred.",
+        "Hunt for IOCs fleet-wide and reimage the host if the compromise is deep."
+      ],
+      "severity_rationale": "High fits because a system binary name outside system paths is a strong masquerading indicator with few legitimate causes."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Fake svchost.exe in C:\\Users\\Public launched by an installer temp file",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\Libraries\\svchost.exe",
+          "OriginalFileName": "stub.exe",
+          "CommandLine": "\"C:\\Users\\Public\\Libraries\\svchost.exe\" -k netsvcs",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\is-4K2QF.tmp\\setup.tmp",
+          "ParentCommandLine": "\"C:\\Users\\jperez\\AppData\\Local\\Temp\\is-4K2QF.tmp\\setup.tmp\" /SL5=\"$2041A\"",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000001"
+        }
+      },
+      {
+        "description": "dfrgui.exe run from ProgramData instead of System32",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS02.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\ProgramData\\Microsoft\\Defrag\\dfrgui.exe",
+          "CommandLine": "C:\\ProgramData\\Microsoft\\Defrag\\dfrgui.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000002"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate svchost.exe from System32 (excluded by filter_main_generic)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p",
+          "ParentImage": "C:\\Windows\\System32\\services.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\services.exe"
+        }
+      },
+      {
+        "description": "PowerShell 7 pwsh.exe from its standard install folder (excluded by filter_main_powershell)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "CommandLine": "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NoLogo",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

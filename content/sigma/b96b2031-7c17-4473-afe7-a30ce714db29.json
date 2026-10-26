@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "b96b2031-7c17-4473-afe7-a30ce714db29",
+    "title": "Use of FSharp Interpreters",
+    "level": "medium",
+    "status": "test",
+    "author": "Christopher Peacock @SecurePeacock, SCYTHE @scythe_io",
+    "path": "windows/process_creation/proc_creation_win_fsi_fsharp_code_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_fsi_fsharp_code_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un intérprete interactivo de F# (fsi.exe o fsianycpu.exe) en un host Windows. Estos binarios firmados por Microsoft pueden ejecutar código F# arbitrario desde scripts o en línea, y sirven para evadir listas blancas de aplicaciones.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\fsi.exe o \\fsianycpu.exe, o donde OriginalFileName es fsi.exe o fsianycpu.exe. Esto incluye copias renombradas.",
+      "why_it_matters": "FSI figura en las reglas de bloqueo recomendadas por Microsoft para WDAC y en LOLBAS. Un atacante puede ejecutar scripts .fsx o código F# en línea con acceso a .NET desde un binario confiable. Esto corresponde a ejecución mediante intérpretes de comandos y scripts (T1059) y puede eludir controles AWL.",
+      "triage_steps": [
+        "Revise Image y OriginalFileName. Un binario renombrado o ubicado fuera de rutas de Visual Studio o del .NET SDK (Temp, Downloads, Public) aumenta la sospecha.",
+        "Analice CommandLine: busque rutas a archivos .fsx, código en línea, --exec o --quiet. Obtenga el script referenciado y revise su contenido.",
+        "Verifique ParentImage. Office, navegadores, wscript, mshta, o cmd y powershell lanzados desde documentos son sospechosos. Devenv.exe o dotnet.exe apuntan a uso de desarrollo.",
+        "Confirme si el usuario es desarrollador y si el host tiene Visual Studio o el .NET SDK instalado. Consulte con el usuario o con su equipo.",
+        "Revise procesos hijos, conexiones de red, escritura de archivos y ensamblados cargados del proceso FSI en el mismo host, en un rango de +/- 15 minutos.",
+        "Busque alertas previas del mismo host y usuario, y verifique si FSI se ejecuta en otros equipos del entorno."
+      ],
+      "false_positives": [
+        "Desarrolladores que usan F# Interactive desde Visual Studio o el .NET SDK de forma legítima.",
+        "Pipelines de compilación o agentes de CI que ejecutan scripts .fsx (por ejemplo, scripts de FAKE).",
+        "Equipos de ciencia de datos o de automatización de pruebas que usan scripts F#."
+      ],
+      "response_steps": [
+        "Valide el contenido del script y el proceso padre con el usuario antes de actuar.",
+        "Si la actividad es maliciosa, aísle el endpoint, preserve el script y la memoria del proceso, y bloquee los indicadores de red relacionados.",
+        "Elimine los scripts maliciosos y cualquier persistencia, y restablezca las credenciales del usuario que se usaron en ese host.",
+        "En equipos sin desarrolladores, bloquee fsi.exe y fsianycpu.exe con WDAC o AppLocker, según la recomendación de Microsoft."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque se trata de un binario firmado capaz de evadir listas blancas, pero también tiene un uso legítimo en desarrollo, así que el contexto determina la gravedad."
+    },
+    "en": {
+      "summary": "An F# interactive interpreter (fsi.exe or fsianycpu.exe) was started on a Windows host. These Microsoft-signed binaries can run arbitrary F# code from scripts or inline and can be used to get around application allowlisting.",
+      "what_it_detects": "Process creation events where Image ends with \\fsi.exe or \\fsianycpu.exe, or where OriginalFileName is fsi.exe or fsianycpu.exe. Matching on OriginalFileName also catches copies that were renamed.",
+      "why_it_matters": "FSI is listed in Microsoft's recommended WDAC block rules and in LOLBAS. An attacker can use a trusted signed binary to run .fsx scripts or inline F# code that calls .NET APIs. This is execution through a command and scripting interpreter (T1059), and it can get past AWL controls.",
+      "triage_steps": [
+        "Review Image and OriginalFileName. If the binary was renamed or runs from outside a Visual Studio or .NET SDK folder (for example Temp, Downloads or Public), treat it as more suspicious.",
+        "Read the CommandLine for the .fsx or script path, inline code, --exec, or --quiet. Collect the referenced script and review it.",
+        "Check ParentImage. Office apps, browsers, wscript, mshta, cmd or powershell launched from documents are suspicious. Devenv.exe or dotnet.exe points to developer use.",
+        "Confirm the user is a developer and the host has Visual Studio or the .NET SDK installed. Ask the user or their team if needed.",
+        "Review child processes, network connections, file writes and loaded assemblies from the FSI process on the same host within +/- 15 minutes.",
+        "Look for earlier alerts on the same host and user, and find out if FSI binaries run anywhere else in the environment."
+      ],
+      "false_positives": [
+        "Software developers using F# Interactive in Visual Studio or the .NET SDK on purpose.",
+        "Build pipelines or CI agents that run .fsx scripts (for example FAKE build scripts).",
+        "Data science or test automation teams running F# scripts."
+      ],
+      "response_steps": [
+        "Check the script content and the parent process with the user before acting.",
+        "If the activity is malicious, isolate the endpoint, keep the script and the process memory, and block any related network indicators.",
+        "Remove the malicious scripts and persistence, then reset the credentials the user had on that host.",
+        "On hosts without developers, block fsi.exe and fsianycpu.exe with WDAC or AppLocker, as Microsoft recommends."
+      ],
+      "severity_rationale": "Medium fits because this signed binary can bypass allowlisting, but it also has legitimate developer use, so context decides how serious the alert is."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "fsianycpu.exe launched by PowerShell from a user's Temp folder to run an .fsx script",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\FSharp\\Tools\\fsianycpu.exe",
+          "OriginalFileName": "fsianycpu.exe",
+          "CommandLine": "fsianycpu.exe --quiet C:\\Users\\jperez\\AppData\\Local\\Temp\\update.fsx",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden"
+        }
+      },
+      {
+        "description": "Renamed copy of fsi.exe, caught by OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207",
+          "User": "ANDES\\mgomez",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "fsi.exe",
+          "CommandLine": "C:\\Users\\Public\\svchelper.exe C:\\Users\\Public\\run.fsx",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "dotnet.exe building an F# project; no FSI binary is involved",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031",
+          "User": "ANDES\\lrojas",
+          "Image": "C:\\Program Files\\dotnet\\dotnet.exe",
+          "OriginalFileName": ".NET Host",
+          "CommandLine": "dotnet build C:\\src\\App\\App.fsproj",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "F# compiler fsc.exe, a similar name that does not match fsi.exe or fsianycpu.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031",
+          "User": "ANDES\\lrojas",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\FSharp\\Tools\\fsc.exe",
+          "OriginalFileName": "fsc.exe",
+          "CommandLine": "fsc.exe -o:Lib.dll Lib.fs",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

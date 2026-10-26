@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "ff992eac-6449-4c60-8c1d-91c9722a1d48",
+    "title": "New Root Certificate Installed Via CertMgr.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "oscd.community, @redcanary, Zach Stanford @svch0st",
+    "path": "windows/process_creation/proc_creation_win_certmgr_certificate_installation.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_certmgr_certificate_installation.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1553.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó CertMgr.exe (o una copia renombrada con OriginalFileName CERTMGT.EXE) con /add y un almacén root, lo que suele significar que se instaló un certificado raíz nuevo en el equipo.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\CertMgr.exe u OriginalFileName es CERTMGT.EXE, y CommandLine contiene tanto '/add' como 'root', por ejemplo: CertMgr.exe /add cert.cer /s /r localMachine root.",
+      "why_it_matters": "Un certificado raíz malicioso hace que el sistema confíe en servidores o código firmados por el atacante, sin advertencias TLS. Permite interceptar tráfico y ocultar C2 (ATT&CK T1553.004, instalación de certificado raíz).",
+      "triage_steps": [
+        "Revise CommandLine: identifique el archivo .cer/.crt, el almacén (localMachine o currentUser) y si se usó /s /r root.",
+        "Compruebe la ruta de Image: CertMgr.exe fuera de las carpetas del Windows SDK o renombrado (OriginalFileName CERTMGT.EXE) es más sospechoso.",
+        "Examine ParentImage y la cadena de procesos: cmd, PowerShell, scripts, instaladores o un documento de Office como padre.",
+        "Identifique al usuario y si pertenece a TI o Help Desk; confirme si existe un ticket de cambio asociado.",
+        "Obtenga el archivo de certificado, calcule su hash y revise emisor, sujeto y huella; compárelos con la CA corporativa conocida.",
+        "En el mismo host, en +/- 15 minutos, busque descargas del .cer, cambios en proxy, conexiones de red nuevas y otros procesos sospechosos.",
+        "Busque alertas previas del mismo host o usuario y la misma huella de certificado en otros endpoints."
+      ],
+      "false_positives": [
+        "Help Desk o TI que agrega manualmente una CA raíz corporativa durante una instalación o incidencia.",
+        "Despliegue de certificados por GPO, SCCM/Intune o scripts de aprovisionamiento; verifique si generan este evento.",
+        "Desarrolladores que instalan certificados de prueba o de proxies de depuración en sus equipos."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del equipo y TI si la instalación fue autorizada antes de actuar.",
+        "Si no está autorizada, aísle el endpoint y conserve el archivo de certificado y la evidencia del proceso.",
+        "Retire el certificado del almacén raíz tras documentar su huella, y bloquéela en otros equipos mediante política.",
+        "Investigue cómo llegó el binario y el certificado, elimine la persistencia y restablezca credenciales expuestas a tráfico interceptado."
+      ],
+      "severity_rationale": "Medium es adecuado porque instalar una CA raíz es de alto impacto, pero TI también lo hace legítimamente y requiere contexto para confirmar."
+    },
+    "en": {
+      "summary": "CertMgr.exe (or a renamed copy with OriginalFileName CERTMGT.EXE) ran with /add and a root store, which usually means a new root certificate was installed.",
+      "what_it_detects": "Windows process creation events where Image ends with \\CertMgr.exe or OriginalFileName is CERTMGT.EXE, and CommandLine contains both '/add' and 'root', e.g. CertMgr.exe /add cert.cer /s /r localMachine root.",
+      "why_it_matters": "A rogue root certificate makes the system trust attacker-signed servers or code without TLS warnings, enabling traffic interception and stealthier C2 (ATT&CK T1553.004, Install Root Certificate).",
+      "triage_steps": [
+        "Read CommandLine: note the .cer/.crt file, the store location (localMachine or currentUser) and whether /s /r root was used.",
+        "Check the Image path: CertMgr.exe outside Windows SDK folders, or renamed (OriginalFileName CERTMGT.EXE), is more suspicious.",
+        "Review ParentImage and the process tree: cmd, PowerShell, scripts, installers or an Office document as parent.",
+        "Identify the user and whether they belong to IT or Help Desk; look for a matching change ticket.",
+        "Collect the certificate file, hash it and review issuer, subject and thumbprint against the known corporate CA.",
+        "On the same host within +/- 15 minutes, look for the .cer download, proxy changes, new outbound connections and other suspicious processes.",
+        "Search earlier alerts for the same host or user and the same certificate thumbprint on other endpoints."
+      ],
+      "false_positives": [
+        "Help Desk or IT manually adding a corporate root CA during setup or a support case.",
+        "Certificate deployment via GPO, SCCM/Intune or provisioning scripts; test whether these produce this event.",
+        "Developers installing test certificates or debugging-proxy certificates on their workstations."
+      ],
+      "response_steps": [
+        "Confirm with the machine owner and IT whether the installation was authorized before acting.",
+        "If unauthorized, isolate the endpoint and preserve the certificate file and process evidence.",
+        "Remove the certificate from the root store after recording its thumbprint, and block it on other hosts via policy.",
+        "Determine how the binary and certificate arrived, remove persistence and reset credentials exposed to intercepted traffic."
+      ],
+      "severity_rationale": "Medium fits because a rogue root CA is high impact, but IT also installs roots legitimately, so context is needed to confirm."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "CertMgr.exe from a user-writable path silently adding a certificate to the LocalMachine root store, launched from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\Tools\\CertMgr.exe",
+          "OriginalFileName": "CERTMGT.EXE",
+          "CommandLine": "CertMgr.exe /add C:\\Users\\Public\\update.cer /s /r localMachine root",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\install.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed CertMgr binary (matched by OriginalFileName) adding a root certificate via PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svc\\cm.exe",
+          "OriginalFileName": "CERTMGT.EXE",
+          "CommandLine": "cm.exe /add C:\\ProgramData\\svc\\ca.crt /all /s /r localMachine Root",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "CertMgr.exe adding a certificate to the TrustedPublisher store, not a root store, so CommandLine lacks 'root'",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\soporte",
+          "Image": "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64\\CertMgr.exe",
+          "OriginalFileName": "CERTMGT.EXE",
+          "CommandLine": "CertMgr.exe /add C:\\Tools\\publisher.cer /s /r localMachine TrustedPublisher",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "CertMgr.exe deleting a certificate from the root store; '/del' instead of '/add'",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\soporte",
+          "Image": "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64\\CertMgr.exe",
+          "OriginalFileName": "CERTMGT.EXE",
+          "CommandLine": "CertMgr.exe /del /c /n \"Old Test CA\" /s /r localMachine root",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

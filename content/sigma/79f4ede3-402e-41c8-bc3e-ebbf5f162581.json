@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "79f4ede3-402e-41c8-bc3e-ebbf5f162581",
+    "title": "HackTool - Empire PowerShell Launch Parameters",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_empire_powershell_launch.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_empire_powershell_launch.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un proceso cuya línea de comandos contiene una combinación exacta de parámetros de PowerShell que usan los launchers y módulos de Empire. Suele indicar un stager o un agente de Empire en ejecución.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene alguna de las secuencias de Empire, por ejemplo ' -NoP -sta -NonI -W Hidden -Enc ', ' -noP -sta -w 1 -enc ', ' -enc  SQB' (con doble espacio) o ' -nop -exec bypass -EncodedCommand '.",
+      "why_it_matters": "Empire es un framework de post-explotación que ejecuta PowerShell oculto, sin perfil y con un payload codificado en Base64 para descargar o correr su agente (T1059.001, PowerShell). Un acierto suele significar que hay acceso remoto activo en el host.",
+      "triage_steps": [
+        "Decodifique el Base64 del CommandLine (UTF-16LE) y busque URLs de C2, IEX, WebClient, desactivación de AMSI o cabeceras User-Agent fijas.",
+        "Revise ParentImage y la línea de comandos del padre: Office, WMI (WmiPrvSE.exe), un servicio, schtasks o mshta apuntan a entrega o persistencia.",
+        "Identifique el usuario y el nivel de integridad; con SYSTEM o una cuenta administrativa la prioridad es mayor.",
+        "Correlacione en el mismo host +/- 15 minutos: conexiones de red salientes de powershell.exe, procesos hijos, archivos creados y cambios en el registro.",
+        "Busque persistencia típica de Empire: tareas programadas, claves Run, suscripciones WMI y valores de registro con PowerShell codificado.",
+        "Busque el mismo CommandLine o el mismo dominio de C2 en otros endpoints y revise alertas previas del host y del usuario."
+      ],
+      "false_positives": [
+        "Otras herramientas o scripts que por casualidad usan los mismos parámetros, por ejemplo agentes de administración que lanzan PowerShell oculto y codificado.",
+        "Ejercicios de red team o pentests autorizados con Empire; confirme el alcance y las fechas con el equipo responsable."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa decodificando el payload y validando el destino de red antes de actuar.",
+        "Aísle el endpoint mediante el EDR y bloquee en el proxy y el firewall los dominios o IP de C2 identificados.",
+        "Termine los procesos de PowerShell maliciosos, elimine la persistencia encontrada y conserve memoria y artefactos para análisis forense.",
+        "Restablezca las credenciales del usuario afectado y de las cuentas usadas en el host; revise si hubo movimiento lateral.",
+        "Reincorpore el host a la red solo después de limpiarlo o reinstalarlo, y vigile si la actividad reaparece."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque estas cadenas exactas casi no aparecen en uso administrativo legítimo y suelen indicar un agente de post-explotación activo."
+    },
+    "en": {
+      "summary": "A process started with an exact PowerShell parameter combination used by Empire launchers and modules. This usually means an Empire stager or agent is running.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains one of Empire's sequences, such as ' -NoP -sta -NonI -W Hidden -Enc ', ' -noP -sta -w 1 -enc ', ' -enc  SQB' (double space) or ' -nop -exec bypass -EncodedCommand '.",
+      "why_it_matters": "Empire is a post-exploitation framework that runs hidden, profile-less PowerShell with a Base64-encoded payload to fetch or run its agent (T1059.001, PowerShell). A hit usually means active remote access on the host.",
+      "triage_steps": [
+        "Decode the Base64 in CommandLine (UTF-16LE) and look for C2 URLs, IEX, WebClient, AMSI bypasses or hardcoded User-Agent headers.",
+        "Check ParentImage and the parent command line: Office, WmiPrvSE.exe, a service, schtasks or mshta point to delivery or persistence.",
+        "Identify the user and integrity level; SYSTEM or an admin account raises priority.",
+        "Correlate on the same host +/- 15 minutes: outbound connections from powershell.exe, child processes, file writes and registry changes.",
+        "Hunt for typical Empire persistence: scheduled tasks, Run keys, WMI event subscriptions and registry values holding encoded PowerShell.",
+        "Search for the same CommandLine or C2 domain on other endpoints and review earlier alerts for the host and user."
+      ],
+      "false_positives": [
+        "Other tools or scripts that incidentally use the same parameters, such as management agents launching hidden encoded PowerShell.",
+        "Authorized red team or penetration tests using Empire; confirm scope and dates with the owning team."
+      ],
+      "response_steps": [
+        "Confirm malicious activity by decoding the payload and validating the network destination before acting.",
+        "Isolate the endpoint via EDR and block identified C2 domains or IPs at the proxy and firewall.",
+        "Kill malicious PowerShell processes, remove discovered persistence and preserve memory and artifacts for forensics.",
+        "Reset credentials of the affected user and accounts used on the host; check for lateral movement.",
+        "Return the host to the network only after cleaning or reimaging, and monitor for recurrence."
+      ],
+      "severity_rationale": "High fits because these exact strings rarely appear in legitimate administration and usually indicate an active post-exploitation agent."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Empire launcher started from WMI with hidden, non-interactive, encoded PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "CommandLine": "powershell.exe -NoP -sta -NonI -W Hidden -Enc WwBTAHkAcwB0AGUAbQAuAEQAaQBhAGcA",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Empire stager using window style 1 and a double space before the SQB-prefixed payload",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell -noP -sta -w 1 -enc  SQBmACgAJABQAFMAVgBlAHIA",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate scheduled inventory script using full parameter names and a script file",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_inventory",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\Scripts\\inventory.ps1",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Encoded command with a single space before the payload and no Empire parameter sequence",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\ExampleAgent\\agent.exe",
+          "CommandLine": "powershell.exe -NoP -NonI -enc SQBuAHYAbwBrAGUA",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

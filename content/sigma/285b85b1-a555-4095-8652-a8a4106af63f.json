@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "285b85b1-a555-4095-8652-a8a4106af63f",
+    "title": "Suspicious Rundll32 Setupapi.dll Activity",
+    "level": "medium",
+    "status": "test",
+    "author": "Konstantin Grishchenko, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_rundll32_setupapi_installhinfsection.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_rundll32_setupapi_installhinfsection.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.011"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "rundll32.exe invocó InstallHinfSection de setupapi.dll para procesar un archivo INF, y esto lanzó runonce.exe. Puede ser una instalación legítima de drivers o el abuso de un INF para lograr persistencia o ejecutar código.",
+      "what_it_detects": "Un proceso runonce.exe cuyo ParentImage es rundll32.exe y cuyo ParentCommandLine contiene a la vez 'setupapi.dll' e 'InstallHinfSection'. Esta función siempre lanza runonce.exe, sin importar el contenido del INF.",
+      "why_it_matters": "Un INF puede crear valores en el registro (Run/RunOnce), modificar archivos, instalar drivers o encadenar otras DLL. Es ejecución de proxy mediante binarios firmados con Rundll32 (T1218.011), útil para evadir controles y lograr persistencia.",
+      "triage_steps": [
+        "Revise ParentCommandLine: identifique la ruta y el nombre del INF y la sección invocada. Si está en Temp, Downloads, AppData o en un recurso compartido, considérelo sospechoso.",
+        "Obtenga el INF del endpoint y examine las directivas AddReg, RunPreSetupCommands, RunPostSetupCommands, UnRegisterDlls y CopyFiles.",
+        "Identifique el proceso que lanzó rundll32.exe (abuelo): un instalador firmado es normal; cmd, PowerShell, wscript u Office no lo son.",
+        "Revise los procesos hijos de runonce.exe y de rundll32.exe en el mismo host durante +/- 15 minutos.",
+        "Busque cambios en claves Run/RunOnce, servicios o drivers nuevos y archivos creados cerca del momento del evento.",
+        "Pivote por el usuario y el hash del INF: ¿hay ejecuciones similares en otros hosts o alertas previas para esta entidad?",
+        "Verifique si hay tickets de cambio o despliegues de drivers programados para ese equipo."
+      ],
+      "false_positives": [
+        "Scripts y herramientas administrativas que instalan drivers mediante archivos INF con setupapi.dll.",
+        "Instaladores de fabricantes de hardware o de software empresarial que ejecutan InstallHinfSection desde Program Files o System32.",
+        "Herramientas de despliegue (SCCM, Intune) que distribuyen paquetes de drivers."
+      ],
+      "response_steps": [
+        "Confirme la legitimidad con el dueño del equipo o el equipo de TI y conserve una copia del INF y de los archivos que referencia.",
+        "Si es malicioso, aísle el endpoint y suspenda temporalmente las credenciales del usuario involucrado.",
+        "Elimine las entradas de persistencia que creó el INF (Run/RunOnce, servicios, drivers) solo después de documentarlas y validarlas.",
+        "Busque el hash o el nombre del INF en toda la flota y bloquéelo; agregue exclusiones solo para instaladores verificados."
+      ],
+      "severity_rationale": "Es nivel medio porque este patrón también aparece en instalaciones legítimas de drivers, pero sirve para ejecución por proxy y persistencia, así que requiere revisión."
+    },
+    "en": {
+      "summary": "rundll32.exe called setupapi.dll InstallHinfSection to process an INF file, which spawned runonce.exe. This may be a legitimate driver install or an INF abused for persistence or code execution.",
+      "what_it_detects": "A runonce.exe process whose ParentImage is rundll32.exe and whose ParentCommandLine contains both 'setupapi.dll' and 'InstallHinfSection'. This function always launches runonce.exe, whatever the INF contains.",
+      "why_it_matters": "An INF can write registry values (Run/RunOnce), modify files, install drivers or chain other DLLs. This is signed binary proxy execution via Rundll32 (T1218.011), which helps attackers evade defenses and gain persistence.",
+      "triage_steps": [
+        "Review ParentCommandLine to find the INF path, its name and the section invoked. Treat INFs in Temp, Downloads, AppData or network shares as suspicious.",
+        "Collect the INF from the endpoint and inspect its AddReg, RunPreSetupCommands, RunPostSetupCommands, UnRegisterDlls and CopyFiles directives.",
+        "Identify the process that launched rundll32.exe (the grandparent). A signed installer is expected. cmd, PowerShell, wscript or Office are not.",
+        "Review child processes of runonce.exe and rundll32.exe on the same host within +/- 15 minutes.",
+        "Look for new Run/RunOnce values, services, drivers and dropped files around the event time.",
+        "Pivot on the user and the INF hash: look for similar executions on other hosts or earlier alerts for this entity.",
+        "Check for change tickets or scheduled driver deployments for the host."
+      ],
+      "false_positives": [
+        "Scripts and administrative tools that install drivers from INF files with setupapi.dll.",
+        "Hardware vendor or enterprise software installers that run InstallHinfSection from Program Files or System32.",
+        "Deployment tools such as SCCM or Intune pushing driver packages."
+      ],
+      "response_steps": [
+        "Confirm legitimacy with the host owner or IT, and preserve the INF and every file it references.",
+        "If it is malicious, isolate the endpoint and temporarily suspend the involved user's credentials.",
+        "Document and validate the persistence the INF created (Run/RunOnce, services, drivers), then remove it.",
+        "Hunt for the INF hash or name across the fleet and block it. Add exclusions only for verified installers."
+      ],
+      "severity_rationale": "Medium fits because legitimate driver installs follow the same pattern, but the technique enables proxy execution and persistence, so each alert needs review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "rundll32 processes a user-dropped INF in Temp through setupapi InstallHinfSection, which spawns runonce.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\runonce.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\runonce.exe\" -r",
+          "ParentImage": "C:\\Windows\\System32\\rundll32.exe",
+          "ParentCommandLine": "rundll32.exe setupapi.dll,InstallHinfSection DefaultInstall 128 C:\\Users\\jperez\\AppData\\Local\\Temp\\shady.inf",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Uppercase variant launched from cmd with a full DLL path. It still matches because matching is case-insensitive.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\SysWOW64\\runonce.exe",
+          "CommandLine": "runonce.exe -r",
+          "ParentImage": "C:\\Windows\\SysWOW64\\rundll32.exe",
+          "ParentCommandLine": "C:\\Windows\\SysWOW64\\rundll32.exe C:\\Windows\\System32\\SETUPAPI.DLL,INSTALLHINFSECTION DefaultInstall 132 \\\\fs01.example.com\\pub\\update.inf",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "rundll32 runs advpack.dll LaunchINFSection, so ParentCommandLine lacks setupapi.dll and InstallHinfSection",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\runonce.exe",
+          "CommandLine": "runonce.exe -r",
+          "ParentImage": "C:\\Windows\\System32\\rundll32.exe",
+          "ParentCommandLine": "rundll32.exe advpack.dll,LaunchINFSection C:\\Users\\jperez\\Downloads\\setup.inf,DefaultInstall",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Normal logon: explorer.exe launches runonce.exe to process RunOnce keys, and the parent is not rundll32",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\runonce.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\runonce.exe\" /Explorer",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

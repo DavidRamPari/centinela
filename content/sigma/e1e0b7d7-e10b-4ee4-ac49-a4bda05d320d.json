@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "e1e0b7d7-e10b-4ee4-ac49-a4bda05d320d",
+    "title": "File Encryption/Decryption Via Gpg4win From Suspicious Locations",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), X__Junior (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_gpg4win_susp_location.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_gpg4win_susp_location.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó GnuPG (gpg.exe/gpg2.exe) con una passphrase en la línea de comandos para cifrar o descifrar archivos en una ruta de staging habitual de malware (Temp, AppData, Users\\Public, PerfLogs).",
+      "what_it_detects": "Creación de procesos cuyo Image termina en \\gpg.exe o \\gpg2.exe, o cuyo Product/Description corresponde a GnuPG (detecta binarios renombrados), con '-passphrase' en CommandLine y una ruta sospechosa como :\\Temp\\, \\AppData\\Local\\Temp\\, \\AppData\\Roaming\\, :\\Users\\Public\\, :\\Windows\\Temp\\ o :\\PerfLogs\\.",
+      "why_it_matters": "Loaders como BATLOADER y ZLoader han usado Gpg4win para descifrar payloads empaquetados y luego ejecutarlos. La regla está etiquetada como Execution; el comportamiento equivale a decodificar archivos ocultos (T1140) y también podría indicar cifrado de datos.",
+      "triage_steps": [
+        "Revisar CommandLine: identificar si es descifrado (-d/--decrypt) o cifrado, el archivo de entrada, el archivo de salida (-o) y la passphrase usada.",
+        "Verificar Image y la ruta: un gpg.exe fuera de Program Files o renombrado (coincidencia solo por Product/Description) es muy sospechoso.",
+        "Analizar ParentImage y la cadena de procesos: msiexec, wscript, cmd o powershell lanzados desde instaladores descargados son típicos de loaders.",
+        "Obtener el hash del archivo de salida y buscar procesos hijos o cargas de DLL que lo ejecuten en el mismo host dentro de +/- 15 minutos.",
+        "Revisar eventos de red y descargas del mismo host y usuario en esa ventana, especialmente instaladores MSI o archivos .gpg recién creados.",
+        "Buscar alertas previas del mismo host o usuario y la misma CommandLine o passphrase en otros endpoints."
+      ],
+      "false_positives": [
+        "Scripts de administración o copias de seguridad que descifran archivos en carpetas temporales con passphrase en batch; validar con el responsable y documentar la excepción.",
+        "Herramientas de desarrollo o CI que usan gpg en perfiles de usuario (AppData) para firmar o descifrar secretos."
+      ],
+      "response_steps": [
+        "Confirmar con el usuario o el equipo dueño del host si la ejecución es legítima antes de actuar.",
+        "Si no es legítima, aislar el endpoint y preservar el archivo cifrado, el descifrado y la memoria del proceso.",
+        "Enviar el archivo de salida a análisis, bloquear su hash y buscarlo en toda la flota.",
+        "Eliminar persistencia y artefactos relacionados, restablecer credenciales del usuario y restaurar el equipo desde una imagen conocida si hubo ejecución del payload."
+      ],
+      "severity_rationale": "Nivel alto porque usar gpg con passphrase en línea de comandos sobre rutas de staging es poco común en uso legítimo y coincide con técnicas documentadas de loaders de malware."
+    },
+    "en": {
+      "summary": "GnuPG (gpg.exe/gpg2.exe) ran with a command-line passphrase to encrypt or decrypt files in a common malware staging path (Temp, AppData, Users\\Public, PerfLogs).",
+      "what_it_detects": "Process creation where Image ends with \\gpg.exe or \\gpg2.exe, or Product/Description identify GnuPG (catches renamed binaries), with '-passphrase' in CommandLine and a path such as :\\Temp\\, \\AppData\\Local\\Temp\\, \\AppData\\Roaming\\, :\\Users\\Public\\, :\\Windows\\Temp\\ or :\\PerfLogs\\.",
+      "why_it_matters": "Loaders such as BATLOADER and ZLoader have used Gpg4win to decrypt packed payloads before running them. The rule is tagged Execution; the behavior amounts to decoding hidden files (T1140) and could also indicate data encryption.",
+      "triage_steps": [
+        "Read CommandLine: decrypt (-d/--decrypt) or encrypt, input file, output file (-o) and the passphrase used.",
+        "Check Image path: gpg.exe outside Program Files, or a renamed binary matched only by Product/Description, is highly suspicious.",
+        "Review ParentImage and the process tree: msiexec, wscript, cmd or powershell spawned from downloaded installers is typical of loaders.",
+        "Hash the output file and look for child processes or DLL loads executing it on the same host within +/- 15 minutes.",
+        "Review network and download events for the same host and user in that window, especially MSI installers or new .gpg files.",
+        "Search earlier alerts for the host or user, and the same CommandLine or passphrase on other endpoints."
+      ],
+      "false_positives": [
+        "Admin or backup scripts that decrypt files in temp folders with a batch passphrase; confirm with the owner and document an exception.",
+        "Developer or CI tooling using gpg inside user profiles (AppData) to sign or decrypt secrets."
+      ],
+      "response_steps": [
+        "Confirm with the user or host owner whether the run was legitimate before acting.",
+        "If not legitimate, isolate the endpoint and preserve the encrypted file, decrypted output and process memory.",
+        "Submit the output file for analysis, block its hash and hunt for it fleet-wide.",
+        "Remove persistence and related artifacts, reset user credentials and reimage from a known-good build if the payload executed."
+      ],
+      "severity_rationale": "High fits because gpg with a command-line passphrase on staging paths is rare in legitimate use and matches documented malware loader tradecraft."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "gpg.exe decrypts a payload into AppData\\Roaming using a command-line passphrase, launched by msiexec",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files (x86)\\GnuPG\\bin\\gpg.exe",
+          "Product": "GNU Privacy Guard (GnuPG)",
+          "Description": "GnuPG’s OpenPGP tool",
+          "CommandLine": "\"C:\\Program Files (x86)\\GnuPG\\bin\\gpg.exe\" --batch --yes --passphrase=Xk92pLq -o C:\\Users\\jperez\\AppData\\Roaming\\upd.dll -d C:\\Users\\jperez\\AppData\\Roaming\\upd.dll.gpg",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\msiexec.exe /V"
+        }
+      },
+      {
+        "description": "Renamed GnuPG binary matched by Product metadata decrypting a file in C:\\Users\\Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svc.exe",
+          "Product": "GNU Privacy Guard (GnuPG)",
+          "Description": "GnuPG’s OpenPGP tool",
+          "CommandLine": "C:\\Users\\Public\\svc.exe --batch --passphrase 7hQ2mzA --decrypt -o C:\\Users\\Public\\data.ps1 C:\\Users\\Public\\data.gpg",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate gpg decryption with passphrase of a file in the user's Documents folder (no suspicious path)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files (x86)\\GnuPG\\bin\\gpg.exe",
+          "Product": "GNU Privacy Guard (GnuPG)",
+          "Description": "GnuPG’s OpenPGP tool",
+          "CommandLine": "\"C:\\Program Files (x86)\\GnuPG\\bin\\gpg.exe\" --batch --passphrase-file D:\\keys\\pass.txt -o D:\\Finance\\report.xlsx -d D:\\Finance\\report.xlsx.gpg",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "gpg verifying a downloaded installer signature in Temp without any passphrase option",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files (x86)\\GnuPG\\bin\\gpg.exe",
+          "Product": "GNU Privacy Guard (GnuPG)",
+          "Description": "GnuPG’s OpenPGP tool",
+          "CommandLine": "\"C:\\Program Files (x86)\\GnuPG\\bin\\gpg.exe\" --verify C:\\Users\\lgomez\\AppData\\Local\\Temp\\setup.exe.sig C:\\Users\\lgomez\\AppData\\Local\\Temp\\setup.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

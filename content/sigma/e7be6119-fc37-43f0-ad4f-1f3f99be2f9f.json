@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "e7be6119-fc37-43f0-ad4f-1f3f99be2f9f",
+    "title": "Copying Sensitive Files with Credential Data",
+    "level": "high",
+    "status": "test",
+    "author": "Teymur Kheirkhabarov, Daniil Yugoslavskiy, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_esentutl_sensitive_file_copy.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_esentutl_sensitive_file_copy.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.002",
+      "T1003.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso copió o accedió a archivos con credenciales (SAM, SECURITY, SYSTEM o NTDS.dit), ya sea con esentutl.exe en modo de copia/VSS o con cualquier proceso cuya línea de comandos menciona esas rutas.",
+      "what_it_detects": "Hay dos condiciones. La primera es esentutl.exe (Image u OriginalFileName) con 'vss', ' /m ' o ' /y ' en CommandLine. La segunda es cualquier CommandLine que contenga rutas como \\config\\sam, \\config\\security, \\config\\system, \\repair\\*, \\config\\RegBack\\* o \\windows\\ntds\\ntds.dit.",
+      "why_it_matters": "Estos archivos contienen hashes de cuentas locales y secretos LSA, y en controladores de dominio contienen los hashes de todo el dominio (ATT&CK T1003.002 SAM y T1003.003 NTDS). Con ellos se pueden crackear contraseñas o hacer pass-the-hash y moverse lateralmente.",
+      "triage_steps": [
+        "Revise CommandLine completo: qué archivo de origen se copia, el destino (/d) y si usa /vss o rutas de shadow copy (HarddiskVolumeShadowCopy).",
+        "Identifique el host: si es un controlador de dominio y aparece ntds.dit, escale de inmediato.",
+        "Revise ParentImage y el árbol de procesos: cmd.exe o powershell.exe lanzados desde webshells, herramientas de acceso remoto o psexec son sospechosos.",
+        "Valide el usuario y el tipo de sesión: si es una cuenta administrativa esperada, una de servicio o un inicio de sesión remoto inusual.",
+        "Busque en el mismo host, entre 15 minutos antes y 15 minutos después, eventos de vssadmin, ntdsutil, reg save, creación de shadow copies y compresión de archivos en la carpeta de destino.",
+        "Verifique si los archivos copiados salieron del equipo: conexiones SMB, HTTP o de almacenamiento en la nube después de la copia.",
+        "Busque alertas previas de acceso a credenciales o de movimiento lateral para el mismo usuario y el mismo host."
+      ],
+      "false_positives": [
+        "Software de respaldo o scripts de backup aprobados que copian el registro o NTDS.dit mediante VSS.",
+        "Investigaciones forenses o de respuesta a incidentes que recolectan colmenas del registro.",
+        "Pruebas de penetración o ejercicios de red team autorizados y documentados."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del sistema o con el equipo de backup si la actividad estaba autorizada.",
+        "Si no lo estaba, aísle el endpoint y conserve los archivos copiados y el árbol de procesos como evidencia antes de eliminarlos.",
+        "Restablezca las contraseñas de las cuentas expuestas; si se trata de NTDS.dit, rote la contraseña de krbtgt dos veces y la de las cuentas privilegiadas.",
+        "Elimine las shadow copies creadas por el atacante y el mecanismo de acceso inicial, y luego busque actividad similar en otros hosts."
+      ],
+      "severity_rationale": "Es alta porque copiar SAM o NTDS.dit casi siempre antecede al robo masivo de credenciales, y su uso legítimo es poco frecuente y fácil de verificar."
+    },
+    "en": {
+      "summary": "A process copied or touched credential stores (SAM, SECURITY, SYSTEM or NTDS.dit). Either esentutl.exe ran in copy/VSS mode, or some command line referenced those paths.",
+      "what_it_detects": "There are two conditions. The first is esentutl.exe (Image or OriginalFileName) with 'vss', ' /m ' or ' /y ' in CommandLine. The second is any CommandLine containing \\config\\sam, \\config\\security, \\config\\system, \\repair\\*, \\config\\RegBack\\* or \\windows\\ntds\\ntds.dit.",
+      "why_it_matters": "These files hold local account hashes and LSA secrets, and on domain controllers they hold every domain hash (ATT&CK T1003.002 SAM, T1003.003 NTDS). Attackers can then crack passwords or pass the hash to move laterally.",
+      "triage_steps": [
+        "Read the full CommandLine: the source file, the destination (/d), and any /vss or HarddiskVolumeShadowCopy paths.",
+        "Identify the host. If it is a domain controller and ntds.dit is involved, escalate immediately.",
+        "Inspect ParentImage and the process tree. Look for cmd.exe or powershell.exe launched from webshells, remote access tools or psexec.",
+        "Validate the user and logon type: expected admin, service account or unusual remote session.",
+        "Pivot on the same host within +/- 15 minutes for vssadmin, ntdsutil, reg save, shadow copy creation and archiving in the destination folder.",
+        "Check whether the copied files left the host: SMB, HTTP or cloud uploads after the copy.",
+        "Look for earlier credential access or lateral movement alerts for the same user and host."
+      ],
+      "false_positives": [
+        "Approved backup software or scripts that copy registry hives or NTDS.dit through VSS.",
+        "Forensic or incident response collection of registry hives.",
+        "Authorized, documented penetration tests or red team exercises."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or backup team whether the activity was authorized.",
+        "If it was not, isolate the endpoint. Keep the copied files and the process tree as evidence before removing anything.",
+        "Reset exposed account passwords. If NTDS.dit was copied, rotate krbtgt twice and rotate privileged account passwords.",
+        "Remove attacker-created shadow copies and the initial access foothold, then hunt for the same activity on other hosts."
+      ],
+      "severity_rationale": "High fits because copying SAM or NTDS.dit almost always comes before bulk credential theft, and legitimate uses are rare and easy to verify."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "esentutl.exe copies the SAM hive through VSS into a public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\esentutl.exe",
+          "OriginalFileName": "esentutl.exe",
+          "CommandLine": "esentutl.exe /y /vss C:\\Windows\\System32\\config\\SAM /d C:\\Users\\Public\\sam.hiv",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat"
+        }
+      },
+      {
+        "description": "cmd copy of ntds.dit from a shadow copy on a domain controller",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\adm-rlopez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c copy \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy1\\Windows\\NTDS\\ntds.dit C:\\Temp\\ntds.dit",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "esentutl.exe checks the header of the Windows Update database (/mh is not ' /m ', and the path is not sensitive)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\esentutl.exe",
+          "OriginalFileName": "esentutl.exe",
+          "CommandLine": "esentutl.exe /mh C:\\Windows\\SoftwareDistribution\\DataStore\\DataStore.edb",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      },
+      {
+        "description": "A process references the config\\systemprofile folder, which the trailing space in '\\config\\system ' excludes",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c dir C:\\Windows\\System32\\config\\systemprofile\\AppData\\Local\\Temp",
+          "ParentImage": "C:\\Windows\\System32\\services.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

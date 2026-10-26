@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "23ceaf5c-b6f1-4a32-8559-f2ff734be516",
+    "title": "Dumping Process via Sqldumper.exe",
+    "level": "medium",
+    "status": "test",
+    "author": "Kirill Kiryanov, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_lolbin_susp_sqldumper_activity.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_susp_sqldumper_activity.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó sqldumper.exe con indicadores de volcado (0x0110 o 0x01100:40), lo que genera un dump de memoria de un proceso. Puede ser diagnóstico legítimo de SQL Server o un intento de robar credenciales volcando procesos como lsass.exe.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\sqldumper.exe y CommandLine contiene '0x0110' (dump completo) o '0x01100:40' (minidump). Sqldumper.exe es un binario firmado de Microsoft incluido con SQL Server y Office, catalogado en LOLBAS.",
+      "why_it_matters": "Un atacante con privilegios puede usar este binario confiable para volcar la memoria de LSASS y extraer hashes, tickets Kerberos o contraseñas fuera de línea (MITRE ATT&CK T1003.001, LSASS Memory), evadiendo controles que bloquean herramientas conocidas.",
+      "triage_steps": [
+        "Extraiga el PID objetivo del CommandLine (primer argumento) y resuélvalo con eventos de creación de procesos del host: ¿corresponde a lsass.exe o a sqlservr.exe?",
+        "Revise ParentImage y la línea de comandos del padre: cmd.exe, powershell.exe, wmiprvse.exe o shells remotas son sospechosos; servicios de SQL Server o Windows Error Reporting son esperables.",
+        "Valide la ruta de Image: debe estar bajo Microsoft SQL Server o Microsoft Office. Copias en Temp, ProgramData o perfiles de usuario indican abuso; verifique firma y hash.",
+        "Confirme si el host tiene SQL Server instalado y si existe un ticket o ventana de soporte que justifique el diagnóstico.",
+        "Identifique el usuario y su nivel de privilegios; busque inicios de sesión recientes o anómalos de esa cuenta.",
+        "Busque archivos SQLDmpr*.mdmp u otros .dmp creados en el mismo host +/- 15 minutos y si fueron comprimidos, renombrados o copiados.",
+        "Correlacione en la misma ventana: acceso a lsass, conexiones salientes, transferencias SMB y alertas previas de acceso a credenciales para el host o el usuario."
+      ],
+      "false_positives": [
+        "Acciones legítimas de MSSQL Server: generación automática de dumps ante fallas o excepciones del servicio.",
+        "Soporte de Microsoft o DBA que ejecuta sqldumper.exe manualmente sobre sqlservr.exe durante un caso de diagnóstico documentado."
+      ],
+      "response_steps": [
+        "Si el PID objetivo es lsass.exe o la ejecución no está justificada, aísle el endpoint desde el EDR tras confirmar con el responsable del sistema.",
+        "Preserve y recolecte el archivo de dump y la evidencia forense antes de eliminarlo; determine si salió del host.",
+        "Restablezca las contraseñas de las cuentas con sesión en el host, incluidas cuentas privilegiadas y de servicio; considere invalidar tickets Kerberos.",
+        "Investigue el acceso inicial y el movimiento lateral asociados, y restrinja la ejecución de sqldumper.exe en hosts sin SQL Server."
+      ],
+      "severity_rationale": "Nivel medio porque el binario tiene usos legítimos en servidores SQL, pero escala a crítico si el objetivo es LSASS o el contexto de ejecución es anómalo."
+    },
+    "en": {
+      "summary": "sqldumper.exe ran with dump flags (0x0110 or 0x01100:40), producing a memory dump of a process. This may be legitimate SQL Server diagnostics or credential theft by dumping processes such as lsass.exe.",
+      "what_it_detects": "Process creation where Image ends with \\sqldumper.exe and CommandLine contains '0x0110' (full dump) or '0x01100:40' (minidump). Sqldumper.exe is a Microsoft-signed binary shipped with SQL Server and Office, listed in LOLBAS.",
+      "why_it_matters": "A privileged attacker can use this trusted binary to dump LSASS memory and extract hashes, Kerberos tickets or passwords offline (MITRE ATT&CK T1003.001, LSASS Memory), bypassing controls that block known dumping tools.",
+      "triage_steps": [
+        "Extract the target PID from CommandLine (first argument) and resolve it via the host's process creation events: is it lsass.exe or sqlservr.exe?",
+        "Review ParentImage and its command line: cmd.exe, powershell.exe, wmiprvse.exe or remote shells are suspicious; SQL Server services or Windows Error Reporting are expected.",
+        "Validate the Image path: it should sit under Microsoft SQL Server or Microsoft Office. Copies in Temp, ProgramData or user profiles suggest abuse; check signature and hash.",
+        "Confirm SQL Server is installed on the host and whether a ticket or support window justifies diagnostics.",
+        "Identify the user and their privileges; look for recent or unusual logons by that account.",
+        "Look for SQLDmpr*.mdmp or other .dmp files created on the host within +/- 15 minutes, and whether they were compressed, renamed or copied.",
+        "Correlate in the same window: LSASS access, outbound connections, SMB transfers and earlier credential-access alerts for the host or user."
+      ],
+      "false_positives": [
+        "Legitimate MSSQL Server actions: automatic dumps generated on service crashes or exceptions.",
+        "Microsoft support or a DBA running sqldumper.exe manually against sqlservr.exe during a documented diagnostic case."
+      ],
+      "response_steps": [
+        "If the target PID is lsass.exe or the run is unjustified, isolate the endpoint via EDR after confirming with the system owner.",
+        "Preserve and collect the dump file and forensic evidence before deleting it; determine whether it left the host.",
+        "Reset passwords for accounts with sessions on the host, including privileged and service accounts; consider invalidating Kerberos tickets.",
+        "Investigate related initial access and lateral movement, and restrict sqldumper.exe execution on hosts without SQL Server."
+      ],
+      "severity_rationale": "Medium because the binary has legitimate uses on SQL servers, but it escalates to critical when LSASS is the target or the execution context is anomalous."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Full dump of LSASS (PID 684) using sqldumper.exe launched from PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Microsoft SQL Server\\90\\Shared\\SQLDumper.exe",
+          "CommandLine": "sqldumper.exe 684 0 0x0110",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "Minidump with 0x01100:40 flags from a copied sqldumper.exe in ProgramData",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\tools\\sqldumper.exe",
+          "CommandLine": "C:\\ProgramData\\tools\\sqldumper.exe 712 0 0x01100:40",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\ProgramData\\tools\\sqldumper.exe 712 0 0x01100:40"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "SQL Server diagnostic run of sqldumper.exe with different flags (0x0120) that do not contain the dump values",
+        "event": {
+          "EventID": 1,
+          "Computer": "SQL-PROD-01.andes.example.com",
+          "User": "NT SERVICE\\MSSQLSERVER",
+          "Image": "C:\\Program Files\\Microsoft SQL Server\\150\\Shared\\SqlDumper.exe",
+          "CommandLine": "\"C:\\Program Files\\Microsoft SQL Server\\150\\Shared\\SqlDumper.exe\" 4120 0 0x0120",
+          "ParentImage": "C:\\Program Files\\Microsoft SQL Server\\MSSQL15.MSSQLSERVER\\MSSQL\\Binn\\sqlservr.exe"
+        }
+      },
+      {
+        "description": "procdump.exe with similar arguments; Image is not sqldumper.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Tools\\procdump.exe",
+          "CommandLine": "procdump.exe -ma 4120 0x0110 app.dmp",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

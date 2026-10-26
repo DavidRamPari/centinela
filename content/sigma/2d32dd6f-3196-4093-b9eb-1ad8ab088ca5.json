@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "2d32dd6f-3196-4093-b9eb-1ad8ab088ca5",
+    "title": "Suspicious Response File Execution Via Odbcconf.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_odbcconf_response_file_susp.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_odbcconf_response_file_susp.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.008"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "odbcconf.exe se ejecutó con el parámetro -f (o /f) para cargar un archivo de respuesta que no tiene la extensión .rsp. Es una técnica conocida de abuso de un binario firmado de Microsoft para cargar DLL arbitrarias.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\odbcconf.exe u OriginalFileName es odbcconf.exe, el CommandLine contiene ' -f ' con cualquier variante de guion y no contiene '.rsp'. Se excluye la ejecución legítima desde runonce.exe con odbcconf.tmp.",
+      "why_it_matters": "Un archivo de respuesta de odbcconf puede incluir acciones como REGSVR que cargan una DLL. Así, un atacante ejecuta código mediante un binario firmado de Microsoft y evade controles (ATT&CK T1218.008, ejecución de proxy de binarios del sistema: Odbcconf).",
+      "triage_steps": [
+        "Revise CommandLine e identifique la ruta y la extensión del archivo de respuesta cargado con -f o /f, por ejemplo .txt, .log o .dat en rutas de usuario o temporales.",
+        "Si el archivo todavía existe, obtenga una copia y revise su contenido; busque REGSVR, INSTALLDRIVER o rutas a DLL desconocidas.",
+        "Analice ParentImage y la cadena de procesos padre; resulta sospechoso que el padre sea cmd.exe, powershell.exe, wscript.exe, mshta.exe o un cliente de Office.",
+        "Busque las DLL referenciadas: firma, hash, fecha de creación y reputación. Correlacione los eventos de carga de imagen de odbcconf.exe.",
+        "Pivotee en el mismo host +/- 15 minutos: procesos hijos, conexiones de red salientes, archivos creados y cambios en el registro.",
+        "Verifique al usuario que ejecutó el proceso, si tenía privilegios y si existen alertas previas para el mismo usuario o host."
+      ],
+      "false_positives": [
+        "Poco probable, según la regla. Algún instalador antiguo de drivers ODBC podría usar un archivo de respuesta con otra extensión; valide con el equipo responsable.",
+        "Scripts administrativos internos que configuran DSN con archivos .txt o .ini; confirme que la ruta y el contenido sean conocidos."
+      ],
+      "response_steps": [
+        "Valide el contenido del archivo de respuesta y la DLL; si son maliciosos, aísle el endpoint de la red.",
+        "Preserve como evidencia el archivo de respuesta, las DLL, el hash y la memoria del proceso antes de eliminar cualquier elemento.",
+        "Elimine los artefactos verificados y la persistencia asociada, como claves Run o RunOnce y servicios, y bloquee los hash identificados.",
+        "Restablezca las credenciales del usuario afectado si hubo ejecución confirmada y busque el mismo patrón en otros hosts."
+      ],
+      "severity_rationale": "El nivel high es adecuado: el uso de odbcconf con archivos de respuesta que no son .rsp casi no aparece en entornos legítimos y permite ejecutar código mediante un binario firmado."
+    },
+    "en": {
+      "summary": "odbcconf.exe ran with the -f (or /f) flag to load a response file that lacks the .rsp extension. This is a known way to abuse a signed Microsoft binary to load arbitrary DLLs.",
+      "what_it_detects": "Process creation events where Image ends with \\odbcconf.exe or OriginalFileName is odbcconf.exe, CommandLine contains ' -f ' (any dash variant) and does not contain '.rsp'. The legitimate runonce.exe execution with odbcconf.tmp is excluded.",
+      "why_it_matters": "An odbcconf response file can hold actions such as REGSVR that load a DLL. Attackers use this to run code through a signed Microsoft binary and get past controls (ATT&CK T1218.008, System Binary Proxy Execution: Odbcconf).",
+      "triage_steps": [
+        "Read CommandLine and note the path and extension of the response file passed with -f or /f, such as .txt, .log or .dat in user or temp folders.",
+        "If the file still exists, collect it and review its content for REGSVR, INSTALLDRIVER or paths to unknown DLLs.",
+        "Review ParentImage and the parent chain. Treat cmd.exe, powershell.exe, wscript.exe, mshta.exe or Office clients as suspicious parents.",
+        "Check the referenced DLLs for signature, hash, creation time and reputation. Correlate with image-load events for odbcconf.exe.",
+        "On the same host, check +/- 15 minutes for child processes, outbound connections, file writes and registry changes.",
+        "Confirm which user ran it, whether they had privileges, and whether the same user or host has earlier alerts."
+      ],
+      "false_positives": [
+        "The rule rates false positives as unlikely. A legacy ODBC driver installer might use a response file with another extension, so confirm with the owning team.",
+        "Internal admin scripts may configure DSNs from .txt or .ini files. Confirm that the path and content are known."
+      ],
+      "response_steps": [
+        "Check the response file and DLL. If they are malicious, isolate the endpoint.",
+        "Before deleting anything, keep the response file, DLLs, hashes and process memory as evidence.",
+        "Remove the confirmed artifacts and any related persistence, such as Run/RunOnce keys or services. Block the identified hashes.",
+        "If execution is confirmed, reset the affected user's credentials and hunt for the same pattern on other hosts."
+      ],
+      "severity_rationale": "High fits because legitimate environments almost never run odbcconf with non-.rsp response files, and doing so lets code run through a signed binary."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "odbcconf launched from cmd.exe loading a .txt response file from a public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\odbcconf.exe",
+          "OriginalFileName": "odbcconf.exe",
+          "CommandLine": "odbcconf.exe -f C:\\Users\\Public\\config.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c odbcconf.exe -f C:\\Users\\Public\\config.txt"
+        }
+      },
+      {
+        "description": "32-bit odbcconf using the slash form /f with a .log response file in ProgramData",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\SysWOW64\\odbcconf.exe",
+          "OriginalFileName": "odbcconf.exe",
+          "CommandLine": "\"C:\\Windows\\SysWOW64\\odbcconf.exe\" /f C:\\ProgramData\\update.log",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate odbcconf use with a .rsp response file (excluded by filter_main_rsp_ext)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-DB-01.andes.example.com",
+          "User": "ANDES\\svc_setup",
+          "Image": "C:\\Windows\\System32\\odbcconf.exe",
+          "OriginalFileName": "odbcconf.exe",
+          "CommandLine": "odbcconf.exe -f C:\\Setup\\drivers.rsp",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe"
+        }
+      },
+      {
+        "description": "Legitimate RunOnce-triggered odbcconf run with odbcconf.tmp (excluded by filter_main_runonce_odbc)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\odbcconf.exe",
+          "OriginalFileName": "odbcconf.exe",
+          "CommandLine": "C:\\Windows\\System32\\odbcconf.exe /E /F \"C:\\WINDOWS\\system32\\odbcconf.tmp\"",
+          "ParentImage": "C:\\Windows\\System32\\runonce.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

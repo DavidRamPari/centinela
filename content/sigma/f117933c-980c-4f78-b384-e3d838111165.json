@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "f117933c-980c-4f78-b384-e3d838111165",
+    "title": "Windows Share Mount Via Net.EXE",
+    "level": "low",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_net_use_mount_share.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_net_use_mount_share.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó net.exe o net1.exe con una línea de comandos que contiene ' use ' o una ruta UNC (\\\\host), normalmente para montar o consultar un recurso compartido SMB. Puede ser administración rutinaria o movimiento lateral.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\net.exe o \\net1.exe (o OriginalFileName coincide) y CommandLine contiene ' use ' o ' \\\\'. Cubre 'net use', mapeo de unidades y comandos con rutas UNC como 'net view \\\\host'.",
+      "why_it_matters": "Los atacantes montan recursos compartidos SMB, especialmente C$, ADMIN$ o IPC$, para copiar herramientas, ejecutar código remoto o extraer datos (ATT&CK T1021.002, SMB/Windows Admin Shares). Además, /user: puede exponer credenciales en texto claro.",
+      "triage_steps": [
+        "Revise CommandLine: host destino, recurso (C$, ADMIN$, IPC$ frente a recursos departamentales), parámetro /user: y si incluye una contraseña en texto claro.",
+        "Identifique ParentImage y la cadena de procesos: explorer.exe, GPO o scripts de inicio de sesión son comunes; cmd.exe desde Office, wmiprvse.exe o procesos inusuales son sospechosos.",
+        "Valide el usuario: ¿es administrador o cuenta de servicio con motivo para acceder a ese host? Compare con su historial de alertas anteriores.",
+        "Determine si el host destino es un servidor de archivos conocido o una estación de trabajo; el acceso estación a estación a recursos administrativos es poco habitual.",
+        "Pivote en el mismo host +/- 15 minutos: comandos de reconocimiento (net view, net group, nltest), copy/xcopy hacia el recurso, sc.exe, schtasks o psexec.",
+        "En el host destino, busque inicios de sesión de red (4624 tipo 3), 5140/5145 de acceso al recurso y creación de servicios o archivos en ese intervalo.",
+        "Busque el mismo comando o usuario en otros endpoints para detectar uso masivo o automatizado."
+      ],
+      "false_positives": [
+        "Scripts de inicio de sesión o GPO que mapean unidades de red departamentales.",
+        "Administradores que montan recursos compartidos para soporte, instalación de software o copias de seguridad.",
+        "Herramientas de despliegue o inventario que usan net use con cuentas de servicio."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del host si la conexión era esperada antes de actuar.",
+        "Si es sospechosa, aísle el endpoint de origen y considere desconectar las sesiones SMB activas hacia el destino.",
+        "Restablezca las credenciales usadas en /user: o expuestas en la línea de comandos y revise su uso en otros sistemas.",
+        "Examine el host destino en busca de archivos, servicios o tareas programadas creados y elimínelos tras validarlos.",
+        "Restrinja el acceso a recursos administrativos y documente el hallazgo para ajustar exclusiones legítimas."
+      ],
+      "severity_rationale": "El nivel bajo es adecuado porque net use es muy común en administración legítima, aunque merece revisión cuando se combina con recursos administrativos o actividad anómala."
+    },
+    "en": {
+      "summary": "net.exe or net1.exe ran with a command line containing ' use ' or a UNC path (\\\\host), typically to mount or query an SMB share. This can be routine administration or lateral movement.",
+      "what_it_detects": "Process creation where Image ends with \\net.exe or \\net1.exe (or OriginalFileName matches) and CommandLine contains ' use ' or ' \\\\'. It covers 'net use', drive mapping and UNC commands such as 'net view \\\\host'.",
+      "why_it_matters": "Attackers mount SMB shares, especially C$, ADMIN$ or IPC$, to stage tools, execute remotely or collect data (ATT&CK T1021.002, SMB/Windows Admin Shares). The /user: switch may also expose cleartext credentials.",
+      "triage_steps": [
+        "Read CommandLine: target host, share (C$, ADMIN$, IPC$ versus departmental shares), /user: account and any cleartext password.",
+        "Check ParentImage and the process tree: explorer.exe, GPO or logon scripts are common; cmd.exe from Office, wmiprvse.exe or unusual parents are suspicious.",
+        "Validate the user: admin or service account with a reason to reach that host? Compare with earlier alerts for that user.",
+        "Determine whether the target is a known file server or a workstation; workstation-to-workstation admin share access is unusual.",
+        "Pivot on the same host +/- 15 minutes: recon (net view, net group, nltest), copy/xcopy to the share, sc.exe, schtasks or psexec.",
+        "On the target host, look for network logons (4624 type 3), 5140/5145 share access and new services or files in that window.",
+        "Search for the same command or user on other endpoints to spot widespread or automated use."
+      ],
+      "false_positives": [
+        "Logon scripts or GPOs mapping departmental network drives.",
+        "Administrators mounting shares for support, software installs or backups.",
+        "Deployment or inventory tools using net use with service accounts."
+      ],
+      "response_steps": [
+        "Confirm with the user or host owner whether the connection was expected before acting.",
+        "If suspicious, isolate the source endpoint and consider dropping active SMB sessions to the target.",
+        "Reset credentials used in /user: or exposed on the command line and review their use elsewhere.",
+        "Inspect the target host for created files, services or scheduled tasks and remove them after validation.",
+        "Restrict admin share access and document the finding to tune legitimate exclusions."
+      ],
+      "severity_rationale": "Low fits because net use is very common in legitimate administration, though it deserves review when combined with admin shares or other anomalous activity."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "net.exe mounts the C$ admin share of a workstation with explicit credentials",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net use Z: \\\\WS-0177\\C$ /user:ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c"
+        }
+      },
+      {
+        "description": "net1.exe spawned by net.exe mapping a file server share",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\net1.exe",
+          "OriginalFileName": "net1.exe",
+          "CommandLine": "C:\\Windows\\system32\\net1 use \\\\FS-01\\finanzas /persistent:no",
+          "ParentImage": "C:\\Windows\\System32\\net.exe",
+          "ParentCommandLine": "net use \\\\FS-01\\finanzas /persistent:no"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "net.exe used for a user lookup, no ' use ' token and no UNC path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net user jperez /domain",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Share mapped with PowerShell New-PSDrive; UNC path present but image is not net.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe New-PSDrive -Name Z -PSProvider FileSystem -Root \\\\FS-01\\finanzas",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "91a2c315-9ee6-4052-a853-6f6a8238f90d",
+    "title": "Findstr GPP Passwords",
+    "level": "high",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_findstr_gpp_passwords.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_findstr_gpp_passwords.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1552.006"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó find.exe o findstr.exe buscando la cadena \"cpassword\" en archivos XML dentro de SYSVOL. Esto suele indicar una búsqueda de contraseñas almacenadas en Group Policy Preferences (GPP).",
+      "what_it_detects": "Creación de un proceso cuyo Image termina en \\find.exe o \\findstr.exe, o cuyo OriginalFileName es FIND.EXE o FINDSTR.EXE, incluso si el binario fue renombrado. El CommandLine debe contener a la vez 'cpassword', '\\sysvol\\' y '.xml'.",
+      "why_it_matters": "Los archivos XML de GPP (Groups.xml, Services.xml, ScheduledTasks.xml y otros) pueden guardar un atributo cpassword cifrado con una clave AES que Microsoft publicó. Herramientas como gpp-decrypt lo descifran al instante. Cualquier usuario del dominio puede leer SYSVOL, así que se trata de acceso a credenciales sin privilegios (ATT&CK T1552.006, Group Policy Preferences).",
+      "triage_steps": [
+        "Revise el CommandLine completo: la ruta de SYSVOL, el uso de /S (recursivo) y si la salida se redirige a un archivo.",
+        "Identifique el usuario y el host. Confirme si es un administrador conocido trabajando desde un equipo de gestión o una cuenta estándar desde una estación de trabajo.",
+        "Analice el ParentImage y la cadena de procesos. Un cmd.exe o powershell.exe lanzado por Office, wscript, rundll32 o un binario desconocido es una señal de alerta.",
+        "Si Image no coincide con OriginalFileName, el binario fue renombrado: obtenga su hash y su ruta.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, actividad de reconocimiento como net group, nltest, whoami /groups, Get-GPPPassword o gpp-decrypt.",
+        "En el DC, revise los eventos 5145 para ver lecturas de archivos XML en SYSVOL desde esa IP de origen.",
+        "Verifique si SYSVOL contiene hoy valores cpassword y qué cuentas exponen. Después busque inicios de sesión recientes con esas cuentas.",
+        "Consulte alertas previas del mismo usuario y del mismo host."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Auditorías de seguridad o pruebas de penetración autorizadas que buscan contraseñas GPP heredadas.",
+        "Administradores que localizan preferencias antiguas con cpassword para eliminarlas. Confirme el ticket de cambio."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o su responsable si hay una auditoría o tarea autorizada que lo justifique.",
+        "Si no está autorizada, aísle el endpoint y deshabilite o restablezca la cuenta implicada.",
+        "Elimine de SYSVOL las preferencias que contienen cpassword y valide la replicación.",
+        "Rote las contraseñas de todas las cuentas que hayan aparecido en cpassword. Considérelas comprometidas.",
+        "Busque el uso de esas cuentas en todo el entorno y documente el alcance del incidente."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque la búsqueda combina un término específico de credenciales GPP con SYSVOL y casi nunca forma parte de la operación normal."
+    },
+    "en": {
+      "summary": "find.exe or findstr.exe searched XML files under SYSVOL for the string \"cpassword\". This usually means someone is hunting for passwords stored in Group Policy Preferences (GPP).",
+      "what_it_detects": "A process whose Image ends in \\find.exe or \\findstr.exe, or whose OriginalFileName is FIND.EXE or FINDSTR.EXE (this catches renamed copies). Its CommandLine must contain 'cpassword', '\\sysvol\\' and '.xml'.",
+      "why_it_matters": "GPP XML files (Groups.xml, Services.xml, ScheduledTasks.xml and others) can hold a cpassword attribute encrypted with an AES key that Microsoft published. Tools such as gpp-decrypt reverse it instantly. Any domain user can read SYSVOL, so this is unprivileged credential access (ATT&CK T1552.006, Group Policy Preferences).",
+      "triage_steps": [
+        "Read the full CommandLine: the SYSVOL path, whether /S (recursive) is used, and whether output is redirected to a file.",
+        "Identify the user and host. Is this a known admin on a management host, or a standard account on a workstation?",
+        "Inspect ParentImage and the process tree. A cmd.exe or powershell.exe spawned by Office, wscript, rundll32 or an unknown binary is a red flag.",
+        "If Image does not match OriginalFileName, the binary was renamed. Collect its hash and path.",
+        "On the same host within +/- 15 minutes, look for discovery activity such as net group, nltest, whoami /groups, Get-GPPPassword or gpp-decrypt.",
+        "On the DC, check 5145 events for SYSVOL XML reads from this source IP.",
+        "Check whether SYSVOL still holds cpassword values and which accounts they expose. Then hunt for recent logons by those accounts.",
+        "Review earlier alerts for the same user and host."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Authorized security audits or penetration tests that look for legacy GPP passwords.",
+        "Administrators finding old cpassword preferences so they can remove them. Confirm a change ticket."
+      ],
+      "response_steps": [
+        "Ask the user or their manager whether an authorized audit or task explains the search.",
+        "If it is not authorized, isolate the endpoint and disable or reset the account involved.",
+        "Remove preferences containing cpassword from SYSVOL and confirm replication.",
+        "Rotate the passwords of every account found in a cpassword value. Treat them as compromised.",
+        "Hunt for use of those accounts across the environment and document the scope."
+      ],
+      "severity_rationale": "High fits because this search pairs a GPP-specific credential term with SYSVOL and is rarely part of normal operations."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Atomic Red Team style recursive findstr for cpassword in SYSVOL XML files",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "OriginalFileName": "FINDSTR.EXE",
+          "CommandLine": "findstr /S cpassword %logonserver%\\sysvol\\*.xml",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\cmd.exe\"",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "Renamed findstr copy (OriginalFileName FINDSTR.EXE) searching the DC SYSVOL share",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\fs.exe",
+          "OriginalFileName": "FINDSTR.EXE",
+          "CommandLine": "fs.exe /S /I cpassword \\\\dc01.andes.example.com\\SYSVOL\\andes.example.com\\Policies\\*.xml",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin uses findstr on SYSVOL XML for drive mapping settings; no cpassword in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "OriginalFileName": "FINDSTR.EXE",
+          "CommandLine": "findstr /S /I DriveLetter \\\\dc01.andes.example.com\\sysvol\\andes.example.com\\Policies\\*.xml",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "PowerShell Select-String searches for cpassword; the process is not find or findstr",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -c \"Get-ChildItem \\\\dc01\\sysvol\\ -Recurse -Filter *.xml | Select-String cpassword\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

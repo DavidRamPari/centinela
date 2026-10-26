@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "5a6e1e16-07de-48d8-8aae-faa766c05e88",
+    "title": "Potential Cookies Session Hijacking",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_curl_cookie_hijacking.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_curl_cookie_hijacking.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó curl.exe con la opción -c o --cookie-jar, que guarda en un archivo local las cookies recibidas del servidor. Puede ser uso administrativo normal o el intento de capturar cookies de sesión para reutilizarlas.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\curl.exe u OriginalFileName es curl.exe, y CommandLine contiene ' -c ' (regex sensible a mayúsculas, con espacios a ambos lados) o '--cookie-jar'.",
+      "why_it_matters": "La regla está etiquetada como Execution en ATT&CK. Guardar cookies con curl puede servir para capturar tokens de sesión y reutilizarlos, lo que permite suplantar al usuario sin contraseña ni MFA (relacionado con robo de cookies de sesión web, T1539).",
+      "triage_steps": [
+        "Revise CommandLine completo: URL de destino, nombre y ruta del archivo de cookies, y opciones adicionales como -b, -d, -u o encabezados de autorización.",
+        "Determine si el dominio de la URL es interno, un SaaS corporativo conocido o un dominio externo poco común o recién registrado.",
+        "Analice ParentImage y la cadena de procesos: cmd.exe o powershell.exe lanzados desde Office, navegador, wscript o tareas programadas son sospechosos.",
+        "Valide el User y el host: ¿es un administrador, desarrollador o cuenta de servicio que usa curl habitualmente?",
+        "Busque en el mismo host, +/- 15 minutos, otros procesos curl que reutilicen el archivo de cookies con -b, o que suban datos a destinos externos.",
+        "Revise si el archivo de cookies sigue en disco y su contenido: nombres de cookies de sesión, dominios afectados y fecha de creación.",
+        "Busque alertas previas del mismo usuario, host o dominio de destino, y conexiones de red de curl.exe en ese periodo."
+      ],
+      "false_positives": [
+        "Scripts de administradores o desarrolladores que prueban APIs o aplicaciones web y guardan cookies de sesión para pruebas.",
+        "Herramientas de monitoreo, healthchecks o automatizaciones de CI/CD que inician sesión en servicios internos con curl.",
+        "Instaladores o scripts de soporte de proveedores que usan curl con cookie jar para descargas autenticadas."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del script si la ejecución era esperada y para qué servicio.",
+        "Si no está justificada, aísle el endpoint y preserve el archivo de cookies, el script de origen y la línea de comandos como evidencia.",
+        "Invalide las sesiones de los servicios afectados y fuerce un nuevo inicio de sesión y la rotación de credenciales del usuario.",
+        "Revise los logs del servicio web afectado para detectar reutilización de la sesión desde IPs o user agents no habituales.",
+        "Elimine la persistencia o los scripts maliciosos encontrados y documente indicadores para nuevas búsquedas."
+      ],
+      "severity_rationale": "Nivel medio: curl con cookie jar tiene usos legítimos frecuentes, pero puede habilitar el secuestro de sesiones, así que requiere revisión del contexto."
+    },
+    "en": {
+      "summary": "curl.exe was run with -c or --cookie-jar, which writes cookies received from a server to a local file. This may be routine scripting or an attempt to capture session cookies for reuse.",
+      "what_it_detects": "Process creation where Image ends with \\curl.exe or OriginalFileName is curl.exe, and CommandLine matches ' -c ' (case-sensitive regex, whitespace on both sides) or contains '--cookie-jar'.",
+      "why_it_matters": "The rule is tagged ATT&CK Execution. Saving cookies with curl can capture session tokens that let an attacker impersonate a user without password or MFA (related to Steal Web Session Cookie, T1539).",
+      "triage_steps": [
+        "Read the full CommandLine: target URL, cookie file path and name, and extra options such as -b, -d, -u or authorization headers.",
+        "Decide whether the URL domain is internal, a known corporate SaaS, or an unusual or newly registered external domain.",
+        "Inspect ParentImage and the process tree: cmd.exe or powershell.exe spawned by Office, a browser, wscript or a scheduled task is suspicious.",
+        "Validate the User and host: is this an admin, developer or service account that normally runs curl?",
+        "On the same host within +/- 15 minutes, look for curl reusing the cookie file with -b or uploading data externally.",
+        "Check whether the cookie file still exists and what it holds: session cookie names, domains and creation time.",
+        "Search earlier alerts for the same user, host or destination domain, and curl.exe network connections in that window."
+      ],
+      "false_positives": [
+        "Admin or developer scripts testing APIs or web apps that store session cookies for testing.",
+        "Monitoring, health checks or CI/CD automation logging in to internal services with curl.",
+        "Vendor installers or support scripts using a cookie jar for authenticated downloads."
+      ],
+      "response_steps": [
+        "Confirm with the user or script owner whether the run was expected and which service it targeted.",
+        "If unjustified, isolate the endpoint and preserve the cookie file, source script and command line as evidence.",
+        "Revoke sessions for the affected services, force re-authentication and rotate the user's credentials.",
+        "Review the web service logs for session reuse from unusual IPs or user agents.",
+        "Remove malicious scripts or persistence found and record indicators for follow-up hunting."
+      ],
+      "severity_rationale": "Medium: curl with a cookie jar has frequent legitimate uses, but it can enable session hijacking, so context review is required."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "curl.exe launched from PowerShell saving cookies to a temp file with -c",
+        "event": {
+          "Image": "C:\\Windows\\System32\\curl.exe",
+          "OriginalFileName": "curl.exe",
+          "CommandLine": "curl.exe -s -c C:\\Users\\jperez\\AppData\\Local\\Temp\\ck.txt https://portal.example.com/login",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142",
+          "EventID": 1
+        }
+      },
+      {
+        "description": "Renamed curl identified by OriginalFileName using --cookie-jar",
+        "event": {
+          "Image": "C:\\ProgramData\\upd\\svc.exe",
+          "OriginalFileName": "curl.exe",
+          "CommandLine": "svc.exe --cookie-jar C:\\ProgramData\\upd\\s.dat -d user=jperez https://app.example.org/auth",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142",
+          "EventID": 1
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "curl.exe resuming a download with uppercase -C, which the case-sensitive regex does not match",
+        "event": {
+          "Image": "C:\\Windows\\System32\\curl.exe",
+          "OriginalFileName": "curl.exe",
+          "CommandLine": "curl.exe -C - -O https://downloads.example.com/tools/setup.zip",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\mrodriguez",
+          "Computer": "WS-0207",
+          "EventID": 1
+        }
+      },
+      {
+        "description": "curl.exe sending an existing cookie with -b only, no cookie jar written",
+        "event": {
+          "Image": "C:\\Windows\\System32\\curl.exe",
+          "OriginalFileName": "curl.exe",
+          "CommandLine": "curl.exe -b \"session=abc123\" https://intranet.example.com/api/status",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\svc_monitor",
+          "Computer": "SRV-MON-01",
+          "EventID": 1
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "0c92f2e6-f08f-4b73-9216-ecb0ca634689",
+    "title": "PUA - Potential PE Metadata Tamper Using Rcedit",
+    "level": "medium",
+    "status": "test",
+    "author": "Micah Babinski",
+    "path": "windows/process_creation/proc_creation_win_pua_rcedit_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_pua_rcedit_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1027",
+      "T1027.005",
+      "T1036",
+      "T1036.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó rcedit con una opción --set- para cambiar campos de metadatos de versión de un ejecutable PE, como OriginalFileName, CompanyName o ProductName. Esto puede servir para que un binario renombrado o malicioso parezca una utilidad legítima.",
+      "what_it_detects": "Creación de procesos de rcedit, identificado por Image (rcedit-x64.exe o rcedit-x86.exe), Description 'Edit resources of exe' o Product 'rcedit'. El CommandLine debe incluir '--set-' y alguno de estos atributos: OriginalFileName, CompanyName, FileDescription, ProductName, ProductVersion o LegalCopyright.",
+      "why_it_matters": "Al cambiar los metadatos PE, un atacante puede hacer pasar una herramienta como un binario de Windows o de un proveedor confiable. Así evade controles basados en OriginalFileName (T1036.003, renombrar utilidades del sistema) o borra indicadores de la herramienta (T1027.005).",
+      "triage_steps": [
+        "Revise Image, Description y Product: ¿rcedit se ejecuta desde Downloads, Temp o AppData, o con otro nombre que el de rcedit-x64.exe/rcedit-x86.exe?",
+        "Identifique en CommandLine el archivo objetivo y los valores asignados. Sospeche si imitan a Microsoft u otro proveedor, por ejemplo OriginalFileName 'notepad.exe' o CompanyName 'Microsoft Corporation'.",
+        "Analice ParentImage y el usuario: node.exe o npm dentro de un pipeline de Electron es habitual. En cambio, cmd.exe, powershell.exe o un proceso de Office es anómalo.",
+        "Obtenga el hash del archivo modificado y búsquelo en su inventario y en fuentes de reputación. Compare su firma digital con el proveedor que dice ser.",
+        "Busque en el mismo host, +/- 15 minutos, la creación o descarga del binario objetivo y su ejecución posterior, con sus procesos hijos y conexiones de red.",
+        "Revise alertas previas del mismo usuario y host, y otras ejecuciones de rcedit en el entorno, para saber si se trata de una práctica habitual."
+      ],
+      "false_positives": [
+        "Desarrolladores o pipelines de build (electron-packager, electron-builder) que establecen el nombre del producto, la versión y el copyright de su propia aplicación.",
+        "Administradores o empaquetadores de software que actualizan los metadatos de binarios internos antes de distribuirlos."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de desarrollo si la modificación estaba prevista y corresponde a un proyecto conocido.",
+        "Si no está justificada, aísle el endpoint y ponga en cuarentena el binario modificado después de preservar una copia y su hash.",
+        "Busque el hash y los valores de metadatos falsificados en otros hosts. Bloquee el binario con su EDR o con las políticas de control de aplicaciones.",
+        "Investigue cómo llegó rcedit al equipo, elimine los artefactos maliciosos y restablezca las credenciales del usuario si hay indicios de compromiso."
+      ],
+      "severity_rationale": "La severidad es media porque rcedit tiene usos legítimos de desarrollo frecuentes, pero alterar metadatos de identidad PE es una técnica de evasión clara que se debe verificar."
+    },
+    "en": {
+      "summary": "rcedit was run with a --set- option to change version metadata fields of a PE executable, such as OriginalFileName, CompanyName or ProductName. This can make a renamed or malicious binary look like a legitimate utility.",
+      "what_it_detects": "Process creation of rcedit, identified by Image (rcedit-x64.exe or rcedit-x86.exe), Description 'Edit resources of exe' or Product 'rcedit'. The CommandLine must contain '--set-' and one of OriginalFileName, CompanyName, FileDescription, ProductName, ProductVersion or LegalCopyright.",
+      "why_it_matters": "Changing PE metadata lets an attacker pass a tool off as a Windows or trusted vendor binary. This evades controls based on OriginalFileName (T1036.003, rename system utilities) or strips tool indicators (T1027.005).",
+      "triage_steps": [
+        "Check Image, Description and Product: is rcedit running from Downloads, Temp or AppData, or under a name other than rcedit-x64.exe/rcedit-x86.exe?",
+        "In CommandLine, find the target file and the values being set. Be suspicious if they mimic Microsoft or another vendor, e.g. OriginalFileName 'notepad.exe' or CompanyName 'Microsoft Corporation'.",
+        "Review ParentImage and the user: node.exe or npm in an Electron build pipeline is normal. cmd.exe, powershell.exe or an Office process is unusual.",
+        "Hash the modified file and check it against your inventory and reputation sources. Compare its digital signature with the vendor it claims to be.",
+        "On the same host, +/- 15 minutes, look for the target binary being created or downloaded and run afterwards, including its child processes and network connections.",
+        "Review earlier alerts for the same user and host, and other rcedit runs across the environment, to see whether this is routine."
+      ],
+      "false_positives": [
+        "Developers or build pipelines (electron-packager, electron-builder) setting the product name, version and copyright of their own application.",
+        "Administrators or software packagers updating metadata on internal binaries before distribution."
+      ],
+      "response_steps": [
+        "Ask the user or development team whether the change was planned and belongs to a known project.",
+        "If it is not justified, isolate the endpoint and quarantine the modified binary after you save a copy and its hash.",
+        "Search other hosts for the hash and the forged metadata values. Block the binary with your EDR or application control policies.",
+        "Find out how rcedit reached the host, remove malicious artifacts and reset the user's credentials if there are signs of compromise."
+      ],
+      "severity_rationale": "Medium fits because rcedit is often used legitimately in development, but changing PE identity metadata is a clear evasion technique that needs to be checked."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "rcedit-x64.exe launched from Downloads by PowerShell sets OriginalFileName and CompanyName to imitate a Microsoft binary.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\Downloads\\rcedit-x64.exe",
+          "Description": "Edit resources of exe",
+          "Product": "rcedit",
+          "CommandLine": "\"C:\\Users\\jperez\\Downloads\\rcedit-x64.exe\" \"C:\\Users\\jperez\\AppData\\Local\\Temp\\svch.exe\" --set-version-string \"OriginalFileName\" \"notepad.exe\" --set-version-string \"CompanyName\" \"Microsoft Corporation\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile -ExecutionPolicy Bypass"
+        }
+      },
+      {
+        "description": "Renamed rcedit (helper.exe) still matches through Product 'rcedit' and sets FileDescription.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\Tools\\helper.exe",
+          "Description": "Edit resources of exe",
+          "Product": "rcedit",
+          "CommandLine": "C:\\ProgramData\\Tools\\helper.exe C:\\ProgramData\\Tools\\agent.exe --set-version-string FileDescription \"Windows Host Process\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\ProgramData\\Tools\\run.bat"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Electron build step uses rcedit only to set the application icon; no metadata attribute appears in CommandLine.",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-01.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\build\\app\\node_modules\\rcedit\\bin\\rcedit-x64.exe",
+          "Description": "Edit resources of exe",
+          "Product": "rcedit",
+          "CommandLine": "\"C:\\build\\app\\node_modules\\rcedit\\bin\\rcedit-x64.exe\" \"C:\\build\\app\\dist\\App.exe\" --set-icon \"C:\\build\\app\\assets\\app.ico\"",
+          "ParentImage": "C:\\Program Files\\nodejs\\node.exe"
+        }
+      },
+      {
+        "description": "rcedit only reads a version string with --get-version-string, so the '--set-' flag is absent.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Tools\\rcedit-x86.exe",
+          "Description": "Edit resources of exe",
+          "Product": "rcedit",
+          "CommandLine": "C:\\Tools\\rcedit-x86.exe C:\\Tools\\report.exe --get-version-string ProductVersion",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

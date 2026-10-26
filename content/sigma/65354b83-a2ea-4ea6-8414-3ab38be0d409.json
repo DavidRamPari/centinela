@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "65354b83-a2ea-4ea6-8414-3ab38be0d409",
+    "title": "Cross Site Scripting Strings",
+    "level": "high",
+    "status": "test",
+    "author": "Saw Win Naung, Nasreddine Bencherchali",
+    "path": "web/webserver_generic/web_xss_in_access_logs.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/web/webserver_generic/web_xss_in_access_logs.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1189"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un servidor web registró una petición GET cuya URL contiene cadenas típicas de Cross Site Scripting (XSS) y que no terminó en 404. Puede ser un escaneo, una prueba manual o un enlace malicioso entregado a una víctima.",
+      "what_it_detects": "Peticiones GET en logs de acceso web con marcadores de XSS en texto plano o codificados en URL, como =<script>, <iframe, <svg, onerror=, onmouseover=, document.cookie, document.domain o javascript:alert. Excluye las respuestas con sc-status 404.",
+      "why_it_matters": "Un XSS reflejado o almacenado permite ejecutar JavaScript en el navegador de los usuarios del sitio, robar cookies de sesión o redirigirlos a contenido malicioso. Se relaciona con ATT&CK T1189 (Drive-by Compromise), un vector de acceso inicial.",
+      "triage_steps": [
+        "Decodifica cs-uri-query (URL decode, a veces doble) e identifica qué parámetro lleva el payload y qué cadena disparó la regla.",
+        "Revisa sc-status: un 200 o 3xx indica que la aplicación procesó la petición; confirma si la respuesta devuelve el payload sin escapar.",
+        "Revisa el cs-user-agent y la IP de origen (c-ip): ¿coinciden con un escáner interno autorizado o con herramientas como sqlmap, Burp o nuclei?",
+        "Busca otras peticiones de la misma IP de origen en +/- 15 minutos: volumen, rutas probadas y otras alertas web (SQLi, traversal).",
+        "Comprueba si otros usuarios o IP distintas solicitaron la misma URL con payload, señal de un enlace de phishing distribuido.",
+        "Si el parámetro persiste datos (comentarios, perfiles), busca el payload en peticiones posteriores para descartar un XSS almacenado.",
+        "Consulta alertas previas sobre el mismo host web y la misma IP de origen en los últimos 30 días."
+      ],
+      "false_positives": [
+        "Usuarios que escriben fragmentos de HTML o JavaScript en cajas de búsqueda del sitio.",
+        "Escáneres de vulnerabilidades internos o pruebas de penetración autorizadas; documenta sus IP y user agents para filtrarlos.",
+        "Peticiones de archivos JavaScript, CSS o PNG cuyos parámetros contienen cadenas parecidas a los marcadores."
+      ],
+      "response_steps": [
+        "Verifica con el equipo de la aplicación si el parámetro afectado refleja la entrada sin codificar; reproduce solo en un entorno de pruebas.",
+        "Si hay actividad hostil confirmada, bloquea la IP de origen en el WAF o balanceador y agrega una regla temporal para el parámetro.",
+        "Si hubo víctimas que abrieron la URL, invalida sus sesiones y fuerza el cambio de credenciales.",
+        "Corrige la causa raíz: codificación de salida, validación de entrada y Content-Security-Policy; elimina contenido almacenado malicioso tras verificarlo.",
+        "Ajusta la regla con exclusiones para escáneres autorizados y documenta el caso."
+      ],
+      "severity_rationale": "Es alta porque una petición no rechazada con payload XSS indica intento activo contra la aplicación con posible robo de sesiones, aunque muchas alertas son escaneos sin éxito."
+    },
+    "en": {
+      "summary": "A web server logged a GET request whose URL contains typical Cross Site Scripting (XSS) strings and did not return 404. It may be a scan, manual probing or a malicious link sent to a victim.",
+      "what_it_detects": "GET requests in web access logs with plain or URL-encoded XSS markers such as =<script>, <iframe, <svg, onerror=, onmouseover=, document.cookie, document.domain or javascript:alert. Responses with sc-status 404 are excluded.",
+      "why_it_matters": "Reflected or stored XSS runs attacker JavaScript in site users' browsers, enabling session cookie theft or redirection to malicious content. It maps to ATT&CK T1189 (Drive-by Compromise), an initial access vector.",
+      "triage_steps": [
+        "URL-decode cs-uri-query (sometimes twice) and identify the parameter carrying the payload and the string that triggered the rule.",
+        "Check sc-status: 200 or 3xx means the application processed the request; confirm whether the response reflects the payload unescaped.",
+        "Review cs-user-agent and source IP (c-ip): do they match an authorized internal scanner or tools such as sqlmap, Burp or nuclei?",
+        "Pull other requests from the same source IP within +/- 15 minutes: volume, paths probed and other web alerts (SQLi, traversal).",
+        "Check whether other users or IPs requested the same payload URL, which suggests a distributed phishing link.",
+        "If the parameter stores data (comments, profiles), search later requests for the payload to rule out stored XSS.",
+        "Look for earlier alerts on the same web host and source IP over the last 30 days."
+      ],
+      "false_positives": [
+        "Users typing HTML or JavaScript snippets into the site's search boxes.",
+        "Internal vulnerability scanners or authorized penetration tests; record their IPs and user agents for filtering.",
+        "Requests for JavaScript, CSS or PNG files whose parameters contain strings resembling the markers."
+      ],
+      "response_steps": [
+        "Confirm with the application team whether the parameter reflects input unencoded; reproduce only in a test environment.",
+        "If hostile activity is confirmed, block the source IP at the WAF or load balancer and add a temporary rule for the parameter.",
+        "If victims opened the URL, invalidate their sessions and force credential resets.",
+        "Fix the root cause: output encoding, input validation and Content-Security-Policy; remove verified malicious stored content.",
+        "Tune the rule with exclusions for authorized scanners and document the case."
+      ],
+      "severity_rationale": "High because a non-rejected request carrying an XSS payload shows active targeting with possible session theft, though many hits are unsuccessful scans."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Reflected XSS probe in a search parameter, URL-encoded script tag with document.domain, server answered 200.",
+        "event": {
+          "cs-method": "GET",
+          "sc-status": 200,
+          "c-ip": "203.0.113.45",
+          "cs-host": "shop.example.com",
+          "cs-uri-stem": "/search",
+          "cs-uri-query": "q=%3Cscript%3Ealert(document.domain)%3C/script%3E",
+          "cs-user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+          "message": "203.0.113.45 - - [15/Oct/2024:14:03:12 +0000] \"GET /search?q=%3Cscript%3Ealert(document.domain)%3C/script%3E HTTP/1.1\" 200 5123 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36\""
+        }
+      },
+      {
+        "description": "javascript:alert injected in a login redirect parameter, server answered 302.",
+        "event": {
+          "cs-method": "GET",
+          "sc-status": 302,
+          "c-ip": "198.51.100.23",
+          "cs-host": "portal.example.com",
+          "cs-uri-stem": "/login",
+          "cs-uri-query": "next=javascript%3Aalert(1)",
+          "cs-user-agent": "Mozilla/5.0 (X11; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0",
+          "message": "198.51.100.23 - - [15/Oct/2024:14:07:40 +0000] \"GET /login?next=javascript%3Aalert(1) HTTP/1.1\" 302 0 \"-\" \"Mozilla/5.0 (X11; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Same XSS probe against a non-existent path; excluded by the sc-status 404 filter.",
+        "event": {
+          "cs-method": "GET",
+          "sc-status": 404,
+          "c-ip": "203.0.113.45",
+          "cs-host": "shop.example.com",
+          "cs-uri-stem": "/old-search",
+          "cs-uri-query": "q=%3Cscript%3Ealert(document.domain)%3C/script%3E",
+          "cs-user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+          "message": "203.0.113.45 - - [15/Oct/2024:14:03:15 +0000] \"GET /old-search?q=%3Cscript%3Ealert(document.domain)%3C/script%3E HTTP/1.1\" 404 196 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36\""
+        }
+      },
+      {
+        "description": "Legitimate search for SVG icons; mentions svg and javascript but no XSS marker appears.",
+        "event": {
+          "cs-method": "GET",
+          "sc-status": 200,
+          "c-ip": "192.0.2.77",
+          "cs-host": "shop.example.com",
+          "cs-uri-stem": "/search",
+          "cs-uri-query": "q=svg+icons+javascript+tutorial",
+          "cs-user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+          "message": "192.0.2.77 - - [15/Oct/2024:14:10:02 +0000] \"GET /search?q=svg+icons+javascript+tutorial HTTP/1.1\" 200 8841 \"https://shop.example.com/\" \"Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

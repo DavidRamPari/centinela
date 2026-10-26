@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "c7746f1c-47d3-43d6-8c45-cd1e54b6b0a2",
+    "title": "Kernel Memory Dump Via LiveKD",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_sysinternals_livekd_kernel_memory_dump.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sysinternals_livekd_kernel_memory_dump.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó LiveKD de Sysinternals con la opción -m, que puede generar un volcado de la memoria del kernel de un sistema en ejecución. Puede contener secretos y servir para analizar el sistema o evadir defensas.",
+      "what_it_detects": "Creación de un proceso cuyo Image termina en \\livekd.exe o \\livekd64.exe, o cuyo OriginalFileName es livekd.exe (así se detectan copias renombradas), con ' -m' o '/m' en CommandLine. Esa opción genera un volcado de memoria espejo o en vivo.",
+      "why_it_matters": "Un volcado de memoria del kernel puede exponer credenciales, tokens, claves y el estado de los controles de seguridad. LiveKD es una herramienta legítima firmada por Microsoft, así que un atacante puede usarla sin llamar la atención. La regla la clasifica en la táctica de ATT&CK de evasión de defensas (stealth).",
+      "triage_steps": [
+        "Revise CommandLine completo: la opción -m o -ml, la ruta de salida (-o) y el destino del archivo .dmp.",
+        "Compare Image con OriginalFileName. Si el binario está renombrado o en rutas como Temp, Public o Downloads, la sospecha aumenta.",
+        "Identifique al usuario y ParentImage. Confirme si existe un ticket de soporte o un caso de análisis de fallos que justifique la ejecución.",
+        "Revise los procesos hijo y la creación de archivos .dmp en el mismo host +/- 15 minutos, y verifique su tamaño y ubicación.",
+        "Busque compresión, copia a recursos compartidos o conexiones salientes poco después del volcado, que indicarían exfiltración.",
+        "Revise cómo llegó LiveKD al host (descarga, copia SMB) y el hash del binario.",
+        "Busque alertas previas del mismo usuario o host: volcado de LSASS, herramientas de credenciales o movimiento lateral."
+      ],
+      "false_positives": [
+        "Ingenieros de soporte o de Microsoft que generan volcados del kernel para diagnosticar cuelgues sin provocar una pantalla azul.",
+        "Procedimientos de soporte de proveedores de software de respaldo u otros que piden un volcado de memoria completo con LiveKD."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y su responsable si la ejecución estaba autorizada y documentada.",
+        "Si no estaba autorizada, aísle el endpoint y conserve el archivo .dmp como evidencia antes de eliminarlo.",
+        "Restablezca las credenciales de las cuentas con sesión activa en el host y revise su uso posterior en otros sistemas.",
+        "Elimine el binario no autorizado y considere restringir las herramientas Sysinternals con AppLocker o WDAC."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque volcar la memoria del kernel es poco común en producción y puede exponer credenciales de todo el sistema."
+    },
+    "en": {
+      "summary": "Sysinternals LiveKD ran with the -m option, which can produce a kernel memory dump of a live system. The dump may contain secrets and can be used for analysis or defense evasion.",
+      "what_it_detects": "A process whose Image ends with \\livekd.exe or \\livekd64.exe, or whose OriginalFileName is livekd.exe (which catches renamed copies), with ' -m' or '/m' in CommandLine. That option creates a mirror or live memory dump.",
+      "why_it_matters": "A kernel memory dump can expose credentials, tokens, keys and the state of security controls. LiveKD is a legitimate, Microsoft-signed tool, so attackers can use it without drawing attention. The rule maps it to the ATT&CK defense evasion (stealth) tactic.",
+      "triage_steps": [
+        "Review the full CommandLine: the -m or -ml option, the output path (-o) and where the .dmp file goes.",
+        "Compare Image with OriginalFileName. A renamed binary, or one in Temp, Public or Downloads, raises suspicion.",
+        "Identify the user and ParentImage. Check whether a support ticket or crash-analysis case explains the run.",
+        "Check for child processes and new .dmp files on the same host within +/- 15 minutes, and note their size and location.",
+        "Look for compression, copies to shares or outbound connections soon after the dump, which would suggest exfiltration.",
+        "Find out how LiveKD reached the host (download, SMB copy) and check the binary hash.",
+        "Search for earlier alerts on the same user or host, such as LSASS dumping, credential tools or lateral movement."
+      ],
+      "false_positives": [
+        "Support or Microsoft engineers collecting kernel dumps to diagnose hangs without forcing a blue screen.",
+        "Vendor support procedures, for example from backup software vendors, that ask for a complete memory dump with LiveKD."
+      ],
+      "response_steps": [
+        "Confirm with the user and their manager that the run was authorized and documented.",
+        "If it was not authorized, isolate the endpoint and keep the .dmp file as evidence before you delete it.",
+        "Reset credentials for accounts with active sessions on the host and check their later use on other systems.",
+        "Remove the unauthorized binary and consider restricting Sysinternals tools with AppLocker or WDAC."
+      ],
+      "severity_rationale": "High fits because kernel memory dumping is rare in production and can expose credentials for the whole system."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "LiveKD64 run from a temp folder to create a kernel memory dump with -m",
+        "event": {
+          "Image": "C:\\Users\\Public\\Tools\\livekd64.exe",
+          "OriginalFileName": "livekd.exe",
+          "CommandLine": "livekd64.exe -m -o C:\\Users\\Public\\Tools\\kernel.dmp",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.andes.example.com",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed LiveKD found by OriginalFileName, using the slash form /ml for a live dump",
+        "event": {
+          "Image": "C:\\Windows\\Temp\\svcdiag.exe",
+          "OriginalFileName": "livekd.exe",
+          "CommandLine": "C:\\Windows\\Temp\\svcdiag.exe /ml -o C:\\Windows\\Temp\\mem.dmp",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\svc_backup",
+          "Computer": "SRV-FS01.andes.example.com",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "LiveKD used interactively with WinDbg and no dump option",
+        "event": {
+          "Image": "C:\\Tools\\Sysinternals\\livekd64.exe",
+          "OriginalFileName": "livekd.exe",
+          "CommandLine": "livekd64.exe -w -k C:\\Debuggers\\windbg.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "User": "ANDES\\mrodriguez",
+          "Computer": "WS-0207.andes.example.com",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "A different binary (7-Zip) whose command line contains ' -m' but is not LiveKD",
+        "event": {
+          "Image": "C:\\Program Files\\7-Zip\\7z.exe",
+          "OriginalFileName": "7z.exe",
+          "CommandLine": "\"C:\\Program Files\\7-Zip\\7z.exe\" a -mx9 C:\\Backups\\reports.7z C:\\Reports",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.andes.example.com",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

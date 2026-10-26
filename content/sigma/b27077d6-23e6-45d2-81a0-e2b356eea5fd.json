@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "b27077d6-23e6-45d2-81a0-e2b356eea5fd",
+    "title": "Use of TTDInject.exe",
+    "level": "medium",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_lolbin_ttdinject.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_ttdinject.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1127"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó TTDInject.exe, el componente de Time Travel Debugging (TTD) de Windows que inyecta el motor de trazas en un proceso. Puede ser depuración legítima o ejecución por proxy de un binario mediante una herramienta firmada por Microsoft.",
+      "what_it_detects": "Creación de un proceso cuya Image termina en ttdinject.exe o cuyo OriginalFileName es TTDInject.EXE, lo que también detecta copias renombradas del binario. TTDInject.exe es la llamada subyacente de tttracer.exe en Windows 10 v1809 y versiones posteriores.",
+      "why_it_matters": "TTDInject.exe aparece en LOLBAS: con /Launch puede iniciar un ejecutable arbitrario e inyectarse en él desde un binario firmado. Corresponde a T1127, la ejecución por proxy mediante utilidades de desarrollo confiables, que sirve para evadir controles de aplicaciones y la supervisión.",
+      "triage_steps": [
+        "Revise el CommandLine: busque /Launch, /Attach o /ClientParams y anote el ejecutable de destino, su ruta y sus argumentos.",
+        "Compare Image con OriginalFileName: si el nombre o la ruta no corresponde a C:\\Windows\\System32 ni a la carpeta de WinDbg, trátelo como un binario renombrado o copiado.",
+        "Analice el ParentImage. Lo esperado es tttracer.exe, WinDbg o una consola de un desarrollador. Office, un navegador, wscript o mshta son una señal grave.",
+        "Determine si el usuario es desarrollador o administrador y si el host es una estación de depuración o un servidor de producción.",
+        "Revise los procesos hijos y el proceso inyectado en el mismo host en una ventana de +/- 15 minutos: conexiones de red, archivos escritos o persistencia.",
+        "Verifique el hash y la firma del ejecutable lanzado y de TTDInject.exe. Busque archivos .run o de trazas en directorios temporales.",
+        "Busque alertas anteriores del mismo host o usuario y otras ejecuciones de TTDInject.exe o tttracer.exe en el entorno."
+      ],
+      "false_positives": [
+        "Un desarrollador o ingeniero de soporte que graba trazas con WinDbg o tttracer.exe para depurar una aplicación.",
+        "Diagnósticos de Microsoft o de un proveedor que capturan trazas TTD durante la resolución de un incidente.",
+        "Pruebas autorizadas de red team o de validación de detecciones basadas en LOLBAS."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con el responsable del equipo si había una depuración autorizada y documente la justificación.",
+        "Si no hay justificación, aísle el endpoint, termine el proceso de destino y conserve los archivos de traza y el binario como evidencia.",
+        "Analice el ejecutable lanzado o inyectado y busque su hash en toda la flota. Elimine la persistencia asociada.",
+        "Restrinja TTDInject.exe y tttracer.exe con AppLocker o WDAC en los equipos donde no se necesitan, y restablezca las credenciales si hubo compromiso."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque es un binario firmado con usos legítimos de depuración, pero poco frecuente fuera de los equipos de desarrollo y capaz de ejecutar código por proxy."
+    },
+    "en": {
+      "summary": "TTDInject.exe, the Windows Time Travel Debugging (TTD) component that injects the trace engine into a process, was executed. This can be legitimate debugging or proxy execution of a binary through a Microsoft-signed tool.",
+      "what_it_detects": "Process creation where Image ends with ttdinject.exe or OriginalFileName is TTDInject.EXE, which also catches renamed copies. TTDInject.exe is the underlying call of tttracer.exe on Windows 10 v1809 and later.",
+      "why_it_matters": "TTDInject.exe is listed in LOLBAS. With /Launch it can start an arbitrary executable and inject into it from a signed binary. This maps to T1127, proxy execution through trusted developer utilities, which can bypass application control and monitoring.",
+      "triage_steps": [
+        "Review CommandLine for /Launch, /Attach or /ClientParams. Note the target executable, its path and its arguments.",
+        "Compare Image with OriginalFileName. A name or path outside C:\\Windows\\System32 or the WinDbg folder suggests a renamed or copied binary.",
+        "Check ParentImage. Expect tttracer.exe, WinDbg or a developer shell. Office, a browser, wscript or mshta is a strong red flag.",
+        "Determine whether the user is a developer or admin and whether the host is a debugging workstation or a production server.",
+        "On the same host within +/- 15 minutes, review child processes and the injected process for network connections, written files or persistence.",
+        "Check the hash and signature of the launched executable and of TTDInject.exe. Look for .run or trace files in temp folders.",
+        "Search for earlier alerts on the same host or user, and for other TTDInject.exe or tttracer.exe runs across the environment."
+      ],
+      "false_positives": [
+        "A developer or support engineer recording traces with WinDbg or tttracer.exe to debug an application.",
+        "Microsoft or vendor diagnostics capturing TTD traces during troubleshooting.",
+        "Authorized red team or detection-validation tests based on LOLBAS."
+      ],
+      "response_steps": [
+        "Confirm with the user or the asset owner whether the debugging was authorized, and document the justification.",
+        "If it was not authorized, isolate the endpoint, terminate the target process, and preserve the trace files and the binary as evidence.",
+        "Analyze the launched or injected executable, hunt for its hash fleet-wide, and remove any related persistence.",
+        "Restrict TTDInject.exe and tttracer.exe with AppLocker or WDAC where they are not needed. Reset credentials if the host was compromised."
+      ],
+      "severity_rationale": "Medium fits because this is a signed binary with legitimate debugging uses, but it is rare outside developer machines and can proxy code execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "TTDInject.exe from System32 launching an executable from a user temp folder, spawned by cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\ttdinject.exe",
+          "OriginalFileName": "TTDInject.EXE",
+          "CommandLine": "ttdinject.exe /ClientParams \"7 tmp.run 0 0 0 0 0 0 0 0 0 0\" /Launch \"C:\\Users\\jperez\\AppData\\Local\\Temp\\update.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed copy of TTDInject in ProgramData, matched only by OriginalFileName",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svc\\helper.exe",
+          "OriginalFileName": "TTDInject.EXE",
+          "CommandLine": "helper.exe /ClientParams \"7 a.run 0 0 0 0 0 0 0 0 0 0\" /Launch \"C:\\Windows\\System32\\notepad.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "tttracer.exe run directly by a developer. Neither Image nor OriginalFileName matches TTDInject",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\tttracer.exe",
+          "OriginalFileName": "TTTracer.exe",
+          "CommandLine": "tttracer.exe -out C:\\Traces C:\\Dev\\app\\app.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Unrelated tool whose name only partly resembles the rule value and does not end with ttdinject.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Tools\\ttdinject_viewer.exe",
+          "OriginalFileName": "TraceViewer.exe",
+          "CommandLine": "ttdinject_viewer.exe C:\\Traces\\app01.run",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:57:07+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

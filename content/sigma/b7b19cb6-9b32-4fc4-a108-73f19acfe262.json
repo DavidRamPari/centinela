@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "b7b19cb6-9b32-4fc4-a108-73f19acfe262",
+    "title": "Suspicious VBoxDrvInst.exe Parameters",
+    "level": "medium",
+    "status": "test",
+    "author": "Konstantin Grishchenko, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_virtualbox_vboxdrvinst_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_virtualbox_vboxdrvinst_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1112"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó VBoxDrvInst.exe, la utilidad de instalación de drivers de VirtualBox Guest Additions, con los parámetros 'driver executeinf', que procesan un archivo INF arbitrario. Esto puede usarse para escribir valores en el registro o instalar drivers con un binario firmado.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\VBoxDrvInst.exe y CommandLine contiene a la vez 'driver' y 'executeinf'.",
+      "why_it_matters": "Un archivo INF puede crear o modificar claves de registro, por ejemplo Run o RunOnce, y así lograr persistencia mediante un binario confiable (LOLBin). Corresponde a ATT&CK T1112, modificación del registro, y puede servir para debilitar defensas.",
+      "triage_steps": [
+        "Revise CommandLine e identifique la ruta del archivo INF. Si está en carpetas de usuario, Temp, Downloads o recursos de red, la alerta es más sospechosa.",
+        "Verifique la ruta de Image y la firma digital y el hash del binario. Una copia fuera de Program Files\\Oracle\\VirtualBox Guest Additions merece más atención.",
+        "Analice ParentImage y la cadena de procesos padre. Un instalador legítimo de Guest Additions es esperable; cmd.exe, powershell.exe, wscript.exe u Office no lo son.",
+        "Obtenga el archivo INF y revise secciones AddReg, CopyFiles y RunPostSetupCommands para detectar claves Run/RunOnce, servicios o binarios referenciados.",
+        "En el mismo host, dentro de +/- 15 minutos, busque cambios de registro en claves Run/RunOnce o Services, archivos nuevos y conexiones de red.",
+        "Confirme si el host es una máquina virtual VirtualBox y si hubo una instalación o actualización de Guest Additions programada.",
+        "Revise el usuario que ejecutó el proceso, su nivel de privilegios y alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "Instalación o actualización legítima de VirtualBox Guest Additions en una máquina virtual, lanzada por el instalador oficial desde la ruta de Oracle.",
+        "Plantillas de VM o scripts de aprovisionamiento (Packer, Vagrant) que instalan Guest Additions de forma automatizada."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host o del equipo de TI si la ejecución estaba autorizada antes de tomar acciones.",
+        "Si es maliciosa, aísle el endpoint y conserve el archivo INF, el binario y los eventos relevantes como evidencia.",
+        "Elimine las entradas de registro, servicios o drivers creados por el INF, después de documentarlos y validar su origen.",
+        "Restablezca credenciales del usuario implicado si hay indicios de compromiso y busque el mismo hash del INF en otros equipos.",
+        "Considere restringir VBoxDrvInst.exe con AppLocker o WDAC en equipos que no sean máquinas virtuales VirtualBox."
+      ],
+      "severity_rationale": "Nivel medio: la técnica permite persistencia con un binario firmado, pero existe uso legítimo en instalaciones de Guest Additions que requiere verificación."
+    },
+    "en": {
+      "summary": "VBoxDrvInst.exe, the VirtualBox Guest Additions driver installer, ran with 'driver executeinf', which processes an arbitrary INF file. This can write registry values or install drivers through a signed binary.",
+      "what_it_detects": "Windows process creation events where Image ends with \\VBoxDrvInst.exe and CommandLine contains both 'driver' and 'executeinf'.",
+      "why_it_matters": "An INF file can create or modify registry keys such as Run or RunOnce, giving persistence through a trusted binary (LOLBin). This maps to ATT&CK T1112, Modify Registry, and can also support defense impairment.",
+      "triage_steps": [
+        "Read CommandLine and extract the INF path. INF files in user profiles, Temp, Downloads or network shares are more suspicious.",
+        "Check the Image path, digital signature and hash. A copy outside Program Files\\Oracle\\VirtualBox Guest Additions deserves extra scrutiny.",
+        "Review ParentImage and the process tree. The official Guest Additions installer is expected; cmd.exe, powershell.exe, wscript.exe or Office parents are not.",
+        "Collect the INF and inspect AddReg, CopyFiles and RunPostSetupCommands sections for Run/RunOnce keys, services or referenced binaries.",
+        "On the same host within +/- 15 minutes, look for registry changes to Run/RunOnce or Services, new files and network connections.",
+        "Confirm whether the host is a VirtualBox VM and whether a Guest Additions install or upgrade was planned.",
+        "Check the executing user, their privileges, and earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "Legitimate VirtualBox Guest Additions installation or upgrade on a VM, launched by the official installer from the Oracle path.",
+        "VM templates or provisioning scripts (Packer, Vagrant) that install Guest Additions automatically."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT team whether the execution was authorized before acting.",
+        "If malicious, isolate the endpoint and preserve the INF, the binary and related events as evidence.",
+        "Remove registry entries, services or drivers created by the INF after documenting them and validating their origin.",
+        "Reset the involved user's credentials if compromise is indicated and hunt for the same INF hash on other hosts.",
+        "Consider blocking VBoxDrvInst.exe with AppLocker or WDAC on machines that are not VirtualBox guests."
+      ],
+      "severity_rationale": "Medium fits because the technique gives persistence via a signed binary, yet legitimate Guest Additions installs also trigger it and need verification."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "VBoxDrvInst.exe launched from PowerShell to process an INF in the user's Downloads folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Oracle\\VirtualBox Guest Additions\\VBoxDrvInst.exe",
+          "CommandLine": "\"C:\\Program Files\\Oracle\\VirtualBox Guest Additions\\VBoxDrvInst.exe\" driver executeinf C:\\Users\\jperez\\Downloads\\update.inf",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Copied VBoxDrvInst.exe in Temp executing an INF with mixed-case parameters",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Users\\mlopez\\AppData\\Local\\Temp\\VBoxDrvInst.exe",
+          "CommandLine": "VBoxDrvInst.exe Driver ExecuteInf C:\\Users\\mlopez\\AppData\\Local\\Temp\\run.inf",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Guest Additions installer using the normal 'driver install' command, without executeinf",
+        "event": {
+          "EventID": 1,
+          "Computer": "VM-BUILD-03.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Program Files\\Oracle\\VirtualBox Guest Additions\\VBoxDrvInst.exe",
+          "CommandLine": "\"C:\\Program Files\\Oracle\\VirtualBox Guest Additions\\VBoxDrvInst.exe\" driver install \"C:\\Program Files\\Oracle\\VirtualBox Guest Additions\\VBoxGuest.inf\"",
+          "ParentImage": "C:\\Users\\Public\\VBoxWindowsAdditions-amd64.exe"
+        }
+      },
+      {
+        "description": "Different binary (rundll32 with advpack) processing an INF; Image does not end with VBoxDrvInst.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe advpack.dll,LaunchINFSection C:\\Temp\\driver_executeinf.inf,DefaultInstall",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

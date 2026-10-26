@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "c6c56ada-612b-42d1-9a29-adad3c5c2c1e",
+    "title": "Audit Policy Tampering Via NT Resource Kit Auditpol",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_auditpol_nt_resource_kit_usage.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_auditpol_nt_resource_kit_usage.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un proceso cuya CommandLine contiene una opción del auditpol antiguo del NT Resource Kit (por ejemplo /logon:none) para desactivar una categoría de auditoría. Es probable que alguien intente reducir la visibilidad del host.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde CommandLine contiene /logon:none, /system:none, /sam:none, /privilege:none, /object:none, /process:none o /policy:none, la sintaxis del auditpol heredado de Windows 2000 Resource Kit.",
+      "why_it_matters": "Al desactivar la auditoría de inicios de sesión, procesos, objetos o cambios de política, el atacante deja de generar los eventos que usa el SOC para detectarlo. Corresponde a ATT&CK T1685.001: debilitar las defensas modificando el registro de auditoría.",
+      "triage_steps": [
+        "Revise CommandLine completo: qué categorías se pusieron en none y si se usaron otras opciones, como restaurar una política personalizada.",
+        "Verifique Image: el auditpol moderno vive en System32 y no usa esta sintaxis; una copia en Temp, Public o con otro nombre es muy sospechosa.",
+        "Obtenga el hash del binario y compárelo con el auditpol legítimo y con fuentes de reputación internas.",
+        "Analice ParentImage y el árbol de procesos: cmd, PowerShell, psexec o servicios remotos indican ejecución manual o lateral.",
+        "Identifique el User y si tiene privilegios administrativos; confirme con el dueño si había un cambio autorizado.",
+        "Ejecute auditpol /get /category:* en el host para conocer la política de auditoría efectiva actual.",
+        "Busque en el mismo host +/- 15 minutos: borrado de logs (1102, 104), creación de servicios, nuevas cuentas o accesos a LSASS.",
+        "Revise alertas previas del mismo host, usuario e IP de origen, y si el binario aparece en otros endpoints."
+      ],
+      "false_positives": [
+        "Herramientas de administración o scripts antiguos que aún usan el auditpol del Resource Kit en sistemas heredados.",
+        "Utilidades de terceros con una sintaxis de parámetros parecida, como /policy:none, sin relación con la auditoría.",
+        "Pruebas autorizadas de red team o de validación de detecciones."
+      ],
+      "response_steps": [
+        "Confirme con el administrador o el responsable del cambio si la ejecución estaba autorizada y documentada.",
+        "Si no lo estaba, aísle el endpoint y preserve el binario, su hash y los logs disponibles antes de modificar nada.",
+        "Restaure la política de auditoría corporativa con auditpol /restore o forzando la GPO (gpupdate /force) y verifique el resultado.",
+        "Elimine el binario no autorizado tras preservarlo y revise la cuenta usada; restablezca credenciales si hay indicios de compromiso.",
+        "Busque el mismo hash y la misma CommandLine en toda la flota y revise los periodos sin auditoría con otras fuentes (EDR, red)."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque desactivar la auditoría es una acción típica de evasión con muy pocos usos legítimos en sistemas modernos."
+    },
+    "en": {
+      "summary": "A process ran with a command line containing a legacy NT Resource Kit auditpol switch (for example /logon:none) that turns off an audit category. Someone is likely trying to blind the host's logging.",
+      "what_it_detects": "Windows process creation events where CommandLine contains /logon:none, /system:none, /sam:none, /privilege:none, /object:none, /process:none or /policy:none, the syntax of the old Windows 2000 Resource Kit auditpol.",
+      "why_it_matters": "Disabling logon, process, object or policy-change auditing stops the events the SOC relies on to spot the intrusion. This maps to ATT&CK T1685.001: impairing defenses by changing audit logging.",
+      "triage_steps": [
+        "Read the full CommandLine: which categories were set to none and whether other switches were used, such as restoring a custom policy.",
+        "Check Image: the modern auditpol lives in System32 and does not use this syntax; a copy in Temp, Public or renamed is highly suspicious.",
+        "Hash the binary and compare it with the legitimate auditpol and internal reputation sources.",
+        "Inspect ParentImage and the process tree: cmd, PowerShell, psexec or remote services point to hands-on or lateral execution.",
+        "Identify the User and their privileges; confirm with the owner whether an approved change existed.",
+        "Run auditpol /get /category:* on the host to see the current effective audit policy.",
+        "Search the same host +/- 15 minutes for log clearing (1102, 104), service creation, new accounts or LSASS access.",
+        "Review earlier alerts for the same host, user and source IP, and whether the binary exists on other endpoints."
+      ],
+      "false_positives": [
+        "Old admin scripts or tools still using the Resource Kit auditpol on legacy systems.",
+        "Third-party utilities with a similar switch style, such as /policy:none, unrelated to auditing.",
+        "Authorized red team exercises or detection validation tests."
+      ],
+      "response_steps": [
+        "Confirm with the administrator or change owner whether the execution was approved and documented.",
+        "If not, isolate the endpoint and preserve the binary, its hash and available logs before changing anything.",
+        "Restore the corporate audit policy with auditpol /restore or by reapplying the GPO (gpupdate /force), then verify.",
+        "Remove the unauthorized binary after preservation and review the account used; reset credentials if compromise is indicated.",
+        "Hunt for the same hash and CommandLine fleet-wide and cover the unaudited window with other sources (EDR, network)."
+      ],
+      "severity_rationale": "High fits because disabling auditing is a classic evasion step with very few legitimate uses on modern Windows."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Legacy Resource Kit auditpol copied to a public folder disables logon and process auditing",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\auditpol.exe",
+          "CommandLine": "C:\\Users\\Public\\auditpol.exe /logon:none /process:none",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\auditpol.exe /logon:none /process:none",
+          "ProcessId": 4812
+        }
+      },
+      {
+        "description": "Renamed legacy auditpol disables policy change and SAM auditing",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\Temp\\ap.exe",
+          "CommandLine": "ap.exe /enable /policy:none /sam:none /object:none",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ProcessId": 6120
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Modern built-in auditpol querying the current policy",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.rgomez",
+          "Image": "C:\\Windows\\System32\\auditpol.exe",
+          "CommandLine": "auditpol.exe /get /category:*",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ProcessId": 3304
+        }
+      },
+      {
+        "description": "Modern auditpol subcategory change, which uses different syntax and contains none of the legacy switches",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-DC-01.andes.example.com",
+          "User": "ANDES\\admin.rgomez",
+          "Image": "C:\\Windows\\System32\\auditpol.exe",
+          "CommandLine": "auditpol.exe /set /subcategory:\"Logon\" /success:enable /failure:enable",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ProcessId": 5528
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "1a4bd6af-99ac-4466-b5b2-7b72b4a05462",
+    "title": "Security Event Logging Disabled via MiniNt Registry Key - Process",
+    "level": "high",
+    "status": "experimental",
+    "author": "Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_event_logging_disable_via_key_minint.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_event_logging_disable_via_key_minint.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1112",
+      "T1685.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso reg.exe o PowerShell intentó crear la clave de registro HKLM\\SYSTEM\\CurrentControlSet\\Control\\MiniNt. Esta clave puede desactivar el registro de eventos de Windows, una técnica de evasión que casi nunca tiene uso legítimo.",
+      "what_it_detects": "Eventos de creación de procesos de reg.exe con ' add ', o de powershell.exe, pwsh.exe o powershell_ise.exe con New-Item o su alias ni, cuyo CommandLine incluye \\SYSTEM\\CurrentControlSet\\Control\\MiniNt.",
+      "why_it_matters": "Si existe la clave MiniNt, Windows trata al equipo como un entorno WinPE y el servicio de registro de eventos deja de registrar eventos de seguridad. Así el atacante oculta lo que hace después. La regla está etiquetada como deterioro de defensas (T1685.001) y modificación del registro (T1112).",
+      "triage_steps": [
+        "Revise CommandLine, Image, User y ParentImage. Confirme la ruta exacta de la clave y anote si se usaron /f o -Force.",
+        "Examine el proceso padre y la cadena de procesos. Una shell lanzada por Office, un navegador, wmiprvse.exe o un servicio remoto es una señal grave.",
+        "Compruebe si la clave sigue presente con reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\MiniNt\", usando EDR o una respuesta remota de solo lectura.",
+        "Busque reinicios posteriores (eventos 1074, 6005 y 6006) y huecos en la telemetría del Security log de ese host, ya que el efecto suele aplicarse al reiniciar.",
+        "En el mismo host, revise lo ocurrido entre 15 minutos antes y 15 después: wevtutil cl, auditpol, detención de servicios, cambios en Defender o creación de cuentas.",
+        "Vincule la alerta con la regla relacionada de registro (8839e550) y con alertas anteriores del mismo usuario y host.",
+        "Verifique si el usuario ejecutó comandos parecidos en otros equipos, lo que indicaría movimiento lateral o un script desplegado."
+      ],
+      "false_positives": [
+        "Muy improbable, según la regla.",
+        "Pruebas autorizadas de red team o de validación de detecciones (por ejemplo, Atomic Red Team), si están documentadas.",
+        "Laboratorios o imágenes de construcción WinPE que manipulan la clave fuera de producción."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del equipo y con el equipo de pruebas si había una actividad autorizada. Si no la había, trátelo como un incidente.",
+        "Aísle el endpoint con el EDR y preserve las evidencias: hive SYSTEM, logs disponibles y memoria si es posible.",
+        "Después de documentarla, elimine la clave MiniNt y reinicie de forma controlada. Luego compruebe que el servicio EventLog vuelve a registrar eventos.",
+        "Restablezca las credenciales de la cuenta implicada y busque la misma actividad en toda la flota."
+      ],
+      "severity_rationale": "El nivel high es adecuado: desactivar el registro de seguridad es una evasión deliberada que casi no tiene usos legítimos y deja sin visibilidad las acciones siguientes."
+    },
+    "en": {
+      "summary": "A reg.exe or PowerShell process tried to create the HKLM\\SYSTEM\\CurrentControlSet\\Control\\MiniNt registry key. This key can disable Windows event logging, a defense evasion technique that almost never has a legitimate use.",
+      "what_it_detects": "Process creation events for reg.exe with ' add ', or for powershell.exe, pwsh.exe or powershell_ise.exe with New-Item or its ni alias, where CommandLine includes \\SYSTEM\\CurrentControlSet\\Control\\MiniNt.",
+      "why_it_matters": "When the MiniNt key exists, Windows treats the host as a WinPE environment and the Event Log service stops recording security events. This hides what the attacker does next. The rule is tagged as defense impairment (T1685.001) and Modify Registry (T1112).",
+      "triage_steps": [
+        "Review CommandLine, Image, User and ParentImage. Confirm the exact key path and note whether /f or -Force was used.",
+        "Inspect the parent and the process tree. A shell spawned by Office, a browser, wmiprvse.exe or a remote service is a strong warning sign.",
+        "Check whether the key still exists with reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\MiniNt\", using EDR or read-only live response.",
+        "Look for later reboots (events 1074, 6005 and 6006) and gaps in Security log telemetry from the host, because the effect usually starts after a restart.",
+        "On the same host, review activity from 15 minutes before to 15 minutes after: wevtutil cl, auditpol, stopped services, Defender changes or new accounts.",
+        "Correlate with the related registry rule (8839e550) and with earlier alerts for the same user and host.",
+        "Check whether the user ran similar commands on other hosts, which would suggest lateral movement or a deployed script."
+      ],
+      "false_positives": [
+        "Highly unlikely, according to the rule.",
+        "Documented, authorized red team or detection validation tests (for example, Atomic Red Team).",
+        "WinPE build labs or images that change the key outside production."
+      ],
+      "response_steps": [
+        "Ask the system owner and the testing team whether the activity was authorized. If it was not, treat it as an incident.",
+        "Isolate the endpoint through EDR and preserve evidence: the SYSTEM hive, available logs and memory if feasible.",
+        "After documenting the key, remove MiniNt and do a controlled reboot. Then confirm the EventLog service records events again.",
+        "Reset the credentials of the account involved and hunt for the same activity across the fleet."
+      ],
+      "severity_rationale": "High fits because disabling security logging is deliberate evasion with almost no legitimate use, and it leaves the attacker's next actions unseen."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe adds the MiniNt key under HKLM via cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\MiniNt\" /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\MiniNt\" /f",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell New-Item creates the MiniNt key",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FILE-02.andes.example.com",
+          "User": "ANDES\\adm.lgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command \"New-Item -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\MiniNt' -Force\"",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "reg.exe only queries the MiniNt key (no add)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\soc.analyst",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\MiniNt\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "PowerShell checks for the key with Test-Path without creating it",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\it.audit",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Test-Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\MiniNt'\"",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

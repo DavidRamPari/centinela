@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "313d6012-51a0-4d93-8dfc-de8553239e25",
+    "title": "Install New Package Via Winget Local Manifest",
+    "level": "medium",
+    "status": "test",
+    "author": "Sreeman, Florian Roth (Nextron Systems), frack113",
+    "path": "windows/process_creation/proc_creation_win_winget_local_install_via_manifest.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_winget_local_install_via_manifest.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó winget.exe con un subcomando install/add y la opción -m/--manifest, es decir, se instaló un paquete desde un manifiesto YAML local en lugar del repositorio oficial.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\winget.exe u OriginalFileName es winget.exe, y CommandLine contiene 'install' o ' add ' junto con '-m ' o '--manifest'.",
+      "why_it_matters": "Un manifiesto local puede apuntar su InstallerUrl a cualquier servidor, por lo que winget descarga y ejecuta un exe, msi o msix arbitrario usando un binario firmado por Microsoft (T1059, ejecución mediante intérprete o herramienta legítima).",
+      "triage_steps": [
+        "Revise CommandLine e identifique la ruta del manifiesto (local, carpeta Downloads/Temp o recurso UNC); confirme el usuario y el host del evento.",
+        "Obtenga el manifiesto YAML si sigue en disco y revise InstallerUrl, InstallerSha256, Publisher y tipo de instalador.",
+        "Revise ParentImage: winget lanzado desde cmd, PowerShell, wscript, mshta u Office es más sospechoso que desde una consola interactiva de TI.",
+        "Busque en el mismo host, +/- 15 minutos, 'winget settings --enable LocalManifestFiles', necesario para permitir manifiestos locales.",
+        "Identifique procesos hijo y archivos creados por winget (instaladores en %TEMP%\\WinGet) y calcule su hash para consultarlo en inteligencia de amenazas.",
+        "Correlacione conexiones de red del host hacia el dominio o IP de InstallerUrl y verifique su reputación.",
+        "Consulte alertas previas del mismo usuario y host, y si el mismo manifiesto aparece en otros endpoints."
+      ],
+      "false_positives": [
+        "Desarrolladores o empaquetadores que prueban sus propios manifiestos antes de publicarlos en winget-pkgs.",
+        "Equipos de TI que despliegan aplicaciones internas con manifiestos locales mediante scripts o herramientas de gestión.",
+        "Coincidencias amplias de 'install' en CommandLine, por ejemplo rutas que contienen DesktopAppInstaller."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable de TI si la instalación estaba autorizada y documentada.",
+        "Si no está autorizada, aísle el endpoint y preserve el manifiesto, el instalador descargado y los registros de winget.",
+        "Desinstale el paquete y elimine los artefactos tras verificar su origen; bloquee el dominio de InstallerUrl y el hash del instalador.",
+        "Deshabilite LocalManifestFiles mediante la política de App Installer y restablezca credenciales si hubo ejecución maliciosa."
+      ],
+      "severity_rationale": "Media porque es una técnica real de ejecución de payloads con un binario firmado, pero también es una función legítima usada por desarrolladores y TI."
+    },
+    "en": {
+      "summary": "winget.exe ran with an install/add subcommand and the -m/--manifest option, installing a package from a local YAML manifest instead of the official repository.",
+      "what_it_detects": "Process creation where Image ends with \\winget.exe or OriginalFileName is winget.exe, and CommandLine contains 'install' or ' add ' plus '-m ' or '--manifest'.",
+      "why_it_matters": "A local manifest can point InstallerUrl at any server, so winget downloads and runs an arbitrary exe, msi or msix through a Microsoft-signed binary (T1059, execution via a legitimate tool).",
+      "triage_steps": [
+        "Read CommandLine and note the manifest path (local, Downloads/Temp, or UNC share); confirm the user and host.",
+        "Collect the YAML manifest if still on disk; review InstallerUrl, InstallerSha256, Publisher and installer type.",
+        "Check ParentImage: winget spawned by cmd, PowerShell, wscript, mshta or Office is more suspicious than an interactive IT console.",
+        "Search the same host +/- 15 minutes for 'winget settings --enable LocalManifestFiles', required to allow local manifests.",
+        "Identify child processes and files written by winget (installers under %TEMP%\\WinGet); hash them and check threat intel.",
+        "Correlate host network connections to the InstallerUrl domain or IP and check its reputation.",
+        "Review earlier alerts for the same user and host, and whether the same manifest appears on other endpoints."
+      ],
+      "false_positives": [
+        "Developers or packagers testing their own manifests before submitting to winget-pkgs.",
+        "IT teams deploying internal applications with local manifests via scripts or management tools.",
+        "Broad 'install' matches in CommandLine, such as paths containing DesktopAppInstaller."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT owner whether the install was authorized and documented.",
+        "If unauthorized, isolate the endpoint and preserve the manifest, downloaded installer and winget logs.",
+        "After verifying origin, uninstall the package and remove artifacts; block the InstallerUrl domain and installer hash.",
+        "Disable LocalManifestFiles via App Installer policy and reset credentials if malicious execution occurred."
+      ],
+      "severity_rationale": "Medium because it is a real payload-execution technique using a signed binary, yet also a legitimate feature used by developers and IT."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "User installs a package from a manifest in the Downloads folder via PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Microsoft\\WindowsApps\\winget.exe",
+          "OriginalFileName": "winget.exe",
+          "CommandLine": "winget install -m C:\\Users\\jperez\\Downloads\\update.yaml --accept-package-agreements",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden"
+        }
+      },
+      {
+        "description": "Renamed binary identified by OriginalFileName using the add alias and --manifest from a UNC share",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\pkg\\wg.exe",
+          "OriginalFileName": "winget.exe",
+          "CommandLine": "wg.exe add --manifest \\\\fs01.example.com\\share\\tool.yaml",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal winget install from the official repository by package ID, no manifest option",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Microsoft\\WindowsApps\\winget.exe",
+          "OriginalFileName": "winget.exe",
+          "CommandLine": "winget install --id Mozilla.Firefox -e",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Developer validates a manifest without installing it",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Users\\lgomez\\AppData\\Local\\Microsoft\\WindowsApps\\winget.exe",
+          "OriginalFileName": "winget.exe",
+          "CommandLine": "winget validate --manifest C:\\dev\\manifests\\contoso.yaml",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

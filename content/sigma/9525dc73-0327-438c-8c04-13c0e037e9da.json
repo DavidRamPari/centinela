@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "9525dc73-0327-438c-8c04-13c0e037e9da",
+    "title": "Regsvr32 Execution From Potential Suspicious Location",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_regsvr32_susp_exec_path_1.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_regsvr32_susp_exec_path_1.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.010"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó regsvr32.exe con un argumento que apunta a una carpeta escribible por el usuario, como ProgramData, Temp, Users\\Public o AppData. Puede ser un atacante registrando o cargando una DLL maliciosa con un binario firmado de Windows.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\regsvr32.exe u OriginalFileName es REGSVR32.EXE, y CommandLine contiene :\\ProgramData\\, :\\Temp\\, :\\Users\\Public\\, :\\Windows\\Temp\\, \\AppData\\Local\\Temp\\ o \\AppData\\Roaming\\.",
+      "why_it_matters": "Regsvr32 es un binario firmado por Microsoft que carga DLL y ejecuta su código (T1218.010, ejecución de proxy mediante binarios del sistema). Los atacantes lo usan para evadir el control de aplicaciones y ejecutar payloads dejados en rutas temporales o públicas.",
+      "triage_steps": [
+        "Revise CommandLine completo: ruta y nombre de la DLL, extensión inusual (.dat, .jpg, .txt) y modificadores como /s, /i o /u.",
+        "Compare Image con OriginalFileName; si regsvr32 fue renombrado o copiado fuera de System32, aumente la prioridad.",
+        "Analice ParentImage y su línea de comandos: Office, wscript, mshta, powershell o un navegador como padre son señales de alerta.",
+        "Obtenga el hash de la DLL referenciada, verifique firma digital, fecha de creación y reputación en su plataforma de threat intel.",
+        "Busque procesos hijos de regsvr32 y conexiones de red salientes desde el mismo host en +/- 15 minutos.",
+        "Pivote por usuario y host: descargas recientes, adjuntos abiertos, archivos creados en la misma carpeta y alertas previas de la entidad.",
+        "Verifique si el evento coincide con una instalación o actualización de software conocida y autorizada."
+      ],
+      "false_positives": [
+        "Instaladores legítimos que registran DLL temporales desde %TEMP% o %PROGRAMDATA% durante la instalación.",
+        "Agentes de actualización de software corporativo que ubican componentes COM en ProgramData.",
+        "Aplicaciones por usuario instaladas en AppData\\Roaming que registran sus propias extensiones."
+      ],
+      "response_steps": [
+        "Confirme la malicia revisando el hash, la firma y el comportamiento de la DLL antes de actuar.",
+        "Si se confirma, aísle el endpoint con el EDR y finalice el proceso regsvr32 y sus hijos.",
+        "Preserve la DLL y artefactos relacionados para análisis; luego elimínelos y revise persistencia (Run keys, tareas programadas, registros COM).",
+        "Restablezca credenciales del usuario afectado si hubo ejecución exitosa y busque el mismo hash en otros hosts.",
+        "Para falsos positivos recurrentes, cree filtros específicos por ruta y hash del instalador legítimo."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque la combinación es frecuente en abuso de regsvr32, pero algunos instaladores legítimos usan esas mismas rutas."
+    },
+    "en": {
+      "summary": "regsvr32.exe ran with a command line pointing to a user-writable folder such as ProgramData, Temp, Users\\Public or AppData. An attacker may be using this signed Windows binary to load or register a malicious DLL.",
+      "what_it_detects": "Process creation where Image ends with \\regsvr32.exe or OriginalFileName is REGSVR32.EXE, and CommandLine contains :\\ProgramData\\, :\\Temp\\, :\\Users\\Public\\, :\\Windows\\Temp\\, \\AppData\\Local\\Temp\\ or \\AppData\\Roaming\\.",
+      "why_it_matters": "Regsvr32 is a Microsoft-signed binary that loads DLLs and runs their code (T1218.010, system binary proxy execution). Attackers abuse it to bypass application control and run payloads dropped in temporary or public folders.",
+      "triage_steps": [
+        "Read the full CommandLine: DLL path and name, odd extensions (.dat, .jpg, .txt) and switches such as /s, /i or /u.",
+        "Compare Image with OriginalFileName; a renamed regsvr32 or one running outside System32 raises priority.",
+        "Check ParentImage and its command line: Office, wscript, mshta, powershell or a browser as parent are red flags.",
+        "Collect the referenced DLL hash, check signature, creation time and reputation in your threat intel platform.",
+        "Look for regsvr32 child processes and outbound network connections from the same host within +/- 15 minutes.",
+        "Pivot on user and host: recent downloads, opened attachments, other files in the same folder and earlier alerts for the entity.",
+        "Confirm whether the event lines up with a known, approved software install or update."
+      ],
+      "false_positives": [
+        "Legitimate installers registering temporary DLLs from %TEMP% or %PROGRAMDATA% during setup.",
+        "Corporate software update agents that place COM components in ProgramData.",
+        "Per-user applications installed under AppData\\Roaming registering their own extensions."
+      ],
+      "response_steps": [
+        "Confirm maliciousness by reviewing the DLL hash, signature and behavior before acting.",
+        "If confirmed, isolate the endpoint via EDR and terminate regsvr32 and its children.",
+        "Preserve the DLL and related artifacts, then remove them and check persistence (Run keys, scheduled tasks, COM registrations).",
+        "Reset the user's credentials if execution succeeded and hunt for the same hash on other hosts.",
+        "For recurring false positives, add narrow filters by installer path and hash."
+      ],
+      "severity_rationale": "Medium fits because this pattern is common in regsvr32 abuse, yet some legitimate installers use the same locations."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "regsvr32 silently loading a DLL dropped in C:\\Users\\Public, spawned by wscript",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\regsvr32.exe",
+          "OriginalFileName": "REGSVR32.EXE",
+          "CommandLine": "regsvr32.exe /s C:\\Users\\Public\\update.dll",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "ParentCommandLine": "wscript.exe C:\\Users\\jperez\\Downloads\\invoice.js"
+        }
+      },
+      {
+        "description": "Renamed regsvr32 (matched by OriginalFileName) loading a file from AppData\\Roaming",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Users\\mlopez\\AppData\\Local\\Temp\\svchelper.exe",
+          "OriginalFileName": "REGSVR32.EXE",
+          "CommandLine": "svchelper.exe /s C:\\Users\\mlopez\\AppData\\Roaming\\Microsoft\\cache.dat",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "regsvr32 registering a DLL from Program Files, not a suspicious location",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\regsvr32.exe",
+          "OriginalFileName": "REGSVR32.EXE",
+          "CommandLine": "regsvr32.exe /s \"C:\\Program Files\\ExampleSoft\\Viewer\\viewer_shell.dll\"",
+          "ParentImage": "C:\\Program Files\\ExampleSoft\\Viewer\\setup.exe"
+        }
+      },
+      {
+        "description": "rundll32 loading a DLL from ProgramData; path matches but the binary is not regsvr32",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe C:\\ProgramData\\ExampleSoft\\helper.dll,Start",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

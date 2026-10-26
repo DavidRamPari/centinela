@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "cf0c254b-22f1-4b2b-8221-e137b3c0af94",
+    "title": "HackTool - Impersonate Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "Sai Prashanth Pulisetti @pulisettis",
+    "path": "windows/process_creation/proc_creation_win_hktl_impersonate.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_impersonate.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1134.001",
+      "T1134.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó en el endpoint la herramienta Impersonate, que sirve para manipular tokens. La detección se basa en su línea de comandos (list, exec, adduser) o en hashes conocidos del binario. Puede indicar que un atacante intenta suplantar a usuarios con sesión abierta, incluidos administradores de dominio.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene 'impersonate.exe' junto con ' list ', ' exec ' o ' adduser ', o cuyo campo Hashes coincide con el MD5, SHA256 o IMPHASH conocidos de Impersonate, aunque el binario esté renombrado.",
+      "why_it_matters": "Impersonate enumera los tokens de los procesos del equipo y los reutiliza para ejecutar comandos o crear usuarios con la identidad de otra cuenta, sin tocar LSASS. Corresponde a ATT&CK T1134.001 (suplantación o robo de tokens) y T1134.003 (creación de procesos con token).",
+      "triage_steps": [
+        "Revise Image, CommandLine y Hashes. Identifique el subcomando: list (reconocimiento), exec (ejecución con token ajeno) o adduser (creación de cuenta).",
+        "Revise ParentImage y el usuario. Si el padre es PSEXESVC.exe, WmiPrvSE.exe o cmd.exe bajo SYSTEM, indica uso remoto mediante PsExec o WmiExec.",
+        "Busque eventos 4624 de tipo 3 en el host para identificar la IP de origen y la cuenta que inició la sesión remota.",
+        "Si es exec, revise los procesos hijos y el comando ejecutado. Si es adduser, busque en los controladores de dominio los eventos 4720, 4728 y 4732.",
+        "Determine qué usuarios privilegiados tenían sesión en el host, porque sus tokens son los que se podían suplantar.",
+        "Revise la actividad del mismo host en ±15 minutos (copia del binario, servicios creados, conexiones SMB) y alertas previas del host y del usuario.",
+        "Busque el mismo hash o la misma línea de comandos en otros endpoints."
+      ],
+      "false_positives": [
+        "Pruebas de penetración o ejercicios de red team autorizados que usan Impersonate. Confirme con el responsable del ejercicio.",
+        "Investigadores o equipos de seguridad que prueban la herramienta en laboratorios. Verifique que el host pertenece al laboratorio."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del sistema y con el equipo de seguridad que no se trata de una prueba autorizada.",
+        "Si es malicioso, aísle el endpoint y conserve el binario, su hash y la línea de comandos como evidencia.",
+        "Deshabilite las cuentas creadas con adduser y retírelas de los grupos privilegiados. Restablezca las credenciales de las cuentas cuyos tokens estuvieron expuestos.",
+        "Bloquee la IP de origen y la cuenta usada para el acceso remoto. Revise si hubo movimiento lateral hacia otros hosts.",
+        "Elimine el binario y los artefactos asociados, y limite las sesiones de administradores de dominio en servidores no confiables."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque es poco probable que la herramienta aparezca en uso legítimo, pero para confirmar una suplantación con éxito hay que revisar el contexto y la actividad posterior."
+    },
+    "en": {
+      "summary": "The Impersonate token-manipulation tool ran on the endpoint, detected through its command line (list, exec, adduser) or known binary hashes. This can mean an attacker is trying to impersonate logged-on users, including domain admins.",
+      "what_it_detects": "Process creation events where CommandLine contains 'impersonate.exe' plus ' list ', ' exec ' or ' adduser ', or where Hashes matches the known Impersonate MD5, SHA256 or IMPHASH. The hash match also catches renamed binaries.",
+      "why_it_matters": "Impersonate lists the tokens of processes on the host and reuses them to run commands or create users as another account, without touching LSASS. This maps to ATT&CK T1134.001 (token impersonation/theft) and T1134.003 (process creation with a token).",
+      "triage_steps": [
+        "Review Image, CommandLine and Hashes. Identify the subcommand: list (recon), exec (runs with a stolen token) or adduser (creates an account).",
+        "Check ParentImage and the user. A parent of PSEXESVC.exe, WmiPrvSE.exe or cmd.exe running as SYSTEM points to remote use through PsExec or WmiExec.",
+        "Find 4624 type 3 logons on the host to get the source IP and the account behind the remote session.",
+        "For exec, review child processes and the command that ran. For adduser, search domain controllers for events 4720, 4728 and 4732.",
+        "List the privileged users who had sessions on the host, since those tokens were available to steal.",
+        "Review activity on the same host within +/- 15 minutes (binary drop, service creation, SMB connections) and earlier alerts for the host and user.",
+        "Search other endpoints for the same hash or command line."
+      ],
+      "false_positives": [
+        "Authorized penetration tests or red team exercises that use Impersonate. Confirm with the engagement owner.",
+        "Security researchers testing the tool in a lab. Check that the host is a lab system."
+      ],
+      "response_steps": [
+        "Check with the system owner and the security team whether this is authorized testing.",
+        "If it is malicious, isolate the endpoint and keep the binary, its hash and the command line as evidence.",
+        "Disable any accounts created with adduser and remove them from privileged groups. Reset credentials for accounts whose tokens were exposed.",
+        "Block the source IP and the account used for remote access. Look for lateral movement to other hosts.",
+        "Remove the binary and related artifacts. Limit domain admin sessions on untrusted servers."
+      ],
+      "severity_rationale": "Medium fits because legitimate use of the tool is rare, but confirming a successful impersonation needs context and a review of what happened afterwards."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Impersonate launched through PsExec running the adduser subcommand to create a domain admin account",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS02.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\Temp\\impersonate.exe",
+          "CommandLine": "C:\\Windows\\Temp\\impersonate.exe adduser 3 svc_bkp2 Placeholder123! \"Domain Admins\" \\\\DC01.andes.example.com",
+          "ParentImage": "C:\\Windows\\PSEXESVC.exe",
+          "ParentCommandLine": "C:\\Windows\\PSEXESVC.exe",
+          "Hashes": "MD5=11111111111111111111111111111111,SHA256=2222222222222222222222222222222222222222222222222222222222222222,IMPHASH=33333333333333333333333333333333"
+        }
+      },
+      {
+        "description": "Renamed Impersonate binary matched by its known hashes",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\tok.exe",
+          "CommandLine": "tok.exe list",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Hashes": "MD5=9520714AB576B0ED01D1513691377D01,SHA256=E81CC96E2118DC4FBFE5BAD1604E0AC7681960143E2101E1A024D52264BB0A8A,IMPHASH=0A358FFC1697B7A07D0E817AC740DF62"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "In-house developer test utility also named impersonate.exe, run with --version (no list/exec/adduser subcommand, different hashes)",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0077.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\dev\\authlib\\bin\\impersonate.exe",
+          "CommandLine": "C:\\dev\\authlib\\bin\\impersonate.exe --version",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\devenv.exe",
+          "Hashes": "MD5=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,SHA256=BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB,IMPHASH=CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+        }
+      },
+      {
+        "description": "PowerShell script whose name contains 'impersonate' but not 'impersonate.exe', with unrelated hashes",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -File C:\\Scripts\\Test-Impersonate.ps1 -Mode list -Verbose",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Hashes": "MD5=DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD,SHA256=EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE,IMPHASH=FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "236d8e89-ed95-4789-a982-36f4643738ba",
+    "title": "Suspicious Persistence Via VMwareToolBoxCmd.EXE VM State Change Script",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_vmware_toolbox_cmd_persistence_susp.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_vmware_toolbox_cmd_persistence_susp.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó VMwareToolBoxCmd.exe con los argumentos \"script\" y \"set\" para registrar un script en una ruta temporal o de tareas. Puede ser un mecanismo de persistencia que ejecuta código cuando cambia el estado de la VM.",
+      "what_it_detects": "Procesos cuyo Image termina en \\VMwareToolBoxCmd.exe u OriginalFileName es toolbox-cmd.exe, con CommandLine que contiene \" script \" y \" set \" y una ruta en PerfLogs, Temp, Windows\\Tasks, System32\\Tasks, Windows\\Temp o AppData\\Local\\Temp.",
+      "why_it_matters": "VMware Tools ejecuta, mediante vmtoolsd.exe y normalmente como SYSTEM, el script configurado para eventos de encendido, reanudación, suspensión o apagado. Un atacante puede usarlo para mantener persistencia y ejecutar comandos (ATT&CK T1059 y persistencia).",
+      "triage_steps": [
+        "Revise CommandLine: identifique el estado (power, resume, suspend, shutdown) y la ruta exacta del script registrado.",
+        "Confirme Image y OriginalFileName; si Image no es VMwareToolBoxCmd.exe pero OriginalFileName es toolbox-cmd.exe, el binario fue renombrado o copiado.",
+        "Identifique al usuario y ParentImage; cmd.exe, powershell.exe, wscript.exe o procesos de Office como padre son muy sospechosos.",
+        "Obtenga el script indicado, calcule su hash y revise su contenido, firma y fecha de creación.",
+        "Revise C:\\ProgramData\\VMware\\VMware Tools\\tools.conf para ver qué scripts quedaron configurados.",
+        "Busque procesos hijos de vmtoolsd.exe y conexiones de red en el mismo host dentro de +/- 15 minutos.",
+        "Busque alertas previas para el mismo host, usuario y hash del script en otros equipos."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Administradores o herramientas de despliegue que prueban scripts de VMware Tools temporalmente desde carpetas Temp; confirme con un cambio aprobado."
+      ],
+      "response_steps": [
+        "Verifique con el responsable de la VM si la configuración fue autorizada antes de actuar.",
+        "Si no lo fue, aísle el endpoint y preserve el script, tools.conf y los registros relevantes.",
+        "Restaure el comportamiento predeterminado con VMwareToolBoxCmd.exe script <estado> default y elimine el script malicioso tras preservarlo.",
+        "Investigue el acceso inicial, restablezca credenciales comprometidas y busque la misma técnica en otras VMs."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque registrar scripts de cambio de estado desde rutas temporales es poco común y otorga ejecución persistente, normalmente con privilegios de SYSTEM."
+    },
+    "en": {
+      "summary": "VMwareToolBoxCmd.exe ran with the \"script\" and \"set\" arguments to register a script stored in a temp or tasks folder. This may be persistence that runs code whenever the VM changes state.",
+      "what_it_detects": "Processes whose Image ends with \\VMwareToolBoxCmd.exe or whose OriginalFileName is toolbox-cmd.exe, with a CommandLine containing \" script \" and \" set \" plus a path under PerfLogs, Temp, Windows\\Tasks, System32\\Tasks, Windows\\Temp or AppData\\Local\\Temp.",
+      "why_it_matters": "VMware Tools (vmtoolsd.exe, usually SYSTEM) runs the configured script on power-on, resume, suspend or shutdown. Attackers can abuse this for persistence and command execution (ATT&CK T1059, persistence).",
+      "triage_steps": [
+        "Read CommandLine: note the VM state (power, resume, suspend, shutdown) and the exact script path registered.",
+        "Check Image against OriginalFileName; toolbox-cmd.exe under another name means the binary was renamed or copied.",
+        "Identify the user and ParentImage; cmd.exe, powershell.exe, wscript.exe or Office parents are highly suspicious.",
+        "Collect the referenced script, hash it, and review content, signature and creation time.",
+        "Inspect C:\\ProgramData\\VMware\\VMware Tools\\tools.conf for configured scripts.",
+        "Look for vmtoolsd.exe child processes and network connections on the same host within +/- 15 minutes.",
+        "Search earlier alerts for the same host, user, and the script hash across other machines."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Admins or deployment tooling temporarily testing VMware Tools scripts from Temp folders; confirm against an approved change."
+      ],
+      "response_steps": [
+        "Confirm with the VM owner whether the change was authorized before acting.",
+        "If not, isolate the endpoint and preserve the script, tools.conf and relevant logs.",
+        "Restore defaults with VMwareToolBoxCmd.exe script <state> default and remove the malicious script after preservation.",
+        "Investigate initial access, reset exposed credentials, and hunt for the same technique on other VMs."
+      ],
+      "severity_rationale": "High fits because registering state-change scripts from temp paths is rare and grants persistent execution, typically as SYSTEM."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "VMwareToolBoxCmd.exe registers a resume script in the user's AppData\\Local\\Temp folder, launched from PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\VMware\\VMware Tools\\VMwareToolBoxCmd.exe",
+          "OriginalFileName": "toolbox-cmd.exe",
+          "CommandLine": "\"C:\\Program Files\\VMware\\VMware Tools\\VMwareToolBoxCmd.exe\" script resume set \"C:\\Users\\jperez\\AppData\\Local\\Temp\\update.bat\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile"
+        }
+      },
+      {
+        "description": "Renamed copy of toolbox-cmd.exe sets a power script located in C:\\Windows\\Temp",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\tbx.exe",
+          "OriginalFileName": "toolbox-cmd.exe",
+          "CommandLine": "C:\\Users\\Public\\tbx.exe script power set C:\\Windows\\Temp\\svc.cmd",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\tbx.exe script power set C:\\Windows\\Temp\\svc.cmd"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator sets a shutdown script stored in the VMware Tools install folder (no suspicious path)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\admin.vmware",
+          "Image": "C:\\Program Files\\VMware\\VMware Tools\\VMwareToolBoxCmd.exe",
+          "OriginalFileName": "toolbox-cmd.exe",
+          "CommandLine": "\"C:\\Program Files\\VMware\\VMware Tools\\VMwareToolBoxCmd.exe\" script shutdown set \"C:\\Program Files\\VMware\\VMware Tools\\poweroff-vm-default.bat\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Querying the current resume script, without the set flag",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\VMware\\VMware Tools\\VMwareToolBoxCmd.exe",
+          "OriginalFileName": "toolbox-cmd.exe",
+          "CommandLine": "\"C:\\Program Files\\VMware\\VMware Tools\\VMwareToolBoxCmd.exe\" script resume current",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

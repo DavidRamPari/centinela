@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "f4a623c2-4ef5-4c33-b811-0642f702c9f1",
+    "title": "Visual Studio Code Tunnel Shell Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_vscode_tunnel_remote_shell_.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_vscode_tunnel_remote_shell_.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1071.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "El servidor de Visual Studio Code (node.exe en una carpeta servers\\Stable-) que crea un túnel remoto inició un shell (PowerShell, pwsh, WSL o bash). Puede ser un desarrollador trabajando de forma remota o un atacante que usa el túnel como canal de C2.",
+      "what_it_detects": "Creación de procesos donde ParentImage termina en \\server\\node.exe dentro de \\servers\\Stable-, ParentCommandLine contiene .vscode-server y el hijo es powershell.exe/pwsh.exe con shellIntegration.ps1 en CommandLine, o wsl.exe/bash.exe.",
+      "why_it_matters": "Los túneles de VS Code permiten controlar el equipo de forma remota sobre HTTPS a través de la infraestructura de Microsoft, sin abrir puertos de entrada. Un atacante puede usarlos como C2 que se camufla como tráfico web legítimo (T1071.001) y ejecutar comandos arbitrarios.",
+      "triage_steps": [
+        "Identifique el usuario, el host y el CommandLine del shell; confirme que ParentImage y ParentCommandLine apuntan al servidor del túnel (.vscode-server, servers\\Stable-).",
+        "Verifique con el usuario o su responsable si usa túneles de VS Code de forma legítima y si el host es un equipo de desarrollo.",
+        "Busque cómo se creó el túnel: ejecuciones de code.exe o code-tunnel.exe con 'tunnel', 'tunnel service install' o '--accept-server-license-terms', y quién las inició.",
+        "Revise los procesos hijos del shell en ±15 minutos: reconocimiento (whoami, net, nltest), descargas, volcado de credenciales o movimiento lateral.",
+        "Revise las conexiones de red del host hacia *.tunnels.api.visualstudio.com, *.devtunnels.ms y global.rel.tunnels.api.visualstudio.com, y su horario respecto a la jornada del usuario.",
+        "Determine con qué cuenta de GitHub o Microsoft se autenticó el túnel (logs en %USERPROFILE%\\.vscode\\cli) y si pertenece a la organización.",
+        "Busque alertas previas para el mismo host o usuario y la presencia del túnel en otros endpoints."
+      ],
+      "false_positives": [
+        "Desarrolladores que usan VS Code Remote Tunnels legítimamente para abrir terminales en su equipo o en un servidor de desarrollo.",
+        "Equipos de soporte o DevOps que administran máquinas remotas mediante túneles aprobados.",
+        "Uso de WSL o bash desde el terminal remoto en flujos de trabajo normales de desarrollo."
+      ],
+      "response_steps": [
+        "Si el uso no está autorizado, aísle el endpoint y detenga los procesos del túnel (code.exe tunnel y node.exe) tras preservar evidencia.",
+        "Elimine servicios o tareas programadas creados para persistencia del túnel y revoque la sesión de la cuenta de GitHub/Microsoft vinculada.",
+        "Reinicie credenciales del usuario afectado y revise los comandos ejecutados para evaluar el alcance.",
+        "Considere bloquear los dominios de túneles de VS Code mediante proxy o política, con excepciones para usuarios aprobados."
+      ],
+      "severity_rationale": "Medium es adecuado porque los túneles tienen uso legítimo frecuente en desarrollo, pero ofrecen un canal remoto completo que requiere validación."
+    },
+    "en": {
+      "summary": "The Visual Studio Code tunnel server (node.exe under a servers\\Stable- folder) launched a shell (PowerShell, pwsh, WSL or bash). This may be a developer working remotely or an attacker using the tunnel as a C2 channel.",
+      "what_it_detects": "Process creation where ParentImage ends with \\server\\node.exe under \\servers\\Stable-, ParentCommandLine contains .vscode-server, and the child is powershell.exe/pwsh.exe loading shellIntegration.ps1, or wsl.exe/bash.exe.",
+      "why_it_matters": "VS Code tunnels give remote control of a machine over HTTPS through Microsoft infrastructure, with no inbound ports. Attackers can abuse them as C2 blending into legitimate web traffic (T1071.001) and run arbitrary commands.",
+      "triage_steps": [
+        "Record user, host and the shell CommandLine; confirm ParentImage and ParentCommandLine point to the tunnel server (.vscode-server, servers\\Stable-).",
+        "Ask the user or their manager whether they use VS Code tunnels legitimately and whether the host is a development machine.",
+        "Find how the tunnel started: code.exe or code-tunnel.exe runs with 'tunnel', 'tunnel service install' or '--accept-server-license-terms', and who launched them.",
+        "Review the shell's child processes within +/- 15 minutes: recon (whoami, net, nltest), downloads, credential dumping or lateral movement.",
+        "Check host connections to *.tunnels.api.visualstudio.com and *.devtunnels.ms, and whether timing matches the user's working hours.",
+        "Identify the GitHub or Microsoft account that authenticated the tunnel (logs under %USERPROFILE%\\.vscode\\cli) and whether it belongs to the organization.",
+        "Search earlier alerts for the same host or user and tunnel activity on other endpoints."
+      ],
+      "false_positives": [
+        "Developers legitimately using VS Code Remote Tunnels to open terminals on their workstation or a dev server.",
+        "Support or DevOps teams managing remote machines through approved tunnels.",
+        "WSL or bash usage from the remote terminal in normal development workflows."
+      ],
+      "response_steps": [
+        "If unauthorized, isolate the endpoint and stop tunnel processes (code.exe tunnel, node.exe) after preserving evidence.",
+        "Remove services or scheduled tasks created for tunnel persistence and revoke the linked GitHub/Microsoft account session.",
+        "Reset the affected user's credentials and review executed commands to scope impact.",
+        "Consider blocking VS Code tunnel domains via proxy or policy, with exceptions for approved users."
+      ],
+      "severity_rationale": "Medium fits because tunnels are common in legitimate development, yet they provide a full remote channel that needs validation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "VS Code tunnel server node.exe spawns PowerShell with shell integration script",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Users\\jperez\\.vscode\\cli\\servers\\Stable-1a2b3c4d5e6f7a8b9c0d\\server\\node.exe",
+          "ParentCommandLine": "\"C:\\Users\\jperez\\.vscode\\cli\\servers\\Stable-1a2b3c4d5e6f7a8b9c0d\\server\\node.exe\" C:\\Users\\jperez\\.vscode\\cli\\servers\\Stable-1a2b3c4d5e6f7a8b9c0d\\server\\out\\server-main.js --connection-token=REDACTED --accept-server-license-terms --start-server --enable-remote-auto-shutdown --server-data-dir C:\\Users\\jperez\\.vscode-server",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -noexit -command \"try { . \\\"c:\\Users\\jperez\\.vscode\\cli\\servers\\Stable-1a2b3c4d5e6f7a8b9c0d\\server\\out\\vs\\workbench\\contrib\\terminal\\browser\\media\\shellIntegration.ps1\\\" } catch {}\""
+        }
+      },
+      {
+        "description": "VS Code tunnel server node.exe spawns wsl.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Users\\jperez\\.vscode\\cli\\servers\\Stable-1a2b3c4d5e6f7a8b9c0d\\server\\node.exe",
+          "ParentCommandLine": "\"C:\\Users\\jperez\\.vscode\\cli\\servers\\Stable-1a2b3c4d5e6f7a8b9c0d\\server\\node.exe\" C:\\Users\\jperez\\.vscode\\cli\\servers\\Stable-1a2b3c4d5e6f7a8b9c0d\\server\\out\\server-main.js --start-server --server-data-dir C:\\Users\\jperez\\.vscode-server",
+          "Image": "C:\\Windows\\System32\\wsl.exe",
+          "CommandLine": "C:\\Windows\\System32\\wsl.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Local VS Code desktop (Code.exe) opens an integrated PowerShell terminal; parent is not the tunnel server",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+          "ParentCommandLine": "\"C:\\Users\\jperez\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe\" --type=utility --utility-sub-type=node.mojom.NodeService",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -noexit -command \"try { . \\\"c:\\Users\\jperez\\AppData\\Local\\Programs\\Microsoft VS Code\\resources\\app\\out\\vs\\workbench\\contrib\\terminal\\browser\\media\\shellIntegration.ps1\\\" } catch {}\""
+        }
+      },
+      {
+        "description": "Tunnel server node.exe spawns cmd.exe, which is not one of the listed shells",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Users\\jperez\\.vscode\\cli\\servers\\Stable-1a2b3c4d5e6f7a8b9c0d\\server\\node.exe",
+          "ParentCommandLine": "\"C:\\Users\\jperez\\.vscode\\cli\\servers\\Stable-1a2b3c4d5e6f7a8b9c0d\\server\\node.exe\" C:\\Users\\jperez\\.vscode\\cli\\servers\\Stable-1a2b3c4d5e6f7a8b9c0d\\server\\out\\server-main.js --start-server --server-data-dir C:\\Users\\jperez\\.vscode-server",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\cmd.exe /d /s /c \"git --version\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

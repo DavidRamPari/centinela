@@ -1,0 +1,144 @@
+{
+  "rule": {
+    "id": "9a4ccd1a-3526-4d99-b980-9f9c5d3a6ff3",
+    "title": "Potential Credential Dumping Via WER",
+    "level": "high",
+    "status": "test",
+    "author": "@pbssubhash , Nasreddine Bencherchali",
+    "path": "windows/process_creation/proc_creation_win_werfault_lsass_shtinkering.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_werfault_lsass_shtinkering.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "WerFault.exe se ejecutó como NT AUTHORITY\\SYSTEM con los parámetros '-u -p -ip -s' y un proceso padre distinto de lsass.exe. Este patrón coincide con LSASS Shtinkering, una técnica que abusa de Windows Error Reporting para volcar la memoria de LSASS.",
+      "what_it_detects": "Creación del proceso WerFault.exe (por Image u OriginalFileName) en la que User y ParentUser contienen 'AUTHORI'/'AUTORI' (SYSTEM en distintos idiomas) y CommandLine incluye ' -u -p ', ' -ip ' y ' -s '. Se excluyen los casos con ParentImage C:\\Windows\\System32\\lsass.exe.",
+      "why_it_matters": "En LSASS Shtinkering, un proceso que ya corre como SYSTEM le reporta a WER una excepción falsa de LSASS para que WerFault genere un volcado completo de su memoria. Ese archivo .dmp puede contener hashes NTLM, tickets Kerberos y credenciales en texto claro (MITRE ATT&CK T1003.001, LSASS Memory).",
+      "triage_steps": [
+        "Toma el PID que sigue a '-p' en CommandLine y confirma si correspondía a lsass.exe en ese host y a esa hora (eventos de creación de procesos o EDR).",
+        "Identifica el proceso del PID que sigue a '-ip'. Si es distinto de lsass.exe y '-p' apunta a LSASS, trata la alerta como volcado de credenciales.",
+        "Revisa ParentImage, ParentCommandLine y la cadena de procesos completa. Valida la ruta, el hash y la firma del proceso de '-ip' y de sus ancestros.",
+        "Busca archivos .dmp creados por WerFault.exe en el mismo host dentro de +/- 15 minutos, por ejemplo en carpetas CrashDumps o en rutas LocalDumps configuradas.",
+        "Revisa si hubo cambios recientes en HKLM\\SOFTWARE\\Microsoft\\Windows\\Windows Error Reporting\\LocalDumps (DumpType, DumpFolder) que habiliten volcados completos.",
+        "Investiga cómo se obtuvo SYSTEM: servicios nuevos, PsExec, tareas programadas, inicios de sesión administrativos y alertas previas del host o del usuario.",
+        "Busca acceso posterior a los archivos de volcado, copias a recursos compartidos, compresión o conexiones salientes desde el host."
+      ],
+      "false_positives": [
+        "Un fallo real de un proceso que corre como SYSTEM en el que WER genera un reporte legítimo; en ese caso el PID de '-p' no corresponde a LSASS.",
+        "Herramientas de diagnóstico o depuración autorizadas que usan WER durante pruebas de estabilidad, previamente documentadas por TI."
+      ],
+      "response_steps": [
+        "Si '-p' apunta a LSASS, aísla el endpoint de la red y conserva el archivo .dmp y el proceso de '-ip' para análisis forense antes de eliminarlos.",
+        "Detén el proceso de origen y elimina sus artefactos de persistencia una vez documentada la evidencia.",
+        "Restablece las credenciales de las cuentas que tuvieron sesión en el host, incluidas las cuentas de servicio y administrativas, y considera rotar krbtgt si hubo cuentas de dominio privilegiadas.",
+        "Revierte las configuraciones LocalDumps modificadas y busca la misma actividad en otros hosts.",
+        "Considera habilitar la protección de LSA (RunAsPPL) y Credential Guard para reducir el riesgo de volcados de LSASS."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque un volcado de LSASS expone credenciales reutilizables y la ejecución requiere privilegios de SYSTEM, lo que indica un compromiso avanzado."
+    },
+    "en": {
+      "summary": "WerFault.exe ran as NT AUTHORITY\\SYSTEM with '-u -p -ip -s' arguments and a parent other than lsass.exe. This matches LSASS Shtinkering, a technique that abuses Windows Error Reporting to dump LSASS memory.",
+      "what_it_detects": "Process creation of WerFault.exe (by Image or OriginalFileName) where User and ParentUser contain 'AUTHORI'/'AUTORI' (SYSTEM in several languages) and CommandLine contains ' -u -p ', ' -ip ' and ' -s '. Events with ParentImage C:\\Windows\\System32\\lsass.exe are excluded.",
+      "why_it_matters": "In LSASS Shtinkering, a process already running as SYSTEM reports a fake LSASS exception to WER so that WerFault writes a full memory dump of LSASS. That .dmp file can contain NTLM hashes, Kerberos tickets and plaintext credentials (MITRE ATT&CK T1003.001, LSASS Memory).",
+      "triage_steps": [
+        "Take the PID after '-p' in CommandLine and confirm whether it belonged to lsass.exe on that host at that time (process creation or EDR data).",
+        "Identify the process behind the PID after '-ip'. If it is not lsass.exe and '-p' points to LSASS, treat the alert as credential dumping.",
+        "Review ParentImage, ParentCommandLine and the full process tree. Check the path, hash and signer of the '-ip' process and its ancestors.",
+        "Look for .dmp files that WerFault.exe created on the same host within +/- 15 minutes, for example in CrashDumps folders or configured LocalDumps paths.",
+        "Check for recent changes under HKLM\\SOFTWARE\\Microsoft\\Windows\\Windows Error Reporting\\LocalDumps (DumpType, DumpFolder) that enable full dumps.",
+        "Find out how SYSTEM was obtained: new services, PsExec, scheduled tasks, admin logons and earlier alerts for the host or user.",
+        "Look for later access to the dump files, copies to shares, archiving or outbound connections from the host."
+      ],
+      "false_positives": [
+        "A real crash of a SYSTEM process that produces a legitimate WER report. In that case the '-p' PID is not LSASS.",
+        "Authorized diagnostic or debugging tools that use WER during stability testing, documented in advance by IT."
+      ],
+      "response_steps": [
+        "If '-p' points to LSASS, isolate the endpoint and keep the .dmp file and the '-ip' process for forensics before you remove anything.",
+        "Stop the source process and remove its persistence once you have documented the evidence.",
+        "Reset credentials for accounts that had sessions on the host, including service and admin accounts. Consider rotating krbtgt if privileged domain accounts were exposed.",
+        "Revert any modified LocalDumps settings and hunt for the same activity on other hosts.",
+        "Consider turning on LSA protection (RunAsPPL) and Credential Guard to make LSASS dumps harder."
+      ],
+      "severity_rationale": "High fits because an LSASS dump exposes reusable credentials, and this activity requires SYSTEM privileges, which points to an already advanced compromise."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WerFault.exe spawned as SYSTEM by the WER service with -p pointing to LSASS (PID 744) and -ip pointing to a different source process (PID 5320).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\WerFault.exe",
+          "OriginalFileName": "WerFault.exe",
+          "CommandLine": "C:\\Windows\\system32\\WerFault.exe -u -p 744 -ip 5320 -s 244",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentUser": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\svchost.exe -k WerSvcGroup",
+          "ProcessId": 6188,
+          "ParentProcessId": 1460
+        }
+      },
+      {
+        "description": "Same technique on a Spanish-language host (NT AUTHORITY appears as 'NT AUTORITY'), launched from a binary in ProgramData.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "Image": "C:\\Windows\\System32\\WerFault.exe",
+          "OriginalFileName": "WerFault.exe",
+          "CommandLine": "C:\\Windows\\system32\\WerFault.exe -u -p 712 -ip 4012 -s 300",
+          "User": "NT AUTORITY\\SYSTEM",
+          "ParentUser": "NT AUTORITY\\SYSTEM",
+          "ParentImage": "C:\\ProgramData\\Tools\\wersvchelper.exe",
+          "ParentCommandLine": "C:\\ProgramData\\Tools\\wersvchelper.exe",
+          "ProcessId": 4388,
+          "ParentProcessId": 4012
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "WerFault.exe launched by lsass.exe itself during a genuine LSASS crash report, excluded by filter_lsass.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\WerFault.exe",
+          "OriginalFileName": "WerFault.exe",
+          "CommandLine": "C:\\Windows\\system32\\WerFault.exe -u -p 744 -ip 744 -s 212",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentUser": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\lsass.exe",
+          "ProcessId": 5012,
+          "ParentProcessId": 744
+        }
+      },
+      {
+        "description": "WerFault.exe reporting a user application crash under a domain user account, so User and ParentUser do not contain AUTHORI/AUTORI.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\WerFault.exe",
+          "OriginalFileName": "WerFault.exe",
+          "CommandLine": "C:\\Windows\\system32\\WerFault.exe -u -p 9120 -s 1044",
+          "User": "ANDES\\jperez",
+          "ParentUser": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files\\ExampleApp\\exampleapp.exe",
+          "ProcessId": 9344,
+          "ParentProcessId": 9120
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

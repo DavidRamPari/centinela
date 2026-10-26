@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "79df3f68-dccb-48e9-9171-b75cbc37c51d",
+    "title": "Potential Lateral Movement via Windows Remote Shell",
+    "level": "medium",
+    "status": "experimental",
+    "author": "Liran Ravich",
+    "path": "windows/process_creation/proc_creation_win_winrshost_command_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_winrshost_command_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.006"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "winrshost.exe inició un proceso hijo distinto de conhost.exe. Esto indica que alguien ejecutó un comando remoto en este host mediante Windows Remote Shell (WinRS), lo que podría ser movimiento lateral.",
+      "what_it_detects": "Eventos de creación de procesos en Windows en los que ParentImage termina en \\winrshost.exe. Se excluye el proceso hijo C:\\Windows\\System32\\conhost.exe porque acompaña de forma normal a cualquier sesión de consola.",
+      "why_it_matters": "WinRS usa WinRM para ejecutar comandos en otros equipos con credenciales válidas, como en T1021.006 (Remote Services: Windows Remote Management). Un atacante con credenciales robadas puede usarlo para moverse de un equipo a otro sin dejar binarios en disco.",
+      "triage_steps": [
+        "Revise Image y CommandLine del proceso hijo. Desconfíe de cmd.exe o powershell.exe con comandos codificados, de descargas, de whoami, net o nltest y de herramientas de volcado de credenciales.",
+        "Identifique la cuenta en User o SubjectUserName y confirme si suele administrar este host por WinRM.",
+        "Busque el origen en el host destino: eventos 4624 con logon type 3 y logs de WinRM (Microsoft-Windows-WinRM/Operational) en una ventana de +/- 15 minutos.",
+        "En el equipo de origen, busque ejecuciones de winrs.exe o Invoke-Command que coincidan con la hora y apunten a este host.",
+        "Revise el árbol de procesos que cuelga del hijo y los archivos, conexiones de red y servicios que haya creado.",
+        "Compruebe si hay alertas previas para el mismo usuario, el mismo host de origen o el mismo destino, y si el mismo patrón se repite en otros hosts."
+      ],
+      "false_positives": [
+        "Uso legítimo de WinRM en la organización: administradores que ejecutan comandos con winrs.exe.",
+        "Herramientas de gestión, despliegue o automatización (scripts, orquestadores) que usan WinRS para tareas de mantenimiento."
+      ],
+      "response_steps": [
+        "Confirme con el dueño de la cuenta o con el equipo de TI si la actividad estaba autorizada.",
+        "Si no estaba autorizada, aísle el host de destino y el de origen desde el EDR y conserve la evidencia: árbol de procesos, logs de WinRM y de seguridad.",
+        "Restablezca las credenciales de la cuenta usada y revise dónde más ha iniciado sesión.",
+        "Elimine artefactos y persistencia que se hayan creado, y limite WinRM a hosts de administración autorizados."
+      ],
+      "severity_rationale": "El nivel medium es adecuado porque WinRS tiene usos administrativos legítimos, pero la ejecución remota de comandos es una técnica común de movimiento lateral que siempre hay que validar."
+    },
+    "en": {
+      "summary": "winrshost.exe started a child process other than conhost.exe. This means someone ran a remote command on this host through Windows Remote Shell (WinRS), which could be lateral movement.",
+      "what_it_detects": "Windows process creation events where ParentImage ends with \\winrshost.exe. The child C:\\Windows\\System32\\conhost.exe is excluded because it normally comes with any console session.",
+      "why_it_matters": "WinRS uses WinRM to run commands on other machines with valid credentials, as in T1021.006 (Remote Services: Windows Remote Management). An attacker with stolen credentials can use it to move between hosts without dropping binaries on disk.",
+      "triage_steps": [
+        "Review the child process Image and CommandLine. Be suspicious of cmd.exe or powershell.exe with encoded commands, downloads, whoami, net or nltest, and credential-dumping tools.",
+        "Identify the account in User or SubjectUserName and confirm it normally administers this host over WinRM.",
+        "Find the source on the target host: 4624 logon type 3 events and WinRM logs (Microsoft-Windows-WinRM/Operational) within +/- 15 minutes.",
+        "On the source host, look for winrs.exe or Invoke-Command executions that match the time and target this host.",
+        "Review the child process tree and any files, network connections or services it created.",
+        "Check for earlier alerts for the same user, source host or target, and whether the same pattern repeats on other hosts."
+      ],
+      "false_positives": [
+        "Legitimate WinRM use in the organization, such as administrators running commands with winrs.exe.",
+        "Management, deployment or automation tools (scripts, orchestrators) that use WinRS for maintenance tasks."
+      ],
+      "response_steps": [
+        "Confirm with the account owner or IT that the activity was authorized.",
+        "If it was not, isolate the target and source hosts with EDR and keep the evidence: process tree, WinRM logs and security logs.",
+        "Reset the credentials of the account used and review where else it has logged on.",
+        "Remove any artifacts or persistence that were created, and restrict WinRM to authorized admin hosts."
+      ],
+      "severity_rationale": "Medium fits because WinRS has legitimate admin uses, but remote command execution is a common lateral movement technique that always needs to be checked."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe spawned by winrshost.exe running reconnaissance commands remotely",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\winrshost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\WinrsHost.exe -Embedding",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\cmd.exe\" /c whoami /all & nltest /dclist:andes",
+          "ProcessId": 6120
+        }
+      },
+      {
+        "description": "PowerShell launched via WinRS session",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\svc-backup",
+          "ParentImage": "C:\\Windows\\System32\\WinrsHost.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell",
+          "ProcessId": 4388
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "conhost.exe child of winrshost.exe, excluded by filter_main_conhost",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\winrshost.exe",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "ProcessId": 6104
+        }
+      },
+      {
+        "description": "cmd.exe started by explorer.exe locally, parent is not winrshost.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\cmd.exe\"",
+          "ProcessId": 7012
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

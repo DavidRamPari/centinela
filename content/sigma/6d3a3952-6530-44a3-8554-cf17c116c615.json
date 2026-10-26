@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "6d3a3952-6530-44a3-8554-cf17c116c615",
+    "title": "Potentially Suspicious JWT Token Search Via CLI",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), kagebunsher",
+    "path": "windows/process_creation/proc_creation_win_susp_jwt_token_search.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_jwt_token_search.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1528",
+      "T1552.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Una línea de comandos usó una herramienta de búsqueda de texto (find, findstr, Select-String o strings) para buscar el prefijo base64 del encabezado de un JWT. Es posible que alguien en este equipo esté buscando tokens de acceso guardados en disco o en volcados de memoria.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene una herramienta de búsqueda (find, find.exe, findstr, select-string, strings) y además un prefijo de encabezado JWT como eyJ0eX o eyJhbG, que en base64 equivalen a {\"typ\": y {\"alg\":.",
+      "why_it_matters": "Los JWT son tokens bearer de Microsoft 365, Azure, AWS, Google Cloud y otros servicios. Quien roba uno puede usarlo sin contraseña ni MFA. Corresponde a ATT&CK T1528 (robo de tokens de acceso de aplicaciones) y T1552.001 (credenciales en archivos).",
+      "triage_steps": [
+        "Lea el CommandLine completo: qué rutas o archivos se buscaron (cachés de Office, navegador, Teams, Azure CLI, archivos .json/.log, volcados de memoria) y si la salida se redirigió a un archivo.",
+        "Identifique el usuario y el ParentImage. Un cmd o PowerShell interactivo de un usuario normal no es lo mismo que un script, un agente RMM o un binario desconocido.",
+        "Verifique si el usuario es desarrollador o administrador y su trabajo implica manejar tokens, y confirme la actividad con él.",
+        "Revise el mismo equipo en +/- 15 minutos en busca de volcados de procesos (procdump, comsvcs MiniDump), compresión de archivos, acceso al portapapeles o cargas salientes.",
+        "Busque el archivo de salida que haya generado la búsqueda y compruebe si después se leyó, se copió o se envió por la red.",
+        "Revise los registros de inicio de sesión del proveedor de identidad para detectar uso de los tokens del usuario desde IP, dispositivos o ubicaciones nuevas después de la alerta.",
+        "Busque alertas previas del mismo equipo o usuario, y la misma línea de comandos en otros endpoints."
+      ],
+      "false_positives": [
+        "Desarrolladores o equipos de QA que buscan JWT en logs o archivos de configuración mientras depuran la autenticación.",
+        "Equipos de seguridad o ejercicios de red team que auditan los endpoints en busca de tokens expuestos.",
+        "Administradores que buscan en logs de aplicaciones para resolver problemas de integraciones SSO u OAuth."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del activo si la búsqueda estaba autorizada. Conserve como evidencia la línea de comandos, los archivos de salida y la cadena de procesos padre.",
+        "Si no estaba autorizada, aísle el endpoint y revoque las sesiones y los refresh tokens del usuario en los proveedores de identidad afectados.",
+        "Localice y elimine los archivos con tokens recolectados, junto con las herramientas o scripts que ejecutaron la búsqueda.",
+        "Rote las credenciales y los secretos de aplicación expuestos, y vigile los inicios de sesión por si se reutilizan tokens emitidos antes de la revocación."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque buscar prefijos JWT sugiere con fuerza una búsqueda de tokens, pero desarrolladores y administradores a veces lo hacen de forma legítima, así que hace falta contexto antes de escalar."
+    },
+    "en": {
+      "summary": "A command line used a text search tool (find, findstr, Select-String or strings) to look for the base64 prefix of a JWT header. Someone on this host may be hunting for access tokens stored on disk or in memory dumps.",
+      "what_it_detects": "Process creation events where CommandLine contains a search tool (find, find.exe, findstr, select-string, strings) and also a JWT header prefix such as eyJ0eX or eyJhbG, which are base64 for {\"typ\": and {\"alg\":.",
+      "why_it_matters": "JWTs are bearer tokens for Microsoft 365, Azure, AWS, Google Cloud and other services. Anyone who steals one can use it without a password or MFA. This maps to ATT&CK T1528 (Steal Application Access Token) and T1552.001 (Credentials in Files).",
+      "triage_steps": [
+        "Read the full CommandLine: which paths or files were searched (Office, browser, Teams, Azure CLI caches, .json/.log files, memory dumps) and whether output was redirected to a file.",
+        "Identify the user and ParentImage. Interactive cmd/PowerShell from a normal user is different from a script, an RMM agent or an unknown binary.",
+        "Check whether the user is a developer or administrator whose job involves handling tokens, and confirm the activity with them.",
+        "Pivot on the same host within +/- 15 minutes for process dumps (procdump, comsvcs MiniDump), archiving, clipboard access or outbound uploads.",
+        "Look for any output file the search created and check whether it was later read, copied or sent over the network.",
+        "Review identity provider sign-in logs for the user's tokens being used from new IPs, devices or locations after the alert time.",
+        "Search for earlier alerts on the same host or user, and for the same command line on other endpoints."
+      ],
+      "false_positives": [
+        "Developers or QA engineers grepping logs or config files for JWTs while debugging authentication.",
+        "Security teams or red team exercises auditing endpoints for exposed tokens.",
+        "Administrators troubleshooting SSO or OAuth integrations by searching application logs."
+      ],
+      "response_steps": [
+        "Verify with the user or the asset owner whether the search was authorized. Keep the command line, output files and parent process chain as evidence.",
+        "If it was not authorized, isolate the endpoint and revoke the user's sessions and refresh tokens in the affected identity providers.",
+        "Find and remove any files holding harvested tokens, along with the tooling or scripts that ran the search.",
+        "Rotate exposed credentials and app secrets, and watch sign-in logs for replay of tokens issued before the revocation."
+      ],
+      "severity_rationale": "Medium fits because searching for JWT prefixes strongly suggests token hunting, but developers and admins sometimes do it legitimately, so context is needed before escalating."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "findstr recursively searching the Office token cache for the JWT typ header prefix",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "findstr /s /i \"eyJ0eX\" C:\\Users\\jperez\\AppData\\Local\\Microsoft\\Office\\*.* > C:\\Users\\Public\\out.txt"
+        }
+      },
+      {
+        "description": "PowerShell Select-String searching JSON files for the JWT alg header prefix",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -c Get-ChildItem C:\\Users\\mrojas\\.azure -Recurse | Select-String -Pattern 'eyJhbG'"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "findstr used legitimately to search a log for errors, no JWT prefix",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "findstr /i \"error\" C:\\Logs\\app.log"
+        }
+      },
+      {
+        "description": "curl sending a JWT in an Authorization header with no search tool in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\curl.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "curl.exe -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.e30.placeholder\" https://api.example.com/v1/items"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

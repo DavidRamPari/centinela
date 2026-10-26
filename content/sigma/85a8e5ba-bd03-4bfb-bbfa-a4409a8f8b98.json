@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "85a8e5ba-bd03-4bfb-bbfa-a4409a8f8b98",
+    "title": "Folder Compress To Potentially Suspicious Output Via Compress-Archive Cmdlet",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), frack113",
+    "path": "windows/process_creation/proc_creation_win_powershell_zip_compress.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_zip_compress.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1074.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó el cmdlet Compress-Archive de PowerShell y guardó el archivo comprimido en una carpeta temporal ($env:TEMP, AppData\\Local\\Temp o C:\\Windows\\Temp). Puede indicar que se están reuniendo datos antes de exfiltrarlos.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene 'Compress-Archive -Path' seguido de '-DestinationPath' con destino en $env:TEMP, en una ruta \\AppData\\Local\\Temp\\ o en :\\Windows\\Temp\\.",
+      "why_it_matters": "Los atacantes juntan documentos sensibles en una carpeta local y los comprimen para moverlos con facilidad y enviar menos datos por la red (MITRE ATT&CK T1074.001, Local Data Staging). Suele ser el paso previo a la exfiltración.",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique qué rutas van en -Path (documentos, perfiles, recursos compartidos, bases de datos) y el nombre del archivo de salida.",
+        "Revise ParentImage y la cadena de procesos padre: ¿viene de explorer.exe, de una herramienta de gestión, de Office, de wscript o de una sesión remota (wsmprovhost.exe)?",
+        "Valide el usuario y el host: ¿es una cuenta de servicio, un administrador o un usuario sin motivo para comprimir esos datos?",
+        "Busque en el mismo host, entre 15 minutos antes y 15 minutos después, procesos y conexiones de red posteriores: curl, bitsadmin, rclone, Invoke-WebRequest, subidas a la nube o tráfico saliente grande.",
+        "Compruebe si el ZIP aún existe en la carpeta temporal y registre su tamaño, su hash y su fecha de creación; no lo abra en el endpoint afectado.",
+        "Busque en el entorno el mismo comando o el mismo nombre de archivo en otros hosts y revise alertas anteriores del mismo usuario y del mismo host."
+      ],
+      "false_positives": [
+        "Scripts legítimos de respaldo, recolección de logs o soporte técnico que comprimen archivos en TEMP antes de copiarlos.",
+        "Instaladores, herramientas de despliegue o pipelines de CI que empaquetan artefactos en carpetas temporales.",
+        "Administradores que reúnen archivos de diagnóstico a pedido de un proveedor."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con el dueño del script si la actividad era esperada y documente quién la autorizó.",
+        "Si no está justificada, aísle el endpoint desde el EDR y preserve el ZIP y los logs de PowerShell (4104) como evidencia.",
+        "Bloquee los destinos de exfiltración que identifique y revoque o restablezca las credenciales de la cuenta involucrada.",
+        "Determine el alcance: qué datos se comprimieron, si salieron de la red y si hay otros hosts afectados; escale a respuesta a incidentes si corresponde.",
+        "Después de verificar, elimine los artefactos y los mecanismos de persistencia, y luego restaure el equipo a operación normal."
+      ],
+      "severity_rationale": "El nivel medium es adecuado porque comprimir datos en TEMP es una señal fuerte de preparación de datos, pero hay scripts administrativos que lo hacen de forma legítima y no prueba por sí solo que haya exfiltración."
+    },
+    "en": {
+      "summary": "A process ran the PowerShell Compress-Archive cmdlet and wrote the archive to a temporary folder ($env:TEMP, AppData\\Local\\Temp or C:\\Windows\\Temp). This may mean data is being staged for exfiltration.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains 'Compress-Archive -Path' followed by '-DestinationPath' pointing to $env:TEMP, a \\AppData\\Local\\Temp\\ path or :\\Windows\\Temp\\.",
+      "why_it_matters": "Attackers gather sensitive files in one local folder and compress them so they are easy to move and smaller to send over the network (MITRE ATT&CK T1074.001, Local Data Staging). This step often comes right before exfiltration.",
+      "triage_steps": [
+        "Read the full CommandLine: note which paths are in -Path (documents, profiles, shares, databases) and the output archive name.",
+        "Check ParentImage and the parent process chain: explorer.exe, a management agent, Office, wscript or a remote session (wsmprovhost.exe)?",
+        "Check the user and host: is it a service account, an admin, or a user with no reason to compress this data?",
+        "On the same host, from 15 minutes before to 15 minutes after, look for follow-up activity: curl, bitsadmin, rclone, Invoke-WebRequest, cloud uploads or large outbound traffic.",
+        "Check whether the ZIP still exists in the temp folder and record its size, hash and creation time. Do not open it on the affected endpoint.",
+        "Search for the same command or archive name on other hosts, and review earlier alerts for the same user and host."
+      ],
+      "false_positives": [
+        "Legitimate backup, log collection or helpdesk scripts that compress files into TEMP before copying them.",
+        "Installers, deployment tools or CI pipelines that package artifacts in temporary folders.",
+        "Administrators collecting diagnostic bundles at a vendor's request."
+      ],
+      "response_steps": [
+        "Ask the user or the script owner whether the activity was expected, and record who approved it.",
+        "If it is not justified, isolate the endpoint through EDR and keep the ZIP and PowerShell 4104 logs as evidence.",
+        "Block any exfiltration destinations you find, and revoke or reset the credentials of the account involved.",
+        "Work out the scope: what data was compressed, whether it left the network and which other hosts are affected. Escalate to incident response if needed.",
+        "After verification, remove the artifacts and any persistence, then return the system to normal operation."
+      ],
+      "severity_rationale": "Medium fits because compressing data into TEMP is a strong sign of data staging, but admin scripts also do it legitimately and it does not prove exfiltration by itself."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell compresses a user's Finance documents folder into $env:TEMP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Compress-Archive -Path C:\\Users\\jperez\\Documents\\Finance -DestinationPath $env:TEMP\\fin_q3.zip\"",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "Desktop contents compressed into C:\\Windows\\Temp",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\wsmprovhost.exe",
+          "CommandLine": "powershell.exe -ep bypass -c Compress-Archive -Path C:\\Users\\mrojas\\Desktop\\* -DestinationPath C:\\Windows\\Temp\\data.zip -Force",
+          "CurrentDirectory": "C:\\Windows\\System32\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Compress-Archive writes a build artifact to a backup drive, not a temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-03.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "ParentImage": "C:\\agent\\bin\\Agent.Worker.exe",
+          "CommandLine": "pwsh.exe -NoProfile -Command \"Compress-Archive -Path C:\\Projects\\app\\bin\\Release -DestinationPath D:\\Backups\\app_release.zip\"",
+          "CurrentDirectory": "C:\\Projects\\app\\"
+        }
+      },
+      {
+        "description": "Expand-Archive extracts a zip from TEMP (decompression, not Compress-Archive)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command \"Expand-Archive -Path $env:TEMP\\tools.zip -DestinationPath C:\\Tools\"",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

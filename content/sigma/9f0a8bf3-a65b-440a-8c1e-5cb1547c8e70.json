@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "9f0a8bf3-a65b-440a-8c1e-5cb1547c8e70",
+    "title": "New DLL Registered Via Odbcconf.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Kirill Kiryanov, Beyu Denis, Daniil Yugoslavskiy, oscd.community, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_odbcconf_register_dll_regsvr.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_odbcconf_register_dll_regsvr.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.008"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó odbcconf.exe con la acción REGSVR para registrar una DLL, lo que equivale a ejecutar regsvr32. Puede ser una instalación legítima de un controlador ODBC o la carga de una DLL maliciosa mediante un binario firmado de Microsoft.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\odbcconf.exe u OriginalFileName es odbcconf.exe, y el CommandLine contiene 'REGSVR ' y '.dll'. El indicador /A no es obligatorio para que la acción se ejecute.",
+      "why_it_matters": "La acción REGSVR carga la DLL dentro de odbcconf.exe y llama a su función de registro, así que el código de la DLL se ejecuta bajo un binario de confianza. Es ejecución de proxy mediante binarios firmados (ATT&CK T1218.008) y sirve para evadir controles de lista blanca.",
+      "triage_steps": [
+        "Revise el CommandLine e identifique la ruta de la DLL. Las rutas escribibles por el usuario (Temp, AppData, ProgramData, Users\\Public, unidades extraíbles o recursos de red) son sospechosas.",
+        "Compare Image con OriginalFileName. Si odbcconf.exe se renombró o se ejecuta fuera de System32 o SysWOW64, aumente la prioridad.",
+        "Analice ParentImage y la cadena de procesos padre: explorer, cmd, msiexec, Office o scripts lanzados desde un USB o un .lnk merecen más atención.",
+        "Obtenga el hash, la firma y la fecha de creación de la DLL. Consulte su reputación y busque qué proceso escribió el archivo.",
+        "En el mismo host, dentro de +/- 15 minutos, busque procesos hijo, conexiones de red y cambios en el registro asociados a odbcconf.exe.",
+        "Pivote por el usuario y el hash de la DLL en otros endpoints, y revise alertas anteriores de la misma entidad."
+      ],
+      "false_positives": [
+        "Instaladores de controladores ODBC o de software de bases de datos que registran DLLs firmadas por el proveedor en Program Files o System32.",
+        "Scripts de despliegue de TI o herramientas de gestión de software que usan odbcconf para configurar componentes autorizados."
+      ],
+      "response_steps": [
+        "Valide con el responsable del equipo o con TI si el registro estaba autorizado, y verifique la firma y el contenido de la DLL.",
+        "Si es malicioso, aísle el endpoint y conserve la DLL, la memoria y los logs relevantes para el análisis.",
+        "Bloquee el hash de la DLL, busque el mismo artefacto en toda la flota y elimine la persistencia asociada después de verificarla.",
+        "Restablezca las credenciales del usuario afectado si hay indicios de compromiso, y restaure el equipo desde una línea base limpia si es necesario."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque la técnica es una evasión conocida, pero también existen registros legítimos que deben verificarse según la ruta y la firma de la DLL."
+    },
+    "en": {
+      "summary": "odbcconf.exe ran the REGSVR action to register a DLL, which is the same as running regsvr32. This may be a legitimate ODBC driver install or a malicious DLL loaded through a signed Microsoft binary.",
+      "what_it_detects": "Process creation events where Image ends with \\odbcconf.exe or OriginalFileName is odbcconf.exe, and CommandLine contains both 'REGSVR ' and '.dll'. The /A flag is not required for the action to run.",
+      "why_it_matters": "REGSVR loads the DLL into odbcconf.exe and calls its registration export, so the DLL's code runs under a trusted binary. This is signed binary proxy execution (ATT&CK T1218.008) and helps bypass allowlisting.",
+      "triage_steps": [
+        "Read the DLL path in CommandLine. User-writable paths (Temp, AppData, ProgramData, Users\\Public, removable drives, network shares) are suspicious.",
+        "Compare Image with OriginalFileName. A renamed odbcconf.exe, or one running outside System32 or SysWOW64, raises priority.",
+        "Review ParentImage and the parent chain. Explorer, cmd, msiexec, Office, or scripts started from a USB drive or .lnk file deserve extra scrutiny.",
+        "Get the DLL's hash, signature and creation time. Check its reputation and find which process wrote it.",
+        "On the same host, within +/- 15 minutes, look for child processes, network connections and registry changes tied to odbcconf.exe.",
+        "Pivot on the user and the DLL hash across other endpoints, and review earlier alerts for the same entity."
+      ],
+      "false_positives": [
+        "ODBC driver or database software installers registering vendor-signed DLLs in Program Files or System32.",
+        "IT deployment scripts or software management tools using odbcconf to configure approved components."
+      ],
+      "response_steps": [
+        "Confirm with the asset owner or IT that the registration was authorized, and verify the DLL's signature and content.",
+        "If malicious, isolate the endpoint and preserve the DLL, memory and relevant logs.",
+        "Block the DLL hash, hunt for it across the fleet, and remove related persistence once verified.",
+        "Reset the affected user's credentials if compromise is likely, and reimage from a clean baseline if needed."
+      ],
+      "severity_rationale": "Medium fits because this is a known evasion technique, but legitimate registrations also happen and need checking by DLL path and signature."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "odbcconf.exe registers a DLL from the user's Temp folder. The parent is cmd.exe.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\odbcconf.exe",
+          "OriginalFileName": "odbcconf.exe",
+          "CommandLine": "odbcconf.exe /a {REGSVR C:\\Users\\jperez\\AppData\\Local\\Temp\\upd4471.dll}",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start odbcconf.exe /a {REGSVR C:\\Users\\jperez\\AppData\\Local\\Temp\\upd4471.dll}",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "A renamed odbcconf copy (matched by OriginalFileName) registers a DLL from ProgramData without the /A flag.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "odbcconf.exe",
+          "CommandLine": "svchelper.exe REGSVR C:\\ProgramData\\cache\\core.dll",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate odbcconf use that creates a system DSN. There is no REGSVR action and no .dll in the command line.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-DB-03",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\System32\\odbcconf.exe",
+          "OriginalFileName": "odbcconf.exe",
+          "CommandLine": "odbcconf.exe /a {CONFIGSYSDSN \"SQL Server\" \"DSN=Ventas|Server=sql01.example.com\"}",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      },
+      {
+        "description": "A DLL registered with regsvr32.exe instead of odbcconf. The image and OriginalFileName do not match the rule.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\regsvr32.exe",
+          "OriginalFileName": "REGSVR32.EXE",
+          "CommandLine": "regsvr32.exe /s C:\\Program Files\\Contoso\\driver.dll",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

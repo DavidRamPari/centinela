@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "38879043-7e1e-47a9-8d46-6bec88e201df",
+    "title": "Potential Persistence Attempt Via Existing Service Tampering",
+    "level": "medium",
+    "status": "test",
+    "author": "Sreeman",
+    "path": "windows/process_creation/proc_creation_win_sc_service_tamper_for_persistence.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sc_service_tamper_for_persistence.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1543.003",
+      "T1574.011"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó sc o reg para cambiar la ruta del binario (binpath/ImagePath) o el comando de recuperación ante fallos (failure command/FailureCommand) de un servicio existente. Así se puede ejecutar un payload arbitrario cuando el servicio arranca o falla.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene 'sc config ... binpath=' o 'sc failure ... command='. También detecta 'reg add' sobre ImagePath o FailureCommand cuando el valor apunta a un archivo ejecutable o script (.exe, .dll, .bat, .ps, .js, .vb, etc.).",
+      "why_it_matters": "Si un atacante modifica un servicio legítimo, su código se ejecuta como SYSTEM en cada reinicio o tras cada fallo. Esto le da persistencia y escalamiento de privilegios sin crear un servicio nuevo que llame la atención (ATT&CK T1543.003 Windows Service y T1574.011 Services Registry Permissions Weakness).",
+      "triage_steps": [
+        "Lea el CommandLine completo e identifique el servicio afectado y la nueva ruta en binpath=, command=, ImagePath o FailureCommand.",
+        "Compare esa ruta con el valor original del servicio. Las rutas en Users, ProgramData, Temp o Public, o que invocan cmd/powershell, son sospechosas.",
+        "Revise User, ParentImage y la cadena de procesos padre. Determine si lo lanzó un instalador o agente de gestión conocido, o una shell interactiva.",
+        "Obtenga el hash del binario o script referenciado y consulte su reputación. Verifique también su firma digital y su fecha de creación en disco.",
+        "Busque en el mismo host, en un rango de +/- 15 minutos, la descarga o creación del payload, 'sc stop/start', reinicios del servicio y el evento 7045/7040.",
+        "Consulte HKLM\\SYSTEM\\CurrentControlSet\\Services\\<servicio> para confirmar el valor actual de ImagePath y FailureActions.",
+        "Pivote por usuario y host en busca de alertas previas, accesos remotos (RDP, PsExec, WinRM) o el mismo cambio en otros endpoints."
+      ],
+      "false_positives": [
+        "Instaladores o actualizaciones de software que reconfiguran la ruta de su propio servicio.",
+        "Administradores o scripts de despliegue (SCCM, GPO, Ansible) que ajustan binpath o acciones de recuperación de servicios.",
+        "Herramientas de monitoreo que definen un comando de recuperación ante fallos para reiniciar o alertar."
+      ],
+      "response_steps": [
+        "Valide con el dueño del sistema o con el registro de cambios si la modificación estaba autorizada.",
+        "Si es maliciosa, aísle el endpoint y detenga el servicio antes de que se reinicie o vuelva a fallar.",
+        "Restaure ImagePath/FailureCommand al valor original y verifíquelo con 'sc qc' y 'sc qfailure'. Ponga en cuarentena el payload y preserve una copia como evidencia.",
+        "Revoque o rote las credenciales de la cuenta usada y busque el mismo indicador en toda la flota.",
+        "Monitoree el host después de la limpieza para detectar nuevos cambios en servicios."
+      ],
+      "severity_rationale": "Es media porque la técnica permite persistencia como SYSTEM, pero los administradores e instaladores legítimos también reconfiguran servicios, así que cada caso se debe confirmar con el contexto."
+    },
+    "en": {
+      "summary": "sc or reg was run to change an existing service's binary path (binpath/ImagePath) or failure recovery command (failure command/FailureCommand). This can make an arbitrary payload run when the service starts or crashes.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains 'sc config ... binpath=' or 'sc failure ... command='. It also catches 'reg add' on ImagePath or FailureCommand when the value points to an executable or script file (.exe, .dll, .bat, .ps, .js, .vb, etc.).",
+      "why_it_matters": "If attackers hijack a legitimate service, their code runs as SYSTEM on every start or failure. This gives them persistence and privilege escalation without the noise of creating a new service (ATT&CK T1543.003 Windows Service and T1574.011 Services Registry Permissions Weakness).",
+      "triage_steps": [
+        "Read the full CommandLine. Identify the target service and the new path in binpath=, command=, ImagePath or FailureCommand.",
+        "Compare that path with the service's original value. Paths under Users, ProgramData, Temp or Public, or ones that invoke cmd/powershell, are suspicious.",
+        "Review User, ParentImage and the parent process chain. Check whether a known installer or management agent ran it, or an interactive shell.",
+        "Get the hash of the referenced binary or script and check its reputation. Also check its signature and when it was created on disk.",
+        "On the same host, within +/- 15 minutes, look for payload download or creation, 'sc stop/start', service restarts and events 7045/7040.",
+        "Query HKLM\\SYSTEM\\CurrentControlSet\\Services\\<service> to confirm the current ImagePath and FailureActions.",
+        "Pivot on the user and host for earlier alerts, remote access (RDP, PsExec, WinRM) or the same change on other endpoints."
+      ],
+      "false_positives": [
+        "Software installers or updates that reconfigure their own service path.",
+        "Admins or deployment scripts (SCCM, GPO, Ansible) adjusting binpath or service recovery actions.",
+        "Monitoring tools that set a failure recovery command to restart a service or send an alert."
+      ],
+      "response_steps": [
+        "Check with the system owner or the change records whether the modification was authorized.",
+        "If it is malicious, isolate the endpoint and stop the service before it restarts or fails again.",
+        "Restore ImagePath/FailureCommand to the original value and verify it with 'sc qc' and 'sc qfailure'. Quarantine the payload and keep a copy as evidence.",
+        "Revoke or rotate the credentials of the account used, and hunt for the same indicator across the fleet.",
+        "Monitor the host after cleanup for further service changes."
+      ],
+      "severity_rationale": "Medium fits because the technique gives SYSTEM-level persistence, but admins and installers also reconfigure services legitimately, so each case needs context to confirm."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "sc config replaces the wuauserv binary path with a payload in C:\\Users\\Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "sc config wuauserv binpath= \"C:\\Users\\Public\\svchelper.exe\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "reg add overwrites a service's ImagePath with an executable in ProgramData",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\Spooler\" /v ImagePath /t REG_EXPAND_SZ /d \"C:\\ProgramData\\upd.exe\" /f",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "sc query only reads the service status, with no config or failure change",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "sc query wuauserv",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "sc config changes only the start type, with no binpath= parameter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.ops",
+          "Image": "C:\\Windows\\System32\\sc.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "sc config wuauserv start= auto",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

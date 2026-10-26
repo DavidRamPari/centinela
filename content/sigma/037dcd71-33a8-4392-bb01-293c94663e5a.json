@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "037dcd71-33a8-4392-bb01-293c94663e5a",
+    "title": "File Decryption Using Gpg4win",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_gpg4win_decryption.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_gpg4win_decryption.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó GnuPG (gpg.exe/gpg2.exe, o un binario con su descripción) para descifrar un archivo con la frase de contraseña en la línea de comandos. Esto puede indicar que un loader descifra un payload en disco.",
+      "what_it_detects": "Procesos cuyo Image termina en \\gpg.exe o \\gpg2.exe, o cuyo Description es 'GnuPG’s OpenPGP tool', y cuyo CommandLine contiene ' -d ' y 'passphrase' (por ejemplo --passphrase o --passphrase-fd).",
+      "why_it_matters": "Las referencias de la regla describen loaders como BatLoader y ZLoader que usan Gpg4win para descifrar payloads cifrados y así evadir el análisis estático. Corresponde a la táctica Execution de ATT&CK y suele preceder a la ejecución del binario descifrado.",
+      "triage_steps": [
+        "Revise CommandLine: archivo de entrada, ruta de salida (-o) y frase de contraseña. Las rutas en Temp, AppData, ProgramData o Users\\Public son sospechosas.",
+        "Compare Image con Description: un binario con la descripción de GnuPG fuera de Program Files (x86)\\GnuPG\\bin indica una copia renombrada o incluida en un paquete malicioso.",
+        "Analice ParentImage y la cadena de procesos. Son señales de alerta msiexec, wscript, powershell, cmd lanzado desde un instalador o procesos de Office.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, la creación del archivo descifrado y su ejecución posterior (procesos hijo, rundll32, msiexec).",
+        "Obtenga el hash del archivo descifrado y del .gpg de origen, y consúltelos en su plataforma de threat intelligence o sandbox.",
+        "Verifique si el usuario usa GnuPG de forma legítima y si hay alertas previas o conexiones de red recientes del mismo host o usuario."
+      ],
+      "false_positives": [
+        "Scripts de administración o respaldo que descifran archivos con gpg en modo batch y pasan la frase de contraseña en la línea de comandos.",
+        "Pipelines de CI/CD o tareas programadas que descifran secretos o configuraciones con Gpg4win.",
+        "Usuarios técnicos que descifran archivos manualmente con --passphrase durante pruebas."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del host o del script si la ejecución era esperada antes de actuar.",
+        "Si es malicioso, aísle el endpoint y conserve el archivo .gpg, el archivo descifrado y la memoria para análisis forense.",
+        "Bloquee los hashes identificados y busque los mismos indicadores en otros endpoints.",
+        "Elimine el payload y la persistencia relacionada, rote las credenciales expuestas y restaure el host desde una imagen confiable si hubo compromiso."
+      ],
+      "severity_rationale": "Medium es adecuado porque el descifrado no interactivo con GnuPG es poco común en estaciones de trabajo y lo usan loaders conocidos, aunque también tiene usos administrativos legítimos."
+    },
+    "en": {
+      "summary": "GnuPG (gpg.exe/gpg2.exe, or a binary carrying its description) decrypted a file with the passphrase supplied on the command line. A loader may be decrypting a payload to disk.",
+      "what_it_detects": "Processes whose Image ends with \\gpg.exe or \\gpg2.exe, or whose Description is 'GnuPG’s OpenPGP tool', and whose CommandLine contains both ' -d ' and 'passphrase' (such as --passphrase or --passphrase-fd).",
+      "why_it_matters": "The rule's references describe loaders such as BatLoader and ZLoader using Gpg4win to decrypt encrypted payloads and evade static analysis. This maps to the ATT&CK Execution tactic and usually comes just before the decrypted binary runs.",
+      "triage_steps": [
+        "Read CommandLine: input file, output path (-o) and passphrase. Paths under Temp, AppData, ProgramData or Users\\Public are suspicious.",
+        "Compare Image with Description. A GnuPG-described binary outside Program Files (x86)\\GnuPG\\bin suggests a renamed or bundled copy.",
+        "Review ParentImage and the process tree. Watch for msiexec, wscript, powershell, installer-spawned cmd or Office processes.",
+        "On the same host, within +/- 15 minutes, look for creation of the decrypted file and its execution (child processes, rundll32, msiexec).",
+        "Hash the decrypted output and the source .gpg file, and check them in threat intelligence or a sandbox.",
+        "Check whether the user legitimately uses GnuPG, and look for earlier alerts or recent network connections for the same host or user."
+      ],
+      "false_positives": [
+        "Admin or backup scripts that decrypt files with gpg in batch mode and pass the passphrase on the command line.",
+        "CI/CD pipelines or scheduled tasks that decrypt secrets or configuration files with Gpg4win.",
+        "Technical users who decrypt files manually with --passphrase while testing."
+      ],
+      "response_steps": [
+        "Before acting, confirm with the host or script owner whether the run was expected.",
+        "If malicious, isolate the endpoint and preserve the .gpg file, the decrypted output and memory for forensics.",
+        "Block the identified hashes and hunt for the same indicators on other endpoints.",
+        "Remove the payload and any persistence, rotate exposed credentials, and reimage from a trusted baseline if the host was compromised."
+      ],
+      "severity_rationale": "Medium fits: non-interactive GnuPG decryption is uncommon on workstations and known loaders use it, but it also has legitimate admin uses."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Gpg4win gpg.exe launched by msiexec decrypts a payload into Users\\Public with an inline passphrase",
+        "event": {
+          "Image": "C:\\Program Files (x86)\\GnuPG\\bin\\gpg.exe",
+          "Description": "GnuPG’s OpenPGP tool",
+          "CommandLine": "\"C:\\Program Files (x86)\\GnuPG\\bin\\gpg.exe\" --batch --yes --passphrase gR7kq2xW -o C:\\Users\\Public\\update.msi -d C:\\Users\\Public\\update.msi.gpg",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142",
+          "EventID": 1
+        }
+      },
+      {
+        "description": "Renamed GnuPG binary in Temp, matched by Description, decrypts a file with --passphrase-fd",
+        "event": {
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\svcupd.exe",
+          "Description": "GnuPG’s OpenPGP tool",
+          "CommandLine": "svcupd.exe --batch --passphrase-fd 0 -o C:\\Users\\jperez\\AppData\\Local\\Temp\\lib.dll -d C:\\Users\\jperez\\AppData\\Local\\Temp\\lib.gpg",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142",
+          "EventID": 1
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Interactive decryption with gpg.exe -d: no passphrase on the command line, so the CommandLine selection fails",
+        "event": {
+          "Image": "C:\\Program Files (x86)\\GnuPG\\bin\\gpg.exe",
+          "Description": "GnuPG’s OpenPGP tool",
+          "CommandLine": "\"C:\\Program Files (x86)\\GnuPG\\bin\\gpg.exe\" -d C:\\Users\\mrojas\\Documents\\report.pdf.gpg",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "User": "ANDES\\mrojas",
+          "Computer": "WS-0210",
+          "EventID": 1
+        }
+      },
+      {
+        "description": "Backup script uses the long --decrypt option with a passphrase, so ' -d ' does not appear",
+        "event": {
+          "Image": "C:\\Program Files (x86)\\GnuPG\\bin\\gpg.exe",
+          "Description": "GnuPG’s OpenPGP tool",
+          "CommandLine": "\"C:\\Program Files (x86)\\GnuPG\\bin\\gpg.exe\" --batch --passphrase-file C:\\Backup\\key.txt --output D:\\restore\\db.bak --decrypt D:\\backup\\db.bak.gpg",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\svc_backup",
+          "Computer": "SRV-BKP-01",
+          "EventID": 1
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "fabfb3a7-3ce1-4445-9c7c-3c27f1051cdd",
+    "title": "Potential ReflectDebugger Content Execution Via WerFault.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "X__Junior (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_werfault_reflect_debugger_exec.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_werfault_reflect_debugger_exec.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó WerFault.exe con el parámetro \"-pr\", que lanza el programa configurado en el valor de registro ReflectDebugger. Este uso es poco común en reportes de errores legítimos y puede ocultar la ejecución de malware.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\WerFault.exe u OriginalFileName es WerFault.exe, y CommandLine contiene \" -pr \" (por ejemplo, \"WerFault.exe -pr 1\").",
+      "why_it_matters": "Un atacante puede guardar la ruta de su malware en HKLM\\SOFTWARE\\Microsoft\\Windows\\Windows Error Reporting\\Hangs\\ReflectDebugger y hacer que el binario firmado WerFault.exe lo ejecute, enmascarando el flujo de ejecución (T1036) y, a veces, logrando persistencia.",
+      "triage_steps": [
+        "Revise CommandLine, ParentImage, ParentCommandLine y User; identifique qué proceso lanzó WerFault.exe -pr (cmd.exe, powershell.exe, tarea programada, clave Run).",
+        "Consulte el valor ReflectDebugger en HKLM\\SOFTWARE\\Microsoft\\Windows\\Windows Error Reporting\\Hangs del equipo y busque eventos de registro que lo crearon o modificaron.",
+        "Enumere los procesos hijos de este WerFault.exe; obtenga hash, firma y ruta de cada uno y valide su reputación.",
+        "Verifique si existe una tarea programada, servicio o clave Run que invoque WerFault.exe -pr, lo que indicaría persistencia.",
+        "Pivote en el mismo host +/- 15 minutos: conexiones de red, archivos creados y ejecutables nuevos en AppData, Temp o ProgramData.",
+        "Busque alertas previas del mismo host y usuario, y otras ejecuciones de WerFault.exe -pr o valores ReflectDebugger en la flota."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; pueden aparecer pruebas autorizadas de red team o investigación de seguridad sobre esta técnica.",
+        "Desarrolladores o soporte configurando depuración de bloqueos de Windows Error Reporting; confírmelo con el responsable del activo."
+      ],
+      "response_steps": [
+        "Verifique que el destino de ReflectDebugger sea malicioso o no autorizado; preserve el valor de registro y el binario como evidencia.",
+        "Aísle el endpoint si el destino es desconocido o malicioso, o si los procesos hijos generaron conexiones de red.",
+        "Tras confirmar, elimine el valor ReflectDebugger y la persistencia asociada (tarea, servicio, clave Run) y ponga en cuarentena el payload.",
+        "Busque el hash y el valor de registro en otros equipos, restablezca credenciales si el usuario fue comprometido y mantenga monitoreo."
+      ],
+      "severity_rationale": "Medio, porque el parámetro es raro y abusa de un binario confiable, pero la alerta por sí sola no confirma que el payload sea malicioso hasta revisar el registro."
+    },
+    "en": {
+      "summary": "WerFault.exe was started with the \"-pr\" flag, which makes it launch whatever program the ReflectDebugger registry value points to. Normal crash reporting rarely uses this flag, so treat it as possible proxy execution until you verify it.",
+      "what_it_detects": "Process creation events where Image ends with \\WerFault.exe or OriginalFileName is WerFault.exe, and CommandLine contains \" -pr \" (for example \"WerFault.exe -pr 1\").",
+      "why_it_matters": "An attacker can store a malware path in HKLM\\SOFTWARE\\Microsoft\\Windows\\Windows Error Reporting\\Hangs\\ReflectDebugger and have the signed WerFault.exe run it. This hides the real payload behind a trusted Windows binary (masquerading, T1036) and can also serve as persistence.",
+      "triage_steps": [
+        "Review CommandLine, ParentImage, ParentCommandLine and User. Note which process started WerFault.exe -pr, such as cmd.exe, powershell.exe, a scheduled task or a Run key.",
+        "Read the ReflectDebugger value under HKLM\\SOFTWARE\\Microsoft\\Windows\\Windows Error Reporting\\Hangs on the host, and look for registry set events that created or changed it.",
+        "List the child processes of this WerFault.exe. Get the hash, signature and path of each child and check reputation.",
+        "Check whether a scheduled task, service or Run key launches WerFault.exe -pr. If one does, this is persistence.",
+        "Pivot on the same host within +/- 15 minutes for network connections, file drops, and new executables in user-writable paths such as AppData, Temp or ProgramData.",
+        "Look for earlier alerts on the same host and user, and search the fleet for other WerFault.exe -pr executions or ReflectDebugger values."
+      ],
+      "false_positives": [
+        "The rule lists none. Possible causes are authorized red team or security research tests of the ReflectDebugger technique.",
+        "Developers or support engineers configuring Windows Error Reporting hang debugging. Confirm with the asset owner."
+      ],
+      "response_steps": [
+        "Confirm the ReflectDebugger target is malicious or unapproved. Save the registry value and the binary as evidence.",
+        "Isolate the endpoint if the target is unknown or malicious, or if any child process made network connections.",
+        "Once confirmed, remove the ReflectDebugger value and the related persistence (task, service or Run key), then quarantine the payload.",
+        "Hunt for the payload hash and the registry value across other hosts, reset credentials if the user was compromised, and keep monitoring."
+      ],
+      "severity_rationale": "Medium fits because the flag is rare and abuses a trusted binary, but the alert alone does not show that the payload is malicious until you check the registry target."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "WerFault.exe launched from cmd.exe with -pr to run the ReflectDebugger payload",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WerFault.exe",
+          "OriginalFileName": "WerFault.exe",
+          "CommandLine": "C:\\Windows\\System32\\WerFault.exe -pr 1",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Windows\\System32\\WerFault.exe -pr 1",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed WerFault binary identified by OriginalFileName, started by a scheduled task with -pr",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0187.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svc\\wer.exe",
+          "OriginalFileName": "WerFault.exe",
+          "CommandLine": "\"C:\\ProgramData\\svc\\wer.exe\" -pr 1",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k netsvcs -p -s Schedule",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal WerFault.exe crash report for a faulting process, without the -pr flag",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WerFault.exe",
+          "OriginalFileName": "WerFault.exe",
+          "CommandLine": "C:\\Windows\\system32\\WerFault.exe -u -p 4312 -s 512",
+          "ParentImage": "C:\\Program Files\\ExampleApp\\exampleapp.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Unrelated reporting tool using a -pr option; neither Image nor OriginalFileName is WerFault.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\ReportKit\\reportgen.exe",
+          "OriginalFileName": "reportgen.exe",
+          "CommandLine": "\"C:\\Program Files\\ReportKit\\reportgen.exe\" -pr monthly",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

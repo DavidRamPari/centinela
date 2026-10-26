@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "b1876533-4ed5-4a83-90f3-b8645840a413",
+    "title": "HackTool - SafetyKatz Execution",
+    "level": "critical",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_safetykatz.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_safetykatz.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó en un endpoint Windows un proceso identificado como SafetyKatz, por la ruta de la imagen o por los metadatos PE (OriginalFileName o Description). Tome esta alerta como un probable intento de robo de credenciales desde LSASS.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\SafetyKatz.exe, OriginalFileName es SafetyKatz.exe o Description es SafetyKatz. Al revisar los metadatos PE, la regla también detecta copias renombradas de la herramienta.",
+      "why_it_matters": "SafetyKatz, del proyecto GhostPack, genera un minidump de LSASS y lo procesa con una versión modificada de Mimikatz cargada en memoria para extraer credenciales (T1003.001, LSASS Memory). Con esas credenciales un atacante puede moverse lateralmente y escalar privilegios.",
+      "triage_steps": [
+        "Revise Image, CommandLine, OriginalFileName, Description, Hashes y User. Confirme si el binario está renombrado y si el usuario tiene privilegios administrativos o de SYSTEM.",
+        "Analice ParentImage y ParentCommandLine. Una ejecución desde cmd, PowerShell, WMI, PsExec o un proceso de Office indica operación manual o un implante.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, archivos .bin o .dmp recién creados en carpetas temporales y accesos a lsass.exe (Sysmon 10).",
+        "Identifique cómo llegó el binario: origen de la descarga, archivos creados en el mismo directorio, conexiones de red previas y procesos hijos.",
+        "Revise inicios de sesión posteriores (4624, 4648, 4769) de las cuentas que tenían sesión en el host, sobre todo cuentas privilegiadas.",
+        "Consulte alertas anteriores del mismo host, usuario y hash. Busque el hash en todo el parque para encontrar otras ejecuciones."
+      ],
+      "false_positives": [
+        "Ejercicios autorizados de red team o pruebas de penetración que usan SafetyKatz. Confírmelos con el responsable y el alcance documentado.",
+        "Laboratorios de investigación o de desarrollo de detecciones que ejecutan la herramienta a propósito en equipos aislados."
+      ],
+      "response_steps": [
+        "Valide con el dueño del equipo y con seguridad ofensiva si existe una prueba autorizada. Si no la hay, trate el caso como un incidente confirmado.",
+        "Aísle el endpoint con el EDR y conserve evidencia: memoria, el binario, cualquier dump de LSASS y la línea de tiempo de procesos.",
+        "Restablezca las contraseñas de todas las cuentas que tenían sesión en el host. Si se expusieron cuentas de dominio privilegiadas, evalúe rotar dos veces la cuenta KRBTGT.",
+        "Elimine el binario y cualquier persistencia una vez preservada la evidencia. Reconstruya el equipo si se confirma el compromiso y active la protección LSA (RunAsPPL) o Credential Guard."
+      ],
+      "severity_rationale": "El nivel crítico corresponde porque la herramienta solo sirve para volcar credenciales de LSASS y casi no tiene usos legítimos, así que cada coincidencia indica un probable robo de credenciales en curso."
+    },
+    "en": {
+      "summary": "A process identified as SafetyKatz ran on a Windows endpoint, matched by its image path or by its PE metadata (OriginalFileName or Description). Treat this as a likely attempt to steal credentials from LSASS.",
+      "what_it_detects": "Process creation events where Image ends with \\SafetyKatz.exe, OriginalFileName is SafetyKatz.exe, or Description is SafetyKatz. Because the rule checks PE metadata, it also catches renamed copies of the tool.",
+      "why_it_matters": "SafetyKatz, part of the GhostPack project, creates a minidump of LSASS and parses it with a modified Mimikatz loaded in memory to extract credentials (T1003.001, LSASS Memory). Attackers can use those credentials for lateral movement and privilege escalation.",
+      "triage_steps": [
+        "Review Image, CommandLine, OriginalFileName, Description, Hashes and User. Check whether the binary was renamed and whether the user is an admin or SYSTEM.",
+        "Inspect ParentImage and ParentCommandLine. A launch from cmd, PowerShell, WMI, PsExec or an Office process points to hands-on activity or an implant.",
+        "On the same host within +/- 15 minutes, look for new .bin or .dmp files in temp folders and for access to lsass.exe (Sysmon 10).",
+        "Find out how the binary arrived: download source, files created in the same directory, earlier network connections and child processes.",
+        "Check later logons (4624, 4648, 4769) by accounts that had sessions on the host, especially privileged accounts.",
+        "Look for earlier alerts on the same host, user and hash. Hunt for the hash across the whole fleet."
+      ],
+      "false_positives": [
+        "Authorized red team exercises or penetration tests that use SafetyKatz. Confirm them with the engagement owner and the documented scope.",
+        "Research or detection-engineering labs that run the tool on purpose on isolated machines."
+      ],
+      "response_steps": [
+        "Check with the host owner and the offensive security team whether testing was authorized. If it was not, treat this as a confirmed incident.",
+        "Isolate the endpoint through EDR and preserve evidence: memory, the binary, any LSASS dump and the process timeline.",
+        "Reset passwords for every account that had a session on the host. If privileged domain accounts were exposed, consider rotating the KRBTGT account twice.",
+        "After preserving evidence, remove the binary and any persistence. Reimage the host if compromise is confirmed, and enable LSA protection (RunAsPPL) or Credential Guard."
+      ],
+      "severity_rationale": "Critical fits because the tool's only purpose is dumping LSASS credentials and it has almost no legitimate use, so every match points to likely credential theft in progress."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "SafetyKatz run under its default name from a user's Downloads folder, launched by cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\Downloads\\SafetyKatz.exe",
+          "OriginalFileName": "SafetyKatz.exe",
+          "Description": "SafetyKatz",
+          "CommandLine": "SafetyKatz.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\cmd.exe\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed SafetyKatz binary in C:\\ProgramData, still matched by its PE OriginalFileName and Description",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS02.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\ProgramData\\svchelper.exe",
+          "OriginalFileName": "SafetyKatz.exe",
+          "Description": "SafetyKatz",
+          "CommandLine": "C:\\ProgramData\\svchelper.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Notepad opening a text file whose name mentions SafetyKatz. Image, OriginalFileName and Description do not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "OriginalFileName": "NOTEPAD.EXE",
+          "Description": "Notepad",
+          "CommandLine": "\"C:\\Windows\\System32\\notepad.exe\" C:\\Users\\mrojas\\Documents\\SafetyKatz.exe_analysis.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "A legitimate tool with a similar name (SafetyScanner.exe) whose image path and PE metadata do not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\SafetyTools\\SafetyScanner.exe",
+          "OriginalFileName": "SafetyScanner.exe",
+          "Description": "Safety Scanner",
+          "CommandLine": "\"C:\\Program Files\\SafetyTools\\SafetyScanner.exe\" /quick",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

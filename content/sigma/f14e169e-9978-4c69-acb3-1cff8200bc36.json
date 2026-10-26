@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "f14e169e-9978-4c69-acb3-1cff8200bc36",
+    "title": "Suspicious GrpConv Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_lolbin_susp_grpconv.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_susp_grpconv.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1547"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó grpconv.exe (convertidor de grupos de Program Manager) con la opción -o. Es una utilidad heredada que casi nunca se usa legítimamente y puede abusarse para persistencia.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuyo CommandLine contiene 'grpconv.exe -o' o 'grpconv -o'. Con -o, GrpConv procesa el archivo setup.ini del directorio de Windows, que un atacante puede preparar con contenido propio.",
+      "why_it_matters": "Un atacante que controla setup.ini puede lograr que GrpConv cree entradas o ejecute contenido al iniciar sesión, consiguiendo persistencia o escalamiento mediante un binario firmado por Microsoft (ATT&CK T1547, ejecución automática al arranque o inicio de sesión).",
+      "triage_steps": [
+        "Revise el CommandLine completo, el Image y el usuario; confirme que el binario sea C:\\Windows\\System32\\grpconv.exe o C:\\Windows\\SysWOW64\\grpconv.exe.",
+        "Identifique el ParentImage y su línea de comandos: cmd.exe, powershell.exe, wscript.exe o una tarea programada indican ejecución manual o por malware.",
+        "Examine %windir%\\setup.ini: fecha de creación o modificación, autor y contenido; busque rutas a ejecutables, scripts o ubicaciones de usuario.",
+        "Busque claves Run/RunOnce, tareas programadas o servicios que lancen grpconv -o, lo que confirmaría un mecanismo de persistencia.",
+        "Revise los procesos hijos de grpconv.exe y la actividad de archivos y red del mismo host en +/- 15 minutos.",
+        "Pivote por el usuario y el host: alertas previas, inicios de sesión inusuales y otras ejecuciones de LOLBins.",
+        "Compruebe si existen ejecuciones de grpconv -o en otros endpoints para detectar propagación."
+      ],
+      "false_positives": [
+        "Instaladores o scripts de migración muy antiguos que convierten grupos de Windows 3.x; poco probable en entornos modernos.",
+        "Pruebas autorizadas de red team o validaciones de detección con herramientas de emulación."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del equipo o el área de TI si la ejecución estaba autorizada antes de actuar.",
+        "Si es maliciosa, aísle el endpoint y preserve setup.ini, las claves de registro y los artefactos relacionados para análisis forense.",
+        "Elimine el contenido malicioso de setup.ini y las entradas de persistencia que invocan grpconv, previa copia de respaldo.",
+        "Analice los payloads referenciados, obtenga su hash y busque esos indicadores en toda la flota.",
+        "Restablezca credenciales del usuario afectado si hubo compromiso y monitoree recurrencias del comportamiento."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque grpconv -o prácticamente no tiene uso legítimo actual y es una técnica conocida de persistencia con un binario firmado."
+    },
+    "en": {
+      "summary": "grpconv.exe (Program Manager Group Converter) was run with the -o option. This legacy utility is almost never used legitimately and can be abused for persistence.",
+      "what_it_detects": "Windows process creation events whose CommandLine contains 'grpconv.exe -o' or 'grpconv -o'. With -o, GrpConv processes setup.ini in the Windows directory, which an attacker can prepare with their own content.",
+      "why_it_matters": "An attacker who controls setup.ini can make GrpConv create entries or run content at logon, gaining persistence or privilege escalation through a Microsoft-signed binary (ATT&CK T1547, boot or logon autostart execution).",
+      "triage_steps": [
+        "Review the full CommandLine, Image and user; confirm the binary is C:\\Windows\\System32\\grpconv.exe or C:\\Windows\\SysWOW64\\grpconv.exe.",
+        "Identify the ParentImage and its command line: cmd.exe, powershell.exe, wscript.exe or a scheduled task suggest manual or malware-driven execution.",
+        "Inspect %windir%\\setup.ini: creation/modification time, owner and content; look for paths to executables, scripts or user-writable locations.",
+        "Search Run/RunOnce keys, scheduled tasks or services that launch grpconv -o, which would confirm a persistence mechanism.",
+        "Review child processes of grpconv.exe and file and network activity on the same host within +/- 15 minutes.",
+        "Pivot on user and host: earlier alerts, unusual logons and other LOLBin executions.",
+        "Check whether grpconv -o ran on other endpoints to detect spread."
+      ],
+      "false_positives": [
+        "Very old installers or migration scripts converting Windows 3.x groups; unlikely in modern environments.",
+        "Authorized red team exercises or detection validation with emulation tools."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or IT whether the execution was authorized before acting.",
+        "If malicious, isolate the endpoint and preserve setup.ini, registry keys and related artifacts for forensics.",
+        "Back up, then remove malicious setup.ini content and persistence entries that invoke grpconv.",
+        "Analyze referenced payloads, collect their hash and hunt for those indicators fleet-wide.",
+        "Reset the affected user's credentials if compromise is confirmed and monitor for recurrence."
+      ],
+      "severity_rationale": "High fits because grpconv -o has virtually no current legitimate use and is a known persistence technique using a signed binary."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "grpconv.exe launched with -o from cmd.exe by a user",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\grpconv.exe",
+          "CommandLine": "C:\\Windows\\System32\\grpconv.exe -o",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Windows\\System32\\grpconv.exe -o",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "cmd.exe wrapper invoking grpconv -o from a Run key",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c grpconv -o",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "grpconv.exe run with a different option, no -o",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\grpconv.exe",
+          "CommandLine": "C:\\Windows\\System32\\grpconv.exe -s",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Unrelated process whose command line only mentions a grpconv log file",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0150",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\notepad.exe",
+          "CommandLine": "notepad.exe C:\\Temp\\grpconv-output.txt",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "rule": {
+    "id": "023394c4-29d5-46ab-92b8-6a534c6f447b",
+    "title": "Suspicious HWP Sub Processes",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hwp_exploits.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hwp_exploits.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.003",
+      "T1203",
+      "T1566.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Hangul Word Processor (Hwp.exe) inició el proceso gbb.exe, el componente que interpreta imágenes EPS/PostScript incrustadas en documentos. Este patrón aparece cuando un documento HWP malicioso explota el intérprete para ejecutar código.",
+      "what_it_detects": "Eventos de creación de procesos donde ParentImage termina en \\Hwp.exe e Image termina en \\gbb.exe.",
+      "why_it_matters": "Los documentos HWP con contenido EPS manipulado llegan como adjuntos de spearphishing (T1566.001) y explotan la aplicación cliente (T1203) para ejecutar comandos (T1059.003). La regla incluye la etiqueta de grupo ATT&CK G0032, pero eso no atribuye esta alerta a ese grupo.",
+      "triage_steps": [
+        "Revise el CommandLine de Hwp.exe para identificar la ruta y el nombre del documento abierto.",
+        "Confirme que la ruta de Image corresponde al directorio de instalación de Hancom y compare el hash de gbb.exe con una versión conocida.",
+        "Busque procesos hijos de gbb.exe (cmd.exe, powershell.exe, rundll32.exe, wscript.exe) en el mismo host dentro de +/- 15 minutos.",
+        "Busque archivos creados por gbb.exe o Hwp.exe en %TEMP%, %APPDATA% o en carpetas de inicio, y conexiones de red salientes desde esos procesos.",
+        "Determine el origen del documento: adjunto de correo, descarga web (Zone.Identifier) o medio extraíble. Verifique remitente y asunto.",
+        "Busque el mismo nombre o hash del documento en otros endpoints y buzones, y revise alertas previas del usuario y del host."
+      ],
+      "false_positives": [
+        "Documentos HWP legítimos con imágenes EPS incrustadas pueden iniciar gbb.exe durante el renderizado normal.",
+        "Pruebas internas de seguridad o análisis de muestras en equipos de laboratorio."
+      ],
+      "response_steps": [
+        "Si gbb.exe generó procesos hijos, escribió ejecutables o se conectó a la red, aísle el endpoint y preserve memoria y artefactos.",
+        "Ponga en cuarentena el documento, bloquee su hash y retire el correo de origen de todos los buzones.",
+        "Elimine la persistencia y los archivos descargados que se hayan identificado. Restablezca las credenciales del usuario si hubo ejecución confirmada.",
+        "Actualice Hancom Office a la versión más reciente y evalúe deshabilitar el renderizado de EPS donde no se necesite."
+      ],
+      "severity_rationale": "El nivel high se justifica porque este proceso hijo es un indicador directo de explotación de documentos, aunque el renderizado legítimo de EPS exige verificar la actividad posterior."
+    },
+    "en": {
+      "summary": "Hangul Word Processor (Hwp.exe) launched gbb.exe, the component that interprets EPS/PostScript images embedded in documents. Malicious HWP documents abuse this interpreter to run code.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\Hwp.exe and Image ends with \\gbb.exe.",
+      "why_it_matters": "HWP documents with crafted EPS content arrive as spearphishing attachments (T1566.001) and exploit the client application (T1203) to run commands (T1059.003). The rule carries the ATT&CK group tag G0032, but that does not attribute this alert to that group.",
+      "triage_steps": [
+        "Read the Hwp.exe CommandLine to find the path and name of the opened document.",
+        "Check that the Image path is inside the Hancom install directory and compare the gbb.exe hash with a known-good version.",
+        "Look for child processes of gbb.exe (cmd.exe, powershell.exe, rundll32.exe, wscript.exe) on the same host within +/- 15 minutes.",
+        "Look for files written by gbb.exe or Hwp.exe in %TEMP%, %APPDATA% or startup folders, and for outbound network connections from those processes.",
+        "Find out where the document came from: email attachment, web download (Zone.Identifier) or removable media. Check the sender and subject.",
+        "Search other endpoints and mailboxes for the same document name or hash, and review earlier alerts for the user and host."
+      ],
+      "false_positives": [
+        "Legitimate HWP documents with embedded EPS images can launch gbb.exe during normal rendering.",
+        "Internal security testing or malware sample analysis on lab machines."
+      ],
+      "response_steps": [
+        "If gbb.exe started child processes, dropped executables or made network connections, isolate the endpoint and preserve memory and artifacts.",
+        "Quarantine the document, block its hash and pull the source email from all mailboxes.",
+        "Remove any persistence and dropped files you found. Reset the user's credentials if execution is confirmed.",
+        "Update Hancom Office to the latest version and consider disabling EPS rendering where it is not needed."
+      ],
+      "severity_rationale": "High fits because this child process directly points to document exploitation, though legitimate EPS rendering means you must verify follow-on activity."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Hwp.exe opens a document from an email attachment and spawns gbb.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files (x86)\\Hnc\\Office 2018\\HOffice100\\Bin\\Hwp.exe",
+          "ParentCommandLine": "\"C:\\Program Files (x86)\\Hnc\\Office 2018\\HOffice100\\Bin\\Hwp.exe\" \"C:\\Users\\jperez\\Downloads\\propuesta_2024.hwp\"",
+          "Image": "C:\\Program Files (x86)\\Hnc\\Office 2018\\HOffice100\\Bin\\ImageFilter\\ghostscript\\gbb.exe",
+          "CommandLine": "gbb.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\Hnc\\BinData\\EMB00001.eps",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Hwp.exe launches a different helper, so the Image condition does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Program Files (x86)\\Hnc\\Office 2018\\HOffice100\\Bin\\Hwp.exe",
+          "Image": "C:\\Program Files (x86)\\Hnc\\Office 2018\\HOffice100\\Bin\\HncUpdate.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\Hnc\\Office 2018\\HOffice100\\Bin\\HncUpdate.exe\" /check",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "gbb.exe launched by the Hancom presentation app instead of Hwp.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ParentImage": "C:\\Program Files (x86)\\Hnc\\Office 2018\\HOffice100\\Bin\\HShow.exe",
+          "Image": "C:\\Program Files (x86)\\Hnc\\Office 2018\\HOffice100\\Bin\\ImageFilter\\ghostscript\\gbb.exe",
+          "CommandLine": "gbb.exe C:\\Users\\mrojas\\AppData\\Local\\Temp\\Hnc\\BinData\\EMB00003.eps",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "4ac47ed3-44c2-4b1f-9d51-bf46e8914126",
+    "title": "TrustedPath UAC Bypass Pattern",
+    "level": "critical",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_uac_bypass_trustedpath.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_uac_bypass_trustedpath.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1548.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se inició un proceso desde una carpeta falsa del sistema de Windows cuyo nombre lleva un espacio al final, como 'C:\\Windows \\System32\\'. Es una técnica conocida de bypass de UAC que eleva privilegios sin mostrar la solicitud de consentimiento.",
+      "what_it_detects": "Eventos de creación de procesos donde Image contiene 'C:\\Windows \\System32\\' o 'C:\\Windows \\SysWOW64\\'. El espacio antes de la barra indica un directorio simulado, no la carpeta real del sistema.",
+      "why_it_matters": "Windows eleva automáticamente ciertos binarios firmados que se ejecutan desde directorios confiables. La normalización de rutas elimina el espacio final, así que la carpeta simulada supera la validación. El atacante copia ahí un binario autoelevable con una DLL maliciosa y ejecuta código con integridad alta sin aviso (ATT&CK T1548.002, Bypass User Account Control).",
+      "triage_steps": [
+        "Confirme que Image contiene 'C:\\Windows \\' con el espacio. Registre el host, User, IntegrityLevel y el nombre del binario (p. ej. ComputerDefaults.exe, winsat.exe).",
+        "Revise ParentImage y CommandLine. Si el padre es una shell, un intérprete de scripts, Office o un proceso en rutas escribibles por el usuario, es más probable que sea malicioso.",
+        "Busque eventos de creación de archivos en 'C:\\Windows \\' para saber quién creó la carpeta y qué EXE y DLL se copiaron.",
+        "Calcule el hash de las DLL de la carpeta simulada y compárelo con el de los archivos legítimos del sistema. Una DLL sin firma o desconocida indica hijacking.",
+        "Revise los procesos hijos y las conexiones de red del proceso elevado en el mismo host, +/- 15 minutos.",
+        "Pivotee por usuario y host para buscar alertas previas, inicios de sesión inusuales u otros intentos de escalamiento."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos. El software legítimo prácticamente nunca usa rutas 'C:\\Windows \\'.",
+        "Ejercicios autorizados de red team o pruebas de penetración que reproducen la técnica TrustedPath. Confírmelo con el responsable del ejercicio."
+      ],
+      "response_steps": [
+        "Trate la alerta como un probable compromiso hasta descartarlo. Verifique que existen el directorio simulado y los archivos copiados, y presérvelos como evidencia.",
+        "Aísle el endpoint si el proceso elevado ejecutó código desconocido, abrió shells o hizo conexiones salientes.",
+        "Después de recolectar la evidencia, elimine el directorio simulado usando el prefijo \\\\?\\ y retire cualquier persistencia que haya creado el payload.",
+        "Restablezca las credenciales del usuario afectado, revise los privilegios de la cuenta y configure UAC en 'Notificar siempre' cuando sea viable."
+      ],
+      "severity_rationale": "El nivel crítico se justifica porque este patrón de ruta casi no tiene uso legítimo e indica un intento activo de ejecutar código administrativo sin aviso."
+    },
+    "en": {
+      "summary": "A process was started from a fake Windows system folder whose name has a trailing space, such as 'C:\\Windows \\System32\\'. This is a known UAC bypass that elevates code silently, without a consent prompt.",
+      "what_it_detects": "Process creation events where Image contains 'C:\\Windows \\System32\\' or 'C:\\Windows \\SysWOW64\\'. The space before the backslash marks a mock directory, not the real system folder.",
+      "why_it_matters": "Windows auto-elevates certain signed binaries that run from trusted directories. Path normalization strips the trailing space, so the mock folder passes the check. An attacker copies an auto-elevating binary there with a malicious DLL beside it and gets high-integrity code without a prompt (ATT&CK T1548.002, Bypass User Account Control).",
+      "triage_steps": [
+        "Confirm Image really contains 'C:\\Windows \\' with the space; record host, User, IntegrityLevel and the binary name (e.g. ComputerDefaults.exe, winsat.exe).",
+        "Review ParentImage and CommandLine. Shells, scripting hosts, Office apps or processes in user-writable paths make a malicious launch more likely.",
+        "Check file creation events for 'C:\\Windows \\' to find who created the folder and which EXE and DLL files were dropped there.",
+        "Hash the DLLs in the mock folder and compare them with known-good system files. Unsigned or unknown DLLs strongly suggest hijacking.",
+        "Look at child processes and network connections of the elevated process on the same host, +/- 15 minutes.",
+        "Pivot on the user and host for earlier alerts, unusual logons, or other privilege-escalation attempts."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. Legitimate software practically never uses 'C:\\Windows \\' paths.",
+        "Authorized red team or penetration tests reproducing the TrustedPath technique; confirm with the engagement owner."
+      ],
+      "response_steps": [
+        "Treat the alert as a likely compromise until proven otherwise. Confirm the mock directory and dropped files exist, and preserve them as evidence.",
+        "Isolate the endpoint if the elevated process ran unknown code, spawned shells or made outbound connections.",
+        "After collecting evidence, remove the mock directory with the \\\\?\\ path prefix, and remove any persistence the elevated payload created.",
+        "Reset the affected user's credentials, check the account's privileges, and set UAC to 'Always notify' where feasible."
+      ],
+      "severity_rationale": "Critical fits because the path pattern has almost no legitimate use and means someone is actively trying to get silent administrative execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Auto-elevating ComputerDefaults.exe launched from a mock 'C:\\Windows \\System32\\' directory created by a PowerShell process",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows \\System32\\ComputerDefaults.exe",
+          "CommandLine": "\"C:\\Windows \\System32\\ComputerDefaults.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden",
+          "IntegrityLevel": "High",
+          "CurrentDirectory": "C:\\Windows \\System32\\"
+        }
+      },
+      {
+        "description": "winsat.exe executed from a mock 'C:\\Windows \\SysWOW64\\' directory",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows \\SysWOW64\\winsat.exe",
+          "CommandLine": "\"C:\\Windows \\SysWOW64\\winsat.exe\" formal",
+          "ParentImage": "C:\\Users\\mrodriguez\\AppData\\Local\\Temp\\updater.exe",
+          "IntegrityLevel": "High",
+          "CurrentDirectory": "C:\\Windows \\SysWOW64\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate ComputerDefaults.exe launched from the real System32 directory (no trailing space)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\ComputerDefaults.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\ComputerDefaults.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High",
+          "CurrentDirectory": "C:\\Windows\\System32\\"
+        }
+      },
+      {
+        "description": "Legitimate winsat.exe from the real SysWOW64 folder run by Task Scheduler",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\SysWOW64\\winsat.exe",
+          "CommandLine": "C:\\Windows\\SysWOW64\\winsat.exe formal",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "IntegrityLevel": "System",
+          "CurrentDirectory": "C:\\Windows\\SysWOW64\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

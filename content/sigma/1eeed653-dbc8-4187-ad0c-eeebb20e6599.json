@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "1eeed653-dbc8-4187-ad0c-eeebb20e6599",
+    "title": "Potential SPN Enumeration Via Setspn.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Markus Neis, keepwatch",
+    "path": "windows/process_creation/proc_creation_win_setspn_spn_enumeration.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_setspn_spn_enumeration.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1558.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó setspn.exe con la opción -q o /q para consultar nombres principales de servicio (SPN) en Active Directory. Puede ser administración legítima o el reconocimiento previo a un ataque de Kerberoasting.",
+      "what_it_detects": "La creación de un proceso cuya imagen, OriginalFileName o descripción corresponde a setspn.exe (también si fue renombrado) y cuyo CommandLine contiene ' -q ' o ' /q ', la opción para buscar SPN, a menudo con comodines como */*.",
+      "why_it_matters": "Los SPN muestran qué cuentas ejecutan servicios. Con esa lista, un atacante pide tickets de servicio Kerberos y descifra offline las contraseñas de cuentas de servicio (Kerberoasting, ATT&CK T1558.003), lo que suele dar acceso privilegiado.",
+      "triage_steps": [
+        "Revise el CommandLine: una consulta amplia como '-Q */*' o '-T dominio -Q */*' es más sospechosa que una búsqueda de un SPN concreto.",
+        "Confirme el usuario y el host: ¿es una cuenta de administración de AD en un servidor o estación de administración, o un usuario estándar en un endpoint?",
+        "Compare Image con OriginalFileName; si setspn.exe se ejecuta renombrado o desde una ruta fuera de System32, trátelo como sospechoso.",
+        "Analice ParentImage y la cadena de procesos: cmd.exe o powershell.exe lanzados por Office, un navegador o un proceso desconocido elevan el riesgo.",
+        "En el mismo host, revise +/- 15 minutos: otras herramientas de reconocimiento (net, nltest, AdFind, PowerView) o accesos a LSASS.",
+        "En los controladores de dominio, busque eventos 4769 del mismo usuario o IP con cifrado RC4 (0x17) o muchas solicitudes de tickets de servicio en poco tiempo.",
+        "Busque alertas previas para el mismo usuario y host, y valide con el equipo de AD si hubo un cambio o tarea planificada."
+      ],
+      "false_positives": [
+        "Administradores de AD que verifican SPN duplicados o registros de servicios como SQL Server o IIS.",
+        "Scripts de inventario o auditoría de identidades que consultan SPN periódicamente.",
+        "Ejercicios autorizados de pentesting o red team."
+      ],
+      "response_steps": [
+        "Valide con el dueño de la cuenta o el equipo de AD si la ejecución estaba autorizada antes de actuar.",
+        "Si no está autorizada, aísle el endpoint y deshabilite o restablezca la cuenta del usuario implicado.",
+        "Si hubo solicitudes de tickets de servicio, cambie las contraseñas de las cuentas de servicio expuestas por contraseñas largas y aleatorias, o migre a gMSA.",
+        "Busque persistencia y movimiento lateral desde el host, y refuerce las cuentas de servicio para que solo usen AES y no RC4."
+      ],
+      "severity_rationale": "Medio porque la consulta de SPN es habitual en administración, pero en un contexto inesperado suele preceder al robo de credenciales de cuentas de servicio."
+    },
+    "en": {
+      "summary": "setspn.exe ran with -q or /q to query service principal names (SPNs) in Active Directory. This may be routine administration or reconnaissance before a Kerberoasting attack.",
+      "what_it_detects": "A process creation where the image, OriginalFileName or description matches setspn.exe (including renamed copies) and CommandLine contains ' -q ' or ' /q ', the SPN search option, often with wildcards such as */*.",
+      "why_it_matters": "SPNs reveal which accounts run services. An attacker then requests Kerberos service tickets and cracks service account passwords offline (Kerberoasting, ATT&CK T1558.003), which often leads to privileged access.",
+      "triage_steps": [
+        "Review CommandLine: a broad query such as '-Q */*' or '-T domain -Q */*' is more suspicious than a lookup of one specific SPN.",
+        "Check the user and host: an AD admin account on an admin server or workstation, or a standard user on an endpoint?",
+        "Compare Image with OriginalFileName; a renamed setspn.exe or one running outside System32 is suspicious.",
+        "Inspect ParentImage and the process tree: cmd.exe or powershell.exe spawned by Office, a browser or an unknown binary raises risk.",
+        "On the same host within +/- 15 minutes, look for other recon tools (net, nltest, AdFind, PowerView) or LSASS access.",
+        "On domain controllers, look for event 4769 from the same user or IP with RC4 encryption (0x17) or bursts of service ticket requests.",
+        "Search earlier alerts for the same user and host, and confirm with the AD team whether a change or scheduled task explains it."
+      ],
+      "false_positives": [
+        "AD administrators checking for duplicate SPNs or service registrations for SQL Server or IIS.",
+        "Inventory or identity audit scripts that query SPNs on a schedule.",
+        "Authorized penetration tests or red team exercises."
+      ],
+      "response_steps": [
+        "Confirm with the account owner or AD team whether the execution was authorized before acting.",
+        "If unauthorized, isolate the endpoint and disable or reset the involved user account.",
+        "If service tickets were requested, rotate exposed service account passwords to long random values or move them to gMSAs.",
+        "Hunt for persistence and lateral movement from the host, and enforce AES-only encryption for service accounts."
+      ],
+      "severity_rationale": "Medium because SPN queries are common in administration, yet in an unexpected context they often precede theft of service account credentials."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Domain-wide SPN wildcard query with setspn.exe from a PowerShell session on a workstation",
+        "event": {
+          "Image": "C:\\Windows\\System32\\setspn.exe",
+          "OriginalFileName": "setspn.exe",
+          "Description": "Query or reset the computer's SPN attribute",
+          "CommandLine": "setspn.exe -T corp.example.com -Q */*",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.corp.example.com",
+          "EventID": 1
+        }
+      },
+      {
+        "description": "Renamed setspn copy identified by OriginalFileName, using slash syntax",
+        "event": {
+          "Image": "C:\\Users\\Public\\spn.exe",
+          "OriginalFileName": "setspn.exe",
+          "Description": "Query or reset the computer's SPN attribute",
+          "CommandLine": "spn.exe /q MSSQLSvc/*",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\mrojas",
+          "Computer": "WS-0207.corp.example.com",
+          "EventID": 1
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator listing SPNs of a single account with -L (no query option)",
+        "event": {
+          "Image": "C:\\Windows\\System32\\setspn.exe",
+          "OriginalFileName": "setspn.exe",
+          "Description": "Query or reset the computer's SPN attribute",
+          "CommandLine": "setspn.exe -L svc_sql",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\adm_lgomez",
+          "Computer": "ADM-01.corp.example.com",
+          "EventID": 1
+        }
+      },
+      {
+        "description": "Administrator registering a new SPN with -S for a web service account",
+        "event": {
+          "Image": "C:\\Windows\\System32\\setspn.exe",
+          "OriginalFileName": "setspn.exe",
+          "Description": "Query or reset the computer's SPN attribute",
+          "CommandLine": "setspn.exe -S HTTP/web01.corp.example.com ANDES\\svc_web",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\adm_lgomez",
+          "Computer": "ADM-01.corp.example.com",
+          "EventID": 1
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

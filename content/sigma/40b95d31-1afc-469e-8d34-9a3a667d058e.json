@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "40b95d31-1afc-469e-8d34-9a3a667d058e",
+    "title": "Suspicious Csi.exe Usage",
+    "level": "medium",
+    "status": "test",
+    "author": "Konstantin Grishchenko, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_csi_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_csi_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1072",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó csi.exe o rcsi.exe, el intérprete interactivo de C# firmado por Microsoft. Puede ejecutar código C# arbitrario desde un script y evadir controles de lista blanca de aplicaciones.",
+      "what_it_detects": "Creación de procesos cuyo Image termina en \\csi.exe o \\rcsi.exe, o cuyo OriginalFileName es csi.exe o rcsi.exe, y cuyo Company es 'Microsoft Corporation'. Coincide con cualquier ejecución del binario legítimo, incluso si fue renombrado.",
+      "why_it_matters": "Csi.exe es un LOLBin: un binario firmado y confiable que compila y ejecuta código C# en memoria. Un atacante puede usarlo para evadir AppLocker o WDAC (T1218, ejecución mediante binario proxy del sistema) y, en entornos con herramientas de despliegue, para ejecutar código de forma remota (T1072).",
+      "triage_steps": [
+        "Revise el CommandLine: identifique el script .csx u otro archivo pasado como parámetro, su ruta y si se ubica en carpetas temporales, Downloads, AppData o recursos compartidos.",
+        "Verifique Image y OriginalFileName: si el nombre del archivo difiere de csi.exe o la ruta está fuera de Visual Studio o del SDK de .NET, sospeche de un binario renombrado o copiado.",
+        "Analice el ParentImage: Visual Studio o una terminal de desarrollador es normal; Office, wscript, mshta, servicios o herramientas de despliegue remoto son sospechosos.",
+        "Confirme si el usuario es desarrollador y si el host tiene Visual Studio instalado; consulte el inventario de software y el área del usuario.",
+        "Obtenga y revise el contenido del script ejecutado: busque descargas, Reflection, Assembly.Load, P/Invoke, ofuscación o cadenas codificadas en base64.",
+        "Pivotee en el mismo host +/- 15 minutos: procesos hijos de csi.exe, conexiones de red, archivos creados y cambios de persistencia.",
+        "Busque alertas previas del mismo usuario, host o hash, y ejecuciones de csi.exe en otros endpoints para detectar movimiento lateral."
+      ],
+      "false_positives": [
+        "Uso legítimo por desarrolladores de software que prueban fragmentos de C# o ejecutan scripts .csx.",
+        "Pipelines de compilación o automatización (CI/CD, scripts de build) que invocan csi.exe en servidores de desarrollo.",
+        "Equipos de formación o laboratorio con Visual Studio donde se practica C# interactivo."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o su responsable si la ejecución fue intencional y documente el propósito del script.",
+        "Si no hay justificación, aísle el endpoint y conserve el script, la línea de comandos y la memoria del proceso para análisis.",
+        "Termine el proceso malicioso, elimine los scripts y artefactos asociados tras preservar evidencia, y revise mecanismos de persistencia.",
+        "Restablezca las credenciales del usuario si hay indicios de compromiso y bloquee csi.exe/rcsi.exe mediante WDAC o AppLocker en equipos que no sean de desarrollo."
+      ],
+      "severity_rationale": "Nivel medio porque csi.exe es una herramienta legítima de desarrollo, pero su ejecución fuera de ese contexto suele indicar evasión de controles y ejecución de código arbitrario."
+    },
+    "en": {
+      "summary": "csi.exe or rcsi.exe, Microsoft's signed C# interactive interpreter, was executed. It can run arbitrary C# code from a script and bypass application allowlisting.",
+      "what_it_detects": "Process creation where Image ends with \\csi.exe or \\rcsi.exe, or OriginalFileName is csi.exe or rcsi.exe, and Company is 'Microsoft Corporation'. It matches any run of the genuine binary, even when renamed.",
+      "why_it_matters": "Csi.exe is a LOLBin: a trusted signed binary that compiles and runs C# code in memory. Attackers can use it to bypass AppLocker or WDAC (T1218, system binary proxy execution) and, through deployment tooling, to run code remotely (T1072).",
+      "triage_steps": [
+        "Review CommandLine: identify the .csx or other script passed as a parameter, its path, and whether it sits in temp, Downloads, AppData or network shares.",
+        "Check Image and OriginalFileName: a different file name or a path outside Visual Studio or the .NET SDK suggests a renamed or copied binary.",
+        "Inspect ParentImage: Visual Studio or a developer shell is normal; Office, wscript, mshta, services or remote deployment agents are suspicious.",
+        "Confirm the user is a developer and the host has Visual Studio installed, using software inventory and HR or directory data.",
+        "Retrieve and review the script: look for downloads, Reflection, Assembly.Load, P/Invoke, obfuscation or base64-encoded strings.",
+        "Pivot on the same host +/- 15 minutes: child processes of csi.exe, network connections, created files and persistence changes.",
+        "Search earlier alerts for the same user, host or hash, and csi.exe runs on other endpoints to spot lateral movement."
+      ],
+      "false_positives": [
+        "Legitimate use by software developers testing C# snippets or running .csx scripts.",
+        "Build or automation pipelines (CI/CD, build scripts) invoking csi.exe on development servers.",
+        "Training or lab machines with Visual Studio where interactive C# is practiced."
+      ],
+      "response_steps": [
+        "Confirm with the user or their manager whether the run was intended and record the script's purpose.",
+        "If unjustified, isolate the endpoint and preserve the script, command line and process memory for analysis.",
+        "Kill the malicious process, remove the scripts and related artifacts after preserving evidence, and review persistence mechanisms.",
+        "Reset the user's credentials if compromise is indicated and block csi.exe/rcsi.exe via WDAC or AppLocker on non-developer machines."
+      ],
+      "severity_rationale": "Medium because csi.exe is a legitimate developer tool, but running it outside that context often indicates control bypass and arbitrary code execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Signed csi.exe launched by Word to run a C# script from the user's temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\Roslyn\\csi.exe",
+          "OriginalFileName": "csi.exe",
+          "Company": "Microsoft Corporation",
+          "Product": "Microsoft (R) Visual C# Interactive Compiler",
+          "CommandLine": "\"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\Roslyn\\csi.exe\" C:\\Users\\jperez\\AppData\\Local\\Temp\\update.csx",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n invoice.docm"
+        }
+      },
+      {
+        "description": "Renamed rcsi.exe copied to ProgramData, still identified by OriginalFileName and Company",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svc\\helper.exe",
+          "OriginalFileName": "rcsi.exe",
+          "Company": "Microsoft Corporation",
+          "CommandLine": "C:\\ProgramData\\svc\\helper.exe C:\\ProgramData\\svc\\run.csx",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Developer compiling with csc.exe; neither Image nor OriginalFileName is csi.exe or rcsi.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe",
+          "OriginalFileName": "csc.exe",
+          "Company": "Microsoft Corporation",
+          "CommandLine": "csc.exe /out:Tool.exe Program.cs",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\devenv.exe"
+        }
+      },
+      {
+        "description": "Third-party utility also named csi.exe but published by another vendor, so the Company selection fails",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\afernandez",
+          "Image": "C:\\Program Files\\Contoso\\Scanner\\csi.exe",
+          "OriginalFileName": "csi.exe",
+          "Company": "Contoso Ltd",
+          "CommandLine": "\"C:\\Program Files\\Contoso\\Scanner\\csi.exe\" --inventory",
+          "ParentImage": "C:\\Windows\\System32\\services.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

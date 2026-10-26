@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "ef64fc9c-a45e-43cc-8fd8-7d75d73b4c99",
+    "title": "Wusa.EXE Executed By Parent Process Located In Suspicious Location",
+    "level": "high",
+    "status": "test",
+    "author": "X__Junior (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wusa_susp_parent_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wusa_susp_parent_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó wusa.exe (Windows Update Standalone Installer) desde un proceso padre ubicado en una ruta sospechosa, sin un archivo .msu en la línea de comandos. Puede indicar un intento de bypass de UAC mediante duplicación del token de wusa.exe.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\wusa.exe y ParentImage está en rutas como C:\\Perflogs, C:\\Users\\Public, C:\\Windows\\Temp, AppData\\Local\\Temp, Temporary Internet Files o carpetas de usuario (Favorites, Contacts, Pictures), excluyendo CommandLine que contenga '.msu'.",
+      "why_it_matters": "wusa.exe es un binario de Microsoft con autoelevación. Un atacante puede iniciarlo y duplicar su access token para obtener privilegios elevados sin aviso de UAC (elevación de privilegios / abuso del mecanismo de control de elevación). Un padre en rutas temporales o públicas sugiere malware recién descargado.",
+      "triage_steps": [
+        "Revise ParentImage: ruta, nombre, firma digital y hash; consulte la reputación del hash en su plataforma de threat intelligence.",
+        "Analice el CommandLine de wusa.exe: ausencia de .msu, uso de /extract o rutas a archivos .cab inusuales.",
+        "Reconstruya el árbol de procesos: quién creó el padre (Office, navegador, script) y qué procesos hijos o elevados aparecen después de wusa.exe.",
+        "Busque en el mismo host, +/- 15 minutos, procesos con integridad alta o SYSTEM generados por el mismo padre, y accesos a wusa.exe con OpenProcess/DuplicateToken.",
+        "Verifique cómo llegó el binario padre: descargas, adjuntos de correo, documentos con macros y eventos de creación de archivos en esa ruta.",
+        "Revise conexiones de red del padre y del host hacia dominios o IP poco comunes.",
+        "Pivote por el usuario y el hash del padre en otros endpoints y en alertas previas."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Instaladores legítimos de terceros ejecutados desde Temp que invocan wusa.exe sin referencia a un .msu (p. ej. con rutas .cab); valide firma y proveedor.",
+        "Scripts internos de TI que lanzan wusa.exe desde C:\\Windows\\Temp o C:\\Users\\Public; confirme con el equipo responsable."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa revisando el padre y los procesos elevados resultantes antes de actuar.",
+        "Si se confirma, aísle el endpoint desde el EDR y termine el proceso padre y sus hijos.",
+        "Preserve el binario padre y artefactos relacionados para análisis; bloquee su hash en el EDR.",
+        "Busque persistencia creada tras la elevación (servicios, tareas programadas, claves Run) y elimínela.",
+        "Restablezca credenciales del usuario afectado y revise la configuración de UAC; considere el nivel 'Notificar siempre'."
+      ],
+      "severity_rationale": "Nivel alto porque wusa.exe lanzado desde rutas temporales o públicas sin un .msu rara vez es legítimo y se asocia a bypass de UAC para elevar privilegios."
+    },
+    "en": {
+      "summary": "wusa.exe (Windows Update Standalone Installer) was started by a parent process in a suspicious location, with no .msu file on the command line. This may be a UAC bypass that duplicates wusa.exe's token.",
+      "what_it_detects": "Process creation events where Image ends with \\wusa.exe and ParentImage sits in C:\\Perflogs, C:\\Users\\Public, C:\\Windows\\Temp, AppData\\Local\\Temp, Temporary Internet Files or user Favorites/Contacts/Pictures folders, excluding CommandLine containing '.msu'.",
+      "why_it_matters": "wusa.exe is an auto-elevating Microsoft binary. Attackers can spawn it and duplicate its access token to gain elevated privileges without a UAC prompt (abuse elevation control mechanism). A parent in temp or public folders suggests freshly dropped malware.",
+      "triage_steps": [
+        "Inspect ParentImage: path, name, signature and hash; check hash reputation in threat intelligence.",
+        "Review the wusa.exe CommandLine: no .msu, use of /extract, or unusual .cab paths.",
+        "Rebuild the process tree: what launched the parent (Office, browser, script) and which children or elevated processes followed wusa.exe.",
+        "On the same host within +/- 15 minutes, look for high-integrity or SYSTEM processes spawned by the same parent and handle/token access to wusa.exe.",
+        "Determine how the parent binary arrived: downloads, email attachments, macro documents, file creation events in that folder.",
+        "Check network connections from the parent and host to uncommon domains or IPs.",
+        "Pivot on the user and the parent hash across other endpoints and earlier alerts."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Legitimate third-party installers running from Temp that call wusa.exe without a .msu reference (e.g. .cab paths); verify signer and vendor.",
+        "Internal IT scripts launching wusa.exe from C:\\Windows\\Temp or C:\\Users\\Public; confirm with the owning team."
+      ],
+      "response_steps": [
+        "Confirm malicious activity by reviewing the parent and resulting elevated processes before acting.",
+        "If confirmed, isolate the endpoint via EDR and terminate the parent and its children.",
+        "Preserve the parent binary and related artifacts; block its hash in the EDR.",
+        "Hunt for persistence created after elevation (services, scheduled tasks, Run keys) and remove it.",
+        "Reset the affected user's credentials and review UAC settings; consider 'Always notify'."
+      ],
+      "severity_rationale": "High because wusa.exe launched from temp or public paths without a .msu is rarely legitimate and is associated with UAC bypass for privilege escalation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "wusa.exe launched by a dropped binary in C:\\Users\\Public with no .msu argument",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wusa.exe",
+          "CommandLine": "C:\\Windows\\System32\\wusa.exe /quiet",
+          "ParentImage": "C:\\Users\\Public\\Documents\\svcupd.exe",
+          "ParentCommandLine": "\"C:\\Users\\Public\\Documents\\svcupd.exe\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "wusa.exe extracting a cab, spawned from an executable in the user's Pictures folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\wusa.exe",
+          "CommandLine": "wusa.exe C:\\Users\\mrojas\\Pictures\\pkg.cab /quiet /extract:C:\\Windows\\System32",
+          "ParentImage": "C:\\Users\\mrojas\\Pictures\\viewer.exe",
+          "ParentCommandLine": "C:\\Users\\mrojas\\Pictures\\viewer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate update installer in AppData\\Local\\Temp installing an .msu package (excluded by the .msu filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wusa.exe",
+          "CommandLine": "C:\\Windows\\System32\\wusa.exe \"C:\\Users\\jperez\\AppData\\Local\\Temp\\windows10.0-kb5034441-x64.msu\" /quiet /norestart",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Temp\\patchrunner.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "wusa.exe started by explorer.exe from System32, not a suspicious parent location",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\wusa.exe",
+          "CommandLine": "C:\\Windows\\System32\\wusa.exe /uninstall /kb:5034441",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "cbb9e3d1-2386-4e59-912e-62f1484f7a89",
+    "title": "Conhost Spawned By Uncommon Parent Process",
+    "level": "medium",
+    "status": "test",
+    "author": "Tim Rauch, Elastic (idea)",
+    "path": "windows/process_creation/proc_creation_win_conhost_uncommon_parent.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_conhost_uncommon_parent.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó conhost.exe con un proceso padre poco común, como rundll32, regsvr32, svchost, lsass o winlogon. Esto puede indicar inyección de código o un payload que abre una consola desde un proceso del sistema.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\conhost.exe y ParentImage es explorer, lsass, regsvr32, rundll32, services, smss, spoolsv, svchost, userinit, wininit o winlogon. Excluye varios servicios svchost conocidos (AppXSvc, DoSvc, WaaSMedicSvc, entre otros) y el cliente de Dropbox según ParentCommandLine.",
+      "why_it_matters": "conhost.exe suele aparecer debajo de procesos de consola como cmd o powershell. Si aparece debajo de un proceso del sistema o de un binario proxy, puede indicar código inyectado que ejecuta comandos (ATT&CK T1059, Command and Scripting Interpreter) y se esconde detrás de un proceso confiable.",
+      "triage_steps": [
+        "Revise ParentImage y ParentCommandLine: identifique el servicio (-s) si es svchost, o la DLL y el export cargados si es rundll32 o regsvr32.",
+        "Valide que ParentImage esté en C:\\Windows\\System32 o SysWOW64 y verifique la firma y el hash del binario padre.",
+        "Si es rundll32 o regsvr32, ubique la DLL de la línea de comandos, calcule su hash y compruebe si está en rutas de usuario, Temp o ProgramData.",
+        "Liste los procesos hijos y hermanos de conhost (cmd, powershell, whoami, net) en el mismo host dentro de +/- 15 minutos.",
+        "Revise conexiones de red, carga de módulos y accesos a memoria (por ejemplo, Sysmon 8 y 10) originados por el proceso padre.",
+        "Busque en el entorno el mismo ParentCommandLine para saber si es un comportamiento común de software legítimo.",
+        "Consulte alertas previas del host y del usuario asociado, sobre todo de ejecución, persistencia o acceso a credenciales."
+      ],
+      "false_positives": [
+        "Servicios svchost legítimos que no aparecen en la lista de filtros y que crean una consola al ejecutar tareas de mantenimiento.",
+        "Software de terceros, instaladores o agentes que usan rundll32 o regsvr32 y lanzan herramientas de consola.",
+        "Herramientas de administración o de despliegue que ejecutan comandos mediante servicios del sistema."
+      ],
+      "response_steps": [
+        "Si el padre o la DLL no son legítimos, aísle el endpoint desde el EDR y conserve la memoria del proceso padre antes de terminarlo.",
+        "Elimine la DLL o el binario malicioso y los mecanismos de persistencia relacionados, como servicios, tareas programadas o claves Run, que haya identificado.",
+        "Restablezca las credenciales de los usuarios que iniciaron sesión en el host si hubo actividad cerca de lsass o winlogon.",
+        "Si confirma que es benigno, documente el ParentCommandLine exacto y agregue un filtro específico, nunca uno genérico por ParentImage."
+      ],
+      "severity_rationale": "El nivel medium es adecuado: la relación de procesos es anómala e indica posible inyección, pero hay servicios y software legítimos no filtrados que también la producen."
+    },
+    "en": {
+      "summary": "conhost.exe was spawned by an uncommon parent such as rundll32, regsvr32, svchost, lsass or winlogon. This can point to code injection or a payload opening a console from a system process.",
+      "what_it_detects": "Process creation events where Image ends with \\conhost.exe and ParentImage is explorer, lsass, regsvr32, rundll32, services, smss, spoolsv, svchost, userinit, wininit or winlogon. Known svchost services (AppXSvc, DoSvc, WaaSMedicSvc and others) and the Dropbox client are excluded via ParentCommandLine.",
+      "why_it_matters": "conhost.exe normally runs under console programs like cmd or powershell. Under a system process or proxy binary, it may mean injected code is running commands (ATT&CK T1059, Command and Scripting Interpreter) while hiding behind a trusted process.",
+      "triage_steps": [
+        "Review ParentImage and ParentCommandLine. For svchost, find the service name (-s). For rundll32 or regsvr32, find the DLL and export loaded.",
+        "Confirm ParentImage is in C:\\Windows\\System32 or SysWOW64, then check the parent binary's signature and hash.",
+        "For rundll32 or regsvr32, find the DLL from the command line, hash it and check whether it sits in user, Temp or ProgramData paths.",
+        "List conhost's child and sibling processes (cmd, powershell, whoami, net) on the same host within +/- 15 minutes.",
+        "Check the parent process's network connections, module loads and memory access (for example Sysmon 8 and 10).",
+        "Search the environment for the same ParentCommandLine to see if legitimate software commonly does this.",
+        "Check earlier alerts for the host and its user, especially execution, persistence or credential access."
+      ],
+      "false_positives": [
+        "Legitimate svchost services missing from the filter list that open a console during maintenance tasks.",
+        "Third-party software, installers or agents that use rundll32 or regsvr32 and start console tools.",
+        "Administration or deployment tools that run commands through system services."
+      ],
+      "response_steps": [
+        "If the parent or DLL is not legitimate, isolate the endpoint via EDR and capture the parent's memory before killing it.",
+        "Remove the malicious DLL or binary and any persistence you found, such as services, scheduled tasks or Run keys.",
+        "If there was activity around lsass or winlogon, reset credentials for users logged on to the host.",
+        "If benign, document the exact ParentCommandLine and add a narrow filter, never a broad ParentImage exclusion."
+      ],
+      "severity_rationale": "Medium fits because the process relationship is anomalous and may indicate injection, but legitimate services and software that the rule does not filter can also produce it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "rundll32 loading a DLL from the user's Temp folder spawns conhost.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "ParentImage": "C:\\Windows\\System32\\rundll32.exe",
+          "ParentCommandLine": "rundll32.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\upd4721.dll,Start",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "spoolsv.exe spawns conhost.exe; no filter applies",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-PRN-01.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "ParentImage": "C:\\Windows\\System32\\spoolsv.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\spoolsv.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "svchost hosting AppXSvc spawns conhost; excluded by filter_main_svchost",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\svchost.exe -k wsappx -p -s AppXSvc",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Normal case: cmd.exe launched by the user spawns conhost; the parent is not in the list",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\cmd.exe\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

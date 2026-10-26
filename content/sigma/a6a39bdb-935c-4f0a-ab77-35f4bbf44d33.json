@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "a6a39bdb-935c-4f0a-ab77-35f4bbf44d33",
+    "title": "Potentially Suspicious Powershell Script Execution From Temp Folder",
+    "level": "medium",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Max Altgelt (Nextron Systems), Tim Shelton",
+    "path": "windows/process_creation/proc_creation_win_powershell_script_exec_from_temp_folder.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_script_exec_from_temp_folder.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó powershell.exe o pwsh.exe con una línea de comandos que hace referencia a una carpeta temporal (Windows\\Temp, AppData\\Local\\Temp, %TEMP%, etc.). Puede indicar la ejecución de un script descargado o colocado por un atacante.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\powershell.exe o \\pwsh.exe y CommandLine contiene una ruta temporal. Se excluyen patrones conocidos: VS Code con elevación, scripts de Amazon EC2, comandos con redirección (' >', Out-File, ConvertTo-Json) y el instalador de Chocolatey lanzado por msiexec.",
+      "why_it_matters": "Los atacantes suelen dejar scripts en carpetas temporales porque cualquier usuario puede escribir en ellas, y luego los ejecutan con PowerShell (ATT&CK T1059.001, intérprete de comandos y scripts: PowerShell). Esto puede llevar a descarga de payloads, persistencia o movimiento lateral.",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique el archivo .ps1 o comando, parámetros como -ExecutionPolicy Bypass, -EncodedCommand, -NoProfile o -WindowStyle Hidden.",
+        "Identifique ParentImage y la cadena de procesos: sospeche si el padre es un servicio web, Office, un servidor de archivos (p. ej. Serv-U.exe), wscript o cmd.",
+        "Verifique el usuario y si es una cuenta de servicio, SYSTEM o un usuario interactivo; confirme si ese usuario suele ejecutar scripts.",
+        "Obtenga el script de la carpeta temporal, calcule su hash, revise su contenido y consulte reputación; registre quién lo creó (eventos de creación de archivos).",
+        "Pivote en el mismo host ±15 minutos: conexiones de red, procesos hijo, archivos nuevos, tareas programadas o servicios creados.",
+        "Busque alertas previas para el mismo host, usuario o hash del script en otros endpoints.",
+        "Revise los logs de PowerShell Script Block (4104) para ver el código realmente ejecutado."
+      ],
+      "false_positives": [
+        "Scripts administrativos o de soporte que se copian temporalmente a %TEMP% y se ejecutan desde ahí.",
+        "Instaladores y agentes de software (actualizadores, herramientas de despliegue como SCCM o Intune) que extraen y ejecutan .ps1 en carpetas temporales.",
+        "Herramientas de desarrollo o automatización que generan scripts temporales durante compilaciones o pruebas."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del sistema o el equipo de TI si la ejecución corresponde a una tarea legítima conocida.",
+        "Si es sospechosa, aísle el endpoint desde el EDR y preserve el script, la memoria del proceso y los logs relevantes.",
+        "Termine los procesos maliciosos y elimine el script y los artefactos de persistencia identificados, tras documentarlos.",
+        "Restablezca credenciales del usuario afectado si hay indicios de robo de credenciales y bloquee hashes, dominios o IP relacionados.",
+        "Restaure el sistema a un estado conocido y documente exclusiones afinadas para scripts legítimos recurrentes."
+      ],
+      "severity_rationale": "Nivel medio porque ejecutar scripts desde carpetas temporales es una técnica común de atacantes, pero también lo hacen instaladores y scripts administrativos legítimos."
+    },
+    "en": {
+      "summary": "powershell.exe or pwsh.exe ran with a command line pointing to a temporary folder (Windows\\Temp, AppData\\Local\\Temp, %TEMP%, etc.). This may be an attacker-dropped or downloaded script being executed.",
+      "what_it_detects": "Windows process creation events where Image ends with \\powershell.exe or \\pwsh.exe and CommandLine contains a temp path. Known patterns are excluded: elevated VS Code helpers, Amazon EC2 scripts, output redirection (' >', Out-File, ConvertTo-Json) and the Chocolatey installer launched by msiexec.",
+      "why_it_matters": "Attackers often stage scripts in temp folders because any user can write there, then run them with PowerShell (ATT&CK T1059.001, Command and Scripting Interpreter: PowerShell). This can lead to payload download, persistence or lateral movement.",
+      "triage_steps": [
+        "Read the full CommandLine: identify the .ps1 or command and flags such as -ExecutionPolicy Bypass, -EncodedCommand, -NoProfile or -WindowStyle Hidden.",
+        "Check ParentImage and the process tree; be suspicious of web services, Office, file transfer servers (e.g. Serv-U.exe), wscript or cmd as parents.",
+        "Check the user: service account, SYSTEM or interactive user, and whether that user normally runs scripts.",
+        "Collect the script from the temp folder, hash it, review its content and check reputation; find which process created it.",
+        "Pivot on the same host +/- 15 minutes: network connections, child processes, new files, scheduled tasks or services.",
+        "Search earlier alerts for the same host, user or script hash across other endpoints.",
+        "Review PowerShell Script Block logs (4104) for the code that actually ran."
+      ],
+      "false_positives": [
+        "Administrative or support scripts copied to %TEMP% and run from there.",
+        "Software installers and agents (updaters, SCCM or Intune deployments) that extract and run .ps1 files in temp folders.",
+        "Development or automation tools that generate temporary scripts during builds or tests."
+      ],
+      "response_steps": [
+        "Confirm with the system owner or IT whether the execution matches a known legitimate task.",
+        "If suspicious, isolate the endpoint via EDR and preserve the script, process memory and relevant logs.",
+        "Kill malicious processes and remove the script and identified persistence after documenting them.",
+        "Reset the affected user's credentials if theft is suspected and block related hashes, domains or IPs.",
+        "Restore the host to a known-good state and document tuned exclusions for recurring legitimate scripts."
+      ],
+      "severity_rationale": "Medium because running scripts from temp folders is a common attacker technique, yet legitimate installers and admin scripts do it too."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell runs a script from the user's AppData\\Local\\Temp with execution policy bypass, launched by cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\jperez\\AppData\\Local\\Temp\\upd4821.ps1",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start /b powershell.exe",
+          "ProcessId": 6412
+        }
+      },
+      {
+        "description": "pwsh.exe spawned by a file transfer service runs a script from C:\\Windows\\Temp",
+        "event": {
+          "EventID": 1,
+          "Computer": "FTP-SRV-01",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "CommandLine": "pwsh.exe -nop -w hidden -c \"& C:\\Windows\\Temp\\svc_check.ps1\"",
+          "ParentImage": "C:\\Program Files\\RhinoSoft\\Serv-U\\Serv-U.exe",
+          "ProcessId": 3020
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Chocolatey installer launched by msiexec from AppData\\Local\\Temp, excluded by the chocolatey filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"& 'C:\\Users\\jperez\\AppData\\Local\\Temp\\chocolatey\\Install-Chocolatey.ps1'\"",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "ProcessId": 5120
+        }
+      },
+      {
+        "description": "Amazon EC2 launch script under the systemprofile temp folder, excluded by the Amazon EC2 filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "EC2-APP-07",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -ExecutionPolicy Unrestricted -File C:\\Windows\\system32\\config\\systemprofile\\AppData\\Local\\Temp\\Amazon\\EC2-Windows\\Launch\\InitializeInstance.ps1",
+          "ParentImage": "C:\\Program Files\\Amazon\\EC2Launch\\EC2Launch.exe",
+          "ProcessId": 2284
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

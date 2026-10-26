@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "bcfece3d-56fe-4545-9931-3b8e92927db1",
+    "title": "Winrs Local Command Execution",
+    "level": "high",
+    "status": "experimental",
+    "author": "Liran Ravich, Nasreddine Bencherchali",
+    "path": "windows/process_creation/proc_creation_win_winrs_local_command_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_winrs_local_command_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.006",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó winrs.exe sin destino remoto, o con localhost, 127.0.0.1 o [::1] como destino. El comando pasó por WinRM y se ejecutó localmente bajo winrshost.exe.",
+      "what_it_detects": "La creación de procesos de winrs.exe, identificada por Image u OriginalFileName. Se activa cuando CommandLine no incluye /r: ni /remote:, por lo que winrs usa el equipo local de forma predeterminada, o cuando ese parámetro apunta a una dirección de loopback. Se incluyen las variantes de guion.",
+      "why_it_matters": "Al ejecutar comandos a través del servicio WinRM local, el payload aparece como hijo de winrshost.exe y se rompe la cadena padre-hijo habitual. Los atacantes lo usan para evadir la detección (T1218, ejecución mediante binario firmado como proxy) y para probar o preparar movimiento lateral por Windows Remote Management (T1021.006).",
+      "triage_steps": [
+        "Revise el CommandLine completo y anote el comando que winrs pasó a WinRM (cmd, powershell, rutas de scripts, contenido codificado).",
+        "Revise ParentImage y su cadena de procesos. Es más sospechoso si winrs proviene de Office, un navegador, un intérprete de scripts o una carpeta temporal que de una consola administrativa.",
+        "Confirme el User y si esa cuenta suele administrar este equipo o usar WinRM.",
+        "Busque en el mismo host, en un rango de +/- 15 minutos, procesos cuyo ParentImage sea winrshost.exe, y revise sus líneas de comando y su actividad de red.",
+        "Revise el log Microsoft-Windows-WinRM/Operational y los inicios de sesión desde 127.0.0.1 o ::1 cerca de la hora de la alerta.",
+        "Verifique si el servicio WinRM se habilitó o reconfiguró hace poco en este equipo, por ejemplo con winrm quickconfig o Enable-PSRemoting.",
+        "Busque alertas previas del mismo host y usuario, y usos de winrs con destinos remotos en otros equipos."
+      ],
+      "false_positives": [
+        "La regla considera poco probables los falsos positivos. Una causa posible es un administrador o ingeniero de soporte que prueba la conectividad de WinRM contra localhost.",
+        "Scripts de despliegue o configuración que ejecutan winrs localmente para validar el acceso remoto antes de usarlo con otros equipos."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del activo si la ejecución estaba planificada. Si no la pueden confirmar, trátela como maliciosa.",
+        "Si es maliciosa, aísle el endpoint y detenga los procesos hijos creados por winrshost.exe.",
+        "Recopile los hashes y las rutas de los payloads ejecutados y búsquelos en toda la flota.",
+        "Restablezca las credenciales de la cuenta involucrada. Deshabilite WinRM en el equipo si no se necesita, o restrínjalo a los equipos de administración autorizados.",
+        "Elimine cualquier persistencia encontrada, luego restaure el equipo y vigile si vuelve a haber actividad de winrs o winrshost.exe."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque la ejecución local con winrs casi no tiene usos legítimos y es una técnica conocida de ejecución por proxy y movimiento lateral."
+    },
+    "en": {
+      "summary": "winrs.exe ran with no remote target, or with localhost, 127.0.0.1 or [::1] as the target. The command was proxied through WinRM to run locally under winrshost.exe.",
+      "what_it_detects": "Process creation of winrs.exe, matched by Image or OriginalFileName. It fires when CommandLine has no /r: or /remote: option, so winrs defaults to the local host, or when that option points at a loopback address. Dash variants are included.",
+      "why_it_matters": "Running commands through the local WinRM service breaks the usual parent-child chain because the payload's parent is winrshost.exe. Attackers use this to evade detection (T1218, signed binary proxy execution) and to test or stage Windows Remote Management lateral movement (T1021.006).",
+      "triage_steps": [
+        "Read the full CommandLine and note the command winrs passed to WinRM (cmd, powershell, script paths, encoded content).",
+        "Check ParentImage and its ancestry. Treat it as more suspicious when winrs comes from Office, a browser, a script host or a temp folder than from an admin console.",
+        "Confirm the User and whether that account normally administers this host or uses WinRM.",
+        "Find processes on the same host whose ParentImage is winrshost.exe within +/- 15 minutes, and review their command lines and network activity.",
+        "Review the Microsoft-Windows-WinRM/Operational log and logon events from 127.0.0.1 or ::1 around the alert time.",
+        "Check whether the WinRM service was recently enabled or reconfigured on this host, for example with winrm quickconfig or Enable-PSRemoting.",
+        "Search for earlier alerts on the same host and user, and for winrs use with remote targets elsewhere."
+      ],
+      "false_positives": [
+        "The rule lists false positives as unlikely. An administrator or support engineer testing WinRM connectivity against localhost is a possible cause.",
+        "Deployment or configuration scripts that run winrs locally to check remoting before moving to remote hosts."
+      ],
+      "response_steps": [
+        "Confirm with the user or asset owner whether the execution was planned. If they cannot confirm it, treat it as malicious.",
+        "If malicious, isolate the endpoint and stop the child processes spawned by winrshost.exe.",
+        "Collect the hashes and file paths of the executed payloads and hunt for them across the fleet.",
+        "Reset credentials for the involved account. Disable WinRM on the host if it is not needed, or restrict it to authorized admin hosts.",
+        "Remove any persistence found, then restore the host and monitor it for repeat winrs or winrshost.exe activity."
+      ],
+      "severity_rationale": "High fits because local winrs execution has almost no legitimate use and is a known proxy-execution and lateral-movement technique."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "winrs started from cmd with no /r: option, so the command runs on the local host through WinRM.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\winrs.exe",
+          "OriginalFileName": "winrs.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\winrs.exe\" cmd.exe /c whoami",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\cmd.exe\""
+        }
+      },
+      {
+        "description": "winrs launched from PowerShell with a dash-style -r:localhost target. The windash modifier matches it to /r:localhost.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\winrs.exe",
+          "OriginalFileName": "winrs.exe",
+          "CommandLine": "winrs.exe -r:localhost powershell.exe -nop -c Get-Process",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "An administrator uses winrs with a remote server as the target. The command line contains /r: but no loopback address, so the filter excludes it.",
+        "event": {
+          "EventID": 1,
+          "Computer": "ADM-01.andes.example.com",
+          "User": "ANDES\\admin.mlopez",
+          "Image": "C:\\Windows\\System32\\winrs.exe",
+          "OriginalFileName": "winrs.exe",
+          "CommandLine": "winrs.exe /r:SRV-FS01.andes.example.com ipconfig /all",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\cmd.exe\""
+        }
+      },
+      {
+        "description": "The WinRM service is being configured with winrm.cmd, not winrs.exe, so the image selection does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.mlopez",
+          "Image": "C:\\Windows\\System32\\cscript.exe",
+          "OriginalFileName": "cscript.exe",
+          "CommandLine": "cscript.exe //nologo C:\\Windows\\System32\\winrm.vbs quickconfig -q",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c winrm quickconfig -q"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

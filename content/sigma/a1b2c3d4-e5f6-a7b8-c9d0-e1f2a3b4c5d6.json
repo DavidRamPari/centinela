@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "a1b2c3d4-e5f6-a7b8-c9d0-e1f2a3b4c5d6",
+    "title": "Disabling Windows Defender WMI Autologger Session via Reg.exe",
+    "level": "high",
+    "status": "experimental",
+    "author": "Matt Anderson (Huntress)",
+    "path": "windows/process_creation/proc_creation_win_reg_disable_defender_wmi_autologger.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reg_disable_defender_wmi_autologger.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó reg.exe para poner en 0 el valor Start de la sesión ETW Autologger DefenderApiLogger o DefenderAuditLogger. Así se detiene el registro de eventos de API y auditoría de Windows Defender a partir del siguiente arranque.",
+      "what_it_detects": "Creación de un proceso reg.exe (por Image o por OriginalFileName, así que también detecta binarios renombrados) cuyo CommandLine contiene 'add', '0' y la ruta \\Control\\WMI\\Autologger\\DefenderApiLogger\\Start o \\DefenderAuditLogger\\Start. Se excluyen los comandos que escriben 0x00000001, es decir, los que reactivan la sesión.",
+      "why_it_matters": "Si se apagan estas sesiones ETW, el EDR y el SIEM dejan de recibir telemetría de Defender y la actividad posterior del atacante queda oculta. Es una técnica de debilitamiento de defensas (la regla la etiqueta como defense-impairment, T1685) que suele preceder al despliegue de ransomware u otras herramientas.",
+      "triage_steps": [
+        "Revise el CommandLine completo: qué sesión se modifica, el tipo y dato (/t, /d) y si usa /f. Confirme que el valor escrito es 0.",
+        "Revise Image y OriginalFileName. Si reg.exe está fuera de System32 o tiene otro nombre, es un indicio claro de evasión.",
+        "Analice ParentImage y la cadena de procesos padre (cmd, PowerShell, wscript, herramientas de acceso remoto o scripts en Temp o Public).",
+        "Identifique el usuario, el nivel de integridad y el origen de la sesión de logon (interactiva, RDP, red o servicio).",
+        "En el host, consulte HKLM\\SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\DefenderApiLogger y DefenderAuditLogger para confirmar el valor Start actual.",
+        "Busque en el mismo host, en una ventana de +/- 15 minutos, otras manipulaciones de Defender: Set-MpPreference, exclusiones, sc stop WinDefend, borrado de logs o reinicios forzados.",
+        "Busque alertas anteriores del mismo host y usuario, y el mismo CommandLine en otros endpoints para medir el alcance."
+      ],
+      "false_positives": [
+        "La regla indica que los falsos positivos son muy improbables.",
+        "Pruebas autorizadas de red team o de validación de controles (por ejemplo, Atomic Red Team) en equipos de laboratorio.",
+        "Scripts de troubleshooting o de rendimiento aprobados por el equipo de endpoint. Confírmelo con un ticket de cambio."
+      ],
+      "response_steps": [
+        "Valide con el dueño del equipo o el equipo de TI si existe un cambio autorizado. Si no lo hay, trátelo como incidente.",
+        "Aísle el endpoint desde el EDR y preserve la evidencia: árbol de procesos, hives del registro y logs.",
+        "Restaure Start=1 en las sesiones afectadas y planifique un reinicio controlado para que el cambio se aplique.",
+        "Investigue cómo obtuvo acceso el atacante, elimine la persistencia y restablezca las credenciales del usuario implicado.",
+        "Busque el mismo indicador en toda la flota y verifique que Defender y la telemetría vuelvan a reportar con normalidad."
+      ],
+      "severity_rationale": "El nivel high se justifica porque es una acción deliberada para dejar ciega la telemetría de seguridad, casi nunca tiene un uso legítimo y suele anteceder a actividad más dañina."
+    },
+    "en": {
+      "summary": "reg.exe set the Start value of the DefenderApiLogger or DefenderAuditLogger ETW Autologger session to 0. This stops Windows Defender API and audit events from being logged starting with the next boot.",
+      "what_it_detects": "A reg.exe process creation, matched by Image or by OriginalFileName so renamed copies are also caught, whose CommandLine contains 'add', '0' and the path \\Control\\WMI\\Autologger\\DefenderApiLogger\\Start or \\DefenderAuditLogger\\Start. Commands that write 0x00000001, which re-enable the session, are excluded.",
+      "why_it_matters": "Turning off these ETW sessions cuts Defender telemetry to the EDR and the SIEM, which hides the attacker's later activity. This is defense impairment (the rule tags it as T1685) and it often comes before ransomware or other tooling is deployed.",
+      "triage_steps": [
+        "Read the full CommandLine: which session is changed, the type and data (/t, /d) and whether /f is used. Confirm the value written is 0.",
+        "Check Image and OriginalFileName. A reg.exe outside System32 or under another name strongly suggests evasion.",
+        "Review ParentImage and the parent chain, such as cmd, PowerShell, wscript, remote access tools or scripts in Temp or Public.",
+        "Identify the user, the integrity level and the logon source (interactive, RDP, network or service).",
+        "On the host, query HKLM\\SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\DefenderApiLogger and DefenderAuditLogger to confirm the current Start value.",
+        "Look for other Defender tampering on the same host within +/- 15 minutes: Set-MpPreference, exclusions, sc stop WinDefend, log clearing or forced reboots.",
+        "Check earlier alerts for the same host and user, and search for the same CommandLine on other endpoints to gauge scope."
+      ],
+      "false_positives": [
+        "The rule states false positives are highly unlikely.",
+        "Authorized red team or control validation tests (for example, Atomic Red Team) on lab machines.",
+        "Approved endpoint troubleshooting or performance scripts. Confirm with a change ticket."
+      ],
+      "response_steps": [
+        "Ask the system owner or IT whether an approved change exists. If there is none, treat this as an incident.",
+        "Isolate the endpoint through the EDR and preserve evidence: process tree, registry hives and logs.",
+        "Set Start=1 again on the affected sessions and plan a controlled reboot so the change takes effect.",
+        "Find out how the attacker got in, remove persistence and reset the credentials of the user involved.",
+        "Hunt for the same indicator across the fleet and confirm Defender and telemetry report normally again."
+      ],
+      "severity_rationale": "High fits because this is a deliberate attempt to blind security telemetry, it almost never has a legitimate use, and it usually comes before more damaging activity."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe started from cmd.exe sets DefenderApiLogger Start to 0",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\DefenderApiLogger\\Start\" /t REG_DWORD /d 0 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\run.bat",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Renamed reg.exe (detected by OriginalFileName) disables DefenderAuditLogger",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\rg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "rg.exe add HKLM\\SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\DefenderAuditLogger\\Start /t REG_DWORD /d 0x00000000 /f",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "An administrator re-enables DefenderApiLogger with 0x00000001, which filter_main_enable excludes",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.mrojas",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\DefenderApiLogger\\Start\" /t REG_DWORD /d 0x00000001 /f",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Read-only reg query of the session key, with no 'add' and no \\Start path",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0107.andes.example.com",
+          "User": "ANDES\\lgarcia",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "CommandLine": "reg query \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\WMI\\Autologger\\DefenderApiLogger\" /v Start",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

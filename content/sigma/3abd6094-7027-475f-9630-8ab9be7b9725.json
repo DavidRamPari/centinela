@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "3abd6094-7027-475f-9630-8ab9be7b9725",
+    "title": "Windows Admin Share Mount Via Net.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "oscd.community, Teymur Kheirkhabarov @HeirhabarovT, Zach Stanford @svch0st, wagga",
+    "path": "windows/process_creation/proc_creation_win_net_use_mount_admin_share.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_net_use_mount_admin_share.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó net.exe o net1.exe con el subcomando 'use' para montar un recurso compartido terminado en '$' (C$, ADMIN$, IPC$ u otro similar) en un host remoto. Puede tratarse de administración legítima o de movimiento lateral.",
+      "what_it_detects": "Creación de procesos de Windows en la que Image termina en \\net.exe o \\net1.exe (o OriginalFileName es net.exe/net1.exe) y CommandLine contiene ' use ' y una ruta UNC del tipo ' \\\\host\\recurso$'.",
+      "why_it_matters": "Los recursos administrativos (C$, ADMIN$) dan acceso completo al sistema de archivos remoto. Los atacantes los montan con credenciales robadas para copiar herramientas o payloads y ejecutarlos remotamente (ATT&CK T1021.002, SMB/Windows Admin Shares).",
+      "triage_steps": [
+        "Revise CommandLine: host destino, recurso montado (C$, ADMIN$, IPC$), letra de unidad y si incluye /user: con credenciales en texto claro.",
+        "Identifique al usuario que ejecutó el proceso y confirme si pertenece a un equipo de administración o soporte autorizado.",
+        "Analice ParentImage y la cadena de procesos: cmd.exe o powershell.exe lanzados por Office, navegadores, wmiprvse.exe o servicios desconocidos son sospechosos.",
+        "En el mismo host, +/- 15 minutos, busque copias de archivos al recurso, sc.exe, schtasks, wmic o PsExec apuntando al mismo destino.",
+        "En el host destino, revise eventos 4624 de tipo 3 y 5140/5145 de acceso al recurso compartido desde el origen.",
+        "Verifique si el mismo usuario o host generó alertas similares hacia varios destinos, lo que indicaría movimiento lateral en abanico.",
+        "Compare con el comportamiento habitual: ¿este usuario monta recursos administrativos de ese servidor con regularidad?"
+      ],
+      "false_positives": [
+        "Administradores de sistemas que montan C$ o ADMIN$ para soporte, despliegue de software o recolección de logs.",
+        "Scripts de inicio de sesión, inventario o respaldo que acceden a recursos administrativos de forma programada.",
+        "Herramientas de gestión o despliegue que invocan net use internamente desde cuentas de servicio documentadas."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o su responsable si la acción fue autorizada y documente la justificación.",
+        "Si no está autorizada, aísle el host origen desde el EDR y desconecte las sesiones SMB activas hacia el destino.",
+        "Restablezca las credenciales usadas, en especial si aparecieron en CommandLine, y revise su uso en otros hosts.",
+        "Inspeccione el host destino en busca de archivos, servicios o tareas programadas creados durante la sesión y elimínelos tras verificar.",
+        "Restrinja el acceso a recursos administrativos con firewall de host o LAPS y vigile nuevos intentos."
+      ],
+      "severity_rationale": "La severidad media es adecuada porque montar recursos administrativos es común en tareas de administración, pero también es un paso clásico de movimiento lateral que requiere contexto."
+    },
+    "en": {
+      "summary": "net.exe or net1.exe ran with the 'use' subcommand to mount a share ending in '$' (C$, ADMIN$, IPC$ or similar) on a remote host. This may be legitimate administration or lateral movement.",
+      "what_it_detects": "Windows process creation where Image ends with \\net.exe or \\net1.exe (or OriginalFileName is net.exe/net1.exe) and CommandLine contains ' use ' and a UNC path like ' \\\\host\\share$'.",
+      "why_it_matters": "Admin shares (C$, ADMIN$) give full access to the remote file system. Attackers mount them with stolen credentials to stage tools or payloads and execute them remotely (ATT&CK T1021.002, SMB/Windows Admin Shares).",
+      "triage_steps": [
+        "Read CommandLine: target host, mounted share (C$, ADMIN$, IPC$), drive letter, and whether /user: with cleartext credentials is present.",
+        "Identify the executing user and confirm they belong to an authorized admin or support team.",
+        "Review ParentImage and the process tree; cmd.exe or powershell.exe spawned by Office, browsers, wmiprvse.exe or unknown services is suspicious.",
+        "On the same host within +/- 15 minutes, look for file copies to the share, sc.exe, schtasks, wmic or PsExec targeting the same destination.",
+        "On the target host, check 4624 logon type 3 and 5140/5145 share access events from the source.",
+        "Check whether the same user or host triggered similar alerts against multiple targets, suggesting fan-out lateral movement.",
+        "Compare with baseline: does this user regularly mount admin shares on that server?"
+      ],
+      "false_positives": [
+        "System administrators mounting C$ or ADMIN$ for support, software deployment or log collection.",
+        "Logon, inventory or backup scripts that access admin shares on a schedule.",
+        "Management or deployment tools calling net use internally from documented service accounts."
+      ],
+      "response_steps": [
+        "Confirm with the user or their manager whether the action was authorized and record the justification.",
+        "If unauthorized, isolate the source host via EDR and terminate active SMB sessions to the target.",
+        "Reset the credentials used, especially if exposed in CommandLine, and review their use on other hosts.",
+        "Inspect the target for files, services or scheduled tasks created during the session and remove them after verification.",
+        "Restrict admin share access with host firewall rules or LAPS and monitor for new attempts."
+      ],
+      "severity_rationale": "Medium fits because mounting admin shares is common in administration, yet it is also a classic lateral movement step that needs context to judge."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "net.exe mounts the ADMIN$ share of a remote server with explicit user",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net use Z: \\\\SRV-FS-02\\ADMIN$ /user:ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c net use Z: \\\\SRV-FS-02\\ADMIN$ /user:ANDES\\jperez"
+        }
+      },
+      {
+        "description": "net1.exe mounts C$ on another workstation, launched from PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\net1.exe",
+          "OriginalFileName": "net1.exe",
+          "CommandLine": "C:\\Windows\\system32\\net1 use \\\\WS-0142\\C$",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "net.exe mounts a regular, non-administrative department share (no trailing $)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net use F: \\\\SRV-FS-02\\Finanzas /persistent:yes",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "net.exe lists current mapped drives without mounting anything",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net use",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,129 @@
+{
+  "rule": {
+    "id": "6fe4aa1e-0531-4510-8be2-782154b73b48",
+    "title": "File Recovery From Backup Via Wbadmin.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), frack113",
+    "path": "windows/process_creation/proc_creation_win_wbadmin_restore_file.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wbadmin_restore_file.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1490"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó wbadmin.exe para restaurar archivos individuales de una versión de Windows Server Backup en una carpeta elegida. Un atacante puede usarlo para recuperar NTDS.DIT o hives del registro y extraer credenciales sin conexión.",
+      "what_it_detects": "Creación de proceso de wbadmin.exe (por Image u OriginalFileName) cuyo CommandLine contiene ' recovery', 'recoveryTarget' e 'itemtype:File', es decir, un 'wbadmin start recovery' de archivos hacia una ubicación alternativa.",
+      "why_it_matters": "Restaurar ntds.dit, SAM, SYSTEM o SECURITY desde un respaldo permite obtener almacenes de credenciales sin tocar los archivos activos bloqueados. La regla está etiquetada como ATT&CK T1490 (Inhibit System Recovery, impacto), aunque su descripción trata del robo de credenciales.",
+      "triage_steps": [
+        "Revise CommandLine: rutas en -items (ntds.dit, config\\SAM, SYSTEM, SECURITY), carpeta -recoveryTarget, -version y opciones como -quiet o -notRestoreAcl.",
+        "Verifique el usuario y la sesión: ¿es una cuenta conocida de respaldos? ¿El inicio de sesión fue interactivo, RDP o remoto (WinRM, PsExec, WMI)?",
+        "Analice ParentImage y el árbol de procesos: cmd o powershell lanzados por una herramienta remota, un script o un padre inusual es sospechoso.",
+        "Liste la carpeta recoveryTarget y confirme si los archivos restaurados se copiaron, comprimieron o enviaron fuera del equipo.",
+        "En el mismo host, revise +/- 15 minutos: 'wbadmin get versions', vssadmin, ntdsutil, reg save, herramientas tipo secretsdump, recursos compartidos y transferencias salientes.",
+        "Correlacione con tickets de cambio y alertas previas del mismo usuario y host, incluidos inicios de sesión desde IP de origen inusuales."
+      ],
+      "false_positives": [
+        "Administradores que restauran archivos puntuales desde Windows Server Backup durante una recuperación o cambio aprobado.",
+        "Pruebas de respaldo y recuperación ante desastres que restauran archivos de muestra en una carpeta temporal.",
+        "Scripts de mantenimiento programados que validan respaldos restaurando archivos."
+      ],
+      "response_steps": [
+        "Confirme con el responsable de la cuenta y el equipo de respaldos si la restauración estaba autorizada y tiene ticket.",
+        "Si no fue autorizada, aísle el host, deshabilite o restablezca la cuenta usada y preserve los archivos restaurados y la evidencia del proceso.",
+        "Si se restauró ntds.dit o hives del registro, considere comprometidas las credenciales del dominio: restablezca krbtgt dos veces, cuentas privilegiadas y de servicio.",
+        "Elimine las copias restauradas solo tras recolectar evidencia, restrinja el acceso al almacenamiento de respaldos y limite el grupo Backup Operators."
+      ],
+      "severity_rationale": "Medium es adecuado porque restaurar archivos es una tarea administrativa legítima, pero restaurar almacenes de credenciales en otra ruta puede llevar al compromiso total del dominio."
+    },
+    "en": {
+      "summary": "wbadmin.exe was run to restore individual files from a Windows Server Backup version to a chosen folder. Attackers use this to recover NTDS.DIT or registry hives and extract credentials offline.",
+      "what_it_detects": "Process creation of wbadmin.exe (by Image or OriginalFileName) where CommandLine contains ' recovery', 'recoveryTarget' and 'itemtype:File', which is a file-level 'wbadmin start recovery' to an alternate location.",
+      "why_it_matters": "Restoring ntds.dit, SAM, SYSTEM or SECURITY from a backup lets an attacker get credential stores without touching the live, locked files. The rule is tagged ATT&CK T1490 (Inhibit System Recovery, impact), but its description is about credential theft.",
+      "triage_steps": [
+        "Read CommandLine: note the -items paths (ntds.dit, config\\SAM, SYSTEM, SECURITY), -recoveryTarget folder, -version and flags such as -quiet or -notRestoreAcl.",
+        "Check the user and logon session: is it a known backup admin account, and was the logon interactive, RDP or remote (WinRM, PsExec, WMI)?",
+        "Review ParentImage and the process tree: cmd or powershell launched from a remote tool, script or unusual parent is suspicious.",
+        "List the recoveryTarget folder for restored files, and check whether they were copied, archived or sent off the host afterwards.",
+        "On the same host, look at activity within +/- 15 minutes: 'wbadmin get versions', vssadmin, ntdsutil, reg save, secretsdump-like tools, file shares, outbound transfers.",
+        "Correlate with change tickets and earlier alerts for the same user and host, including logons from unusual source IPs."
+      ],
+      "false_positives": [
+        "Administrators restoring specific files from Windows Server Backup during an approved recovery or change.",
+        "Backup and disaster-recovery tests that restore sample files to a staging folder.",
+        "Scheduled maintenance scripts that check backups by restoring files."
+      ],
+      "response_steps": [
+        "Confirm with the account owner and backup team whether the restore was authorized and matches a ticket.",
+        "If unauthorized, isolate the host, disable or reset the account used, and preserve the restored files and process evidence.",
+        "If ntds.dit or registry hives were restored, treat domain credentials as compromised: reset krbtgt twice, privileged accounts and service accounts.",
+        "Delete the restored copies only after collecting evidence, restrict access to backup storage, and limit Backup Operators membership."
+      ],
+      "severity_rationale": "Medium fits because file-level restores are legitimate admin work, but restoring credential stores to an alternate path can lead to full domain compromise."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "wbadmin restores ntds.dit from a backup version to a public folder quietly",
+        "event": {
+          "EventID": 1,
+          "Computer": "DC-01.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbadmin.exe",
+          "OriginalFileName": "WBADMIN.EXE",
+          "CommandLine": "wbadmin start recovery -version:05/10/2024-09:00 -itemtype:File -items:C:\\Windows\\NTDS\\ntds.dit -recoveryTarget:C:\\Users\\Public\\tmp -notRestoreAcl -quiet",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c restore.bat"
+        }
+      },
+      {
+        "description": "Renamed wbadmin binary identified by OriginalFileName restoring the SYSTEM hive",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS02",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\wb.exe",
+          "OriginalFileName": "WBADMIN.EXE",
+          "CommandLine": "C:\\ProgramData\\wb.exe start recovery -version:05/09/2024-22:00 -itemType:File -items:C:\\Windows\\System32\\config\\SYSTEM -recoveryTarget:C:\\ProgramData\\r -quiet",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator lists available backup versions; no recovery parameters",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS02",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbadmin.exe",
+          "OriginalFileName": "WBADMIN.EXE",
+          "CommandLine": "wbadmin get versions -backupTarget:E:",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Volume-level recovery, so itemtype:File is absent",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS02",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wbadmin.exe",
+          "OriginalFileName": "WBADMIN.EXE",
+          "CommandLine": "wbadmin start recovery -version:05/09/2024-22:00 -itemtype:Volume -items:D: -recoveryTarget:F: -quiet",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

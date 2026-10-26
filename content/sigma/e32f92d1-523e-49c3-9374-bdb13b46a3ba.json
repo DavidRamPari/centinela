@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "e32f92d1-523e-49c3-9374-bdb13b46a3ba",
+    "title": "Suspicious Mshta.EXE Execution Patterns",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_mshta_susp_pattern.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_mshta_susp_pattern.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1106"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó mshta.exe con un patrón sospechoso: lanzado por un intérprete o LOLBin con un archivo en una carpeta escribible por el usuario, o como copia renombrada fuera de System32/SysWOW64.",
+      "what_it_detects": "Dos casos. (1) Image termina en \\mshta.exe u OriginalFileName es MSHTA.EXE, ParentImage es cmd, cscript, wscript, powershell, pwsh, regsvr32 o rundll32, y CommandLine contiene \\AppData\\Local\\, C:\\ProgramData\\, C:\\Users\\Public\\ o C:\\Windows\\Temp\\. (2) mshta se ejecuta fuera de System32/SysWOW64, sin .hta/.htm en CommandLine y con argumentos.",
+      "why_it_matters": "mshta.exe es un binario firmado de Windows que ejecuta HTA, VBScript o JavaScript y se abusa para ejecutar payloads evadiendo controles. La regla está etiquetada como Execution (T1106). Una copia renombrada de mshta indica evasión deliberada.",
+      "triage_steps": [
+        "Revise Image, OriginalFileName y CommandLine: identifique el archivo, URL o script inline (vbscript:, javascript:) que mshta recibió.",
+        "Revise ParentImage y la línea de comandos del padre; reconstruya el árbol hasta el origen (Office, navegador, cliente de correo, tarea programada).",
+        "Si Image está fuera de System32/SysWOW64, calcule el hash y compárelo con el mshta.exe legítimo; confirme si es una copia renombrada.",
+        "Obtenga el archivo referenciado en AppData, ProgramData, Users\\Public o Windows\\Temp; revise su contenido, hash, firma y fecha de creación.",
+        "Revise procesos hijos de mshta, conexiones de red y DNS del host en +/- 15 minutos.",
+        "Busque persistencia creada en la misma ventana: claves Run, tareas programadas, servicios o accesos directos en Startup.",
+        "Pivote por usuario y hash del archivo en otros endpoints y revise alertas previas de la misma entidad."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Instaladores o herramientas internas antiguas que lanzan HTA desde ProgramData o Temp mediante scripts cmd o PowerShell.",
+        "Scripts de soporte o inicio de sesión que muestran avisos HTA copiados a carpetas locales del usuario."
+      ],
+      "response_steps": [
+        "Valide con el dueño del sistema o de la aplicación si la ejecución es esperada antes de actuar.",
+        "Si es maliciosa, aísle el endpoint y termine mshta y sus procesos hijos.",
+        "Preserve el archivo HTA/script y la copia renombrada como evidencia; luego elimínelos junto con la persistencia identificada.",
+        "Bloquee URLs, dominios y hashes relacionados; restablezca credenciales del usuario si hubo ejecución de payload.",
+        "Considere restringir mshta.exe con AppLocker o WDAC si no se usa en la organización."
+      ],
+      "severity_rationale": "Es alta porque estos patrones son poco comunes en uso legítimo y suelen asociarse a ejecución de código malicioso o evasión con binarios del sistema."
+    },
+    "en": {
+      "summary": "mshta.exe ran in a suspicious pattern: launched by a script host or LOLBin with a file in a user-writable folder, or as a renamed copy outside System32/SysWOW64.",
+      "what_it_detects": "Two cases. (1) Image ends with \\mshta.exe or OriginalFileName is MSHTA.EXE, ParentImage is cmd, cscript, wscript, powershell, pwsh, regsvr32 or rundll32, and CommandLine contains \\AppData\\Local\\, C:\\ProgramData\\, C:\\Users\\Public\\ or C:\\Windows\\Temp\\. (2) mshta runs outside System32/SysWOW64 with arguments and no .hta/.htm in CommandLine.",
+      "why_it_matters": "mshta.exe is a signed Windows binary that runs HTA, VBScript or JavaScript and is abused to run payloads while evading controls. The rule is tagged Execution (T1106). A renamed mshta copy points to deliberate evasion.",
+      "triage_steps": [
+        "Review Image, OriginalFileName and CommandLine: identify the file, URL or inline script (vbscript:, javascript:) passed to mshta.",
+        "Review ParentImage and its command line; rebuild the process tree to the origin (Office, browser, mail client, scheduled task).",
+        "If Image is outside System32/SysWOW64, hash it and compare with the genuine mshta.exe to confirm a renamed copy.",
+        "Collect the referenced file from AppData, ProgramData, Users\\Public or Windows\\Temp; check content, hash, signature and creation time.",
+        "Check mshta child processes, network connections and DNS on the host within +/- 15 minutes.",
+        "Look for persistence created in the same window: Run keys, scheduled tasks, services, Startup shortcuts.",
+        "Pivot on the user and file hash across other endpoints and review earlier alerts for the same entity."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Legacy installers or internal tools launching HTA files from ProgramData or Temp via cmd or PowerShell scripts.",
+        "Logon or support scripts showing HTA notices copied into the user's local folders."
+      ],
+      "response_steps": [
+        "Confirm with the system or application owner whether the execution is expected before acting.",
+        "If malicious, isolate the endpoint and terminate mshta and its child processes.",
+        "Preserve the HTA/script and any renamed copy as evidence, then remove them and any identified persistence.",
+        "Block related URLs, domains and hashes; reset the user's credentials if a payload executed.",
+        "Consider restricting mshta.exe with AppLocker or WDAC if it is not needed."
+      ],
+      "severity_rationale": "High fits because these patterns are rare in legitimate use and commonly tied to malicious code execution or evasion through system binaries."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "cmd.exe launches System32 mshta.exe with an HTA in C:\\Users\\Public (selection_img and selection_susp both match).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\mshta.exe",
+          "OriginalFileName": "MSHTA.EXE",
+          "CommandLine": "mshta.exe C:\\Users\\Public\\update.hta",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c mshta.exe C:\\Users\\Public\\update.hta"
+        }
+      },
+      {
+        "description": "Renamed mshta copy (OriginalFileName MSHTA.EXE) running from C:\\Users\\Public with a URL argument and no .hta/.htm, so filter_img does not apply.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Users\\Public\\svchelper.exe",
+          "OriginalFileName": "MSHTA.EXE",
+          "CommandLine": "\"C:\\Users\\Public\\svchelper.exe\" https://example.com/page",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "User double-clicks a vendor HTA from Program Files; parent explorer.exe is not suspicious and Image is in System32 (filtered).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\mshta.exe",
+          "OriginalFileName": "MSHTA.EXE",
+          "CommandLine": "\"C:\\Windows\\System32\\mshta.exe\" \"C:\\Program Files\\Contoso\\Setup\\welcome.hta\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      },
+      {
+        "description": "cmd.exe runs SysWOW64 mshta with a help HTA under Program Files (x86); no suspicious folder in CommandLine and the filter excludes it.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0315.andes.example.com",
+          "User": "ANDES\\rgomez",
+          "Image": "C:\\Windows\\SysWOW64\\mshta.exe",
+          "OriginalFileName": "MSHTA.EXE",
+          "CommandLine": "mshta.exe \"C:\\Program Files (x86)\\Contoso\\Help\\help.hta\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start_help.cmd"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

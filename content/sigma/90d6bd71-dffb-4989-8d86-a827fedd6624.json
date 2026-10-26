@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "90d6bd71-dffb-4989-8d86-a827fedd6624",
+    "title": "Visual Studio Code Tunnel Execution",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), citron_ninja",
+    "path": "windows/process_creation/proc_creation_win_vscode_tunnel_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_vscode_tunnel_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1071.001",
+      "T1219"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Visual Studio Code en modo tunnel en un endpoint Windows. Esto abre acceso remoto al equipo a través del servicio de dev tunnels de Microsoft, y un atacante puede usarlo como canal de C2.",
+      "what_it_detects": "Detecta procesos cuyo CommandLine termina en '.exe tunnel' cuando no hay OriginalFileName, o que contiene '.exe tunnel' junto con '--accept-server-license-terms'. También detecta cmd.exe lanzado con '/d /c' para ejecutar code-server.cmd desde '\\servers\\Stable-' cuando el ParentCommandLine termina en ' tunnel'.",
+      "why_it_matters": "Un tunnel de VS Code da shell, acceso a archivos y reenvío de puertos desde cualquier navegador. El tráfico va por HTTPS hacia la infraestructura de Microsoft y se confunde con tráfico legítimo. Corresponde a T1071.001 (protocolos web) y T1219 (herramientas de acceso remoto).",
+      "triage_steps": [
+        "Revise Image, CommandLine y OriginalFileName. Fíjese en si code.exe corre desde Temp, Downloads, ProgramData o una ruta de usuario fuera de la instalación habitual de VS Code.",
+        "Verifique la firma digital y el hash del binario. Compárelos con la versión oficial de Microsoft y con la inteligencia de amenazas interna.",
+        "Revise ParentImage y ParentCommandLine. Que el padre sea un script, Office, un servicio o una sesión remota es más sospechoso que explorer.exe.",
+        "Busque en CommandLine '--name', 'tunnel user login' o 'tunnel service install', que indican nombre de máquina, autenticación o persistencia como servicio.",
+        "Consulte la conexión de red del mismo host en un rango de +/- 15 minutos hacia *.tunnels.api.visualstudio.com o *.devtunnels.ms y revise su duración.",
+        "Revise los procesos hijos de code-server (cmd.exe, powershell.exe) para identificar comandos que se ejecutaron por el tunnel.",
+        "Confirme con el usuario y con su área si es un desarrollador autorizado a usar tunnels. Busque alertas anteriores para el mismo usuario o host."
+      ],
+      "false_positives": [
+        "Desarrolladores autorizados que usan VS Code Remote Tunnels para trabajar en su propia estación o en un servidor de desarrollo.",
+        "Builds portables o CLI independiente de VS Code sin OriginalFileName, usados legítimamente por equipos de ingeniería.",
+        "Automatizaciones de DevOps que levantan tunnels con '--accept-server-license-terms' en entornos de laboratorio."
+      ],
+      "response_steps": [
+        "Valide con el usuario y su responsable si el uso está autorizado. Documente la cuenta de GitHub o Microsoft vinculada al tunnel.",
+        "Si no está autorizado, aísle el endpoint. Termine los procesos code.exe y code-server solo después de capturar su árbol de procesos y sus conexiones.",
+        "Elimine el servicio del tunnel si se instaló y revise %USERPROFILE%\\.vscode\\cli y otros mecanismos de persistencia.",
+        "Bloquee los dominios de dev tunnels en el proxy para los usuarios no autorizados y restablezca las credenciales expuestas en el equipo."
+      ],
+      "severity_rationale": "El nivel medium es adecuado: la funcionalidad es legítima y frecuente entre desarrolladores, pero da acceso remoto completo y requiere verificación."
+    },
+    "en": {
+      "summary": "Visual Studio Code ran in tunnel mode on a Windows endpoint. This opens remote access to the machine through Microsoft's dev tunnels service, and an attacker can use it as a C2 channel.",
+      "what_it_detects": "Flags processes whose CommandLine ends with '.exe tunnel' when OriginalFileName is missing, or contains '.exe tunnel' together with '--accept-server-license-terms'. Also flags cmd.exe running code-server.cmd from '\\servers\\Stable-' with '/d /c' when the ParentCommandLine ends with ' tunnel'.",
+      "why_it_matters": "A VS Code tunnel gives shell access, file access and port forwarding from any browser. The traffic goes over HTTPS to Microsoft infrastructure and blends in with normal traffic. This maps to T1071.001 (web protocols) and T1219 (remote access tools).",
+      "triage_steps": [
+        "Review Image, CommandLine and OriginalFileName. Note whether code.exe runs from Temp, Downloads, ProgramData or another user path outside the normal VS Code install.",
+        "Check the binary's signature and hash. Compare them with the official Microsoft release and with internal threat intel.",
+        "Review ParentImage and ParentCommandLine. A script, Office, a service or a remote session as parent is more suspicious than explorer.exe.",
+        "Look in CommandLine for '--name', 'tunnel user login' or 'tunnel service install', which show the machine name, authentication or persistence as a service.",
+        "Check network connections from the same host within +/- 15 minutes to *.tunnels.api.visualstudio.com or *.devtunnels.ms, and how long they last.",
+        "Review child processes of code-server (cmd.exe, powershell.exe) to find commands that ran over the tunnel.",
+        "Confirm with the user and their team whether they are a developer approved to use tunnels. Look for earlier alerts on the same user or host."
+      ],
+      "false_positives": [
+        "Approved developers using VS Code Remote Tunnels to reach their own workstation or a dev server.",
+        "Portable builds or the standalone VS Code CLI with no OriginalFileName, used legitimately by engineering teams.",
+        "DevOps automation that starts tunnels with '--accept-server-license-terms' in lab environments."
+      ],
+      "response_steps": [
+        "Check with the user and their manager whether this use is approved. Record the GitHub or Microsoft account linked to the tunnel.",
+        "If it is not approved, isolate the endpoint. Kill the code.exe and code-server processes only after capturing the process tree and connections.",
+        "Remove the tunnel service if one was installed, and check %USERPROFILE%\\.vscode\\cli and other persistence locations.",
+        "Block dev tunnel domains at the proxy for unapproved users, and reset any credentials that were exposed on the host."
+      ],
+      "severity_rationale": "Medium fits because the feature is legitimate and common among developers, but it grants full remote access and needs verification."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "VS Code CLI dropped in Temp starts a named tunnel and accepts the license terms non-interactively (selection_tunnel_args).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\code.exe",
+          "OriginalFileName": null,
+          "CommandLine": "C:\\Users\\jperez\\AppData\\Local\\Temp\\code.exe tunnel --accept-server-license-terms --name ws-0142-dev",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden -c Start-Process $env:TEMP\\code.exe"
+        }
+      },
+      {
+        "description": "cmd.exe launches code-server.cmd from the tunnel server directory, spawned by 'code.exe tunnel' (selection_parent_tunnel).",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "C:\\WINDOWS\\system32\\cmd.exe /d /c \"C:\\Users\\jperez\\.vscode\\cli\\servers\\Stable-0123456789abcdef\\server\\bin\\code-server.cmd\" --host 127.0.0.1 --port 0",
+          "ParentImage": "C:\\Users\\jperez\\AppData\\Local\\Programs\\Microsoft VS Code\\code.exe",
+          "ParentCommandLine": "\"C:\\Users\\jperez\\AppData\\Local\\Programs\\Microsoft VS Code\\code.exe\" tunnel"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal VS Code use opening a project folder; there is no tunnel argument.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+          "OriginalFileName": "Code.exe",
+          "CommandLine": "\"C:\\Users\\jperez\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe\" C:\\Projects\\inventario",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      },
+      {
+        "description": "Signed code.exe ends with '.exe tunnel' but has OriginalFileName populated and no license flag, so no selection matches.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Program Files\\Microsoft VS Code\\code.exe",
+          "OriginalFileName": "Code.exe",
+          "CommandLine": "C:\\Program Files\\Microsoft VS Code\\code.exe tunnel",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "\"C:\\Windows\\System32\\cmd.exe\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

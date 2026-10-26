@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "2f869d59-7f6a-4931-992c-cce556ff2d53",
+    "title": "Potential Adplus.EXE Abuse",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_adplus_memory_dump.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_adplus_memory_dump.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1003.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó AdPlus.exe, herramienta de depuración del Windows SDK, con parámetros que generan volcados de memoria de procesos, cargan un archivo de configuración o ejecutan comandos inline. Puede indicar robo de credenciales (por ejemplo, volcado de LSASS) o ejecución de comandos mediante un LOLBIN.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\adplus.exe u OriginalFileName es Adplus.exe, y CommandLine contiene alguno de -hang, -pn, -pmn, -p, -po, -c o -sc.",
+      "why_it_matters": "AdPlus es un binario firmado por Microsoft que permite volcar la memoria de cualquier proceso. Un atacante puede volcar LSASS para extraer credenciales (T1003.001) o usar -sc para lanzar comandos arbitrarios y evadir controles.",
+      "triage_steps": [
+        "Revise CommandLine: identifique el proceso objetivo de -pn/-pmn o el PID de -p/-po; confirme si corresponde a lsass.exe u otro proceso sensible.",
+        "Verifique la ruta de Image. Fuera de Windows Kits\\Debuggers, o con nombre distinto pero OriginalFileName Adplus.exe, indica una copia renombrada y es más sospechoso.",
+        "Si aparece -sc, revise qué comando se ejecuta; si aparece -c, recupere y analice el archivo de configuración XML referenciado.",
+        "Analice ParentImage y el usuario: ¿lo lanzó un desarrollador desde una consola o un proceso inusual como un script, Office o un servicio?",
+        "Busque procesos hijo (cdb.exe, cmd.exe, powershell.exe) en el mismo host dentro de +/- 15 minutos.",
+        "Localice el directorio de salida (-o) y busque archivos .dmp creados, además de su compresión o exfiltración posterior.",
+        "Revise alertas previas del mismo host y usuario, especialmente de acceso a LSASS, herramientas de volcado o movimiento lateral."
+      ],
+      "false_positives": [
+        "Uso legítimo de AdPlus por desarrolladores o soporte para depurar cuelgues (-hang) de aplicaciones propias.",
+        "Procedimientos documentados de soporte de Microsoft o del proveedor que solicitan volcados de un proceso de aplicación específico."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del equipo si existe un ticket de depuración que justifique la ejecución.",
+        "Si el objetivo fue LSASS o no hay justificación, aísle el endpoint y preserve los archivos .dmp y la evidencia del proceso.",
+        "Restablezca las credenciales de las cuentas con sesión en el host y revise su uso posterior en otros sistemas.",
+        "Elimine copias no autorizadas de AdPlus y restrinja las herramientas de depuración del SDK a equipos de desarrollo aprobados."
+      ],
+      "severity_rationale": "Es alta porque AdPlus, con estos parámetros, puede volcar la memoria de LSASS o ejecutar comandos con un binario confiable, y su uso legítimo fuera de entornos de desarrollo es poco común."
+    },
+    "en": {
+      "summary": "AdPlus.exe, a Windows SDK debugging tool, ran with options that dump process memory, load a config file or run inline commands. This may indicate credential theft (for example an LSASS dump) or command execution through a LOLBIN.",
+      "what_it_detects": "Process creation events where Image ends with \\adplus.exe or OriginalFileName is Adplus.exe, and CommandLine contains one of -hang, -pn, -pmn, -p, -po, -c or -sc.",
+      "why_it_matters": "AdPlus is a Microsoft-signed binary that can dump memory from any process. Attackers can dump LSASS to extract credentials (T1003.001) or use -sc to launch arbitrary commands while evading controls.",
+      "triage_steps": [
+        "Read CommandLine: identify the target of -pn/-pmn or the PID of -p/-po and check whether it is lsass.exe or another sensitive process.",
+        "Check the Image path. Outside Windows Kits\\Debuggers, or renamed with OriginalFileName Adplus.exe, means a copied binary and is more suspicious.",
+        "If -sc is present, review the command it launches; if -c is present, retrieve and inspect the referenced XML config file.",
+        "Review ParentImage and the user: was it a developer console, or an unusual parent such as a script, Office or a service?",
+        "Look for child processes (cdb.exe, cmd.exe, powershell.exe) on the same host within +/- 15 minutes.",
+        "Locate the output directory (-o), find any .dmp files, and check for later compression or exfiltration.",
+        "Check earlier alerts for the same host and user, especially LSASS access, dumping tools or lateral movement."
+      ],
+      "false_positives": [
+        "Legitimate AdPlus use by developers or support staff to debug hangs (-hang) of in-house applications.",
+        "Documented Microsoft or vendor support procedures that request dumps of a specific application process."
+      ],
+      "response_steps": [
+        "Confirm with the user or system owner whether a debugging ticket justifies the execution.",
+        "If LSASS was targeted or there is no justification, isolate the endpoint and preserve the .dmp files and process evidence.",
+        "Reset credentials for accounts with sessions on the host and review their later use on other systems.",
+        "Remove unauthorized AdPlus copies and restrict SDK debugging tools to approved development machines."
+      ],
+      "severity_rationale": "High fits because AdPlus with these options can dump LSASS memory or run commands through a trusted binary, and legitimate use outside development environments is rare."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "AdPlus from the Windows Kits folder dumping LSASS memory in hang mode",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\adplus.exe",
+          "OriginalFileName": "Adplus.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\adplus.exe\" -hang -pn lsass.exe -o C:\\Users\\Public\\dbg",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat"
+        }
+      },
+      {
+        "description": "Renamed AdPlus copy (identified by OriginalFileName) running an inline command with -sc",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\svcdbg.exe",
+          "OriginalFileName": "Adplus.exe",
+          "CommandLine": "C:\\Users\\Public\\svcdbg.exe -sc C:\\Users\\Public\\payload.exe -o C:\\Users\\Public\\out",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile -File C:\\Users\\Public\\s.ps1"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "AdPlus run in crash mode with only an output folder, none of the listed options",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\adplus.exe",
+          "OriginalFileName": "Adplus.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\adplus.exe\" -crash -o C:\\dumps",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "cdb.exe attaching to a PID with -p; the image is not AdPlus",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files (x86)\\Windows Kits\\10\\Debuggers\\x64\\cdb.exe",
+          "OriginalFileName": "CDB.Exe",
+          "CommandLine": "cdb.exe -p 4120 -c \".dump /ma C:\\dumps\\app.dmp;q\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "c74c0390-3e20-41fd-a69a-128f0275a5ea",
+    "title": "Cab File Extraction Via Wusa.EXE From Potentially Suspicious Paths",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_wusa_cab_files_extraction_from_susp_paths.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_wusa_cab_files_extraction_from_susp_paths.yml",
+    "license": "DRL-1.1",
+    "techniques": []
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó wusa.exe (Windows Update Standalone Installer) con el argumento /extract: y la línea de comandos hace referencia a una ruta poco común para actualizaciones legítimas (PerfLogs, Users\\Public, Windows\\Temp o AppData\\Local\\Temp).",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\wusa.exe, CommandLine contiene '/extract:' y además contiene ':\\PerfLogs\\', ':\\Users\\Public\\', ':\\Windows\\Temp\\' o '\\Appdata\\Local\\Temp\\'. Esa ruta puede ser el archivo .cab de origen o el directorio de destino.",
+      "why_it_matters": "wusa.exe es un binario firmado por Microsoft que permite extraer el contenido de archivos .cab. Un atacante puede usarlo para desempaquetar un payload en directorios con permisos de escritura sin depender de herramientas propias (táctica Execution). El reporte de referencia describe una cadena de entrega de malware que usaba esta técnica.",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique el archivo .cab de origen y el directorio de destino de /extract:, y cuál de las rutas sospechosas coincide.",
+        "Analice ParentImage y la línea de comandos del padre. Si el padre es Office, un navegador, wscript, mshta o PowerShell, aumente la prioridad.",
+        "Obtenga el hash del archivo .cab y de los archivos extraídos. Consúltelos en su plataforma de threat intelligence y verifique la firma digital.",
+        "Liste los procesos hijos y los procesos que se ejecutaron desde el directorio de destino en el mismo host dentro de +/- 15 minutos.",
+        "Busque cómo llegó el .cab: descargas, adjuntos de correo, eventos de creación de archivos y conexiones de red del host en la misma ventana.",
+        "Verifique el usuario de la ejecución y si es habitual que use wusa.exe. Busque alertas previas de ese usuario y de ese host.",
+        "Busque en toda la flota el mismo hash del .cab o la misma línea de comandos para determinar el alcance."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Instaladores o scripts de despliegue internos que copian paquetes .cab a Windows\\Temp o a la carpeta Temp del usuario y los extraen con wusa.exe.",
+        "Administradores que extraen manualmente actualizaciones descargadas en directorios temporales para revisarlas o para solucionar problemas."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del equipo o con el área de TI si la extracción fue legítima antes de tomar medidas.",
+        "Si no se justifica, aísle el endpoint y conserve como evidencia el archivo .cab, los archivos extraídos y la memoria del proceso padre.",
+        "Termine los procesos maliciosos relacionados y, tras verificarlo, elimine los artefactos extraídos y cualquier mecanismo de persistencia creado.",
+        "Bloquee los hashes y los dominios o IP de origen identificados y busque coincidencias en otros hosts.",
+        "Restablezca las credenciales del usuario si hay indicios de compromiso y restaure el equipo a un estado confiable."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque extraer archivos .cab con wusa.exe desde directorios temporales o públicos es poco común en uso legítimo y coincide con técnicas de entrega de payloads."
+    },
+    "en": {
+      "summary": "wusa.exe (Windows Update Standalone Installer) ran with the /extract: argument, and the command line references a path rarely used for legitimate updates (PerfLogs, Users\\Public, Windows\\Temp or AppData\\Local\\Temp).",
+      "what_it_detects": "Process creation events where Image ends with \\wusa.exe, CommandLine contains '/extract:', and CommandLine also contains ':\\PerfLogs\\', ':\\Users\\Public\\', ':\\Windows\\Temp\\' or '\\Appdata\\Local\\Temp\\'. That path can be either the source .cab or the extraction target.",
+      "why_it_matters": "wusa.exe is a Microsoft-signed binary that can unpack .cab archives. Attackers can use it to drop a payload into writable folders without bringing their own tools (Execution tactic). The referenced report describes a malware delivery chain that used this technique.",
+      "triage_steps": [
+        "Read the full CommandLine: identify the source .cab file, the /extract: destination folder, and which suspicious path matched.",
+        "Check ParentImage and the parent command line. Escalate if the parent is Office, a browser, wscript, mshta or PowerShell.",
+        "Hash the .cab file and the extracted files. Check them against threat intelligence and verify their digital signatures.",
+        "List child processes and anything executed from the destination folder on the same host within +/- 15 minutes.",
+        "Find how the .cab arrived: downloads, email attachments, file creation events and the host's network connections in the same window.",
+        "Check which user ran it and whether that user normally uses wusa.exe. Look for earlier alerts on the same user and host.",
+        "Search the fleet for the same .cab hash or command line to scope the activity."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Internal installers or deployment scripts that stage .cab packages in Windows\\Temp or the user's Temp folder and extract them with wusa.exe.",
+        "Administrators manually extracting downloaded updates in temp folders for inspection or troubleshooting."
+      ],
+      "response_steps": [
+        "Confirm with the device owner or IT whether the extraction was legitimate before acting.",
+        "If it isn't justified, isolate the endpoint and preserve the .cab, the extracted files and the parent process memory as evidence.",
+        "Kill the related malicious processes. Once verified, remove the extracted artifacts and any persistence they created.",
+        "Block the identified hashes and source domains or IPs, and hunt for matches on other hosts.",
+        "Reset the user's credentials if compromise is indicated, and restore the host to a trusted state."
+      ],
+      "severity_rationale": "High fits because legitimate software rarely uses wusa.exe to extract .cab files from temp or public folders, and the pattern matches known payload-delivery techniques."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "wusa.exe started by Word extracts a .cab from C:\\Users\\Public into a public subfolder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wusa.exe",
+          "OriginalFileName": "wusa.exe",
+          "CommandLine": "C:\\Windows\\System32\\wusa.exe C:\\Users\\Public\\setup.cab /extract:C:\\Users\\Public\\pkg\\",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n \"C:\\Users\\jperez\\Downloads\\factura.doc\"",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "wusa.exe extracts a .cab staged in the user's AppData\\Local\\Temp folder, launched by cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\wusa.exe",
+          "CommandLine": "wusa.exe \"C:\\Users\\mrodriguez\\AppData\\Local\\Temp\\kb_upd.cab\" /extract:C:\\Users\\mrodriguez\\AppData\\Local\\Temp\\x",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start /b wusa.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Administrator extracts a vendor update from a dedicated C:\\Updates folder; no suspicious path is involved",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\wusa.exe",
+          "CommandLine": "wusa.exe C:\\Updates\\windows10.0-kb5000000-x64.msu /extract:C:\\Updates\\extracted",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "wusa.exe installs an .msu from C:\\Users\\Public silently without the /extract: argument",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\adm_lgomez",
+          "Image": "C:\\Windows\\System32\\wusa.exe",
+          "CommandLine": "wusa.exe C:\\Users\\Public\\windows10.0-kb5000000-x64.msu /quiet /norestart",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

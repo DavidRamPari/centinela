@@ -1,0 +1,143 @@
+{
+  "rule": {
+    "id": "7a74da6b-ea76-47db-92cc-874ad90df734",
+    "title": "Suspicious MSDT Parent Process",
+    "level": "high",
+    "status": "test",
+    "author": "Nextron Systems",
+    "path": "windows/process_creation/proc_creation_win_msdt_susp_parent.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_msdt_susp_parent.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó msdt.exe (Microsoft Support Diagnostic Tool) desde un intérprete de scripts, una shell o un binario LOLBin. Este patrón se vio en la explotación de CVE-2022-30190 (Follina) y en el abuso de msdt como proxy de ejecución.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\msdt.exe o OriginalFileName es msdt.exe, y ParentImage es cmd, cscript, mshta, powershell, pwsh, regsvr32, rundll32, schtasks, wmic, wscript o wsl.",
+      "why_it_matters": "msdt.exe es un binario firmado por Microsoft que puede ejecutar diagnósticos con parámetros controlados por un atacante y así lanzar código arbitrario (T1218, ejecución mediante binarios firmados). Comprobar OriginalFileName también detecta copias renombradas (T1036, enmascaramiento).",
+      "triage_steps": [
+        "Revise CommandLine de msdt.exe: busque /id PCWDiagnostic, IT_BrowseForFile, IT_RebrowseForFile, rutas con $( ), referencias a ms-msdt o cadenas en base64.",
+        "Compare Image con OriginalFileName: si msdt.exe se ejecuta fuera de C:\\Windows\\System32 o con otro nombre, considérelo enmascaramiento.",
+        "Reconstruya la cadena de procesos: ParentImage, ParentCommandLine y el abuelo. Verifique si viene de Office, de un navegador o de un adjunto.",
+        "Revise los procesos hijos de msdt.exe y sdiagnhost.exe, sobre todo cmd, powershell, rundll32 o binarios en %TEMP%.",
+        "En el mismo host, dentro de +/- 15 minutos, busque conexiones de red salientes, descargas de archivos .docx/.rtf/.html y archivos nuevos en carpetas de perfil.",
+        "Pivote por el usuario y el host: alertas previas, inicios de sesión inusuales y la misma CommandLine en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos.",
+        "Scripts de soporte técnico o de administración que llaman a msdt.exe desde cmd o PowerShell para ejecutar paquetes de diagnóstico legítimos.",
+        "Herramientas de empaquetado o pruebas de compatibilidad que ejecutan diagnósticos mediante tareas programadas."
+      ],
+      "response_steps": [
+        "Confirme con el usuario y con el equipo de soporte si la ejecución fue legítima. Conserve la línea de comandos y el árbol de procesos.",
+        "Si hay indicios de abuso, aísle el endpoint y termine msdt.exe, sdiagnhost.exe y sus hijos después de recolectar evidencia.",
+        "Recupere y analice el documento o script de origen. Bloquee su hash y las URL/dominios asociados en el proxy y el EDR.",
+        "Busque persistencia, como tareas, claves Run o servicios, y revise si hubo robo de credenciales. Restablezca las contraseñas del usuario si corresponde.",
+        "Aplique las actualizaciones de seguridad contra CVE-2022-30190 y considere desactivar el protocolo ms-msdt mediante política."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque msdt.exe casi nunca se lanza desde shells o LOLBins de forma legítima y este patrón coincide con la explotación conocida de Follina."
+    },
+    "en": {
+      "summary": "msdt.exe (Microsoft Support Diagnostic Tool) was launched by a script host, a shell or a LOLBin. This pattern was seen in CVE-2022-30190 (Follina) exploitation and in msdt proxy-execution abuse.",
+      "what_it_detects": "Process creation events where Image ends with \\msdt.exe or OriginalFileName is msdt.exe, and ParentImage is cmd, cscript, mshta, powershell, pwsh, regsvr32, rundll32, schtasks, wmic, wscript or wsl.",
+      "why_it_matters": "msdt.exe is a Microsoft-signed binary that can run diagnostics with attacker-controlled parameters and so launch arbitrary code (T1218, signed binary proxy execution). Checking OriginalFileName also catches renamed copies (T1036, masquerading).",
+      "triage_steps": [
+        "Review the msdt.exe CommandLine for /id PCWDiagnostic, IT_BrowseForFile, IT_RebrowseForFile, $( ) expressions, ms-msdt references or base64 strings.",
+        "Compare Image with OriginalFileName. If msdt runs outside C:\\Windows\\System32 or under another name, treat it as masquerading.",
+        "Rebuild the process chain: ParentImage, ParentCommandLine and the grandparent. Check whether it started from Office, a browser or an email attachment.",
+        "Review child processes of msdt.exe and sdiagnhost.exe, especially cmd, powershell, rundll32 or binaries in %TEMP%.",
+        "On the same host within +/- 15 minutes, look for outbound connections, downloaded .docx/.rtf/.html files and new files in profile folders.",
+        "Pivot on the user and host: earlier alerts, unusual logons and the same CommandLine on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives.",
+        "Helpdesk or admin scripts that call msdt.exe from cmd or PowerShell to run legitimate troubleshooting packs.",
+        "Packaging or compatibility test tooling that runs diagnostics through scheduled tasks."
+      ],
+      "response_steps": [
+        "Ask the user and IT support whether the run was legitimate. Keep the command line and process tree.",
+        "If abuse is likely, isolate the endpoint. After collecting evidence, kill msdt.exe, sdiagnhost.exe and their children.",
+        "Retrieve and analyze the source document or script. Block its hash and the related URLs or domains in the proxy and EDR.",
+        "Hunt for persistence such as tasks, Run keys or services, and check for credential theft. Reset the user's credentials if needed.",
+        "Patch against CVE-2022-30190 and consider disabling the ms-msdt protocol handler by policy."
+      ],
+      "severity_rationale": "High fits because msdt.exe is rarely launched legitimately from shells or LOLBins, and this pattern matches known Follina exploitation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell spawns msdt.exe with PCWDiagnostic parameters, matching the Follina pattern (Image endswith \\msdt.exe, parent powershell.exe).",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-10-25 14:03:12.512",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\msdt.exe",
+          "OriginalFileName": "msdt.exe",
+          "CommandLine": "msdt.exe /id PCWDiagnostic /skip force /param \"IT_RebrowseForFile=? IT_BrowseForFile=placeholder\"",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden -c Start-Process msdt.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "A renamed copy of msdt (OriginalFileName msdt.exe) launched from cmd.exe in a temp folder.",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-10-25 14:10:41.087",
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\diag.exe",
+          "OriginalFileName": "msdt.exe",
+          "CommandLine": "diag.exe /id PCWDiagnostic /skip force",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c diag.exe /id PCWDiagnostic /skip force",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "A user opens a troubleshooter from Settings, so msdt.exe has a legitimate parent that is not in the list.",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-10-25 09:22:05.330",
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\msdt.exe",
+          "OriginalFileName": "msdt.exe",
+          "CommandLine": "msdt.exe -id NetworkDiagnosticsWeb",
+          "ParentImage": "C:\\Windows\\System32\\control.exe",
+          "ParentCommandLine": "control.exe /name Microsoft.Troubleshooting",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "cmd.exe launches a different diagnostic binary (msinfo32.exe), so the msdt selection does not match.",
+        "event": {
+          "EventID": 1,
+          "UtcTime": "2024-10-25 10:05:47.901",
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\msinfo32.exe",
+          "OriginalFileName": "msinfo32.exe",
+          "CommandLine": "msinfo32.exe /report C:\\Temp\\info.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c msinfo32.exe /report C:\\Temp\\info.txt",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

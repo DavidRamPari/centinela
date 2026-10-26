@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "75f7a0e2-7154-4c4d-9eae-5cdb4e0a5c13",
+    "title": "Write Protect For Storage Disabled",
+    "level": "medium",
+    "status": "test",
+    "author": "Sreeman",
+    "path": "windows/process_creation/proc_creation_win_reg_write_protect_for_storage_disabled.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_reg_write_protect_for_storage_disabled.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó una línea de comandos que modifica la configuración de almacenamiento en HKLM\\System\\CurrentControlSet\\Control para poner en 0 una propiedad de protección contra escritura. Esto puede habilitar la escritura en dispositivos protegidos antes de un ataque de ransomware.",
+      "what_it_detects": "Creación de procesos cuyo CommandLine contiene a la vez '\\System\\CurrentControlSet\\Control', 'Write Protection', '0' y 'storage', por ejemplo reg.exe o PowerShell escribiendo un valor 'Write Protection' en 0 bajo StorageDevicePolicies. La regla exige el texto literal 'Write Protection'; el valor estándar 'WriteProtect' no coincide.",
+      "why_it_matters": "Quitar la protección contra escritura de los dispositivos de almacenamiento debilita un control defensivo (afectación de defensas, T1685) y permite cifrar o modificar medios que deberían ser de solo lectura. La regla lo describe como posible precursor de ransomware observado en el grupo cypherpunk.",
+      "triage_steps": [
+        "Revise CommandLine completo: clave, nombre del valor, tipo y dato; confirme que el dato escrito es 0 y no solo una consulta.",
+        "Identifique Image y ParentImage: reg.exe, powershell.exe o cmd.exe lanzados desde Office, navegador o script temporal son más sospechosos que una herramienta de imagen o gestión.",
+        "Verifique el User y si tiene privilegios administrativos; compare con cuentas de soporte o de despliegue conocidas.",
+        "Busque en el mismo host, +/- 15 minutos, comandos de borrado de shadow copies, cambios con bcdedit, detención de servicios de backup o antivirus.",
+        "Revise si el mismo User o ParentImage ejecutó el comando en otros hosts, lo que indicaría propagación o un script masivo.",
+        "Consulte el estado actual del valor en el registro del endpoint y alertas previas de la misma entidad."
+      ],
+      "false_positives": [
+        "Técnicos de soporte que corrigen el error 'el medio está protegido contra escritura' en USB o tarjetas SD.",
+        "Herramientas de imágenes de sistema operativo o despliegue que ajustan StorageDevicePolicies durante el aprovisionamiento.",
+        "Scripts de administración o guías de solución de problemas aplicados manualmente."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de TI si el cambio fue solicitado y documentado.",
+        "Si no está justificado, aísle el endpoint y preserve evidencia: árbol de procesos, hash del binario padre y valores del registro.",
+        "Restaure el valor de protección contra escritura según la política y revise los medios conectados en busca de archivos cifrados o modificados.",
+        "Busque y elimine el mecanismo que lanzó el comando, restablezca credenciales comprometidas y escale como posible incidente de ransomware."
+      ],
+      "severity_rationale": "Media porque el cambio tiene usos legítimos de soporte, pero sin justificación puede preceder al cifrado de datos y requiere revisión oportuna."
+    },
+    "en": {
+      "summary": "A process ran a command line that modifies storage settings under HKLM\\System\\CurrentControlSet\\Control, setting a write-protection property to 0. This can enable writes to protected devices ahead of a ransomware attack.",
+      "what_it_detects": "Process creation where CommandLine contains all of '\\System\\CurrentControlSet\\Control', 'Write Protection', '0' and 'storage', such as reg.exe or PowerShell setting a 'Write Protection' value to 0 under StorageDevicePolicies. The literal 'Write Protection' is required; the standard 'WriteProtect' value does not match.",
+      "why_it_matters": "Removing write protection from storage devices weakens a defensive control (defense impairment, T1685) and lets attackers encrypt or alter media meant to be read-only. The rule notes it as a possible ransomware precursor seen with the cypherpunk group.",
+      "triage_steps": [
+        "Read the full CommandLine: key, value name, type and data; confirm data 0 is being written, not just queried.",
+        "Check Image and ParentImage: reg.exe, powershell.exe or cmd.exe spawned by Office, a browser or a temp script is more suspicious than imaging or management tools.",
+        "Check the User and whether it holds admin rights; compare with known support or deployment accounts.",
+        "On the same host within +/- 15 minutes, look for shadow copy deletion, bcdedit changes, or stopping backup or antivirus services.",
+        "Check whether the same User or ParentImage ran this on other hosts, indicating spread or a mass script.",
+        "Query the current registry value on the endpoint and review earlier alerts for the same entity."
+      ],
+      "false_positives": [
+        "Help desk staff fixing 'the media is write protected' errors on USB drives or SD cards.",
+        "OS imaging or deployment tools adjusting StorageDevicePolicies during provisioning.",
+        "Admin scripts or troubleshooting guides applied manually."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT team whether the change was requested and documented.",
+        "If unjustified, isolate the endpoint and preserve evidence: process tree, parent binary hash and registry values.",
+        "Restore the write-protection value per policy and check attached media for encrypted or modified files.",
+        "Find and remove whatever launched the command, reset compromised credentials, and escalate as a possible ransomware incident."
+      ],
+      "severity_rationale": "Medium because the change has legitimate support uses, but without justification it can precede data encryption and needs timely review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "reg.exe launched from cmd.exe sets a 'Write Protection' value to 0 under StorageDevicePolicies",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "reg add \"HKLM\\System\\CurrentControlSet\\Control\\StorageDevicePolicies\" /v \"Write Protection\" /t REG_DWORD /d 0 /f"
+        }
+      },
+      {
+        "description": "PowerShell spawned by a script host writes 'Write Protection' = 0 in the storage policy key",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Set-ItemProperty -Path 'HKLM:\\System\\CurrentControlSet\\Control\\StorageDevicePolicies' -Name 'Write Protection' -Value 0\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Help desk sets the standard WriteProtect value; the literal 'Write Protection' string is absent, so the rule does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\soporte.ti",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "reg add \"HKLM\\System\\CurrentControlSet\\Control\\StorageDevicePolicies\" /v WriteProtect /t REG_DWORD /d 0 /f"
+        }
+      },
+      {
+        "description": "Read-only query of an unrelated Control key; lacks 'Write Protection' and 'storage'",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\reg.exe",
+          "OriginalFileName": "reg.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "reg query \"HKLM\\System\\CurrentControlSet\\Control\\Session Manager\" /v PendingFileRenameOperations"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

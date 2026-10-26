@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "5f6a601c-2ecb-498b-9c33-660362323afa",
+    "title": "Root Certificate Installed From Susp Locations",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_import_cert_susp_locations.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_import_cert_susp_locations.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1553.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Import-Certificate para agregar un certificado al almacén raíz de confianza del equipo (Cert:\\LocalMachine\\Root) desde una ruta típica de staging de usuario o temporal. Esto puede permitir que el atacante intercepte o haga pasar por legítimo tráfico TLS sin alertas.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene Import-Certificate, ' -FilePath ' y Cert:\\LocalMachine\\Root, con el archivo ubicado en AppData\\Local\\Temp, Windows\\TEMP, Desktop, Downloads, Perflogs o Users\\Public.",
+      "why_it_matters": "Instalar una CA raíz maliciosa (ATT&CK T1553.004, Subvert Trust Controls: Install Root Certificate) hace que el sistema confíe en servidores controlados por el atacante, facilita MITM, C2 sobre HTTPS y código firmado falso sin advertencias.",
+      "triage_steps": [
+        "Revise el CommandLine completo: ruta del archivo de certificado, almacén destino y si se usó -ExecutionPolicy Bypass, -EncodedCommand o ventana oculta.",
+        "Identifique ParentImage y la cadena de procesos: ¿lo lanzó un usuario interactivo, un script, una macro de Office, un servicio o una herramienta de acceso remoto?",
+        "Verifique el usuario y si tiene privilegios administrativos; escribir en LocalMachine\\Root requiere elevación, lo cual implica compromiso previo o abuso de cuenta privilegiada.",
+        "Obtenga el archivo de certificado indicado en -FilePath: calcule su hash, revise emisor, sujeto, huella digital y fechas de validez.",
+        "Liste el almacén con Get-ChildItem Cert:\\LocalMachine\\Root y compare la huella contra la línea base corporativa de CAs aprobadas.",
+        "Pivotee en el mismo host +/- 15 minutos: descarga del certificado, cambios de proxy, conexiones de red nuevas, creación de servicios o tareas programadas.",
+        "Busque el mismo hash o huella digital y la misma línea de comandos en otros endpoints, y alertas previas para el usuario o el host."
+      ],
+      "false_positives": [
+        "Escaso según la regla: un administrador o técnico de soporte importando manualmente una CA corporativa descargada en Downloads o Desktop.",
+        "Scripts de instalación de software interno, VPN o proxy de inspección TLS que copian el certificado a Temp antes de importarlo.",
+        "Laboratorios de desarrollo o pruebas donde se instala una CA local para HTTPS."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de TI si la importación fue autorizada y si el certificado pertenece a una CA aprobada.",
+        "Si no está autorizado, aísle el endpoint y preserve el archivo del certificado, el script origen y los logs relevantes.",
+        "Tras verificar la huella, elimine el certificado del almacén raíz y bloquee su huella mediante GPO o la herramienta de gestión de certificados.",
+        "Investigue el acceso inicial y la escalada de privilegios; restablezca credenciales de las cuentas implicadas.",
+        "Revise el tráfico TLS del host desde la instalación en busca de MITM o C2, y busque el mismo certificado en toda la flota."
+      ],
+      "severity_rationale": "Es alta porque agregar una CA raíz desde rutas de staging requiere privilegios de administrador, rara vez es legítimo y debilita directamente la confianza TLS del sistema."
+    },
+    "en": {
+      "summary": "Import-Certificate was run to add a certificate to the machine-wide trusted root store (Cert:\\LocalMachine\\Root) from a user or temp staging folder. This can let an attacker intercept or legitimize TLS traffic without warnings.",
+      "what_it_detects": "Process creation events whose CommandLine contains Import-Certificate, ' -FilePath ' and Cert:\\LocalMachine\\Root, with the file in AppData\\Local\\Temp, Windows\\TEMP, Desktop, Downloads, Perflogs or Users\\Public.",
+      "why_it_matters": "A rogue root CA (ATT&CK T1553.004, Subvert Trust Controls: Install Root Certificate) makes the host trust attacker servers, enabling MITM, HTTPS C2 and fake signed content without browser or OS warnings.",
+      "triage_steps": [
+        "Read the full CommandLine: certificate path, target store, and use of -ExecutionPolicy Bypass, -EncodedCommand or hidden windows.",
+        "Identify ParentImage and the process tree: interactive user, script, Office macro, service or remote access tool?",
+        "Check the user and its privileges; writing to LocalMachine\\Root needs elevation, implying prior compromise or misuse of an admin account.",
+        "Collect the file referenced by -FilePath: hash it and review issuer, subject, thumbprint and validity dates.",
+        "List Cert:\\LocalMachine\\Root on the host and compare the thumbprint with the corporate baseline of approved CAs.",
+        "Pivot on the same host +/- 15 minutes: certificate download, proxy changes, new network connections, services or scheduled tasks.",
+        "Hunt for the same hash, thumbprint and command line on other endpoints, and earlier alerts for the user or host."
+      ],
+      "false_positives": [
+        "Rare per the rule: an admin or helpdesk technician manually importing a corporate CA saved to Downloads or Desktop.",
+        "Internal software, VPN or TLS-inspection proxy installers that stage the certificate in Temp before importing it.",
+        "Development or test labs installing a local CA for HTTPS."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT whether the import was authorized and the certificate belongs to an approved CA.",
+        "If unauthorized, isolate the endpoint and preserve the certificate file, source script and relevant logs.",
+        "After verifying the thumbprint, remove the certificate from the root store and block it via GPO or certificate management tooling.",
+        "Investigate initial access and privilege escalation; reset credentials of involved accounts.",
+        "Review the host's TLS traffic since installation for MITM or C2 and sweep the fleet for the same certificate."
+      ],
+      "severity_rationale": "High fits because adding a root CA from staging paths requires admin rights, is rarely legitimate and directly undermines the host's TLS trust."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell imports a certificate from C:\\Users\\Public into the LocalMachine root store with execution policy bypass",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -ExecutionPolicy Bypass -Command \"Import-Certificate -FilePath C:\\Users\\Public\\ca.cer -CertStoreLocation Cert:\\LocalMachine\\Root\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Certificate staged in the user's Temp folder imported into the machine root store",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "CommandLine": "pwsh.exe -NoProfile -WindowStyle Hidden -Command Import-Certificate -FilePath C:\\Users\\mrodriguez\\AppData\\Local\\Temp\\root.crt -CertStoreLocation Cert:\\LocalMachine\\Root",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Corporate CA imported into the machine root store from a managed ProgramData path (no suspicious location)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-PKI-01.andes.example.com",
+          "User": "ANDES\\svc_pki",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -Command \"Import-Certificate -FilePath C:\\ProgramData\\CorpPKI\\andes-root-ca.cer -CertStoreLocation Cert:\\LocalMachine\\Root\"",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Certificate from Downloads imported into the CurrentUser root store, not LocalMachine",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command \"Import-Certificate -FilePath C:\\Users\\jperez\\Downloads\\lab-ca.cer -CertStoreLocation Cert:\\CurrentUser\\Root\"",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "f1edd233-30b5-4823-9e6a-c4171b24d316",
+    "title": "Rundll32 Registered COM Objects",
+    "level": "high",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_rundll32_registered_com_objects.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_rundll32_registered_com_objects.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1546.015"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó rundll32.exe con la opción -sta o -localserver y un CLSID entre llaves. Esto le indica que cargue el servidor COM registrado bajo ese CLSID, que podría ser un objeto COM registrado o secuestrado por un atacante.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\rundll32.exe u OriginalFileName es RUNDLL32.EXE, y CommandLine contiene '-sta ' o '-localserver ' junto con '{' y '}'.",
+      "why_it_matters": "Un atacante puede registrar o secuestrar un CLSID para que apunte a una DLL maliciosa y cargarla con rundll32, un binario firmado. Así obtiene ejecución de código, persistencia y posible escalamiento de privilegios (ATT&CK T1546.015, COM hijacking).",
+      "triage_steps": [
+        "Extraiga el CLSID de CommandLine y anote si se usó -sta o -localserver, además del usuario, el host y el PID.",
+        "Busque el CLSID en HKCU\\Software\\Classes\\CLSID y HKLM\\Software\\Classes\\CLSID. Revise la ruta de InprocServer32 o LocalServer32. Si la entrada de HKCU reemplaza la de HKLM, trátelo como secuestro.",
+        "Analice la DLL o el EXE referenciado: ruta, firma, reputación del hash y fecha de creación. Las rutas en AppData, Temp o ProgramData son sospechosas.",
+        "Revise ParentImage y el árbol de procesos. Si rundll32 lo lanzan Office, intérpretes de scripts, tareas programadas o claves Run, la actividad apunta a ser maliciosa.",
+        "Busque eventos de registro en el mismo host, +/- 15 minutos, que escriban en esa clave CLSID, e identifique el proceso que los generó.",
+        "Revise los procesos hijos, las conexiones de red y las DLL cargadas por esta instancia de rundll32.",
+        "Busque el mismo CLSID o hash en otros equipos y revise alertas previas del usuario y del host."
+      ],
+      "false_positives": [
+        "Software o instaladores legítimos que inician un servidor COM registrado con rundll32 -sta o -localserver, usando una DLL firmada en Program Files o System32.",
+        "Pruebas autorizadas de administradores o de red team, por ejemplo Atomic Red Team T1546.015."
+      ],
+      "response_steps": [
+        "Antes de actuar, confirme que el registro del CLSID y la DLL no están autorizados. Si es posible, preserve la DLL, la exportación de la clave de registro y la memoria del proceso.",
+        "Aísle el endpoint si la DLL es maliciosa o genera conexiones de red sospechosas.",
+        "Elimine el registro CLSID malicioso, la DLL y la persistencia relacionada, como claves Run o tareas programadas.",
+        "Restablezca las credenciales del usuario si hay indicios de compromiso. Busque los mismos indicadores en otros hosts, luego restaure y monitoree."
+      ],
+      "severity_rationale": "Severidad alta, porque cargar un objeto COM por CLSID mediante rundll32 es poco común en el uso normal y permite directamente la persistencia y la ejecución de código con un binario firmado."
+    },
+    "en": {
+      "summary": "rundll32.exe was started with the -sta or -localserver option and a CLSID in braces. It was told to load whatever COM server is registered under that CLSID, which may be an attacker-registered or hijacked COM object.",
+      "what_it_detects": "Process creation events where Image ends with \\rundll32.exe or OriginalFileName is RUNDLL32.EXE, and CommandLine contains '-sta ' or '-localserver ' along with both '{' and '}'.",
+      "why_it_matters": "An attacker can register or hijack a CLSID so it points to a malicious DLL, then use signed rundll32 to load it by CLSID. This gives code execution, persistence and possibly privilege escalation (ATT&CK T1546.015, COM hijacking).",
+      "triage_steps": [
+        "Take the CLSID from CommandLine and note whether -sta or -localserver was used, plus the user, host and process ID.",
+        "Look up the CLSID in HKCU\\Software\\Classes\\CLSID and HKLM\\Software\\Classes\\CLSID. Record the InprocServer32 or LocalServer32 path. If the HKCU entry overrides HKLM, treat it as hijacking.",
+        "Check the referenced DLL or EXE: path, signer, hash reputation, creation time. Treat files in user-writable folders such as AppData, Temp or ProgramData as suspicious.",
+        "Review ParentImage and the process tree. Office apps, script hosts, scheduled tasks or Run keys launching rundll32 point to malicious activity.",
+        "Search registry events on the same host within +/- 15 minutes for writes to that CLSID key, and find the process that made them.",
+        "Check child processes, network connections and DLL loads from this rundll32 instance.",
+        "Search the environment for the same CLSID or DLL hash, and review earlier alerts for this user and host."
+      ],
+      "false_positives": [
+        "Legitimate software or installers that start a registered COM server with rundll32 -sta or -localserver, using a signed DLL in Program Files or System32.",
+        "Administrators or red teams running authorized tests, such as Atomic Red Team T1546.015."
+      ],
+      "response_steps": [
+        "Confirm the CLSID registration and the DLL are unauthorized before you act. Collect the DLL, the registry key export and process memory if you can.",
+        "Isolate the endpoint if the DLL is malicious or makes suspicious network connections.",
+        "Remove the rogue CLSID registration and the DLL, and remove any related persistence such as Run keys or scheduled tasks.",
+        "Reset the affected user's credentials if signs of compromise exist. Hunt for the same indicators on other hosts, then restore and monitor."
+      ],
+      "severity_rationale": "High fits because loading a COM object by CLSID through rundll32 is rare in normal use and directly enables persistence and code execution through a signed binary."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "rundll32 loads a user-registered COM object in single-threaded apartment mode, launched from a PowerShell parent",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "\"C:\\Windows\\System32\\rundll32.exe\" -sta {B5F8350B-0548-48B1-A6EE-88BD00B4A5E7}",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "Renamed rundll32 identified by OriginalFileName using -localserver with a CLSID",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\svch.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "svch.exe -localserver {22222222-3333-4444-5555-666666666666}",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate rundll32 COM local server call via SHCreateLocalServerRunDll: has braces but no '-sta ' or '-localserver ' option",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "C:\\Windows\\system32\\rundll32.exe shell32.dll,SHCreateLocalServerRunDll {9aa46009-3ce0-458a-a354-715610a075e6} -Embedding",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      },
+      {
+        "description": "rundll32 with -sta but no CLSID braces (selection_cli requires both '{' and '}')",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "OriginalFileName": "RUNDLL32.EXE",
+          "CommandLine": "rundll32.exe -sta ProgID.Example",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

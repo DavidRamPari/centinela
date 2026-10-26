@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "fe63010f-8823-4864-a96b-a7b4a0f7b929",
+    "title": "LSASS Process Reconnaissance Via Findstr.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_findstr_lsass.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_findstr_lsass.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1552.006"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó find.exe o findstr.exe con un filtro que contiene 'lsass'. Esto suele indicar que alguien busca el PID del proceso LSASS, paso típico antes de volcar su memoria para robar credenciales.",
+      "what_it_detects": "Creación de procesos donde Image u OriginalFileName corresponde a find.exe/findstr.exe y CommandLine contiene 'lsass', o cualquier CommandLine con patrones como 'findstr lsass', 'findstr \"lsass' o ' /i lsass.exe' (con guion o barra).",
+      "why_it_matters": "La regla está etiquetada como T1552.006 (Unsecured Credentials). En la práctica, obtener el PID de LSASS precede al volcado de memoria de LSASS (T1003.001) con herramientas como comsvcs.dll MiniDump o procdump, lo que expone hashes y contraseñas de usuarios del endpoint.",
+      "triage_steps": [
+        "Revise CommandLine completo y ParentImage/ParentCommandLine: identifique si findstr recibe la salida de tasklist, Get-Process u otro comando mediante pipe.",
+        "Identifique el usuario y el nivel de integridad; confirme si es una cuenta administrativa esperada en ese host.",
+        "Busque en el mismo host, +/- 15 minutos, procesos que accedan a LSASS: rundll32 con comsvcs.dll MiniDump, procdump, Task Manager creando dumps o archivos .dmp nuevos.",
+        "Revise la cadena de procesos padre hasta el origen: shell remoto, wmiprvse.exe, psexesvc.exe, Office o un script sospechoso.",
+        "Correlacione con inicios de sesión del mismo usuario (eventos 4624/4648) y conexiones de red del host hacia IP externas o movimiento lateral.",
+        "Consulte alertas previas del mismo host y usuario, en especial de reconocimiento, desactivación de defensas o acceso a credenciales."
+      ],
+      "false_positives": [
+        "Administradores o personal de soporte que revisan manualmente el estado de LSASS con tasklist | findstr lsass durante diagnósticos.",
+        "Scripts de inventario o monitoreo internos que verifican procesos críticos; valide la ruta del script y su firma o propietario."
+      ],
+      "response_steps": [
+        "Valide con el dueño del host o el usuario si la actividad fue autorizada y documente la justificación.",
+        "Si no es legítima, aísle el endpoint mediante el EDR y preserve memoria, archivos .dmp y logs antes de cualquier limpieza.",
+        "Restablezca contraseñas de las cuentas que iniciaron sesión en el host y revise uso de esas credenciales en otros sistemas.",
+        "Elimine artefactos y persistencia identificados, y considere habilitar protección de LSASS (RunAsPPL o Credential Guard)."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque buscar el PID de LSASS con findstr rara vez es legítimo y suele anticipar un robo de credenciales inminente."
+    },
+    "en": {
+      "summary": "find.exe or findstr.exe ran with a filter containing 'lsass'. This usually means someone is looking up the LSASS process PID, a common step before dumping its memory to steal credentials.",
+      "what_it_detects": "Process creation where Image or OriginalFileName is find.exe/findstr.exe and CommandLine contains 'lsass', or any CommandLine with patterns such as 'findstr lsass', 'findstr \"lsass' or ' /i lsass.exe' (dash or slash).",
+      "why_it_matters": "The rule is tagged T1552.006 (Unsecured Credentials). In practice, finding the LSASS PID precedes LSASS memory dumping (T1003.001) with tools like comsvcs.dll MiniDump or procdump, exposing hashes and passwords of users on the endpoint.",
+      "triage_steps": [
+        "Review the full CommandLine and ParentImage/ParentCommandLine: check whether findstr receives piped output from tasklist, Get-Process or another command.",
+        "Identify the user and integrity level; confirm whether it is an expected admin account on this host.",
+        "On the same host, +/- 15 minutes, look for LSASS access: rundll32 with comsvcs.dll MiniDump, procdump, Task Manager dumps or new .dmp files.",
+        "Walk the parent chain to its origin: remote shell, wmiprvse.exe, psexesvc.exe, Office or a suspicious script.",
+        "Correlate with logons by the same user (4624/4648) and host network connections to external IPs or lateral movement.",
+        "Check earlier alerts for the same host and user, especially discovery, defense evasion or credential access."
+      ],
+      "false_positives": [
+        "Administrators or support staff manually checking LSASS with tasklist | findstr lsass during troubleshooting.",
+        "Internal inventory or monitoring scripts that verify critical processes; validate the script path and its signer or owner."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or user whether the activity was authorized and record the justification.",
+        "If not legitimate, isolate the endpoint via EDR and preserve memory, .dmp files and logs before any cleanup.",
+        "Reset passwords for accounts that logged on to the host and review use of those credentials elsewhere.",
+        "Remove identified artifacts and persistence, and consider enabling LSASS protection (RunAsPPL or Credential Guard)."
+      ],
+      "severity_rationale": "High fits because searching for the LSASS PID with findstr is rarely legitimate and often signals imminent credential theft."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "findstr.exe filtering tasklist output for lsass (image + command line selections)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "OriginalFileName": "FINDSTR.EXE",
+          "CommandLine": "findstr  /i lsass",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c \"tasklist /v | findstr /i lsass\"",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "cmd.exe command line piping tasklist into findstr \"lsass (selection_special)",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "cmd.exe /c tasklist | findstr \"lsass\"",
+          "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",
+          "IntegrityLevel": "System"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "findstr.exe used legitimately to search a log file, no lsass keyword",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "OriginalFileName": "FINDSTR.EXE",
+          "CommandLine": "findstr /i \"error\" C:\\Logs\\app.log",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "tasklist filtering for lsass.exe without find/findstr; contains lsass but no findstr image or special pattern",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\tasklist.exe",
+          "OriginalFileName": "tasklist.exe",
+          "CommandLine": "tasklist /fi \"imagename eq lsass.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

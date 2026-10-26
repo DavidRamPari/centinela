@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "3d7679bd-0c00-440c-97b0-3f204273e6c7",
+    "title": "New Process Created Via Taskmgr.EXE",
+    "level": "low",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_taskmgr_susp_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_taskmgr_susp_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Taskmgr.exe (Administrador de tareas) creó un proceso hijo que no es una herramienta propia del sistema como mmc.exe, resmon.exe u otra instancia de Taskmgr.exe. Puede ser uso administrativo normal o un intento de ejecutar procesos con privilegios elevados sin pasar por el aviso de UAC.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde ParentImage termina en \\taskmgr.exe y el Image hijo no es C:\\Windows\\System32\\mmc.exe, resmon.exe ni Taskmgr.exe.",
+      "why_it_matters": "El Administrador de tareas puede ejecutarse elevado y su opción 'Ejecutar nueva tarea' lanza procesos que heredan ese contexto. Un atacante puede usarla para obtener una shell elevada sin aviso de UAC o para ocultar la ejecución detrás de un proceso confiable (T1036, Masquerading).",
+      "triage_steps": [
+        "Revise Image y CommandLine del hijo: cmd.exe, powershell.exe, rundll32.exe, mshta.exe o binarios en rutas de usuario o %TEMP% aumentan la sospecha.",
+        "Verifique el IntegrityLevel del hijo y del Taskmgr.exe padre; un nivel High o System sin una tarea administrativa conocida merece escalamiento.",
+        "Identifique al usuario y el tipo de sesión (consola, RDP); confirme con el usuario o con su responsable si abrió el Administrador de tareas a propósito.",
+        "Revise los procesos nietos del hijo y la actividad de red, archivos y registro del mismo host en un rango de +/- 15 minutos.",
+        "Obtenga el hash del Image hijo y compruebe su firma digital y su reputación; compárelo con el binario legítimo esperado en esa ruta.",
+        "Busque alertas previas del mismo host o usuario, sobre todo de evasión de UAC, robo de credenciales o persistencia."
+      ],
+      "false_positives": [
+        "Administradores o personal de soporte que usan 'Ejecutar nueva tarea' para abrir cmd, regedit o explorer cuando la shell está bloqueada o no responde.",
+        "Usuarios que relanzan explorer.exe desde el Administrador de tareas tras un fallo del escritorio.",
+        "Abrir la ubicación de archivo o las propiedades de un proceso desde Taskmgr, lo que inicia explorer.exe o diálogos del sistema."
+      ],
+      "response_steps": [
+        "Valide con el usuario y con el registro de cambios si la ejecución fue legítima; si lo fue, documente el caso y considere una exclusión acotada por usuario y binario.",
+        "Si no se justifica, aísle el endpoint, termine el proceso sospechoso solo tras preservar la evidencia y recolecte memoria y artefactos.",
+        "Restablezca las credenciales de la cuenta implicada y revise qué otros equipos usó, en busca de movimiento lateral.",
+        "Elimine la persistencia o los binarios maliciosos encontrados y restaure el host desde una imagen confiable si hubo compromiso con privilegios elevados."
+      ],
+      "severity_rationale": "El nivel bajo es adecuado porque los hijos de Taskmgr suelen ser actividad administrativa legítima, aunque el contexto elevado justifica revisarlos."
+    },
+    "en": {
+      "summary": "Taskmgr.exe (Task Manager) started a child process that is not one of its own system tools (mmc.exe, resmon.exe or another Taskmgr.exe). This may be routine admin work or an attempt to run elevated processes without a UAC prompt.",
+      "what_it_detects": "Windows process creation events where ParentImage ends with \\taskmgr.exe and the child Image is not C:\\Windows\\System32\\mmc.exe, resmon.exe or Taskmgr.exe.",
+      "why_it_matters": "Task Manager can run elevated, and its 'Run new task' option starts processes that inherit that context. Attackers can use this to get an elevated shell without a UAC prompt or to hide execution behind a trusted parent (T1036, Masquerading).",
+      "triage_steps": [
+        "Review the child Image and CommandLine. cmd.exe, powershell.exe, rundll32.exe, mshta.exe or binaries in user or %TEMP% paths make the alert more suspicious.",
+        "Check the IntegrityLevel of the child and of the parent Taskmgr.exe. High or System integrity with no known admin task should be escalated.",
+        "Identify the user and session type (console, RDP). Ask the user or their manager whether they opened Task Manager on purpose.",
+        "Review grandchild processes and the host's network, file and registry activity within +/- 15 minutes.",
+        "Get the child Image hash, then check its signature and reputation against the legitimate binary expected at that path.",
+        "Search for earlier alerts on the same host or user, especially UAC bypass, credential access or persistence."
+      ],
+      "false_positives": [
+        "Admins or helpdesk staff using 'Run new task' to open cmd, regedit or explorer when the shell is locked or hung.",
+        "Users restarting explorer.exe from Task Manager after the desktop crashes.",
+        "Opening a process's file location or properties from Taskmgr, which starts explorer.exe or system dialogs."
+      ],
+      "response_steps": [
+        "Check with the user and the change log whether the execution was legitimate. If it was, document it and consider a narrow exclusion by user and binary.",
+        "If it is unexplained, isolate the endpoint. Preserve evidence before you kill the suspicious process, then collect memory and artifacts.",
+        "Reset credentials for the account involved and review the other hosts it used, looking for lateral movement.",
+        "Remove any persistence or malicious binaries you find. If the host was compromised with elevated privileges, rebuild it from a trusted image."
+      ],
+      "severity_rationale": "Low fits because Taskmgr child processes are usually legitimate admin activity, but the elevated context means each one still deserves a quick review."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Elevated Task Manager spawns cmd.exe via 'Run new task'",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\cmd.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\Taskmgr.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\taskmgr.exe\" /4",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Task Manager launches PowerShell with an encoded command from a user session",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -NoProfile -WindowStyle Hidden -EncodedCommand SQBFAFgA",
+          "ParentImage": "C:\\Windows\\System32\\taskmgr.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\taskmgr.exe\" /7",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Task Manager opens Resource Monitor, which the filter excludes",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\resmon.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\resmon.exe\"",
+          "ParentImage": "C:\\Windows\\System32\\Taskmgr.exe",
+          "ParentCommandLine": "\"C:\\Windows\\system32\\taskmgr.exe\" /4",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "cmd.exe started from Explorer, not from Task Manager",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\cmd.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

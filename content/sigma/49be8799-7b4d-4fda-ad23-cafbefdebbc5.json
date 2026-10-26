@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "49be8799-7b4d-4fda-ad23-cafbefdebbc5",
+    "title": "Use of Wfc.exe",
+    "level": "medium",
+    "status": "test",
+    "author": "Christopher Peacock @SecurePeacock, SCYTHE @scythe_io",
+    "path": "windows/process_creation/proc_creation_win_lolbin_wfc.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_lolbin_wfc.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1127"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Wfc.exe, el compilador de línea de comandos de Windows Workflow, en este equipo. Un atacante puede usarlo para compilar y ejecutar código desde archivos XOML y evadir las listas de aplicaciones permitidas.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image termina en \\wfc.exe u OriginalFileName es wfc.exe. Como la regla también revisa OriginalFileName, detecta el binario aunque se haya renombrado o copiado a otra ruta.",
+      "why_it_matters": "Wfc.exe es una herramienta de desarrollo firmada por Microsoft. Compila archivos de workflow (.xoml), que pueden incluir código C# embebido. Microsoft lo incluye en sus reglas de bloqueo recomendadas para WDAC. Este abuso corresponde a ATT&CK T1127, ejecución mediante utilidades de desarrollo confiables.",
+      "triage_steps": [
+        "Revise la CommandLine. Identifique los archivos .xoml o de código que recibió y su ubicación, por ejemplo carpetas donde el usuario puede escribir, como %TEMP%, Descargas o AppData.",
+        "Verifique la ruta de Image. Si wfc.exe se ejecuta fuera de las carpetas del Windows SDK o de Visual Studio, o con otro nombre, la sospecha aumenta.",
+        "Analice ParentImage y su línea de comandos. Son señales de alerta Office, los intérpretes de scripts, cmd o PowerShell lanzados desde documentos, o las herramientas remotas. Visual Studio o MSBuild indican actividad de desarrollo.",
+        "Identifique al usuario y confirme si el equipo es una estación de desarrollo con el SDK instalado.",
+        "Obtenga los archivos de entrada y calcule su hash. Busque código C# embebido, llamadas P/Invoke, ejecución de procesos o conexiones de red.",
+        "Revise los procesos hijos, las escrituras de archivos, las DLL compiladas y las conexiones de red del mismo equipo en un rango de +/- 15 minutos.",
+        "Busque alertas previas del mismo equipo y usuario, y otras ejecuciones de wfc.exe en el entorno."
+      ],
+      "false_positives": [
+        "Un desarrollador que compila de forma legítima proyectos de Windows Workflow Foundation.",
+        "Servidores de compilación o agentes de CI que compilan soluciones .NET heredadas con workflows.",
+        "Tareas de instalación, reparación o autoprueba del SDK o de Visual Studio."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con el responsable del equipo si la compilación era esperada.",
+        "Si la actividad es maliciosa, aísle el endpoint y conserve los archivos XOML, los binarios compilados y la memoria para su análisis.",
+        "Detenga los procesos que lanzó wfc.exe y elimine los artefactos una vez preservados.",
+        "Bloquee wfc.exe con WDAC o AppLocker en los equipos que no lo necesiten, según las reglas de bloqueo recomendadas por Microsoft.",
+        "Busque los mismos hashes y líneas de comandos en otros equipos, y restablezca las credenciales si el código se ejecutó con una cuenta privilegiada."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque wfc.exe es poco común fuera del desarrollo y permite evadir las listas de permitidos, pero los desarrolladores lo usan de forma legítima."
+    },
+    "en": {
+      "summary": "Wfc.exe, the Windows Workflow Command-line Compiler, was started on this host. Attackers can use it to compile and run code from XOML files and get around application allowlisting.",
+      "what_it_detects": "Process creation events where Image ends with \\wfc.exe or OriginalFileName is wfc.exe. Because the rule also checks OriginalFileName, it still fires when the binary has been renamed or copied somewhere else.",
+      "why_it_matters": "Wfc.exe is a Microsoft-signed developer tool. It compiles workflow (.xoml) files, which can carry embedded C# code. Microsoft lists it in its recommended WDAC block rules. Abusing it this way is ATT&CK T1127, Trusted Developer Utilities Proxy Execution.",
+      "triage_steps": [
+        "Read the CommandLine. Find the .xoml or source files it was given, and note where they are, such as user-writable folders like %TEMP%, Downloads or AppData.",
+        "Check the Image path. If wfc.exe runs from outside the Windows SDK or Visual Studio install folders, or under another name, treat it as more suspicious.",
+        "Look at ParentImage and its command line. Office apps, script hosts, cmd or PowerShell started from documents, or remote tools are red flags. Visual Studio or MSBuild points to development work.",
+        "Find out who the user is and whether this host is a developer workstation with the SDK installed.",
+        "Collect the input files and get their hashes. Look for embedded C# code, P/Invoke calls, process launches or network calls.",
+        "Check child processes, file writes, DLL compilation output and network connections from the same host within +/- 15 minutes.",
+        "Search for earlier alerts for the same host and user, and for wfc.exe runs elsewhere in the environment."
+      ],
+      "false_positives": [
+        "A software developer legitimately compiling Windows Workflow Foundation projects.",
+        "Build servers or CI agents compiling legacy .NET workflow solutions.",
+        "SDK or Visual Studio install, repair or self-test tasks."
+      ],
+      "response_steps": [
+        "Confirm with the user or the asset owner whether the workflow compilation was expected.",
+        "If it is malicious, isolate the endpoint and keep the XOML files, the compiled output and memory for analysis.",
+        "Stop any processes spawned by wfc.exe and remove the dropped artifacts once they are preserved.",
+        "Block wfc.exe with WDAC or AppLocker on hosts that do not need it, following Microsoft's recommended block rules.",
+        "Search other hosts for the same file hashes and command lines, and reset credentials if code ran under a privileged account."
+      ],
+      "severity_rationale": "Medium fits because wfc.exe is rare outside development work and enables allowlisting bypass, but developers do use it legitimately."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Wfc.exe from the Windows SDK compiles a XOML file in the user's Temp folder. The process was launched by cmd.exe.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\wfc.exe",
+          "OriginalFileName": "wfc.exe",
+          "CommandLine": "\"C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\wfc.exe\" C:\\Users\\jperez\\AppData\\Local\\Temp\\update.xoml",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c wfc.exe update.xoml"
+        }
+      },
+      {
+        "description": "Wfc.exe was renamed to svchelper.exe in ProgramData. Image does not match, but OriginalFileName still matches.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\ProgramData\\svchelper.exe",
+          "OriginalFileName": "wfc.exe",
+          "CommandLine": "C:\\ProgramData\\svchelper.exe C:\\ProgramData\\cfg.xoml",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Windows Fax and Scan (WFS.exe) starts normally. Its name looks similar, but Image does not end with \\wfc.exe and OriginalFileName is different.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WFS.exe",
+          "OriginalFileName": "WFS.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\WFS.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe"
+        }
+      },
+      {
+        "description": "MSBuild compiles a normal .NET project on a developer workstation, and wfc.exe is not involved.",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe",
+          "OriginalFileName": "MSBuild.exe",
+          "CommandLine": "MSBuild.exe C:\\src\\Inventario\\Inventario.sln /p:Configuration=Release",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\devenv.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

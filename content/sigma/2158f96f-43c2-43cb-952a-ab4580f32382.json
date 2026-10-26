@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "2158f96f-43c2-43cb-952a-ab4580f32382",
+    "title": "Screen Capture Activity Via Psr.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Beyu Denis, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_psr_capture_screenshots.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_psr_capture_screenshots.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1113"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó Problem Steps Recorder (psr.exe) con la opción /start, que inicia la grabación de capturas de pantalla y clics del usuario. Puede ser soporte legítimo o un atacante recolectando información visual de la sesión.",
+      "what_it_detects": "Creación de un proceso cuyo Image termina en \\Psr.exe y cuyo CommandLine contiene '/start' o '-start', es decir, el inicio de una grabación de PSR desde la línea de comandos o un script.",
+      "why_it_matters": "PSR es un binario firmado de Windows (LOLBin) que guarda capturas de pantalla, clics y teclas en un archivo .zip/.mht. Un atacante puede usarlo para la captura de pantalla (T1113, Collection) y obtener credenciales, documentos o datos sensibles visibles sin dejar malware propio.",
+      "triage_steps": [
+        "Revise el CommandLine completo: busque /gui 0 (grabación oculta), /output con rutas en Temp, AppData o recursos compartidos, y valores altos de /sc o /maxsc.",
+        "Identifique el ParentImage: cmd.exe, powershell.exe, wscript.exe, mshta.exe o aplicaciones de Office son más sospechosos que explorer.exe.",
+        "Confirme el usuario y si pertenece a soporte técnico o si existe un ticket que justifique la grabación.",
+        "Busque en el mismo host, +/- 15 minutos, la creación del archivo indicado en /output y una posterior ejecución de psr.exe /stop.",
+        "Revise actividad posterior del archivo de salida: compresión, copia a USB o recursos compartidos, o conexiones salientes que indiquen exfiltración.",
+        "Consulte alertas previas del mismo host y usuario, especialmente acceso inicial, ejecución de scripts o robo de credenciales."
+      ],
+      "false_positives": [
+        "Personal de mesa de ayuda o usuarios que graban pasos para documentar un problema a pedido de soporte.",
+        "Scripts de soporte o herramientas de diagnóstico que lanzan PSR para recopilar evidencia de errores.",
+        "Creación de material de capacitación o documentación de procedimientos."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o con el equipo de soporte si la grabación fue solicitada y autorizada.",
+        "Si no está justificada, finalice el proceso psr.exe y preserve el archivo de salida como evidencia antes de cualquier eliminación.",
+        "Aísle el endpoint si hay indicios de exfiltración o de otras actividades maliciosas en la misma sesión.",
+        "Determine qué información quedó capturada y restablezca las credenciales que pudieran haber sido expuestas.",
+        "Identifique y elimine el mecanismo que lanzó PSR (script, tarea programada, persistencia) y considere restringir psr.exe con AppLocker o WDAC."
+      ],
+      "severity_rationale": "Nivel medio: PSR es una herramienta legítima con usos de soporte, pero su inicio por línea de comandos es poco común y permite recolectar datos sensibles de la pantalla."
+    },
+    "en": {
+      "summary": "Problem Steps Recorder (psr.exe) was started with the /start option, which begins recording the user's screen and clicks. This may be legitimate support work or an attacker collecting visual information from the session.",
+      "what_it_detects": "Process creation where Image ends with \\Psr.exe and CommandLine contains '/start' or '-start', meaning a PSR recording was started from the command line or a script.",
+      "why_it_matters": "PSR is a signed Windows binary (LOLBin) that saves screenshots, clicks and keystrokes into a .zip/.mht file. Attackers can abuse it for screen capture (T1113, Collection) to obtain credentials, documents or sensitive data without dropping their own malware.",
+      "triage_steps": [
+        "Review the full CommandLine: look for /gui 0 (hidden recording), /output pointing to Temp, AppData or shares, and high /sc or /maxsc values.",
+        "Check ParentImage: cmd.exe, powershell.exe, wscript.exe, mshta.exe or Office apps are more suspicious than explorer.exe.",
+        "Confirm the user and whether they belong to IT support or have a ticket justifying a recording.",
+        "On the same host within +/- 15 minutes, look for creation of the /output file and a later psr.exe /stop execution.",
+        "Track the output file afterwards: compression, copies to USB or shares, or outbound connections suggesting exfiltration.",
+        "Review earlier alerts for the same host and user, especially initial access, script execution or credential theft."
+      ],
+      "false_positives": [
+        "Help desk staff or users recording steps to document an issue at support's request.",
+        "Support scripts or diagnostic tools that launch PSR to gather evidence of errors.",
+        "Creating training material or procedure documentation."
+      ],
+      "response_steps": [
+        "Verify with the user or support team whether the recording was requested and authorized.",
+        "If unjustified, terminate psr.exe and preserve the output file as evidence before any deletion.",
+        "Isolate the endpoint if there are signs of exfiltration or other malicious activity in the same session.",
+        "Determine what was captured and reset any credentials that may have been exposed.",
+        "Find and remove whatever launched PSR (script, scheduled task, persistence) and consider restricting psr.exe with AppLocker or WDAC."
+      ],
+      "severity_rationale": "Medium fits because PSR has legitimate support uses, but command-line starts are uncommon and can collect sensitive on-screen data."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Hidden PSR recording started from PowerShell, saving output to the user's Temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\psr.exe",
+          "OriginalFileName": "psr.exe",
+          "CommandLine": "psr.exe /start /output C:\\Users\\jperez\\AppData\\Local\\Temp\\rec.zip /sc 1 /gui 0 /maxsc 100",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentCommandLine": "powershell.exe -NoProfile -WindowStyle Hidden",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "PSR started with dash-style option from cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0217.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\SysWOW64\\Psr.exe",
+          "CommandLine": "Psr.exe -start -output C:\\ProgramData\\cap.zip -gui 0",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c run.bat",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "User opens Problem Steps Recorder interactively from the Start menu without command-line options",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\psr.exe",
+          "CommandLine": "\"C:\\Windows\\system32\\psr.exe\"",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "PSR invoked only to stop an existing recording",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\psr.exe",
+          "CommandLine": "psr.exe /stop",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

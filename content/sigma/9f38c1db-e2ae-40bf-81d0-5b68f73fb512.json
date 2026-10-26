@@ -1,0 +1,126 @@
+{
+  "rule": {
+    "id": "9f38c1db-e2ae-40bf-81d0-5b68f73fb512",
+    "title": "Suspicious BitLocker Access Agent Update Utility Execution",
+    "level": "high",
+    "status": "experimental",
+    "author": "andrewdanis, Swachchhanda Shrawan Poudel (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_baaupdate_susp_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_baaupdate_susp_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.003",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "baaupdate.exe (utilidad de actualización de BitLocker Access Agent) generó un proceso hijo sospechoso como cmd.exe, PowerShell, rundll32 o mshta. Puede indicar movimiento lateral mediante DCOM de BitLocker y COM hijacking.",
+      "what_it_detects": "Eventos de creación de procesos en los que ParentImage termina en \\baaupdate.exe e Image corresponde a un intérprete o LOLBin: bitsadmin, cmd, cscript, mshta, powershell, powershell_ise, regsvr32, rundll32, schtasks, wmic o wscript.",
+      "why_it_matters": "baaupdate.exe casi nunca genera procesos hijos. Un atacante puede activarlo de forma remota por DCOM y secuestrar un objeto COM para ejecutar código como un binario confiable de Windows. Corresponde a ejecución por proxy de binarios firmados (T1218) y movimiento lateral por DCOM (T1021.003).",
+      "triage_steps": [
+        "Revise Image y CommandLine del hijo: busque payloads codificados, descargas, URLs, rutas en carpetas de usuario o temporales y creación de tareas programadas.",
+        "Confirme que ParentImage sea C:\\Windows\\System32\\baaupdate.exe y revise su línea de comandos, el usuario y el proceso que lo inició (por ejemplo, svchost con DcomLaunch).",
+        "Busque inicios de sesión de red (4624, tipo 3) en el host +/- 15 minutos y anote la IP de origen y la cuenta usada.",
+        "Revise el registro (HKCU/HKLM\\Software\\Classes\\CLSID) en busca de entradas InprocServer32 nuevas o modificadas, y busque DLL cargadas por baaupdate.exe (regla relacionada de carga de DLL).",
+        "Pivote sobre los procesos nietos, las conexiones de red y los archivos escritos por el proceso hijo.",
+        "Busque la misma IP de origen o la misma cuenta en otros hosts y en alertas anteriores para medir el alcance del movimiento lateral."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos. Podría haber scripts de administración o de despliegue de BitLocker que invoquen baaupdate.exe; valide con el equipo de endpoints antes de crear una exclusión."
+      ],
+      "response_steps": [
+        "Valide la actividad con el dueño del host y con el equipo de administración de BitLocker.",
+        "Si se confirma la actividad maliciosa, aísle el endpoint y deshabilite o restablezca la cuenta usada en el inicio de sesión remoto.",
+        "Una vez documentada la evidencia, elimine las claves CLSID secuestradas, las DLL maliciosas y las tareas programadas creadas.",
+        "Bloquee el DCOM remoto desde el host de origen e investíguelo también como posible equipo comprometido.",
+        "Restaure desde una imagen conocida si hubo persistencia y supervise si el patrón se repite."
+      ],
+      "severity_rationale": "El nivel alto es adecuado: este proceso padre casi nunca genera intérpretes, y cuando lo hace suele indicar ejecución remota de código con un binario confiable."
+    },
+    "en": {
+      "summary": "baaupdate.exe (BitLocker Access Agent Update Utility) spawned a suspicious child process such as cmd.exe, PowerShell, rundll32 or mshta. This may indicate lateral movement through BitLocker DCOM and COM hijacking.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\baaupdate.exe and Image is a script host or LOLBin: bitsadmin, cmd, cscript, mshta, powershell, powershell_ise, regsvr32, rundll32, schtasks, wmic or wscript.",
+      "why_it_matters": "baaupdate.exe rarely spawns child processes. An attacker can trigger it remotely over DCOM and hijack a COM object so that code runs under a trusted Windows binary. This is signed binary proxy execution (T1218) and lateral movement over DCOM (T1021.003).",
+      "triage_steps": [
+        "Inspect the child's Image and CommandLine for encoded payloads, downloads, URLs, paths in user or temp folders, and scheduled task creation.",
+        "Confirm ParentImage is C:\\Windows\\System32\\baaupdate.exe, and review its command line, its user and what launched it (for example svchost DcomLaunch).",
+        "Look for network logons (4624, type 3) on the host within +/- 15 minutes; note the source IP and the account.",
+        "Check the registry (HKCU/HKLM\\Software\\Classes\\CLSID) for new or changed InprocServer32 entries, and look for DLLs loaded by baaupdate.exe (related DLL-load rule).",
+        "Pivot on grandchild processes, network connections and files written by the child.",
+        "Search other hosts and earlier alerts for the same source IP or account to scope the lateral movement."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives. BitLocker management or deployment scripts might invoke baaupdate.exe; check with the endpoint team before adding an exclusion."
+      ],
+      "response_steps": [
+        "Check the activity with the host owner and the BitLocker administration team.",
+        "If confirmed malicious, isolate the endpoint and disable or reset the account used for the remote logon.",
+        "After preserving evidence, remove the hijacked CLSID keys, the malicious DLLs and any scheduled tasks created.",
+        "Block remote DCOM from the source host and investigate that host as possibly compromised.",
+        "Reimage if persistence was found and monitor for the pattern coming back."
+      ],
+      "severity_rationale": "High fits because this parent almost never spawns script hosts, so when it does it usually means remote code execution through a trusted binary."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "baaupdate.exe spawns encoded PowerShell after a remote DCOM activation",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\System32\\baaupdate.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\baaupdate.exe -Embedding",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe -nop -w hidden -enc SQBFAFgA",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "baaupdate.exe spawns cmd.exe that runs a command and writes the output to a file",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-FS-02.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "ParentImage": "C:\\Windows\\System32\\BaaUpdate.exe",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami > C:\\Users\\Public\\o.txt",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "baaupdate.exe spawns conhost.exe, which is not in the list of suspicious child processes",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "ParentImage": "C:\\Windows\\System32\\baaupdate.exe",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1"
+        }
+      },
+      {
+        "description": "PowerShell started from explorer.exe by an administrator, not from baaupdate.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "CommandLine": "powershell.exe Get-BitLockerVolume"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

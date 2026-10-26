@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "5bb68627-3198-40ca-b458-49f973db8752",
+    "title": "Rundll32 Execution Without Parameters",
+    "level": "high",
+    "status": "test",
+    "author": "Bartlomiej Czyz, Relativity",
+    "path": "windows/process_creation/proc_creation_win_rundll32_without_parameters.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_rundll32_without_parameters.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.002",
+      "T1569.002",
+      "T1570"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso rundll32 cuya línea de comandos es solo 'rundll32.exe' o 'rundll32', sin DLL ni función exportada. Este patrón coincide con el módulo windows/smb/psexec de Metasploit, que inicia rundll32 vacío para inyectarle un payload.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde CommandLine es exactamente 'rundll32.exe' o 'rundll32' (sin distinguir mayúsculas). Si la línea incluye la ruta completa o argumentos, la regla no coincide.",
+      "why_it_matters": "Si rundll32 se ejecuta sin parámetros, no carga ninguna DLL y termina, salvo que otro proceso le inyecte código. Esto suele indicar movimiento lateral por SMB/Admin Shares (T1021.002), transferencia de herramientas (T1570) y ejecución como servicio (T1569.002), normalmente con privilegios SYSTEM.",
+      "triage_steps": [
+        "Revise ParentImage y su línea de comandos. Un ejecutable con nombre aleatorio en C:\\Windows o hijo de services.exe es muy sospechoso.",
+        "Confirme el usuario del proceso. NT AUTHORITY\\SYSTEM junto con un padre lanzado como servicio coincide con psexec.",
+        "En el mismo host (±15 minutos), busque instalaciones de servicios (eventos 7045 y 4697) con ImagePath en ADMIN$ o en C:\\Windows.",
+        "Correlacione inicios de sesión 4624 de tipo 3 y accesos a ADMIN$ (5140 y 5145) para identificar la IP de origen y la cuenta usada.",
+        "Revise la actividad del proceso rundll32: conexiones de red salientes, procesos hijos (cmd.exe, powershell.exe) e inyección remota (Sysmon 8 y 10).",
+        "Desde la misma IP de origen o la misma cuenta, busque instalaciones de servicios o alertas similares en otros hosts.",
+        "Obtenga el hash del binario padre y consulte alertas anteriores del endpoint y del usuario."
+      ],
+      "false_positives": [
+        "Un usuario o administrador que escribe 'rundll32' en la consola sin opciones, por error o en pruebas, desde cmd.exe o explorer.exe de forma interactiva.",
+        "Ejercicios autorizados de red team o pruebas de penetración con Metasploit u otras herramientas similares. Valide contra el calendario de pruebas."
+      ],
+      "response_steps": [
+        "Confirme la actividad maliciosa validando el binario padre, el servicio creado y la conexión de red de rundll32 antes de actuar.",
+        "Si se confirma, aísle el endpoint y deshabilite o restablezca la credencial usada para el movimiento lateral.",
+        "Detenga y elimine el servicio malicioso y el binario en ADMIN$, después de preservar la memoria del proceso y los artefactos para el análisis forense.",
+        "Bloquee la IP de origen o investigue ese host como posiblemente comprometido, y revise otros destinos alcanzados.",
+        "Restaure el sistema y refuerce el acceso a Admin Shares: restrinja administradores locales y aplique LAPS."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque un rundll32 sin argumentos casi nunca es legítimo y suele indicar inyección de código con privilegios SYSTEM tras un movimiento lateral."
+    },
+    "en": {
+      "summary": "A rundll32 process started with a command line of just 'rundll32.exe' or 'rundll32', with no DLL or export. This matches the Metasploit windows/smb/psexec module, which starts an empty rundll32 and injects a payload into it.",
+      "what_it_detects": "Windows process creation events where CommandLine is exactly 'rundll32.exe' or 'rundll32' (case-insensitive). Command lines with a full path or any arguments do not match.",
+      "why_it_matters": "A rundll32 with no parameters loads nothing and exits unless something injects code into it. This usually points to lateral movement over SMB/Admin Shares (T1021.002), tool transfer (T1570) and service execution (T1569.002), usually as SYSTEM.",
+      "triage_steps": [
+        "Check ParentImage and its command line. A randomly named executable in C:\\Windows, or a child of services.exe, is highly suspicious.",
+        "Check the process user. NT AUTHORITY\\SYSTEM with a service-launched parent fits psexec.",
+        "On the same host (+/- 15 minutes), look for service installs (events 7045 and 4697) with an ImagePath in ADMIN$ or C:\\Windows.",
+        "Correlate type 3 logons (4624) and ADMIN$ share access (5140 and 5145) to find the source IP and account.",
+        "Review rundll32 activity: outbound network connections, child processes (cmd.exe, powershell.exe) and remote thread or process access (Sysmon 8 and 10).",
+        "Hunt for service installs or similar alerts on other hosts from the same source IP or account.",
+        "Get the hash of the parent binary and check earlier alerts for this endpoint and user."
+      ],
+      "false_positives": [
+        "A user or admin typing 'rundll32' at a console with no options, by mistake or while testing, interactively from cmd.exe or explorer.exe.",
+        "Authorized red team or penetration tests using Metasploit or similar tooling. Check against the test schedule."
+      ],
+      "response_steps": [
+        "Before acting, verify by validating the parent binary, the created service and the rundll32 network activity.",
+        "If confirmed, isolate the endpoint and disable or reset the credential used for lateral movement.",
+        "Preserve process memory and artifacts for forensics, then stop and remove the malicious service and the binary in ADMIN$.",
+        "Block the source IP or investigate that host as likely compromised, and review other targets it reached.",
+        "Restore the system and harden Admin Share access: restrict local admins and apply LAPS."
+      ],
+      "severity_rationale": "High fits because an argument-less rundll32 is almost never legitimate and usually means code injection as SYSTEM after lateral movement."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Metasploit psexec pattern: a randomly named service binary run by services.exe spawns rundll32.exe with no arguments as SYSTEM",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe",
+          "ParentImage": "C:\\Windows\\qXvTzLpa.exe",
+          "ParentCommandLine": "C:\\Windows\\qXvTzLpa.exe",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Upper-case 'RUNDLL32' with no extension or arguments, which still matches because matching is case-insensitive",
+        "event": {
+          "EventID": 4688,
+          "Computer": "SRV-FS01.andes.example.com",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "RUNDLL32",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Legitimate rundll32 opening a Control Panel applet; the command line has a full path and arguments, so it does not match exactly",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "C:\\Windows\\System32\\rundll32.exe shell32.dll,Control_RunDLL desk.cpl",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "User": "ANDES\\jperez"
+        }
+      },
+      {
+        "description": "rundll32 launching the printer UI with a DLL and export; the arguments mean it is not an exact match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0187.andes.example.com",
+          "Image": "C:\\Windows\\System32\\rundll32.exe",
+          "CommandLine": "rundll32.exe printui.dll,PrintUIEntry /il",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\mrodriguez"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "f35c5d71-b489-4e22-a115-f003df287317",
+    "title": "Potential CobaltStrike Process Patterns",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_hktl_cobaltstrike_process_patterns.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_hktl_cobaltstrike_process_patterns.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se detectó un patrón de creación de procesos típico de un beacon de Cobalt Strike: escritura de datos con echo a un named pipe local, o un whoami lanzado desde una ruta temporal o con un conhost asociado.",
+      "what_it_detects": "Cuatro patrones: cmd.exe /C whoami con ParentImage en C:\\Temp\\; cmd.exe /c echo ... > \\\\.\\pipe\\ lanzado por runonce.exe o dllhost.exe; y conhost.exe 0xffffffff -ForceV1 cuyo ParentCommandLine es ese echo a un pipe o termina en /C whoami.",
+      "why_it_matters": "Cobalt Strike se usa a menudo para post-explotación. El echo a un named pipe aparece al escalar privilegios con getsystem (suplantación vía named pipe), y whoami es un reconocimiento habitual tras la ejecución (T1059, intérprete de comandos).",
+      "triage_steps": [
+        "Revise CommandLine, ParentImage y ParentCommandLine del evento y determine cuál de los cuatro patrones disparó la alerta.",
+        "Si el padre es dllhost.exe o runonce.exe, compruebe si se ejecutó sin argumentos o desde una ruta inusual: es un proceso de sacrificio común para inyectar beacons.",
+        "Obtenga el hash y la firma del proceso padre y de cualquier binario en C:\\Temp\\; consúltelos en su plataforma de threat intelligence.",
+        "Revise el mismo host +/- 15 minutos: procesos hijos de cmd.exe, creación de servicios (evento 7045), nuevos named pipes y procesos que corran como SYSTEM.",
+        "Busque conexiones de red salientes del proceso padre o inyectado con patrones de beaconing (intervalos regulares, dominios recientes, HTTP/HTTPS a destinos poco comunes).",
+        "Identifique el usuario de la sesión y busque actividad suya en otros equipos: inicios de sesión remotos, uso de PsExec o WMI.",
+        "Consulte alertas previas del mismo host y usuario, especialmente de antivirus/EDR, PowerShell codificado o volcado de LSASS."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; el patrón es poco común en uso legítimo.",
+        "Ejercicios autorizados de red team o pruebas de penetración que usen Cobalt Strike u otros frameworks con comportamiento similar.",
+        "Scripts de administración que ejecuten whoami desde C:\\Temp\\ (raro; valide con el responsable)."
+      ],
+      "response_steps": [
+        "Confirme con el equipo de red team o el responsable del activo si existe un ejercicio autorizado antes de escalar.",
+        "Si no está autorizado, aísle el endpoint desde el EDR conservando la conexión para análisis forense.",
+        "Capture memoria del host y del proceso padre sospechoso antes de terminarlo; extraiga la configuración del beacon si es posible.",
+        "Bloquee los dominios o IP de C2 identificados y busque el mismo indicador en toda la flota.",
+        "Restablezca las credenciales de los usuarios afectados, elimine persistencias encontradas y reconstruya el equipo si se confirma el compromiso."
+      ],
+      "severity_rationale": "El nivel high es adecuado porque estos patrones son muy específicos de beacons de Cobalt Strike y rara vez aparecen en actividad legítima."
+    },
+    "en": {
+      "summary": "A process creation pattern typical of a Cobalt Strike beacon was observed: an echo written to a local named pipe, or whoami run from a temp path or with a matching conhost.",
+      "what_it_detects": "Four patterns: cmd.exe /C whoami with ParentImage under C:\\Temp\\; cmd.exe /c echo ... > \\\\.\\pipe\\ spawned by runonce.exe or dllhost.exe; and conhost.exe 0xffffffff -ForceV1 whose ParentCommandLine is that pipe echo or ends with /C whoami.",
+      "why_it_matters": "Cobalt Strike is widely used for post-exploitation. Echoing to a named pipe appears in getsystem privilege escalation (named pipe impersonation); whoami is common post-execution discovery (T1059, command interpreter).",
+      "triage_steps": [
+        "Review CommandLine, ParentImage and ParentCommandLine to see which of the four patterns fired.",
+        "If the parent is dllhost.exe or runonce.exe, check whether it ran without arguments or from an odd path; both are common sacrificial processes for beacon injection.",
+        "Collect hash and signature of the parent and any binary in C:\\Temp\\; check them against threat intelligence.",
+        "Review the same host +/- 15 minutes: cmd.exe children, service creation (event 7045), new named pipes and processes running as SYSTEM.",
+        "Look for outbound connections from the parent or injected process with beaconing patterns: regular intervals, new domains, HTTP/HTTPS to unusual destinations.",
+        "Identify the session user and pivot on their activity elsewhere: remote logons, PsExec or WMI use.",
+        "Check earlier alerts for the same host and user, especially AV/EDR, encoded PowerShell or LSASS access."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives; the pattern is rare in legitimate use.",
+        "Authorized red team or penetration tests using Cobalt Strike or frameworks with similar behavior.",
+        "Admin scripts running whoami from C:\\Temp\\ (rare; confirm with the owner)."
+      ],
+      "response_steps": [
+        "Confirm with the red team or asset owner whether an authorized exercise is running before escalating.",
+        "If not authorized, isolate the endpoint via EDR while keeping forensic access.",
+        "Capture host memory and the suspicious parent process before killing it; extract beacon configuration if possible.",
+        "Block identified C2 domains or IPs and hunt for the same indicators fleet-wide.",
+        "Reset affected credentials, remove persistence found and rebuild the host if compromise is confirmed."
+      ],
+      "severity_rationale": "High fits because these patterns are highly specific to Cobalt Strike beacons and seldom appear in legitimate activity."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "dllhost.exe spawning cmd.exe that echoes data into a local named pipe (getsystem-style pipe impersonation)",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "C:\\Windows\\system32\\cmd.exe /c echo 4f2a1b9c3d7 > \\\\.\\pipe\\5e8a1c",
+          "ParentImage": "C:\\Windows\\System32\\dllhost.exe",
+          "ParentCommandLine": "C:\\Windows\\System32\\dllhost.exe",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "conhost.exe -ForceV1 spawned by a cmd.exe /C whoami process",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\cmd.exe /C whoami",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "User runs whoami from an interactive shell launched by explorer.exe, not from C:\\Temp\\",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /C whoami",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "conhost.exe -ForceV1 for a legitimate batch build script, parent command line has no whoami or pipe echo",
+        "event": {
+          "EventID": 1,
+          "Computer": "BUILD-07.andes.example.com",
+          "User": "ANDES\\svc_build",
+          "Image": "C:\\Windows\\System32\\conhost.exe",
+          "CommandLine": "\\??\\C:\\Windows\\system32\\conhost.exe 0xffffffff -ForceV1",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "C:\\Windows\\system32\\cmd.exe /C D:\\ci\\build.bat",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

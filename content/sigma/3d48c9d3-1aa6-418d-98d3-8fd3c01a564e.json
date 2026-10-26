@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "3d48c9d3-1aa6-418d-98d3-8fd3c01a564e",
+    "title": "Potential Mftrace.EXE Abuse",
+    "level": "medium",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_mftrace_child_process.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_mftrace_child_process.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1127"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso cuyo padre es mftrace.exe, la herramienta de generación de trazas de Media Foundation del Windows SDK. Puede tratarse de una sesión de trazado legítima o de un abuso de este binario firmado por Microsoft (LOLBin) para ejecutar código arbitrario.",
+      "what_it_detects": "Eventos de creación de procesos en los que ParentImage termina en \\mftrace.exe, es decir, cualquier proceso hijo lanzado por Mftrace.exe.",
+      "why_it_matters": "Mftrace.exe ejecuta el binario que recibe como argumento. Un atacante puede usarlo como proxy firmado para lanzar payloads y evadir controles basados en reputación o listas de permitidos (ATT&CK T1127, Trusted Developer Utilities Proxy Execution).",
+      "triage_steps": [
+        "Revise Image y CommandLine del proceso hijo: ¿es una aplicación multimedia conocida o un binario en Temp, AppData, Downloads, ProgramData o una ruta de red?",
+        "Revise ParentCommandLine y la ruta de mftrace.exe; fuera de Windows Kits o de un directorio de desarrollo es sospechoso.",
+        "Identifique al usuario y al host: ¿es una estación de desarrollador o de ingeniería multimedia donde el SDK está instalado de forma esperada?",
+        "Obtenga el hash, la firma y la reputación del binario hijo y verifique cuándo se creó o descargó en el disco.",
+        "Analice el proceso que lanzó mftrace.exe (abuelo): Office, navegadores, cmd, powershell o wscript indican ejecución maliciosa.",
+        "Busque en el mismo host, en un rango de +/- 15 minutos, conexiones de red, archivos escritos, persistencia y procesos derivados del hijo.",
+        "Consulte alertas previas del mismo usuario y host, y busque otras ejecuciones de mftrace.exe en el entorno."
+      ],
+      "false_positives": [
+        "Desarrolladores o ingenieros de Media Foundation que trazan aplicaciones multimedia propias con mftrace.exe para depuración.",
+        "Pruebas automatizadas o pipelines de QA que usan el Windows SDK para generar trazas de reproducción o captura."
+      ],
+      "response_steps": [
+        "Confirme con el usuario o el equipo de desarrollo si el trazado era esperado; documente y ajuste la excepción por host, usuario y binario hijo.",
+        "Si el hijo es desconocido o malicioso, aísle el endpoint y suspenda o termine el proceso después de preservar evidencia (memoria, binario, hash).",
+        "Elimine el payload y cualquier persistencia identificada; restablezca las credenciales del usuario si hay indicios de compromiso.",
+        "Restrinja mftrace.exe con WDAC o AppLocker en equipos que no necesitan el Windows SDK."
+      ],
+      "severity_rationale": "El nivel medium es apropiado porque mftrace.exe es poco común fuera de equipos de desarrollo y su abuso permite ejecución mediante proxy, aunque existen usos legítimos de trazado."
+    },
+    "en": {
+      "summary": "A process was spawned by mftrace.exe, the Media Foundation trace log tool from the Windows SDK. This may be a legitimate tracing session or abuse of this Microsoft-signed LOLBin to run arbitrary code.",
+      "what_it_detects": "Process creation events where ParentImage ends with \\mftrace.exe, meaning any child process launched by Mftrace.exe.",
+      "why_it_matters": "Mftrace.exe runs the binary passed as an argument. Attackers can use it as a signed proxy to launch payloads and bypass reputation or allowlisting controls (ATT&CK T1127, Trusted Developer Utilities Proxy Execution).",
+      "triage_steps": [
+        "Review the child Image and CommandLine: a known media application, or a binary in Temp, AppData, Downloads, ProgramData or a network share?",
+        "Check ParentCommandLine and the mftrace.exe path; outside Windows Kits or a development folder is suspicious.",
+        "Identify the user and host: is this a developer or media engineering workstation where the SDK is expected?",
+        "Get the child binary's hash, signature and reputation, and check when it was created or downloaded.",
+        "Examine what launched mftrace.exe (grandparent): Office, browsers, cmd, powershell or wscript suggest malicious execution.",
+        "On the same host within +/- 15 minutes, look for network connections, written files, persistence and processes spawned by the child.",
+        "Check earlier alerts for the same user and host, and hunt for other mftrace.exe executions across the environment."
+      ],
+      "false_positives": [
+        "Developers or Media Foundation engineers tracing their own media applications with mftrace.exe for debugging.",
+        "Automated tests or QA pipelines using the Windows SDK to capture playback or capture traces."
+      ],
+      "response_steps": [
+        "Confirm with the user or development team that tracing was expected; document and scope a tuning exception by host, user and child binary.",
+        "If the child is unknown or malicious, isolate the endpoint and suspend or kill the process after preserving evidence (memory, binary, hash).",
+        "Remove the payload and any identified persistence; reset the user's credentials if compromise is indicated.",
+        "Block mftrace.exe with WDAC or AppLocker on machines that do not need the Windows SDK."
+      ],
+      "severity_rationale": "Medium fits because mftrace.exe is rare outside development machines and enables proxy execution, yet legitimate tracing use exists."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "mftrace.exe used to proxy-execute an unsigned binary from the user's Temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\jperez\\AppData\\Local\\Temp\\update.exe",
+          "CommandLine": "C:\\Users\\jperez\\AppData\\Local\\Temp\\update.exe",
+          "ParentImage": "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.19041.0\\x64\\mftrace.exe",
+          "ParentCommandLine": "mftrace.exe C:\\Users\\jperez\\AppData\\Local\\Temp\\update.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Renamed-path copy of mftrace.exe in ProgramData spawning cmd.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrodriguez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "cmd.exe /c whoami",
+          "ParentImage": "C:\\ProgramData\\tools\\MFTrace.exe",
+          "ParentCommandLine": "\"C:\\ProgramData\\tools\\MFTrace.exe\" cmd.exe /c whoami",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "mftrace.exe itself launched from a developer command prompt (mftrace is the Image, not the parent)",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.19041.0\\x64\\mftrace.exe",
+          "CommandLine": "mftrace.exe -o trace.log C:\\Projects\\Player\\bin\\player.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe",
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "Child of a different SDK tool whose name only resembles mftrace",
+        "event": {
+          "EventID": 1,
+          "Computer": "DEV-0031.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Projects\\Player\\bin\\player.exe",
+          "CommandLine": "C:\\Projects\\Player\\bin\\player.exe",
+          "ParentImage": "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.19041.0\\x64\\mftrace_helper.exe",
+          "ParentCommandLine": "mftrace_helper.exe player.exe",
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

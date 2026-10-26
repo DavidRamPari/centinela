@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "1228c958-e64e-4e71-92ad-7d429f4138ba",
+    "title": "Script Interpreter Execution From Suspicious Folder",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_susp_script_exec_from_env_folder.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_susp_script_exec_from_env_folder.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un intérprete de scripts (wscript, cscript, mshta, o PowerShell con flags evasivos) ejecutó un script ubicado en una carpeta temporal, pública o de perfil de usuario. Es un patrón frecuente en la entrega inicial de malware.",
+      "what_it_detects": "Eventos de creación de procesos donde Image u OriginalFileName corresponde a cscript.exe, wscript.exe o mshta.exe, o donde CommandLine contiene flags como -ep bypass, -w hidden o /e:vbscript, y CommandLine además referencia carpetas como Temp, Users\\Public, Perflogs, Startup, Documents, Pictures o Favorites. Se excluye el instalador de Chocolatey lanzado por msiexec.",
+      "why_it_matters": "Corresponde a ATT&CK T1059 (Command and Scripting Interpreter). Los atacantes dejan scripts VBS, JS, HTA o PS1 en carpetas escribibles por el usuario y los ejecutan con intérpretes nativos para evadir controles y obtener ejecución de código.",
+      "triage_steps": [
+        "Revise CommandLine: identifique la ruta y el nombre del script, flags como -ep bypass o -w hidden y cualquier URL o contenido codificado.",
+        "Revise ParentImage: Outlook, Word, Excel, un navegador o explorer.exe abriendo un archivo descargado es mucho más sospechoso que un instalador o agente de software.",
+        "Obtenga el script referenciado del endpoint, calcule su hash y revise su contenido y reputación sin ejecutarlo.",
+        "Busque procesos hijos del intérprete: conexiones de red, rundll32, regsvr32, certutil u otros binarios descargados en el mismo host en +/- 15 minutos.",
+        "Correlacione con eventos de archivo y red: origen del script (descarga web, adjunto, archivo ZIP/ISO) y conexiones salientes a dominios o IP poco comunes.",
+        "Verifique si el script está en la carpeta Startup o si se creó persistencia (Run keys, tareas programadas).",
+        "Busque alertas previas del mismo usuario y host, y la misma línea de comando o hash en otros equipos."
+      ],
+      "false_positives": [
+        "Instaladores o actualizadores legítimos que extraen y ejecutan scripts desde %TEMP% o AppData\\Local\\Temp.",
+        "Scripts de inicio de sesión o administración ubicados en Users\\Public o Documents por equipos de TI.",
+        "Herramientas de despliegue (SCCM, Intune, RMM) que ejecutan PowerShell con -ExecutionPolicy Bypass desde carpetas temporales."
+      ],
+      "response_steps": [
+        "Confirme la legitimidad con el usuario o el responsable del software; si es benigno, documente y ajuste un filtro específico por ruta, padre y hash.",
+        "Si es malicioso, aísle el endpoint y termine el proceso del intérprete y sus hijos.",
+        "Preserve el script y artefactos relacionados, bloquee su hash y los dominios o IP de contacto.",
+        "Elimine la persistencia identificada, restablezca credenciales del usuario si hubo exposición y busque el mismo indicador en toda la flota."
+      ],
+      "severity_rationale": "El nivel alto es adecuado porque los intérpretes nativos ejecutando scripts desde carpetas escribibles por el usuario son una técnica común de entrega de malware, aunque algunos instaladores generan ruido."
+    },
+    "en": {
+      "summary": "A script interpreter (wscript, cscript, mshta, or PowerShell with evasive flags) ran a script located in a temporary, public or user profile folder. This is a common pattern in initial malware delivery.",
+      "what_it_detects": "Process creation events where Image or OriginalFileName is cscript.exe, wscript.exe or mshta.exe, or CommandLine contains flags such as -ep bypass, -w hidden or /e:vbscript, and CommandLine also references folders like Temp, Users\\Public, Perflogs, Startup, Documents, Pictures or Favorites. The Chocolatey installer launched by msiexec is excluded.",
+      "why_it_matters": "Maps to ATT&CK T1059 (Command and Scripting Interpreter). Attackers drop VBS, JS, HTA or PS1 files in user-writable folders and run them with built-in interpreters to bypass controls and gain code execution.",
+      "triage_steps": [
+        "Review CommandLine: note the script path and name, flags like -ep bypass or -w hidden, and any URL or encoded content.",
+        "Review ParentImage: Outlook, Word, Excel, a browser or explorer.exe opening a downloaded file is far more suspicious than an installer or software agent.",
+        "Collect the referenced script from the endpoint, hash it, and review content and reputation without executing it.",
+        "Look for child processes of the interpreter: network activity, rundll32, regsvr32, certutil or newly downloaded binaries on the same host within +/- 15 minutes.",
+        "Correlate file and network events: where the script came from (web download, attachment, ZIP/ISO) and outbound connections to unusual domains or IPs.",
+        "Check whether the script sits in the Startup folder or whether persistence was created (Run keys, scheduled tasks).",
+        "Search for earlier alerts for the same user and host, and the same command line or hash on other machines."
+      ],
+      "false_positives": [
+        "Legitimate installers or updaters that extract and run scripts from %TEMP% or AppData\\Local\\Temp.",
+        "Logon or admin scripts placed in Users\\Public or Documents by IT staff.",
+        "Deployment tools (SCCM, Intune, RMM) running PowerShell with -ExecutionPolicy Bypass from temp folders."
+      ],
+      "response_steps": [
+        "Confirm legitimacy with the user or software owner; if benign, document it and add a narrow filter by path, parent and hash.",
+        "If malicious, isolate the endpoint and terminate the interpreter process and its children.",
+        "Preserve the script and related artifacts, and block its hash and any contacted domains or IPs.",
+        "Remove identified persistence, reset the user's credentials if exposed, and hunt for the same indicators across the fleet."
+      ],
+      "severity_rationale": "High fits because built-in interpreters running scripts from user-writable folders are a common malware delivery technique, though some installers create noise."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "wscript.exe launched from Outlook runs a VBS dropped in C:\\Users\\Public",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\wscript.exe",
+          "OriginalFileName": "wscript.exe",
+          "CommandLine": "\"C:\\Windows\\System32\\WScript.exe\" \"C:\\Users\\Public\\Libraries\\update.vbs\"",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE\""
+        }
+      },
+      {
+        "description": "PowerShell with -ep bypass runs a script from %TEMP% spawned by Word",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mgomez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -nop -ep bypass -File %TEMP%\\inv_2024.ps1",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "ParentCommandLine": "\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n \"C:\\Users\\mgomez\\Downloads\\factura.docm\""
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Chocolatey installer launched by msiexec from AppData\\Local\\Temp, excluded by the optional filter",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "OriginalFileName": "PowerShell.EXE",
+          "CommandLine": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"& 'C:\\Users\\jperez\\AppData\\Local\\Temp\\chocolatey\\Install-Chocolatey.ps1'\"",
+          "ParentImage": "C:\\Windows\\System32\\Msiexec.exe"
+        }
+      },
+      {
+        "description": "cscript.exe running the built-in slmgr.vbs from System32, no suspicious folder in the command line",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "ANDES\\admin.it",
+          "Image": "C:\\Windows\\System32\\cscript.exe",
+          "OriginalFileName": "cscript.exe",
+          "CommandLine": "cscript.exe //nologo C:\\Windows\\System32\\slmgr.vbs /dlv",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

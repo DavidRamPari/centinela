@@ -1,0 +1,135 @@
+{
+  "rule": {
+    "id": "06b401f4-107c-4ff9-947f-9ec1e7649f1e",
+    "title": "Potential Arbitrary Command Execution Via FTP.EXE",
+    "level": "medium",
+    "status": "test",
+    "author": "Victor Sergeev, oscd.community",
+    "path": "windows/process_creation/proc_creation_win_ftp_arbitrary_command_execution.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_ftp_arbitrary_command_execution.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059",
+      "T1202"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó ftp.exe con un archivo de script (-s: o /s:), o ftp.exe inició un proceso hijo. Ambos casos permiten ejecutar comandos de forma indirecta mediante un binario firmado de Windows.",
+      "what_it_detects": "Eventos de creación de procesos donde Image termina en \\ftp.exe u OriginalFileName es ftp.exe y CommandLine contiene '-s:' (con cualquier variante de guion o '/'), o donde ParentImage termina en \\ftp.exe, es decir, cualquier proceso hijo de ftp.exe.",
+      "why_it_matters": "ftp.exe es un LOLBin: los scripts con -s: pueden incluir el comando '!' para lanzar cmd.exe u otros programas. Esto permite ejecución indirecta de comandos (T1202) y ejecución mediante intérprete (T1059), evadiendo controles basados en listas de binarios.",
+      "triage_steps": [
+        "Revise CommandLine e identifique la ruta del script indicado tras -s:. Rutas en Temp, Public, AppData o Downloads aumentan la sospecha.",
+        "Si el alerta es por ParentImage, examine Image y CommandLine del hijo: cmd.exe, powershell.exe, rundll32.exe o mshta.exe son muy sospechosos.",
+        "Obtenga el contenido del script desde el endpoint y busque líneas que empiecen con '!', comandos get/put o hosts remotos.",
+        "Analice el proceso padre de ftp.exe y la cadena completa de procesos; un padre como Office, wscript o un navegador indica posible acceso inicial.",
+        "Correlacione en el mismo host +/- 15 minutos: creación del script, conexiones de red salientes por TCP 21 y archivos descargados.",
+        "Verifique el usuario de la ejecución y si suele usar FTP; busque alertas previas para ese usuario y host.",
+        "Compare el hash de ftp.exe y su ruta con la versión legítima en System32 o SysWOW64."
+      ],
+      "false_positives": [
+        "Tareas programadas o scripts batch heredados que automatizan transferencias FTP con ftp.exe -s:, comunes en entornos de backup o integración.",
+        "Administradores que usan '!' dentro de una sesión ftp.exe para ejecutar comandos locales de forma interactiva.",
+        "Herramientas de despliegue antiguas que generan scripts FTP temporales."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del sistema o del proceso si la ejecución forma parte de una automatización documentada; si lo es, cree una exclusión acotada por ruta de script y usuario.",
+        "Si no está justificado, aísle el endpoint y preserve el script, los archivos transferidos y la memoria del proceso.",
+        "Termine los procesos hijos maliciosos tras recolectar evidencia y bloquee los hosts FTP remotos identificados.",
+        "Elimine scripts, payloads y mecanismos de persistencia hallados; restablezca credenciales del usuario si hubo compromiso y busque la misma actividad en otros hosts."
+      ],
+      "severity_rationale": "Medium es adecuado porque el uso de ftp.exe con scripts es poco común pero existe en automatizaciones legítimas, por lo que requiere contexto antes de escalar."
+    },
+    "en": {
+      "summary": "ftp.exe ran with a script file (-s: or /s:), or ftp.exe spawned a child process. Both allow indirect command execution through a signed Windows binary.",
+      "what_it_detects": "Process creation events where Image ends with \\ftp.exe or OriginalFileName is ftp.exe and CommandLine contains '-s:' (any dash variant or '/'), or where ParentImage ends with \\ftp.exe, meaning any child of ftp.exe.",
+      "why_it_matters": "ftp.exe is a LOLBin: scripts passed with -s: can use the '!' command to launch cmd.exe or other programs. This enables indirect command execution (T1202) and interpreter execution (T1059), bypassing binary allowlist controls.",
+      "triage_steps": [
+        "Read CommandLine and locate the script path after -s:. Paths in Temp, Public, AppData or Downloads raise suspicion.",
+        "If triggered by ParentImage, inspect the child's Image and CommandLine: cmd.exe, powershell.exe, rundll32.exe or mshta.exe are highly suspicious.",
+        "Collect the script from the endpoint and look for lines starting with '!', get/put commands and remote hosts.",
+        "Review ftp.exe's parent and full process tree; Office, wscript or a browser as parent suggests initial access.",
+        "Correlate on the same host +/- 15 minutes: script file creation, outbound TCP 21 connections and downloaded files.",
+        "Check the executing user and whether they normally use FTP; look for earlier alerts on that user and host.",
+        "Compare ftp.exe hash and path against the legitimate System32 or SysWOW64 copy."
+      ],
+      "false_positives": [
+        "Scheduled tasks or legacy batch scripts automating FTP transfers with ftp.exe -s:, common in backup or integration workflows.",
+        "Administrators using '!' inside an interactive ftp.exe session to run local commands.",
+        "Old deployment tools that generate temporary FTP scripts."
+      ],
+      "response_steps": [
+        "Confirm with the system or process owner whether this is documented automation; if so, add a narrow exclusion by script path and user.",
+        "If unjustified, isolate the endpoint and preserve the script, transferred files and process memory.",
+        "Terminate malicious child processes after collecting evidence and block the identified remote FTP hosts.",
+        "Remove scripts, payloads and persistence found; reset the user's credentials if compromised and hunt for the same activity on other hosts."
+      ],
+      "severity_rationale": "Medium fits because scripted ftp.exe use is uncommon but does occur in legitimate automation, so context is needed before escalating."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "ftp.exe launched with a script file from the Public folder using -s:",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\ftp.exe",
+          "OriginalFileName": "ftp.exe",
+          "CommandLine": "ftp.exe -s:C:\\Users\\Public\\cmds.txt",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c ftp.exe -s:C:\\Users\\Public\\cmds.txt"
+        }
+      },
+      {
+        "description": "ftp.exe spawning cmd.exe via the '!' local command",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\cmd.exe",
+          "OriginalFileName": "Cmd.Exe",
+          "CommandLine": "C:\\Windows\\system32\\cmd.exe /C whoami",
+          "ParentImage": "C:\\Windows\\System32\\ftp.exe",
+          "ParentCommandLine": "ftp.exe /s:C:\\Users\\jperez\\AppData\\Local\\Temp\\a.txt"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Interactive ftp.exe session to an internal server without a script flag, launched from explorer",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\ftp.exe",
+          "OriginalFileName": "ftp.exe",
+          "CommandLine": "ftp.exe -i -n 192.0.2.10",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "ParentCommandLine": "C:\\Windows\\Explorer.EXE"
+        }
+      },
+      {
+        "description": "Another binary using a -s: style argument, not ftp.exe and not a child of ftp.exe",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Program Files\\Tools\\sync.exe",
+          "OriginalFileName": "sync.exe",
+          "CommandLine": "sync.exe -s:C:\\data\\profile.cfg",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c sync.exe -s:C:\\data\\profile.cfg"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

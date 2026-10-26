@@ -1,0 +1,127 @@
+{
+  "rule": {
+    "id": "4a0b2c7e-7cb2-495d-8b63-5f268e7bfd67",
+    "title": "Renamed ProcDump Execution",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_renamed_sysinternals_procdump.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_renamed_sysinternals_procdump.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1036.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó un binario que es ProcDump de Sysinternals, o que se usa como tal, desde un nombre de archivo distinto a procdump.exe, procdump64.exe o procdump64a.exe. Renombrar herramientas legítimas es una técnica común para evadir controles basados en el nombre.",
+      "what_it_detects": "Eventos de creación de proceso cuyo OriginalFileName es 'procdump', o cuyo CommandLine contiene una opción de volcado (-ma o -mp) junto con /accepteula. Se excluyen las ejecuciones donde Image termina en uno de los nombres oficiales de ProcDump.",
+      "why_it_matters": "ProcDump puede volcar la memoria de cualquier proceso, incluido lsass.exe, y así exponer credenciales. Cuando se renombra (ATT&CK T1036.003, Masquerading: Rename System Utilities), el objetivo suele ser ocultar actividad maliciosa frente al EDR y a los analistas.",
+      "triage_steps": [
+        "Revise Image, CommandLine y OriginalFileName. Identifique el proceso objetivo (nombre o PID) y confirme si es lsass.exe u otro proceso sensible.",
+        "Calcule el hash de Image y compárelo con el de ProcDump oficial firmado por Microsoft. Verifique la firma y la ruta, por ejemplo C:\\Users\\Public o C:\\ProgramData.",
+        "Analice ParentImage y la cadena de procesos padre: cmd.exe, powershell.exe, wmiprvse.exe o un servicio remoto apuntan a ejecución por un atacante.",
+        "Valide el usuario y el tipo de sesión. Determine si la cuenta es administrativa y si el inicio de sesión fue interactivo, remoto o por red.",
+        "Busque archivos .dmp creados en el mismo host en +/- 15 minutos y luego compresión, copia a recursos compartidos o conexiones salientes.",
+        "Busque alertas previas del mismo host o usuario: acceso a LSASS, herramientas de movimiento lateral o el mismo hash ejecutado en otros endpoints."
+      ],
+      "false_positives": [
+        "ProcDump empaquetado con software legítimo bajo otro nombre para generar volcados de diagnóstico; confirme proveedor, ruta de instalación y proceso objetivo.",
+        "Administradores o equipos de soporte que renombran el binario para depurar aplicaciones; aun así, conviene investigarlo y documentarlo."
+      ],
+      "response_steps": [
+        "Confirme con el dueño del sistema o con el usuario si la ejecución estaba autorizada y qué proceso se volcó.",
+        "Si el objetivo fue lsass.exe o no hay justificación, aísle el endpoint desde el EDR y conserve el volcado y el binario como evidencia.",
+        "Restablezca las credenciales de las cuentas con sesión en el host, con prioridad para las privilegiadas, y revise su uso posterior en otros sistemas.",
+        "Elimine el binario renombrado y los volcados solo después de adquirirlos. Busque el mismo hash en toda la flota y bloquéelo si corresponde."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque un ProcDump renombrado casi nunca es legítimo y suele indicar evasión junto con robo de credenciales desde memoria."
+    },
+    "en": {
+      "summary": "A Sysinternals ProcDump binary, or a tool used exactly like it, ran under a file name other than procdump.exe, procdump64.exe or procdump64a.exe. Attackers often rename trusted tools to slip past name-based controls.",
+      "what_it_detects": "Process creation events where OriginalFileName is 'procdump', or where CommandLine contains a dump flag (-ma or -mp) together with /accepteula. Events whose Image ends in an official ProcDump file name are excluded.",
+      "why_it_matters": "ProcDump can dump the memory of any process, including lsass.exe, which exposes credentials. Renaming it (ATT&CK T1036.003, Masquerading: Rename System Utilities) is a way to hide that activity from EDR tools and analysts.",
+      "triage_steps": [
+        "Review Image, CommandLine and OriginalFileName. Find the target process (name or PID) and check whether it is lsass.exe or another sensitive process.",
+        "Hash Image and compare it with the official Microsoft-signed ProcDump. Check the signature and the path, for example C:\\Users\\Public or C:\\ProgramData.",
+        "Inspect ParentImage and the process ancestry. A parent such as cmd.exe, powershell.exe, wmiprvse.exe or a remote service suggests attacker-driven execution.",
+        "Check the user and logon type: is the account privileged, and was the session interactive, remote or network-based?",
+        "Look for .dmp files created on the same host within +/- 15 minutes, followed by compression, copies to shares or outbound connections.",
+        "Look for earlier alerts on the same host or user, such as LSASS access, lateral movement tools or the same hash running on other endpoints."
+      ],
+      "false_positives": [
+        "Legitimate software that ships ProcDump under another name to collect diagnostic dumps. Check the vendor, install path and target process.",
+        "Administrators or support staff who renamed the binary for debugging. Investigate and document these cases anyway."
+      ],
+      "response_steps": [
+        "Ask the system owner or the user whether the run was authorized and which process was dumped.",
+        "If the target was lsass.exe or nobody can justify the run, isolate the endpoint through EDR and keep the dump and the binary as evidence.",
+        "Reset credentials for accounts that had sessions on the host, privileged ones first, and check whether they were used on other systems.",
+        "Remove the renamed binary and the dumps only after you have collected them. Search the fleet for the hash and block it if needed."
+      ],
+      "severity_rationale": "High fits because a renamed ProcDump is rarely legitimate and usually means evasion combined with credential theft from memory."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "ProcDump renamed to a fake svchost in C:\\Users\\Public, detected through OriginalFileName, dumping LSASS.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Users\\Public\\svchost.exe",
+          "OriginalFileName": "procdump",
+          "CommandLine": "C:\\Users\\Public\\svchost.exe -accepteula -ma lsass.exe C:\\Users\\Public\\out.dmp",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "Hashes": "SHA256=0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      {
+        "description": "Renamed binary with no OriginalFileName metadata, detected through the -mp and /accepteula command-line flags.",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-07.andes.example.com",
+          "User": "ANDES\\svc_backup",
+          "Image": "C:\\ProgramData\\dbg.exe",
+          "OriginalFileName": "",
+          "CommandLine": "C:\\ProgramData\\dbg.exe /accepteula -mp 652 C:\\ProgramData\\m.dmp",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Official procdump64.exe run by an administrator from a tools folder. The Image name filter excludes it.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\admin.mrojas",
+          "Image": "C:\\Tools\\Sysinternals\\procdump64.exe",
+          "OriginalFileName": "procdump",
+          "CommandLine": "C:\\Tools\\Sysinternals\\procdump64.exe /accepteula -ma 4312 C:\\Temp\\app.dmp",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe"
+        }
+      },
+      {
+        "description": "Another dump utility that uses -ma but has no /accepteula flag and a different OriginalFileName, so it does not match.",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0201.andes.example.com",
+          "User": "ANDES\\lgomez",
+          "Image": "C:\\Program Files\\ExampleVendor\\dumper.exe",
+          "OriginalFileName": "dumper.exe",
+          "CommandLine": "\"C:\\Program Files\\ExampleVendor\\dumper.exe\" -ma 2210 C:\\Temp\\crash.dmp",
+          "ParentImage": "C:\\Program Files\\ExampleVendor\\agent.exe"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

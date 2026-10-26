@@ -1,0 +1,124 @@
+{
+  "rule": {
+    "id": "7e6237fe-3ddb-438f-9381-9bf9de5af8d0",
+    "title": "Windows Internet Hosted WebDav Share Mount Via Net.EXE",
+    "level": "high",
+    "status": "test",
+    "author": "Nasreddine Bencherchali (Nextron Systems)",
+    "path": "windows/process_creation/proc_creation_win_net_use_mount_internet_share.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_net_use_mount_internet_share.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1021.002"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó net.exe o net1.exe con el comando \"use\" y una ruta http(s), lo que indica que se montó un recurso WebDAV alojado en Internet como unidad de red.",
+      "what_it_detects": "Eventos de creación de procesos en los que Image u OriginalFileName corresponden a net.exe o net1.exe y el CommandLine contiene ' use ' y ' http', por ejemplo net use Z: http://servidor/carpeta.",
+      "why_it_matters": "Montar un recurso WebDAV externo permite ejecutar o copiar payloads desde un servidor del atacante sin descargarlos por las vías habituales, y también sacar datos del equipo. La regla lo asocia a la técnica ATT&CK T1021.002 (recursos compartidos remotos de Windows).",
+      "triage_steps": [
+        "Revise el CommandLine: extraiga la URL, el dominio o la IP, la letra de unidad y si incluye /user: o credenciales en texto claro.",
+        "Consulte la reputación del dominio o IP y verifique si pertenece a un proveedor de nube o servicio aprobado por la organización.",
+        "Analice ParentImage y la cadena de procesos: cmd.exe, powershell.exe, wscript.exe, mshta.exe o un adjunto de Office son señales de alerta.",
+        "En el mismo host, revise los eventos de +/- 15 minutos: procesos ejecutados desde la unidad montada, rundll32 con davclnt.dll o el servicio WebClient al iniciarse.",
+        "Verifique en el proxy, el firewall o los logs DNS las conexiones HTTP/HTTPS (PROPFIND, GET) del host hacia ese destino.",
+        "Busque el mismo dominio o IP en otros equipos y revise alertas anteriores del usuario y del host.",
+        "Confirme con el usuario o con su responsable si el mapeo era esperado."
+      ],
+      "false_positives": [
+        "Usuarios o scripts de TI que mapean recursos WebDAV legítimos alojados en Internet (SharePoint, servicios de almacenamiento de un proveedor).",
+        "Aplicaciones heredadas o scripts de inicio de sesión que montan carpetas WebDAV de socios o proveedores mediante net use."
+      ],
+      "response_steps": [
+        "Valide la legitimidad del destino y del proceso padre antes de actuar; documente la URL y el hash de los archivos involucrados.",
+        "Si es malicioso, aísle el endpoint, desmonte la unidad (net use Z: /delete) y bloquee el dominio o IP en el proxy y el firewall.",
+        "Recolecte y analice los archivos ejecutados o copiados desde el recurso; busque persistencia creada después del montaje.",
+        "Restablezca las credenciales del usuario si se usaron en el comando y considere deshabilitar el servicio WebClient donde no se necesite."
+      ],
+      "severity_rationale": "El nivel alto es apropiado porque montar WebDAV externo con net.exe es poco común en uso legítimo y es una vía directa para ejecutar payloads remotos."
+    },
+    "en": {
+      "summary": "net.exe or net1.exe ran with \"use\" and an http(s) path, meaning an internet-hosted WebDAV share was mounted as a network drive.",
+      "what_it_detects": "Process creation events where Image or OriginalFileName is net.exe or net1.exe and CommandLine contains both ' use ' and ' http', e.g. net use Z: http://host/folder.",
+      "why_it_matters": "A mounted external WebDAV share lets an attacker run or copy payloads from their own server without the usual download paths, and can be used to move data off the host. The rule maps this to ATT&CK T1021.002 (Windows remote shares).",
+      "triage_steps": [
+        "Read CommandLine: extract the URL, domain or IP, drive letter, and any /user: or cleartext credentials.",
+        "Check the domain or IP reputation and whether it is an approved cloud or partner service.",
+        "Review ParentImage and the process tree; cmd.exe, powershell.exe, wscript.exe, mshta.exe or an Office parent is suspicious.",
+        "On the same host within +/- 15 minutes, look for processes run from the mapped drive, rundll32 with davclnt.dll, or the WebClient service starting.",
+        "Check proxy, firewall or DNS logs for HTTP/HTTPS traffic (PROPFIND, GET) from the host to that destination.",
+        "Search for the same domain or IP on other hosts and review earlier alerts for the user and host.",
+        "Confirm with the user or their manager whether the mapping was expected."
+      ],
+      "false_positives": [
+        "Users or IT scripts mapping legitimate internet-hosted WebDAV shares (SharePoint, vendor storage services).",
+        "Legacy applications or logon scripts mounting partner or vendor WebDAV folders via net use."
+      ],
+      "response_steps": [
+        "Verify the destination and parent process before acting; record the URL and hashes of files involved.",
+        "If malicious, isolate the endpoint, remove the mapping (net use Z: /delete) and block the domain or IP at proxy and firewall.",
+        "Collect and analyze files run or copied from the share; hunt for persistence created after the mount.",
+        "Reset the user's credentials if they appeared in the command, and consider disabling WebClient where not needed."
+      ],
+      "severity_rationale": "High fits because mounting external WebDAV with net.exe is rare in legitimate use and directly enables remote payload execution."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "net.exe mounts an internet WebDAV share launched from PowerShell",
+        "event": {
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net use Z: http://203.0.113.45/webdav /persistent:no",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.andes.example.com"
+        }
+      },
+      {
+        "description": "net1.exe mounts an HTTPS WebDAV share with credentials",
+        "event": {
+          "Image": "C:\\Windows\\System32\\net1.exe",
+          "OriginalFileName": "net1.exe",
+          "CommandLine": "C:\\Windows\\system32\\net1 use * https://files.example.org/dav /user:guest Passw0rd",
+          "ParentImage": "C:\\Windows\\System32\\net.exe",
+          "User": "ANDES\\mrojas",
+          "Computer": "WS-0207.andes.example.com"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "net.exe maps an internal SMB file share without an http path",
+        "event": {
+          "Image": "C:\\Windows\\System32\\net.exe",
+          "OriginalFileName": "net.exe",
+          "CommandLine": "net use H: \\\\fs01.andes.example.com\\home$\\jperez /persistent:yes",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.andes.example.com"
+        }
+      },
+      {
+        "description": "Browser opens an http URL; not net.exe",
+        "event": {
+          "Image": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+          "OriginalFileName": "chrome.exe",
+          "CommandLine": "\"chrome.exe\" --profile use http://intranet.example.com/",
+          "ParentImage": "C:\\Windows\\explorer.exe",
+          "User": "ANDES\\jperez",
+          "Computer": "WS-0142.andes.example.com"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

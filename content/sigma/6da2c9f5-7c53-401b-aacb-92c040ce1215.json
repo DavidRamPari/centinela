@@ -1,0 +1,133 @@
+{
+  "rule": {
+    "id": "6da2c9f5-7c53-401b-aacb-92c040ce1215",
+    "title": "Use of W32tm as Timer",
+    "level": "high",
+    "status": "test",
+    "author": "frack113",
+    "path": "windows/process_creation/proc_creation_win_w32tm.yml",
+    "url": "https://github.com/SigmaHQ/sigma/blob/05d1031f537e830b76da53bae2400c5814c89165/rules/windows/process_creation/proc_creation_win_w32tm.yml",
+    "license": "DRL-1.1",
+    "techniques": [
+      "T1124"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se ejecutó w32tm.exe con /stripchart, /computer:, /period:, /dataonly y /samples:, una combinación que convierte la herramienta de hora de Windows en un temporizador. Suele aparecer en scripts maliciosos que quieren retrasar el siguiente paso.",
+      "what_it_detects": "La creación de un proceso cuyo Image termina en \\w32tm.exe u OriginalFileName es w32time.dll, y cuyo CommandLine contiene a la vez /stripchart, /computer:, /period:, /dataonly y /samples:.",
+      "why_it_matters": "El malware usa w32tm como alternativa a sleep o timeout para esperar entre etapas y evadir sandboxes de tiempo limitado. ATT&CK lo clasifica como T1124 (System Time Discovery). Muchas veces precede a la descarga o ejecución de un payload.",
+      "triage_steps": [
+        "Revise el CommandLine completo: el destino de /computer: (localhost o 127.0.0.1 es típico de un temporizador) y el tiempo de espera que dan /period: × /samples:.",
+        "Identifique el ParentImage y su línea de comandos; cmd.exe, powershell.exe, wscript.exe o mshta.exe ejecutados desde Temp, AppData o Downloads son sospechosos.",
+        "Reconstruya el árbol de procesos en el mismo host dentro de +/- 15 minutos, sobre todo los hijos del mismo padre que se lanzaron justo después de w32tm.",
+        "Valide el usuario y la sesión: ¿es una cuenta administrativa conocida o un usuario estándar que abrió un adjunto?",
+        "Busque en el host actividad de red, archivos creados y cambios de persistencia (Run keys, tareas programadas) en la misma ventana de tiempo.",
+        "Busque alertas previas del mismo host, usuario o hash del script padre, y el mismo patrón de CommandLine en otros endpoints."
+      ],
+      "false_positives": [
+        "Uso legítimo por administradores que diagnostican la desviación de hora contra un controlador de dominio o un servidor NTP.",
+        "Scripts de monitoreo o inventario que registran el offset de tiempo con /dataonly en intervalos regulares."
+      ],
+      "response_steps": [
+        "Verifique con el dueño del host o el equipo de TI si la ejecución corresponde a un diagnóstico de tiempo planificado.",
+        "Si no está justificada, aísle el endpoint mediante EDR y conserve el script padre, sus artefactos y la memoria del proceso.",
+        "Detenga el árbol de procesos malicioso y elimine la persistencia y los payloads identificados, solo después de documentarlos.",
+        "Bloquee los hashes y dominios relacionados, y busque los mismos indicadores en el resto de la flota.",
+        "Restablezca las credenciales del usuario si hay indicios de compromiso y devuelva el host a producción tras validarlo."
+      ],
+      "severity_rationale": "El nivel high es razonable: esta combinación exacta de argumentos casi no aparece en administración normal y suele indicar un script que retrasa su ejecución a propósito."
+    },
+    "en": {
+      "summary": "w32tm.exe ran with /stripchart, /computer:, /period:, /dataonly and /samples:, a combination that turns the Windows time tool into a timer. It often shows up in malicious scripts that want to delay their next step.",
+      "what_it_detects": "A process creation where Image ends with \\w32tm.exe or OriginalFileName is w32time.dll, and the CommandLine contains all of /stripchart, /computer:, /period:, /dataonly and /samples:.",
+      "why_it_matters": "Malware uses w32tm instead of sleep or timeout to wait between stages and get past time-limited sandboxes. ATT&CK files this under T1124 (System Time Discovery). It often comes right before a payload is downloaded or run.",
+      "triage_steps": [
+        "Read the full CommandLine. Check the /computer: target (localhost or 127.0.0.1 points to a timer) and the delay, which is /period: × /samples:.",
+        "Find the ParentImage and its command line. cmd.exe, powershell.exe, wscript.exe or mshta.exe running from Temp, AppData or Downloads is suspicious.",
+        "Rebuild the process tree on the same host within +/- 15 minutes, especially children of the same parent launched right after w32tm.",
+        "Check the user and session: is this a known admin account, or a standard user who opened an attachment?",
+        "Look for network connections, new files and persistence changes (Run keys, scheduled tasks) on the host in the same window.",
+        "Search for earlier alerts on the same host, user or parent script hash, and for the same CommandLine pattern on other endpoints."
+      ],
+      "false_positives": [
+        "Administrators legitimately diagnosing clock drift against a domain controller or NTP server.",
+        "Monitoring or inventory scripts that log the time offset with /dataonly at regular intervals."
+      ],
+      "response_steps": [
+        "Ask the host owner or IT team whether the run was a planned time diagnostic.",
+        "If it is not justified, isolate the endpoint through EDR and preserve the parent script, its artifacts and the process memory.",
+        "Kill the malicious process tree, then remove the persistence and payloads you found, but only after documenting them.",
+        "Block the related hashes and domains, and hunt for the same indicators across the fleet.",
+        "Reset the user's credentials if there are signs of compromise, and return the host to production only after it has been validated."
+      ],
+      "severity_rationale": "High fits because this exact set of arguments is rare in normal administration and usually means a script is delaying itself on purpose."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "w32tm used as a delay against localhost, launched by cmd.exe from a batch script in the user's Temp folder",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\w32tm.exe",
+          "OriginalFileName": "w32time.dll",
+          "CommandLine": "w32tm /stripchart /computer:localhost /period:5 /dataonly /samples:2",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ParentCommandLine": "cmd.exe /c C:\\Users\\jperez\\AppData\\Local\\Temp\\upd.bat",
+          "ProcessId": 4312
+        }
+      },
+      {
+        "description": "Renamed w32tm binary, caught through OriginalFileName, with the arguments in a different order",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "Image": "C:\\Users\\Public\\tm.exe",
+          "OriginalFileName": "w32time.dll",
+          "CommandLine": "tm.exe /stripchart /samples:10 /period:3 /computer:127.0.0.1 /dataonly",
+          "ParentImage": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "ProcessId": 7720
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Admin checking clock offset against an NTP server, without /period: so not every required argument is present",
+        "event": {
+          "EventID": 1,
+          "Computer": "SRV-DC01.andes.example.com",
+          "User": "ANDES\\admin.lgomez",
+          "Image": "C:\\Windows\\System32\\w32tm.exe",
+          "OriginalFileName": "w32time.dll",
+          "CommandLine": "w32tm /stripchart /computer:time.example.com /samples:5 /dataonly",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ProcessId": 2208
+        }
+      },
+      {
+        "description": "Routine w32tm status query, with no stripchart arguments",
+        "event": {
+          "EventID": 1,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\w32tm.exe",
+          "OriginalFileName": "w32time.dll",
+          "CommandLine": "w32tm /query /status",
+          "ParentImage": "C:\\Windows\\System32\\cmd.exe",
+          "ProcessId": 5100
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-26T02:47:30+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}
