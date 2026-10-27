@@ -40,7 +40,10 @@ export function AttentionScoreboard({
   const top = byUrgency(newAlerts).slice(0, 5);
 
   return (
-    <section aria-labelledby="attention-title" className="maze-frame px-4 py-5 md:px-7 md:py-7">
+    <section
+      aria-labelledby="attention-title"
+      className="@container maze-frame px-4 py-5 sm:px-7 sm:py-7"
+    >
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div>
           <h2 id="attention-title" className="text-lead font-semibold text-fg">
@@ -60,7 +63,7 @@ export function AttentionScoreboard({
         ) : null}
       </div>
 
-      <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-4">
+      <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-6 @2xl:grid-cols-4">
         <Score label={t('overview.attention.new')} value={count(newAlerts.length)} tone="fg" />
         <Score
           label={t('overview.attention.critical')}
@@ -108,7 +111,8 @@ function Score({
   tone: 'fg' | 'critical' | 'muted';
 }) {
   return (
-    <div className="flex flex-col-reverse gap-2">
+    // The label comes first for screen readers, the number first on screen.
+    <div className="flex flex-col-reverse justify-end gap-2">
       <dt className="text-muted">{label}</dt>
       <dd
         className={clsx(
@@ -131,7 +135,7 @@ function AttentionRow({ alert }: { alert: Alert }) {
     <li className="border-b border-line last:border-b-0">
       <Link
         to={`/alerts/${alert.id}`}
-        className="group grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-4 gap-y-0.5 rounded-control px-2 py-3 -mx-2 hover:bg-hover md:grid-cols-[7.5rem_minmax(0,1fr)_minmax(0,14rem)_8rem]"
+        className="group -mx-2 grid grid-cols-[6.5rem_minmax(0,1fr)] items-baseline gap-x-4 gap-y-0.5 rounded-control px-2 py-3 hover:bg-hover @3xl:grid-cols-[7.5rem_minmax(0,1fr)_minmax(0,14rem)_8rem]"
       >
         <span className="inline-flex items-center gap-2 text-small font-semibold">
           <LevelPips level={alert.level} />
@@ -142,13 +146,13 @@ function AttentionRow({ alert }: { alert: Alert }) {
         <span className="min-w-0 font-semibold text-fg group-hover:underline group-hover:decoration-line-strong group-hover:underline-offset-3">
           {alert.ruleTitle}
         </span>
-        <span className="col-start-2 min-w-0 truncate text-muted md:col-start-auto">
+        <span className="col-start-2 min-w-0 truncate text-muted @3xl:col-start-auto">
           {[alert.host, entity].filter(Boolean).join(', ')}
         </span>
         <time
           dateTime={alert.lastSeen}
           title={format.dateTime(alert.lastSeen)}
-          className="col-start-2 text-muted md:col-start-auto md:text-right"
+          className="col-start-2 text-muted @3xl:col-start-auto @3xl:text-right"
         >
           {format.relative(alert.lastSeen)}
         </time>

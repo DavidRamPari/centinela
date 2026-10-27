@@ -56,7 +56,7 @@ export function AlertFilterBar({ filters }: { filters: AlertFilters }) {
             autoComplete="off"
           />
         ))}
-        <div className="col-span-2 flex gap-2 sm:col-span-1">
+        <div className="col-span-2 flex gap-2 sm:col-span-3 lg:col-span-1">
           <Button type="submit" variant="primary">
             {t('common.apply')}
           </Button>

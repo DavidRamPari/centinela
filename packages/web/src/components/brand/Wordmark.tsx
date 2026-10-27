@@ -26,12 +26,7 @@ export function Wordmark({ height = 20, className }: { height?: number; classNam
         if (!glyph) return null;
         return (
           <g key={index} transform={`translate(${x} 0)`}>
-            <path
-              d={glyph.d}
-              fill="none"
-              stroke="var(--c-brand-wordmark, var(--c-brand-yellow))"
-              strokeWidth={1}
-            />
+            <path d={glyph.d} fill="none" stroke="var(--c-brand-wordmark)" strokeWidth={1} />
             {glyph.dot ? (
               <rect
                 x={glyph.dot.x}

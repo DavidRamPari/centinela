@@ -55,7 +55,7 @@ export default function EventsPage() {
       id: 'source',
       header: t('events.table.source'),
       cell: (event) => t(`sources.${event.source}`),
-      className: 'hidden 2xl:table-cell whitespace-nowrap w-40',
+      className: 'hidden @7xl:table-cell whitespace-nowrap w-40',
     },
     {
       id: 'host',
@@ -73,7 +73,7 @@ export default function EventsPage() {
       id: 'outcome',
       header: t('events.table.outcome'),
       cell: (event) => <OutcomeLabel outcome={event.outcome} />,
-      className: 'hidden sm:table-cell w-32',
+      className: 'hidden @xl:table-cell w-32',
     },
     {
       id: 'user',
@@ -81,19 +81,19 @@ export default function EventsPage() {
       cell: (event) => (
         <Truncate text={displayUser(event) ?? t('common.none')} className="max-w-[10rem]" />
       ),
-      className: 'hidden md:table-cell w-40',
+      className: 'hidden @3xl:table-cell w-40',
     },
     {
       id: 'srcIp',
       header: t('events.table.srcIp'),
       cell: (event) => <span className="whitespace-nowrap">{event.srcIp ?? t('common.none')}</span>,
-      className: 'hidden md:table-cell w-36',
+      className: 'hidden @2xl:table-cell w-36',
     },
     {
       id: 'message',
       header: t('events.table.message'),
       cell: (event) => <Truncate text={event.message} mono className="max-w-[40rem]" />,
-      className: 'hidden xl:table-cell',
+      className: 'hidden @5xl:table-cell',
     },
   ];
 

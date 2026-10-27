@@ -39,7 +39,7 @@ const NAV_ITEMS: ReadonlyArray<{ to: string; key: NavKey; icon: LucideIcon }> = 
 /**
  * Two zones (docs/decisions/S7b.md): a rail with the brand, the navigation and, grouped at
  * its foot, the system status, display preferences and account; and the workspace. The
- * rail's edge is a maze wall. Under 768 px the rail becomes a sheet opened from a top bar.
+ * rail's edge is a maze wall. Under 1024 px the rail becomes a sheet opened from a top bar.
  * Toasts and live updates live here, inside the router, so toasts can link to pages.
  */
 export function Layout() {
@@ -74,7 +74,7 @@ function Shell() {
   }
 
   return (
-    <div className="min-h-screen md:grid md:grid-cols-[16rem_minmax(0,1fr)]">
+    <div className="min-h-screen lg:grid lg:grid-cols-[16rem_minmax(0,1fr)]">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-control focus:bg-accent focus:px-3 focus:py-2 focus:font-semibold focus:text-accent-fg"
@@ -82,7 +82,7 @@ function Shell() {
         {t('app.skipToContent')}
       </a>
 
-      <header className="maze-edge-b flex h-14 items-center gap-3 px-3 md:hidden">
+      <header className="maze-edge-b flex h-14 items-center gap-3 px-3 lg:hidden">
         <button
           ref={menuButton}
           type="button"
@@ -104,13 +104,13 @@ function Shell() {
 
       {open ? (
         <div
-          className="fixed inset-0 z-30 bg-black/70 md:hidden"
+          className="fixed inset-0 z-30 bg-black/70 lg:hidden"
           aria-hidden="true"
           onClick={close}
         />
       ) : null}
       {/* The wrapper runs the full page height, so the rail's maze wall does too. */}
-      <div className="contents md:block md:maze-edge-r">
+      <div className="contents lg:block lg:maze-edge-r">
         <aside
           id={railId}
           onKeyDown={(event) => {
@@ -121,7 +121,7 @@ function Shell() {
             open
               ? 'maze-edge-r fixed inset-y-0 left-0 z-40 flex w-[min(18rem,85vw)] animate-sheet-in overflow-y-auto'
               : 'hidden',
-            'md:sticky md:top-0 md:flex md:h-screen md:w-auto md:animate-none md:overflow-y-auto md:border-r-0',
+            'lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-auto lg:animate-none lg:overflow-y-auto lg:border-r-0',
           )}
         >
           <div className="flex items-center justify-between gap-2 px-5 pt-5 pb-6">
@@ -133,7 +133,7 @@ function Shell() {
                 ref={closeButton}
                 type="button"
                 onClick={close}
-                className="grid size-10 place-items-center rounded-control text-fg hover:bg-hover md:hidden"
+                className="grid size-10 place-items-center rounded-control text-fg hover:bg-hover lg:hidden"
                 aria-label={t('app.closeMenu')}
               >
                 <X aria-hidden="true" strokeWidth={1.75} className="size-5" />
@@ -188,7 +188,7 @@ function Shell() {
         </aside>
       </div>
 
-      <main id="main" className="min-w-0 px-4 pt-6 pb-16 md:px-8 md:pt-8 xl:px-10">
+      <main id="main" className="min-w-0 px-4 pt-6 pb-16 sm:px-6 lg:px-8 lg:pt-8 xl:px-10">
         <div className="mx-auto max-w-[1480px]">
           <Suspense fallback={<LoadingState />}>
             <Outlet />

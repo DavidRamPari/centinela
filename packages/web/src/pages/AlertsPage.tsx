@@ -106,8 +106,8 @@ export default function AlertsPage() {
           >
             {alert.ruleTitle}
           </Link>
-          <span className="flex flex-wrap items-center gap-x-3 gap-y-1 md:hidden">
-            <span className="sm:hidden">
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1 @3xl:hidden">
+            <span className="@xl:hidden">
               <StatusBadge status={alert.status} />
             </span>
             <time dateTime={alert.lastSeen} className="text-small text-muted">
@@ -121,25 +121,25 @@ export default function AlertsPage() {
       id: 'status',
       header: t('alerts.table.status'),
       cell: (alert) => <StatusBadge status={alert.status} />,
-      className: 'hidden sm:table-cell w-36',
+      className: 'hidden @xl:table-cell w-36',
     },
     {
       id: 'host',
       header: t('alerts.table.host'),
       cell: (alert) => <Truncate text={alert.host ?? t('common.none')} className="max-w-[9rem]" />,
-      className: 'hidden md:table-cell w-36',
+      className: 'hidden @2xl:table-cell w-36',
     },
     {
       id: 'entities',
       header: t('alerts.table.entities'),
       cell: (alert) => <EntitySummary entities={alert.entities} />,
-      className: 'hidden lg:table-cell w-60',
+      className: 'hidden @5xl:table-cell w-60',
     },
     {
       id: 'count',
       header: t('alerts.table.count'),
       cell: (alert) => format.number(alert.count),
-      className: 'hidden sm:table-cell w-20 text-right',
+      className: 'hidden @4xl:table-cell w-20 text-right',
     },
     {
       id: 'lastSeen',
@@ -153,7 +153,7 @@ export default function AlertsPage() {
           {format.shortDateTime(alert.lastSeen)}
         </time>
       ),
-      className: 'hidden md:table-cell w-36 text-right',
+      className: 'hidden @3xl:table-cell w-36 text-right',
     },
   ];
 

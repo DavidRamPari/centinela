@@ -4,7 +4,7 @@
  * Clicking a row opens it too, unless the click hit a control inside the row.
  *
  * Headers stick to the top of the window while the page scrolls (from 768 px; narrower
- * screens scroll the table sideways instead). A focused row expands its truncated values
+ * screens scroll the table sideways instead). Columns hide by container width. A focused row expands its truncated values
  * (`Truncate`), so keyboard users see what a mouse user sees in the tooltip.
  */
 import { clsx } from 'clsx';
@@ -91,7 +91,9 @@ export function DataTable<T>({
   }
 
   return (
-    <div className={clsx('overflow-x-auto md:overflow-x-clip', className)}>
+    // A size container: columns hide with `@xl:table-cell` and friends, by the room the
+    // table really has (the rail takes width from the viewport).
+    <div className={clsx('@container overflow-x-auto md:overflow-x-clip', className)}>
       <table className="w-full border-separate border-spacing-0 text-left">
         <caption className="sr-only">{caption}</caption>
         <thead>

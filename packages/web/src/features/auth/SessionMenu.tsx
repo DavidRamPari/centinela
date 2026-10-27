@@ -24,14 +24,14 @@ export function SessionMenu() {
 
   if (!session.data) return null;
   return (
-    <div className="flex items-center justify-between gap-2">
-      <p className="min-w-0 text-small">
-        <span className="block text-muted">{t('auth.session.signedInAs')}</span>
-        <span className="block truncate font-semibold text-fg">{session.data.username}</span>
+    <div className="flex flex-col items-start gap-1.5">
+      <p className="min-w-0 max-w-full text-small">
+        <span className="text-muted">{t('auth.session.signedInAs')} </span>
+        <span className="font-semibold break-all text-fg">{session.data.username}</span>
       </p>
       <Button
         size="sm"
-        variant="quiet"
+        variant="secondary"
         icon={LogOut}
         loading={logout.isPending}
         onClick={() =>

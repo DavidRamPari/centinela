@@ -64,13 +64,13 @@ export function AuditLogCard() {
           text
         );
       },
-      className: 'hidden md:table-cell w-56',
+      className: 'hidden @3xl:table-cell w-56',
     },
     {
       id: 'ip',
       header: t('auth.audit.ip'),
       cell: (entry) => <span className="whitespace-nowrap">{entry.ip ?? t('common.none')}</span>,
-      className: 'hidden sm:table-cell w-36',
+      className: 'hidden @2xl:table-cell w-36',
     },
     {
       id: 'details',
@@ -82,7 +82,7 @@ export function AuditLogCard() {
           className="max-w-[28rem]"
         />
       ),
-      className: 'hidden lg:table-cell',
+      className: 'hidden @5xl:table-cell',
     },
   ];
 

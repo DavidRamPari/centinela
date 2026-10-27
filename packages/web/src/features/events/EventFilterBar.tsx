@@ -51,13 +51,13 @@ export function EventFilterBar({ filters }: { filters: EventFilters }) {
         role="search"
         aria-label={t('events.filters.form')}
         onSubmit={submit}
-        className="grid grid-cols-2 items-end gap-3 lg:grid-cols-[repeat(5,minmax(0,1fr))_auto]"
+        className="grid grid-cols-2 items-end gap-3 sm:grid-cols-3 lg:grid-cols-[repeat(5,minmax(0,1fr))_auto]"
       >
         {EVENT_TEXT_FILTERS.map((key) => (
           <TextField
             key={key}
             label={t(`events.filters.${key}`)}
-            className={key === 'q' ? 'col-span-2 lg:col-span-1' : undefined}
+            className={key === 'q' ? 'col-span-2 sm:col-span-1' : undefined}
             value={text[key] ?? ''}
             onChange={(event) => setText({ ...text, [key]: event.target.value })}
             spellCheck={false}
@@ -65,7 +65,7 @@ export function EventFilterBar({ filters }: { filters: EventFilters }) {
             maxLength={256}
           />
         ))}
-        <div className="col-span-2 flex gap-2 sm:col-span-1">
+        <div className="col-span-2 flex gap-2 sm:col-span-3 lg:col-span-1">
           <Button type="submit" variant="primary">
             {t('common.search')}
           </Button>

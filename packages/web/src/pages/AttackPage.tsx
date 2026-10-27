@@ -98,10 +98,12 @@ export default function AttackPage() {
           ) : null}
           <div className="overflow-x-auto pb-3" tabIndex={0} aria-label={t('attack.matrix')}>
             <div
-              className={clsx(
-                'grid grid-flow-col gap-x-3',
-                showAll ? 'auto-cols-[minmax(10.5rem,1fr)]' : 'auto-cols-[minmax(10rem,1fr)]',
-              )}
+              className="grid gap-x-3"
+              // One column per visible tactic; they share the width and scroll only when
+              // the minimum no longer fits (React sets this through the CSSOM, CSP-safe).
+              style={{
+                gridTemplateColumns: `repeat(${visible.length}, minmax(${showAll ? '10.5rem' : '8.5rem'}, 1fr))`,
+              }}
             >
               {visible.map((tactic) => (
                 <TacticColumn
@@ -178,7 +180,7 @@ function TacticColumn({
                 <span className="flex items-baseline justify-between gap-2 text-caption">
                   <span className="font-mono opacity-90">{technique.id}</span>{' '}
                   {level > 0 ? (
-                    <span className="font-semibold">
+                    <span className="font-semibold whitespace-nowrap">
                       {t(mode === 'alerts' ? 'attack.alertsCount' : 'attack.rulesCount', {
                         count,
                         value: format.number(count),

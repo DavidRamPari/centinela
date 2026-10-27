@@ -39,7 +39,7 @@ export default function RulesPage() {
           >
             {rule.title}
           </Link>
-          <Truncate text={rule.path} mono className="hidden max-w-[30rem] text-muted lg:block" />
+          <Truncate text={rule.path} mono className="hidden max-w-[30rem] text-muted @3xl:block" />
         </div>
       ),
     },
@@ -58,19 +58,19 @@ export default function RulesPage() {
         ) : (
           <Truncate text={rule.techniques.join(', ')} mono className="max-w-[10rem]" />
         ),
-      className: 'hidden lg:table-cell w-44',
+      className: 'hidden @4xl:table-cell w-44',
     },
     {
       id: 'status',
       header: t('rules.table.status'),
       cell: (rule) => rule.status ?? t('common.none'),
-      className: 'hidden xl:table-cell w-28',
+      className: 'hidden @6xl:table-cell w-28',
     },
     {
       id: 'origin',
       header: t('rules.table.origin'),
       cell: (rule) => t(`origins.${rule.origin}`),
-      className: 'hidden md:table-cell whitespace-nowrap w-28',
+      className: 'hidden @3xl:table-cell whitespace-nowrap w-28',
     },
     {
       id: 'supported',
@@ -90,7 +90,7 @@ export default function RulesPage() {
             <span className="font-mono text-small text-muted">{rule.unsupportedReason}</span>
           </span>
         ),
-      className: 'hidden sm:table-cell w-36',
+      className: 'hidden @xl:table-cell w-36',
     },
     {
       id: 'enabled',
@@ -101,7 +101,7 @@ export default function RulesPage() {
         ) : (
           <span className="text-muted">{t('rules.disabled')}</span>
         ),
-      className: 'hidden sm:table-cell w-32',
+      className: 'hidden @2xl:table-cell w-32',
     },
     {
       id: 'matches',
