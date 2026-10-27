@@ -225,26 +225,70 @@ def load_json(path: Path, default: Any) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def sigma_commit(rules_dir: Path) -> str | None:
-    """Commit of the SigmaHQ rules: from rules/sigma/README.md, or from git for a SigmaHQ clone."""
+# SigmaHQ keeps rules in several top-level folders of its repository; the folder decides
+# the rule's link. Folders other than rules/ get a short note in the prompt.
+SIGMAHQ_FOLDER_RE = re.compile(r"^rules(-[a-z0-9-]+)?$")
+SIGMAHQ_FOLDER_NOTES = {
+    "rules-emerging-threats": "SigmaHQ folder: rules-emerging-threats (rules for specific, time-bound threats such as a "
+                              "campaign, a malware family or an exploited CVE).",
+    "rules-threat-hunting": "SigmaHQ folder: rules-threat-hunting (broader hunting rules: leads to investigate, "
+                            "expected to match benign activity more often than detection rules).",
+    "rules-compliance": "SigmaHQ folder: rules-compliance (rules that check compliance and configuration "
+                        "requirements rather than attacker behaviour).",
+}
+
+
+def sigma_location(rules_dir: Path) -> tuple[str | None, str]:
+    """(commit, prefix) of a SigmaHQ rules folder; a rule's link is <commit>/<prefix>/<path below rules_dir>.
+
+    - Centinela's vendored subset (rules/sigma, whose README records the commit) is a subset of
+      SigmaHQ's rules/ folder: prefix "rules".
+    - Inside a git checkout of SigmaHQ, the commit is HEAD and the prefix is the folder's path in
+      the repository: "rules", "rules-emerging-threats", "rules-threat-hunting/windows"...
+    - Without git, there is no commit (no link); the prefix is guessed from the nearest folder
+      named rules or rules-*, so each rule still records its SigmaHQ folder.
+    """
     readme = rules_dir / "README.md"
     if readme.exists():
         match = re.search(r"\b([0-9a-f]{40})\b", readme.read_text(encoding="utf-8"))
         if match:
-            return match.group(1)
+            return match.group(1), "rules"
     try:
-        out = subprocess.run(["git", "-C", str(rules_dir), "rev-parse", "HEAD"],
+        out = subprocess.run(["git", "-C", str(rules_dir), "rev-parse", "HEAD", "--show-prefix"],
                              capture_output=True, text=True, timeout=10, check=True)
-        commit = out.stdout.strip()
-        return commit if re.fullmatch(r"[0-9a-f]{40}", commit) else None
+        lines = out.stdout.splitlines()
+        commit = lines[0].strip() if lines else ""
+        prefix = lines[1].strip().strip("/") if len(lines) > 1 else ""
+        if re.fullmatch(r"[0-9a-f]{40}", commit):
+            return commit, prefix
     except (OSError, subprocess.SubprocessError):
-        return None
+        pass
+    return None, guess_prefix(rules_dir)
 
 
-def rule_url(rel_path: str, commit: str | None) -> str | None:
+def guess_prefix(rules_dir: Path) -> str:
+    parts = rules_dir.resolve().parts
+    for index in range(len(parts) - 1, -1, -1):
+        if SIGMAHQ_FOLDER_RE.match(parts[index]):
+            return "/".join(parts[index:])
+    return "rules"
+
+
+def sigma_commit(rules_dir: Path) -> str | None:
+    """Commit of the SigmaHQ rules: from rules/sigma/README.md, or from git for a SigmaHQ clone."""
+    return sigma_location(rules_dir)[0]
+
+
+def rule_url(rel_path: str, commit: str | None, prefix: str = "rules") -> str | None:
     if not commit:
         return None
-    return f"https://github.com/SigmaHQ/sigma/blob/{commit}/rules/{rel_path}"
+    return f"https://github.com/SigmaHQ/sigma/blob/{commit}/{prefix + '/' if prefix else ''}{rel_path}"
+
+
+def sigma_folder(rel_path: str, prefix: str) -> str:
+    """The SigmaHQ top-level folder a rule comes from (rules, rules-emerging-threats, ...)."""
+    full = f"{prefix}/{rel_path}" if prefix else rel_path
+    return full.split("/", 1)[0]
 
 
 def read_rule(path: Path, rel: str, rule_keys: tuple[str, ...]) -> tuple[dict[str, Any], str] | None:
@@ -290,14 +334,15 @@ def rule_record(doc: dict[str, Any], text: str, rel: str, url: str | None, licen
 def load_rules(rules_dir: Path, origin: str = "sigmahq") -> list[dict[str, Any]]:
     """Return rule records sorted by path. Skips regression data, deprecated and broken files.
 
-    sigmahq: every rule below `rules_dir` (a Sigma rules folder), DRL 1.1 with its SigmaHQ link.
+    sigmahq: every rule below `rules_dir` (a Sigma rules folder: Centinela's vendored subset or any
+    rule folder of a SigmaHQ checkout), DRL 1.1, with the SigmaHQ folder it comes from and its link.
     centinela: `rules_dir/centinela/**` and `rules_dir/correlation/**` (a rules root), MIT, with
     the author from the rule and its own `url` if it has one (Centinela's rules link nowhere
     else); correlation rules are marked `kind: correlation` and get a playbook only.
     """
     if origin == "centinela":
         return load_centinela_rules(rules_dir)
-    commit = sigma_commit(rules_dir)
+    commit, prefix = sigma_location(rules_dir)
     records: list[dict[str, Any]] = []
     seen: set[str] = set()
     for path in sorted(rules_dir.rglob("*.yml")):
@@ -313,8 +358,8 @@ def load_rules(rules_dir: Path, origin: str = "sigmahq") -> list[dict[str, Any]]
             eprint(f"skip {rel}: duplicate id {rid}")
             continue
         seen.add(rid)
-        records.append({**rule_record(doc, text, rel, rule_url(rel, commit), "DRL-1.1"),
-                        "origin": "sigmahq", "kind": "detection"})
+        records.append({**rule_record(doc, text, rel, rule_url(rel, commit, prefix), "DRL-1.1"),
+                        "origin": "sigmahq", "kind": "detection", "folder": sigma_folder(rel, prefix)})
     return records
 
 
@@ -370,8 +415,15 @@ def origin_line(rule: dict[str, Any]) -> str:
     return "Origin: SigmaHQ, Detection Rule License 1.1"
 
 
+def folder_line(rule: dict[str, Any]) -> str:
+    """A note on the rule's SigmaHQ folder, with its line break; empty for rules/ (and Centinela's
+    vendored subset of it), so those requests are unchanged."""
+    note = SIGMAHQ_FOLDER_NOTES.get(str(rule.get("folder")))
+    return f"{note}\n" if note else ""
+
+
 def user_prompt(rule: dict[str, Any]) -> str:
-    note = f"{CENTINELA_FIELDS_NOTE}\n" if rule.get("origin") == "centinela" else ""
+    note = f"{CENTINELA_FIELDS_NOTE}\n" if rule.get("origin") == "centinela" else folder_line(rule)
     return (
         f"Rule file: {rule['path']}\n"
         f"{origin_line(rule)}\n{note}\n"
@@ -506,6 +558,9 @@ def record_for(rule: dict[str, Any], data: dict[str, Any], model: str) -> dict[s
         "rule": {k: rule[k] for k in ("id", "title", "level", "status", "author", "path", "url", "license", "techniques")},
         "playbook": {"es": data["es"], "en": data["en"]},
     }
+    if rule.get("folder"):
+        # SigmaHQ folder of the rule, so content for several folders can share one content folder.
+        record["rule"]["folder"] = rule["folder"]
     if not is_correlation(rule):
         record["fixtures"] = data["fixtures"]
     notice = ("AI-generated content. Review it before relying on it." if is_correlation(rule) else
@@ -647,7 +702,7 @@ def repair_prompt(rule: dict[str, Any], content: dict[str, Any], failures: list[
     reasons = "\n".join(f"- {kind} #{index}: {reason}" for (kind, index), reason in rejected.items())
     return (
         f"Rule file: {rule['path']}\n"
-        f"{origin_line(rule)}\n\n"
+        f"{origin_line(rule)}\n{folder_line(rule)}\n"
         f"```yaml\n{rule['text'].strip()}\n```\n\n"
         "Current fixtures:\n\n"
         f"```json\n{json.dumps(listing, ensure_ascii=False, indent=2)}\n```\n\n"
@@ -1076,6 +1131,15 @@ def cmd_repair(args: argparse.Namespace) -> None:
     print(f"batch {batch.id} created ({batch.processing_status}). Check it with: python tools/content-pack/content_pack.py status")
 
 
+def default_failures(out: Path, rules_dir: Path, origin: str) -> Path:
+    """Where `npm run content:validate` writes the failures file for this content and rules folder:
+    <out>-failures.json, or <out>-<folder>-failures.json for a SigmaHQ folder other than rules/
+    (several folders can share one content folder)."""
+    folder = sigma_folder("", sigma_location(rules_dir)[1]) if origin == "sigmahq" else "rules"
+    suffix = f"-{folder}" if folder and folder != "rules" else ""
+    return out.parent / f"{out.name}{suffix}-failures.json"
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--origin", choices=ORIGINS, default="sigmahq",
@@ -1106,8 +1170,9 @@ def main(argv: list[str] | None = None) -> None:
         p.add_argument("--dry-run", action="store_true", help="write the requests to .work/requests.jsonl instead of sending")
     p_repair = sub.add_parser("repair", help="send rejected fixtures back for correction (after npm run content:validate)")
     p_repair.add_argument("--failures", type=Path, default=None,
-                          help="failures file from npm run content:validate (default: <out>-failures.json, "
-                               "e.g. content/sigma-failures.json)")
+                          help="failures file from npm run content:validate (default: <out>-failures.json, e.g. "
+                               "content/sigma-failures.json; <out>-<folder>-failures.json for a SigmaHQ folder other "
+                               "than rules/)")
     p_repair.add_argument("--limit", type=int, default=0, help="only the first N rules")
     p_repair.add_argument("--max-cost", type=float, default=20.0, help="refuse to submit above this estimate (USD)")
     p_repair.add_argument("--yes", action="store_true", help="submit even above --max-cost")
@@ -1120,8 +1185,7 @@ def main(argv: list[str] | None = None) -> None:
     args.rules_dir = (args.rules_dir or default_rules).resolve()
     args.out = (args.out or default_out).resolve()
     if args.command == "repair":
-        # Written by content:validate next to the content folder.
-        args.failures = (args.failures or args.out.parent / f"{args.out.name}-failures.json").resolve()
+        args.failures = (args.failures or default_failures(args.out, args.rules_dir, args.origin)).resolve()
     commands = {
         "estimate": cmd_estimate,
         "sample": cmd_sample,

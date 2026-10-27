@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { repoRoot } from '../../src/paths.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildFailuresFile, failuresFileSchema, fixtureKey } from '../../src/content/failures.js';
 import { pruneFailures, rejectedFileSchema } from '../../src/content/prune.js';
@@ -10,6 +11,7 @@ import {
   listSigmaRuleFiles,
   loadRuleFolder,
   loadSigmaFolder,
+  sigmaFolderOf,
 } from '../../src/content/rules.js';
 import { canonicalJson } from '../../src/content/schema.js';
 import {
@@ -465,5 +467,60 @@ level: high
     const v = validateContent(loadRuleFolder(rulesRoot), readContentDir(dir));
     expect(v.playbookOnly[0]?.ignoredFixtures).toBe(2);
     expect(v.evaluated.map((r) => r.ruleId)).toEqual([BASE]);
+  });
+});
+
+describe('SigmaHQ folders other than rules/', () => {
+  const HUNT = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+  it('knows which SigmaHQ folder a rules folder belongs to', () => {
+    expect(sigmaFolderOf(join(repoRoot, 'rules', 'sigma'))).toBe('rules');
+    expect(sigmaFolderOf('/home/david/sigmahq/rules-emerging-threats')).toBe('rules-emerging-threats');
+    expect(sigmaFolderOf('/home/david/sigmahq/rules-threat-hunting/windows')).toBe('rules-threat-hunting');
+    expect(sigmaFolderOf('/home/david/sigmahq/rules/windows')).toBe('rules');
+    expect(sigmaFolderOf('/srv/my-sigma')).toBeNull();
+  });
+
+  it('validates only the content files of that folder and counts the others', () => {
+    const huntDir = join(root, 'sigmahq', 'rules-threat-hunting');
+    mkdirSync(join(huntDir, 'windows'), { recursive: true });
+    writeFileSync(
+      join(huntDir, 'windows', 'hunt.yml'),
+      (RULES['windows/process_creation/cmd_whoami.yml'] ?? '').replace(IDS.cmd, HUNT),
+    );
+    const pack = join(root, 'pack');
+    mkdirSync(pack);
+    const hunt = content(
+      HUNT,
+      [{ Image: CMD, CommandLine: 'cmd.exe /c whoami', User: 'ANDES\\jperez' }],
+      [{ Image: CMD, CommandLine: 'cmd.exe /c dir' }],
+    );
+    writeJson(join(pack, `${HUNT}.json`), { ...hunt, rule: { ...hunt.rule, folder: 'rules-threat-hunting' } });
+    // Content for rules/ (no folder recorded) and for another folder share the content folder.
+    writeJson(join(pack, `${IDS.cmd}.json`), content(IDS.cmd, [{ a: 1 }], [{ b: 2 }]));
+    const emerging = content(IDS.keywords, [{ a: 1 }], [{ b: 2 }]);
+    writeJson(join(pack, `${IDS.keywords}.json`), {
+      ...emerging,
+      rule: { ...emerging.rule, folder: 'rules-emerging-threats' },
+    });
+
+    const folder = loadSigmaFolder(huntDir);
+    expect(folder.folder).toBe('rules-threat-hunting');
+    const v = validateContent(folder, readContentDir(pack));
+    expect(v.contentFiles).toBe(3);
+    expect(v.otherFolders).toBe(2);
+    expect(v.orphans).toEqual([]);
+    expect(v.evaluated.map((r) => [r.rulePath, r.fixtures.map((f) => f.passed)])).toEqual([
+      ['windows/hunt.yml', [true, true]],
+    ]);
+    const report = buildContentReport(v, { rulesDir: 'r', contentDir: 'c', failuresFile: 'f', pruned: false });
+    expect(report).toContain('| Content files for other SigmaHQ folders (skipped) | 2 |');
+
+    // The rules/ folder sees the same pack the other way round.
+    const rulesFolder = loadSigmaFolder(rulesDir);
+    expect(rulesFolder.folder).toBe('rules');
+    const fromRules = validateContent(rulesFolder, readContentDir(pack));
+    expect(fromRules.otherFolders).toBe(2);
+    expect(fromRules.evaluated.map((r) => r.ruleId)).toEqual([IDS.cmd]);
   });
 });

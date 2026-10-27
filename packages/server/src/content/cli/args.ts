@@ -4,6 +4,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
 import { repoRoot } from '../../paths.js';
+import { isRulesRoot, sigmaFolderOf } from '../rules.js';
 
 export const VALIDATE_USAGE = `Usage: npm run content:validate -- [options]
 
@@ -21,6 +22,11 @@ Options:
   --out <file>      failures file (default: <content>-failures.json next to the content folder)
   --report <file>   Markdown report (default: <repo>/docs/content-pack-report.md for
                     <repo>/content/sigma, <content>-report.md for any other content folder)
+
+  With a SigmaHQ folder other than rules/ (rules-emerging-threats, rules-threat-hunting,
+  rules-compliance), only content files recording that folder are validated, and the
+  default failures file and report are <content>-<folder>-failures.json and
+  <content>-<folder>-report.md, so several folders can share one content folder.
   --rejected <dir>  where --prune moves failing fixtures (default: <content>-rejected)
   --prune           move failing fixtures out of the content files, with their reason
   -h, --help        show this help
@@ -102,18 +108,25 @@ export function parseValidateArgs(argv: string[]): ValidateArgs | 'help' {
   // The vendored SigmaHQ content keeps its historical defaults; other folders (Centinela's
   // own content, or another pack) default to the full rules root and a report beside them.
   const vendored = contentDir === DEFAULT_CONTENT;
+  const rulesDir =
+    result.data.rules === undefined
+      ? join(repoRoot, 'rules', ...(vendored ? ['sigma'] : []))
+      : at(result.data.rules);
+  // Each SigmaHQ folder other than rules/ gets its own failures file and report.
+  const folder = isRulesRoot(rulesDir) ? null : sigmaFolderOf(rulesDir);
+  const suffix = folder !== null && folder !== 'rules' ? `-${folder}` : '';
   return {
     contentDir,
-    rulesDir:
-      result.data.rules === undefined
-        ? join(repoRoot, 'rules', ...(vendored ? ['sigma'] : []))
-        : at(result.data.rules),
-    out: result.data.out === undefined ? siblingOf(contentDir, '-failures.json') : at(result.data.out),
+    rulesDir,
+    out:
+      result.data.out === undefined
+        ? siblingOf(contentDir, `${suffix}-failures.json`)
+        : at(result.data.out),
     report:
       result.data.report === undefined
         ? vendored
           ? join(repoRoot, 'docs', 'content-pack-report.md')
-          : siblingOf(contentDir, '-report.md')
+          : siblingOf(contentDir, `${suffix}-report.md`)
         : at(result.data.report),
     rejectedDir:
       result.data.rejected === undefined ? siblingOf(contentDir, '-rejected') : at(result.data.rejected),

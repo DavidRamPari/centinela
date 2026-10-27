@@ -11,6 +11,7 @@ import argparse
 import contextlib
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -533,6 +534,117 @@ class CentinelaOriginTest(unittest.TestCase):
             self.assertEqual(seen, {"origin": "sigmahq", "rules": cp.DEFAULT_RULES_DIR, "out": cp.DEFAULT_OUT_DIR})
         finally:
             cp.cmd_estimate = saved
+
+
+# --------------------------------------------------------------------------- SigmaHQ folders
+
+COMMIT_RE = r"[0-9a-f]{40}"
+
+
+class SigmaFoldersTest(unittest.TestCase):
+    """Any rule folder of a SigmaHQ checkout: the folder is recorded and decides the link."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.checkout = Path(self.tmp.name) / "sigma"
+        files = {
+            "rules/windows/process_creation/whoami.yml": RULE_YAML,
+            "rules-emerging-threats/2024/Exploits/CVE-2024-0001/other.yml": OTHER_YAML,
+            "rules-threat-hunting/windows/hunt.yml": RULE_YAML.replace(RULE_ID, "33333333-3333-4333-8333-333333333333"),
+            "rules-compliance/other/compliance.yml": RULE_YAML.replace(RULE_ID, "44444444-4444-4444-8444-444444444444"),
+        }
+        for rel, text in files.items():
+            (self.checkout / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.checkout / rel).write_text(text, encoding="utf-8")
+        git = ["git", "-C", str(self.checkout), "-c", "user.name=test", "-c", "user.email=test@example.com",
+               "-c", "commit.gpgsign=false"]
+        subprocess.run([*git, "init", "-q"], check=True)
+        subprocess.run([*git, "add", "."], check=True)
+        subprocess.run([*git, "commit", "-q", "-m", "rules"], check=True)
+        self.commit = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def only(self, folder: str) -> dict:
+        rules = cp.load_rules(self.checkout / folder)
+        self.assertEqual(len(rules), 1)
+        return rules[0]
+
+    def test_each_folder_records_itself_and_links_into_it(self):
+        base = f"https://github.com/SigmaHQ/sigma/blob/{self.commit}"
+        cases = {
+            "rules": ("windows/process_creation/whoami.yml", "rules/windows/process_creation/whoami.yml"),
+            "rules-emerging-threats": ("2024/Exploits/CVE-2024-0001/other.yml",
+                                       "rules-emerging-threats/2024/Exploits/CVE-2024-0001/other.yml"),
+            "rules-threat-hunting": ("windows/hunt.yml", "rules-threat-hunting/windows/hunt.yml"),
+            "rules-compliance": ("other/compliance.yml", "rules-compliance/other/compliance.yml"),
+        }
+        for folder, (path, link) in cases.items():
+            with self.subTest(folder=folder):
+                rule = self.only(folder)
+                self.assertEqual((rule["folder"], rule["path"], rule["url"]), (folder, path, f"{base}/{link}"))
+                self.assertEqual(rule["license"], "DRL-1.1")
+
+    def test_a_subfolder_keeps_its_place_in_the_link(self):
+        rule = self.only("rules/windows")
+        self.assertEqual(rule["folder"], "rules")
+        self.assertEqual(rule["path"], "process_creation/whoami.yml")
+        self.assertTrue(rule["url"].endswith("/rules/windows/process_creation/whoami.yml"))
+
+    def test_without_git_the_folder_is_still_recorded_but_there_is_no_link(self):
+        plain = Path(self.tmp.name) / "download" / "rules-threat-hunting"
+        (plain / "windows").mkdir(parents=True)
+        (plain / "windows" / "hunt.yml").write_text(RULE_YAML, encoding="utf-8")
+        self.assertEqual(cp.guess_prefix(plain / "windows"), "rules-threat-hunting/windows")
+        saved = cp.subprocess.run
+
+        def no_git(*args, **kwargs):
+            raise OSError("git not installed")
+
+        cp.subprocess.run = no_git
+        try:
+            rule = cp.load_rules(plain)[0]
+        finally:
+            cp.subprocess.run = saved
+        self.assertEqual((rule["folder"], rule["url"]), ("rules-threat-hunting", None))
+
+    def test_the_vendored_subset_links_into_rules(self):
+        commit, prefix = cp.sigma_location(cp.DEFAULT_RULES_DIR)
+        self.assertRegex(commit or "", COMMIT_RE)
+        self.assertEqual(prefix, "rules")
+        rules = cp.load_rules(cp.DEFAULT_RULES_DIR)
+        self.assertEqual({r["folder"] for r in rules}, {"rules"})
+        self.assertTrue(all(r["url"].startswith(f"https://github.com/SigmaHQ/sigma/blob/{commit}/rules/") for r in rules))
+
+    def test_prompts_name_the_folder_except_for_rules(self):
+        rules_rule = self.only("rules")
+        self.assertEqual(cp.user_prompt(rules_rule).splitlines()[:3],
+                         ["Rule file: windows/process_creation/whoami.yml",
+                          "Origin: SigmaHQ, Detection Rule License 1.1", ""])
+        for folder in ("rules-emerging-threats", "rules-threat-hunting", "rules-compliance"):
+            with self.subTest(folder=folder):
+                rule = self.only(folder)
+                lines = cp.user_prompt(rule).splitlines()
+                self.assertTrue(lines[2].startswith(f"SigmaHQ folder: {folder} ("))
+                self.assertEqual(lines[3], "")
+                self.assertIn(cp.SIGMAHQ_FOLDER_NOTES[folder], cp.repair_prompt(rule, content_for(rule["id"]), FAILURES))
+        self.assertNotIn("SigmaHQ folder", cp.repair_prompt(rules_rule, content_for(RULE_ID), FAILURES))
+
+    def test_content_files_record_the_folder(self):
+        data = {"es": PLAYBOOK, "en": PLAYBOOK, "fixtures": content_for(RULE_ID)["fixtures"]}
+        record = cp.record_for(self.only("rules-emerging-threats"), data, "m")
+        self.assertEqual(record["rule"]["folder"], "rules-emerging-threats")
+        self.assertIn("/rules-emerging-threats/", record["rule"]["url"])
+        self.assertEqual(cp.record_for(self.only("rules"), data, "m")["rule"]["folder"], "rules")
+
+    def test_repair_reads_the_failures_file_of_its_folder(self):
+        out = Path(self.tmp.name) / "content"
+        self.assertEqual(cp.default_failures(out, self.checkout / "rules", "sigmahq"), out.parent / "content-failures.json")
+        self.assertEqual(cp.default_failures(out, self.checkout / "rules-threat-hunting", "sigmahq"),
+                         out.parent / "content-rules-threat-hunting-failures.json")
+        self.assertEqual(cp.default_failures(cp.DEFAULT_OUT_DIR, cp.DEFAULT_RULES_DIR, "sigmahq"),
+                         cp.REPO_ROOT / "content" / "sigma-failures.json")
 
 
 if __name__ == "__main__":

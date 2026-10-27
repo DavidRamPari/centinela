@@ -54,7 +54,7 @@ const ratio = (part: number, total: number) =>
 export function contentSummary(validation: ContentValidation): string {
   const stats = contentStats(validation.evaluated);
   return [
-    `content files: ${number.format(validation.contentFiles)} (malformed ${validation.malformed.length}, without a rule ${validation.orphans.length})`,
+    `content files: ${number.format(validation.contentFiles)} (malformed ${validation.malformed.length}, without a rule ${validation.orphans.length}, for other SigmaHQ folders ${validation.otherFolders})`,
     `rules evaluated: ${number.format(validation.evaluated.length)}; unsupported by the engine: ${validation.unsupported.length}; correlation playbooks (not evaluated): ${validation.playbookOnly.length}; rules without content: ${validation.missing.length}`,
     `fixtures passing: ${ratio(stats.passed, stats.fixtures)}`,
     `  positives matching: ${ratio(stats.positivesPassed, stats.positives)}`,
@@ -107,6 +107,7 @@ export function buildContentReport(validation: ContentValidation, options: Repor
     `| Rule files that failed to load | ${number.format(validation.ruleLoadErrors)} |`,
     `| Content files | ${number.format(validation.contentFiles)} |`,
     `| Malformed content files | ${number.format(validation.malformed.length)} |`,
+    `| Content files for other SigmaHQ folders (skipped) | ${number.format(validation.otherFolders)} |`,
     `| Content files without a rule | ${number.format(validation.orphans.length)} |`,
     `| Rules without content | ${number.format(validation.missing.length)} |`,
     `| Rules with content not supported by the engine | ${number.format(validation.unsupported.length)} |`,

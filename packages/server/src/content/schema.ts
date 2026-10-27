@@ -41,6 +41,8 @@ export const contentFileSchema = z.object({
     author: z.string().nullish(),
     url: z.string().nullish(),
     license: z.string().nullish(),
+    /** SigmaHQ folder of the rule (`rules-emerging-threats`, ...); absent means `rules`. */
+    folder: z.string().optional(),
   }),
   playbook: z.object({ es: contentPlaybookSchema, en: contentPlaybookSchema }),
   /**

@@ -82,6 +82,11 @@ export interface ContentValidation {
   unsupported: UnsupportedRule[];
   /** Correlation rules with content: playbook only, nothing evaluated. */
   playbookOnly: PlaybookOnlyRule[];
+  /**
+   * Content files for another SigmaHQ folder (`rule.folder`), skipped: one content folder
+   * may hold content for several SigmaHQ folders, validated one folder at a time.
+   */
+  otherFolders: number;
   /** Content files whose rule is not in the rules folder. */
   orphans: ContentIssue[];
   /** Content files that are not valid content (JSON or shape). */
@@ -195,8 +200,13 @@ export function validateContent(folder: SigmaFolder, content: ReadContent): Cont
   const orphans: ContentIssue[] = [];
   const malformed: ContentIssue[] = [...content.malformed];
   const covered = new Set<string>();
+  let otherFolders = 0;
 
   for (const { file, content: data } of content.entries) {
+    if (folder.folder !== null && (data.rule.folder ?? 'rules') !== folder.folder) {
+      otherFolders += 1;
+      continue;
+    }
     const record = ruleSet.rule(data.rule.id);
     if (!record) {
       orphans.push({ file, reason: `no rule with id ${data.rule.id} in the rules folder` });
@@ -252,6 +262,7 @@ export function validateContent(folder: SigmaFolder, content: ReadContent): Cont
     evaluated,
     unsupported,
     playbookOnly,
+    otherFolders,
     orphans,
     malformed,
     missing,

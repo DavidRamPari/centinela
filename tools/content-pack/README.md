@@ -27,6 +27,12 @@ python tools/content-pack/content_pack.py collect       # write content/sigma/*.
 python tools/content-pack/content_pack.py retry         # resubmit failed rules, then collect again
 ```
 
+## Other SigmaHQ folders
+
+`--rules-dir` can point at any rule folder of a SigmaHQ checkout: `rules`, `rules-emerging-threats`, `rules-threat-hunting`, `rules-compliance`, or a folder below one. Each rule records the SigmaHQ folder it comes from (`rule.folder` in the content file) and links into it (`https://github.com/SigmaHQ/sigma/blob/<commit>/rules-threat-hunting/...`); the commit is the checkout's `HEAD`, so keep the checkout at the commit you generate from. Without git there is no commit and therefore no link, but the folder is still recorded. Prompts for folders other than `rules/` add one line saying what kind of rules the folder holds; requests for `rules/` and for Centinela's vendored subset are unchanged.
+
+Content for several folders can share one content folder (rule ids are unique across SigmaHQ). `npm run content:validate -- --rules <checkout>/<folder> --content <content folder>` validates only that folder's files and writes `<content>-<folder>-failures.json` and `<content>-<folder>-report.md` (plain `<content>-failures.json` for `rules/`), and `repair` with the same `--rules-dir` and `--out` reads that failures file by default.
+
 ## Centinela's own rules (`--origin centinela`)
 
 `--origin centinela` (before the command) generates content for Centinela's own rules: `rules/centinela/**` and `rules/correlation/**`, written to `content/centinela/<rule-id>.json`. Defaults change with it: `--rules-dir` is the rules root (`rules/`, holding `centinela/` and `correlation/`) and `--out` is `content/centinela`. SigmaHQ rules (the default origin) are unaffected: their requests are byte-for-byte what they were.
@@ -82,6 +88,7 @@ npm run content:validate                                   # check them and refr
 | --- | ---: | ---: |
 | `rules/sigma/` (Centinela's subset) | 1,231 | about $54 |
 | A full SigmaHQ clone (`--rules-dir <clone>/rules --out <folder>`) | 3,161 | about $139 |
+| SigmaHQ's other folders (`rules-emerging-threats`, `rules-threat-hunting`, `rules-compliance`) | 474 + 141 + 3 | about $21 + $6.3 + $0.13 |
 
 These are upper-end guesses: `estimate` assumes 4,000 output tokens per rule (Opus 5.5 always thinks before answering, and thinking is billed as output) until `sample` has measured the real number; after `sample` it uses the measured average. Truncated or tool-less answers are billed and then billed again by `retry`, so check `sample` first.
 
