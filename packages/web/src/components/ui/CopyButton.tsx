@@ -1,14 +1,18 @@
 /**
- * Copy buttons (S7b-17). `CopyButton` is a quiet icon button for a value someone will paste
- * into another tool (an IP address, a host, a user, a hash, an id). "Copied" shows in a
- * small label above the button for a moment and is announced; the label sits over the
- * value, so nothing moves.
+ * Copy buttons (S7b-17, S7b-18). `CopyButton` is a quiet icon button for a value someone
+ * will paste into another tool (an IP address, a host, a user, a hash, an id).
+ *
+ * The confirmation never covers anything: "Copied" (or "Not copied") appears in a slot
+ * next to the button that is always as wide as the longest message, so it neither overlaps
+ * the page nor moves it. `CopyTextButton` swaps its own label in place the same way.
  */
 import { clsx } from 'clsx';
 import { Check, Copy, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useCopy, type CopyState } from '../../lib/use-copy';
 import { Button, type ButtonProps } from './Button';
+
+const STACK = 'col-start-1 row-start-1';
 
 export function CopyButton({
   value,
@@ -25,7 +29,7 @@ export function CopyButton({
   const name = label ?? t('common.copyValue', { value });
   const Icon = state === 'copied' ? Check : state === 'failed' ? X : Copy;
   return (
-    <span className={clsx('relative inline-flex shrink-0 align-middle', className)}>
+    <span className={clsx('inline-flex shrink-0 items-center gap-1 align-middle', className)}>
       <button
         type="button"
         aria-label={name}
@@ -43,49 +47,78 @@ export function CopyButton({
           )}
         />
       </button>
-      <CopiedLabel state={state} />
+      <CopyStatus state={state} />
     </span>
   );
 }
 
 /**
- * A labelled button that copies a longer value (a token secret, a command). It keeps its
- * label and width; the check icon and the same small "Copied" label confirm the copy.
+ * "Copied" or "Not copied" beside the button. Both messages sit in one grid cell, so the
+ * slot is as wide as the longer one whether or not a message shows; the visible one is a
+ * polite live region.
  */
-export function CopyTextButton({
-  value,
-  children,
-  ...props
-}: { value: string } & Omit<ButtonProps, 'onClick' | 'icon' | 'loading'>) {
-  const { state, copy } = useCopy();
+function CopyStatus({ state }: { state: CopyState }) {
+  const { t } = useTranslation();
+  const copied = t('common.copied');
+  const failed = t('common.copyFailed');
   return (
-    <span className="relative inline-flex">
-      <Button
-        {...props}
-        icon={state === 'copied' ? Check : state === 'failed' ? X : Copy}
-        onClick={() => void copy(value)}
-      >
-        {children}
-      </Button>
-      <CopiedLabel state={state} />
+    <span className="inline-grid text-caption font-semibold whitespace-nowrap" data-copy-status="">
+      <span aria-hidden="true" className={clsx(STACK, 'invisible')}>
+        {copied}
+      </span>
+      <span aria-hidden="true" className={clsx(STACK, 'invisible')}>
+        {failed}
+      </span>
+      <span role="status" className={clsx(STACK, state === 'failed' ? 'text-danger' : 'text-ok')}>
+        {state === 'idle' ? null : (
+          <span key={state} className="animate-fade-in">
+            {state === 'copied' ? copied : failed}
+          </span>
+        )}
+      </span>
     </span>
   );
 }
 
-/** "Copied" (or "Could not copy") over the end of the value, announced politely. */
-function CopiedLabel({ state }: { state: CopyState }) {
+/**
+ * A labelled button that copies a longer value (a token secret, a command). Its label turns
+ * into "Copied" for a moment; the button is always as wide as its longest label, so the
+ * swap moves nothing.
+ */
+export function CopyTextButton({
+  value,
+  label,
+  ...props
+}: { value: string; label: string } & Omit<
+  ButtonProps,
+  'onClick' | 'icon' | 'loading' | 'children'
+>) {
   const { t } = useTranslation();
+  const { state, copy } = useCopy();
+  const labels: Record<CopyState, string> = {
+    idle: label,
+    copied: t('common.copied'),
+    failed: t('common.copyFailed'),
+  };
   return (
-    <span
-      role="status"
-      className={clsx(
-        state === 'idle'
-          ? 'sr-only'
-          : 'pointer-events-none absolute right-0 bottom-full z-20 mb-1 animate-fade-in rounded-badge border border-line-strong bg-raised px-1.5 py-0.5 text-caption font-semibold whitespace-nowrap',
-        state === 'failed' ? 'text-danger' : 'text-fg',
-      )}
-    >
-      {state === 'copied' ? t('common.copied') : state === 'failed' ? t('common.copyFailed') : ''}
+    <span className="inline-flex">
+      <Button
+        {...props}
+        aria-label={label}
+        icon={state === 'copied' ? Check : state === 'failed' ? X : Copy}
+        onClick={() => void copy(value)}
+      >
+        <span aria-hidden="true" className="inline-grid">
+          {(Object.keys(labels) as CopyState[]).map((key) => (
+            <span key={key} className={clsx(STACK, key !== state && 'invisible')}>
+              {labels[key]}
+            </span>
+          ))}
+        </span>
+      </Button>
+      <span role="status" className="sr-only">
+        {state === 'idle' ? '' : labels[state]}
+      </span>
     </span>
   );
 }

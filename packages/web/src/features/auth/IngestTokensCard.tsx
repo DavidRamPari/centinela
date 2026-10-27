@@ -126,9 +126,12 @@ function NewSecret({ created, onDismiss }: { created: IngestTokenCreated; onDism
       <p className="text-muted">{t('auth.tokens.createdWarning')}</p>
       <CodeBlock text={created.secret} label={t('auth.tokens.secret')} />
       <div className="flex gap-2">
-        <CopyTextButton size="sm" variant="primary" value={created.secret}>
-          {t('auth.tokens.copy')}
-        </CopyTextButton>
+        <CopyTextButton
+          size="sm"
+          variant="primary"
+          value={created.secret}
+          label={t('auth.tokens.copy')}
+        />
         <Button size="sm" variant="quiet" onClick={onDismiss}>
           {t('auth.tokens.dismiss')}
         </Button>

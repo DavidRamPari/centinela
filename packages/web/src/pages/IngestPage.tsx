@@ -236,11 +236,7 @@ function CurlCard() {
     <Section
       title={t('ingest.curl.title')}
       description={t('ingest.curl.description')}
-      actions={
-        <CopyTextButton size="sm" value={command}>
-          {t('ingest.curl.copy')}
-        </CopyTextButton>
-      }
+      actions={<CopyTextButton size="sm" value={command} label={t('ingest.curl.copy')} />}
     >
       <CodeBlock text={command} label={t('ingest.curl.title')} />
       <p className="text-muted">{t('ingest.curl.ndjson')}</p>

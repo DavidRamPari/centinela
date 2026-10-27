@@ -352,17 +352,27 @@ describe('live highlight', () => {
 });
 
 describe('copy buttons', () => {
-  it('copies an IP address and confirms it for a moment', async () => {
+  /** The confirmation slot beside a copy button: in the flow, never on top of the page. */
+  function statusOf(button: HTMLElement) {
+    const slot = button.parentElement?.querySelector('[data-copy-status]');
+    if (!(slot instanceof HTMLElement)) throw new Error('no confirmation slot');
+    return { slot, live: within(slot).getByRole('status') };
+  }
+
+  it('copies an IP address and confirms it beside the button for a moment', async () => {
     const user = userEvent.setup();
     const alert = alertByTitle('SSH password spraying from a single source');
     const ip = alert.entities.ips[0] ?? 'missing ip';
     renderApp({ path: `/alerts/${alert.id}`, language: 'en' });
-    await user.click(await screen.findByRole('button', { name: `Copy ${ip}` }));
+    const button = await screen.findByRole('button', { name: `Copy ${ip}` });
+    const { slot, live } = statusOf(button);
+    // The slot always holds the width of its longest message, so showing one moves nothing.
+    expect(slot).toHaveTextContent('CopiedNot copied');
+    expect(live).toHaveTextContent('');
+    await user.click(button);
     expect(await navigator.clipboard.readText()).toBe(ip);
-    expect(await screen.findByText('Copied')).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByText('Copied')).not.toBeInTheDocument(), {
-      timeout: 3000,
-    });
+    await waitFor(() => expect(live).toHaveTextContent('Copied'));
+    await waitFor(() => expect(live).toHaveTextContent(''), { timeout: 3000 });
   });
 
   it('says so when the browser refuses to copy', async () => {
@@ -370,7 +380,22 @@ describe('copy buttons', () => {
     vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValueOnce(new Error('denied'));
     const alert = alertByTitle('SSH password spraying from a single source');
     renderApp({ path: `/alerts/${alert.id}`, language: 'en' });
-    await user.click(await screen.findByRole('button', { name: `Copy ${alert.id}` }));
-    expect(await screen.findByText('Could not copy')).toBeInTheDocument();
+    const button = await screen.findByRole('button', { name: `Copy ${alert.id}` });
+    await user.click(button);
+    await waitFor(() => expect(statusOf(button).live).toHaveTextContent('Not copied'));
+  });
+
+  it('turns a labelled copy button into "Copied" in place, keeping its name', async () => {
+    const user = userEvent.setup();
+    renderApp({ path: '/ingest', language: 'en' });
+    const button = await screen.findByRole('button', { name: 'Copy' });
+    await user.click(button);
+    expect(await navigator.clipboard.readText()).toContain('curl -X POST');
+    await waitFor(() =>
+      expect(within(button.parentElement as HTMLElement).getByRole('status')).toHaveTextContent(
+        'Copied',
+      ),
+    );
+    expect(button).toHaveAccessibleName('Copy');
   });
 });

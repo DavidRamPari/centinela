@@ -112,7 +112,7 @@ function EventDetail({ event }: { event: NormalizedEvent }) {
                 <th scope="col" className="py-2 font-semibold">
                   {t('events.drawer.value')}
                 </th>
-                <th scope="col" className="w-8 py-2">
+                <th scope="col" className="py-2 pl-2">
                   <span className="sr-only">{t('events.drawer.copy')}</span>
                 </th>
               </tr>
@@ -129,7 +129,7 @@ function EventDetail({ event }: { event: NormalizedEvent }) {
                   <td className="break-all py-1.5 font-mono text-fg">
                     {value === null ? 'null' : String(value)}
                   </td>
-                  <td className="py-0.5 text-right">
+                  <td className="py-0.5 pl-2 whitespace-nowrap">
                     {value === null ? null : (
                       <CopyButton
                         value={String(value)}
