@@ -73,7 +73,7 @@ export function Drawer({ title, onClose, children }: DrawerProps) {
             <X aria-hidden="true" strokeWidth={1.75} className="size-5" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-5">{children}</div>
+        <div className="relative flex-1 overflow-y-auto px-5 py-5">{children}</div>
       </div>
     </div>
   );

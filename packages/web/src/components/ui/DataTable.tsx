@@ -149,7 +149,9 @@ export function DataTable<T>({
   );
 }
 
-const TABLE_FRAME = '@container overflow-x-auto md:overflow-x-clip';
+// Positioned, so visually hidden text in the cells (absolute) scrolls and clips with the
+// table instead of widening the page.
+const TABLE_FRAME = '@container relative overflow-x-auto md:overflow-x-clip';
 const TABLE = 'w-full border-separate border-spacing-0 text-left';
 const CELL = 'border-b border-line px-3 py-2.5';
 

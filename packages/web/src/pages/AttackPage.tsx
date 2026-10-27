@@ -112,7 +112,13 @@ export default function AttackPage() {
                     {t('attack.hiddenTactics', { count: hidden, value: format.number(hidden) })}
                   </p>
                 ) : null}
-                <div className="overflow-x-auto pb-3" tabIndex={0} aria-label={t('attack.matrix')}>
+                {/* Positioned: the cells' visually hidden counts are absolute and must scroll with
+                    the matrix, not widen the page (S7b-18). */}
+                <div
+                  className="relative overflow-x-auto pb-3"
+                  tabIndex={0}
+                  aria-label={t('attack.matrix')}
+                >
                   <div
                     className="grid gap-x-3"
                     // One column per visible tactic; they share the width and scroll only when

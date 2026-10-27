@@ -101,7 +101,7 @@ function EventDetail({ event }: { event: NormalizedEvent }) {
       <section>
         <h3 className="mb-1 font-semibold text-fg">{t('events.drawer.fields')}</h3>
         <p className="mb-3 text-muted">{t('events.drawer.fieldsHint')}</p>
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full text-left text-small">
             <caption className="sr-only">{t('events.drawer.fields')}</caption>
             <thead className="text-muted">

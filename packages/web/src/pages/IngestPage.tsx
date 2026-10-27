@@ -254,7 +254,7 @@ function HistoryCard({ history }: { history: UploadRecord[] }) {
       {history.length === 0 ? (
         <p className="text-muted">{t('ingest.history.empty')}</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full text-left">
             <caption className="sr-only">{t('ingest.history.title')}</caption>
             <thead className="border-b border-line-strong text-small text-muted">

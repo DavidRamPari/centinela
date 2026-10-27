@@ -15,7 +15,7 @@ export function CodeBlock({
       aria-label={label}
       tabIndex={0}
       className={clsx(
-        'max-h-[32rem] overflow-auto whitespace-pre-wrap break-all rounded-control border border-line bg-raised p-3 font-mono text-small text-fg',
+        'relative max-h-[32rem] overflow-auto whitespace-pre-wrap break-all rounded-control border border-line bg-raised p-3 font-mono text-small text-fg',
         className,
       )}
     >
