@@ -1,0 +1,136 @@
+{
+  "rule": {
+    "id": "5ab518e4-b4bf-44a2-9874-a8e86a590287",
+    "title": "SSH authentication failure",
+    "level": "low",
+    "status": "experimental",
+    "author": "DavidRamPari",
+    "path": "centinela/linux/ssh_auth_failure.yml",
+    "url": null,
+    "license": "MIT",
+    "techniques": [
+      "T1110"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un intento de inicio de sesión SSH falló por contraseña incorrecta, llave rechazada o usuario inexistente. Es un building block para las correlaciones de fuerza bruta y password spraying, y no genera alertas por sí solo.",
+      "what_it_detects": "Eventos sshd normalizados con event.action = ssh_login y event.outcome = failure. Incluye fallos de contraseña, de llave pública y de usuarios inválidos en hosts Linux.",
+      "why_it_matters": "Un fallo aislado casi siempre es inofensivo, pero muchos fallos desde una misma IP o contra muchos usuarios indican adivinación de credenciales (MITRE ATT&CK T1110, Brute Force). Si después hay un inicio exitoso, puede haber una cuenta comprometida.",
+      "triage_steps": [
+        "Identifique source.ip, user.name y host.name del evento, y revise el campo message original de sshd para conocer el tipo de fallo.",
+        "Cuente los fallos desde la misma source.ip en +/- 15 minutos: muchos intentos contra un usuario indican fuerza bruta, y pocos intentos contra muchos usuarios indican password spraying.",
+        "Busque un ssh_login con event.outcome = success desde la misma source.ip o para el mismo user.name después de los fallos.",
+        "Verifique si user.name existe en el host; los intentos contra usuarios inválidos o genéricos (root, admin, test) sugieren escaneo automatizado.",
+        "Determine si source.ip es interna, de una VPN corporativa o de Internet, y consulte su reputación y alertas previas.",
+        "Revise las alertas de correlación de fuerza bruta o spraying para la misma entidad en Centinela.",
+        "Si el origen es interno, identifique el equipo y al responsable, y confirme si hay tareas automatizadas que usen esa cuenta."
+      ],
+      "false_positives": [
+        "Usuarios que escriben mal su contraseña o usan una llave equivocada.",
+        "Automatización, scripts o herramientas de despliegue que reintentan con una contraseña vencida o una llave revocada.",
+        "Escáneres de vulnerabilidades o monitoreo autorizados que prueban el servicio SSH.",
+        "Clientes SSH que prueban varias llaves del agente antes de llegar a la correcta."
+      ],
+      "response_steps": [
+        "Si los fallos son aislados y tienen una explicación legítima, documente y cierre; recuerde que esta regla no alerta por sí sola.",
+        "Si hay un patrón de fuerza bruta desde Internet, bloquee source.ip en el firewall o con fail2ban, previa verificación de que no sea un origen corporativo.",
+        "Si hubo un inicio exitoso después de los fallos, trate el caso como posible compromiso: revise la sesión, restablezca credenciales y revoque llaves.",
+        "Refuerce SSH: deshabilite la autenticación por contraseña y el login de root, y restrinja el acceso por red o bastión.",
+        "Corrija la automatización que usa credenciales vencidas para reducir ruido futuro."
+      ],
+      "severity_rationale": "El nivel low es adecuado porque un fallo individual es común y legítimo; el riesgo real aparece solo en volumen o seguido de un éxito, lo cual cubren las correlaciones."
+    },
+    "en": {
+      "summary": "An SSH login attempt failed because of a wrong password, a rejected key or an invalid user. It is a building block for the brute-force and password-spraying correlations and does not alert on its own.",
+      "what_it_detects": "Normalized sshd events with event.action = ssh_login and event.outcome = failure, covering password failures, public key failures and invalid users on Linux hosts.",
+      "why_it_matters": "One failure is almost always harmless. Many failures from one IP, or against many users, point to credential guessing (MITRE ATT&CK T1110, Brute Force). A success after them may mean a compromised account.",
+      "triage_steps": [
+        "Note source.ip, user.name and host.name, and read the original sshd message field to see the failure type.",
+        "Count failures from the same source.ip within +/- 15 minutes. Many attempts on one user suggest brute force; a few attempts on many users suggest spraying.",
+        "Look for an ssh_login with event.outcome = success from the same source.ip, or for the same user.name, after the failures.",
+        "Check whether user.name exists on the host. Attempts on invalid or generic users (root, admin, test) suggest automated scanning.",
+        "Classify source.ip as internal, corporate VPN or Internet, and check its reputation and any earlier alerts for it.",
+        "Review Centinela brute-force or spraying correlation alerts for the same entity.",
+        "If the source is internal, find the machine and its owner, and confirm whether any automated job uses the account."
+      ],
+      "false_positives": [
+        "Users mistyping their password or using the wrong key.",
+        "Automation, scripts or deployment tools retrying with an expired password or a revoked key.",
+        "Authorized vulnerability scanners or monitoring probing the SSH service.",
+        "SSH clients offering several agent keys before the right one."
+      ],
+      "response_steps": [
+        "If the failures are isolated and legitimate, document and close. Remember that this rule does not alert on its own.",
+        "For brute force from the Internet, block source.ip with the firewall or fail2ban, after confirming it is not a corporate source.",
+        "If a login succeeded after the failures, treat it as a possible compromise: review the session, reset credentials and revoke keys.",
+        "Harden SSH: disable password authentication and root login, and restrict access by network or bastion.",
+        "Fix automation that uses expired credentials to cut future noise."
+      ],
+      "severity_rationale": "Low fits because a single failure is common and usually legitimate. The real risk shows up only in volume or when a success follows, and the correlations cover that."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Failed password for an existing user from an external IP",
+        "event": {
+          "@timestamp": "2026-10-26T14:03:12Z",
+          "event.action": "ssh_login",
+          "event.outcome": "failure",
+          "source.ip": "203.0.113.45",
+          "source.port": 52814,
+          "user.name": "jperez",
+          "host.name": "bastion-01",
+          "message": "Oct 26 14:03:12 bastion-01 sshd[21877]: Failed password for jperez from 203.0.113.45 port 52814 ssh2"
+        }
+      },
+      {
+        "description": "Login attempt for an invalid user",
+        "event": {
+          "@timestamp": "2026-10-26T14:05:40Z",
+          "event.action": "ssh_login",
+          "event.outcome": "failure",
+          "source.ip": "198.51.100.23",
+          "source.port": 40122,
+          "user.name": "admin",
+          "host.name": "bastion-01",
+          "message": "Oct 26 14:05:40 bastion-01 sshd[21901]: Failed password for invalid user admin from 198.51.100.23 port 40122 ssh2"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Successful public key login by the same user",
+        "event": {
+          "@timestamp": "2026-10-26T14:10:02Z",
+          "event.action": "ssh_login",
+          "event.outcome": "success",
+          "source.ip": "192.0.2.10",
+          "source.port": 50311,
+          "user.name": "jperez",
+          "host.name": "bastion-01",
+          "message": "Oct 26 14:10:02 bastion-01 sshd[22010]: Accepted publickey for jperez from 192.0.2.10 port 50311 ssh2: ED25519 SHA256:EXAMPLEKEYFINGERPRINT"
+        }
+      },
+      {
+        "description": "Failed sudo authentication, a different action, not an SSH login",
+        "event": {
+          "@timestamp": "2026-10-26T14:12:30Z",
+          "event.action": "sudo",
+          "event.outcome": "failure",
+          "user.name": "jperez",
+          "host.name": "bastion-01",
+          "message": "Oct 26 14:12:30 bastion-01 sudo: pam_unix(sudo:auth): authentication failure; logname=jperez uid=1001 euid=0 tty=/dev/pts/0 ruser=jperez rhost=  user=jperez"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-27T16:51:43+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

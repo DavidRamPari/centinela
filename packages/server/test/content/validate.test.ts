@@ -1,11 +1,18 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { repoRoot } from '../../src/paths.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildFailuresFile, failuresFileSchema, fixtureKey } from '../../src/content/failures.js';
 import { pruneFailures, rejectedFileSchema } from '../../src/content/prune.js';
 import { buildContentReport, contentSummary, percent } from '../../src/content/report.js';
-import { listSigmaRuleFiles, loadSigmaFolder } from '../../src/content/rules.js';
+import {
+  isRulesRoot,
+  listSigmaRuleFiles,
+  loadRuleFolder,
+  loadSigmaFolder,
+  sigmaFolderOf,
+} from '../../src/content/rules.js';
 import { canonicalJson } from '../../src/content/schema.js';
 import {
   readContentDir,
@@ -362,5 +369,158 @@ describe('pruneFailures', () => {
     writeJson(path, changed);
     expect(() => pruneFailures(contentDir, join(root, 'rejected'), v.evaluated)).toThrow(/changed/);
     expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual(changed);
+  });
+});
+
+describe("Centinela's own rules (a rules root)", () => {
+  const BASE = '77777777-7777-4777-8777-777777777777';
+  const UNCOVERED = '88888888-8888-4888-8888-888888888888';
+  const CORRELATION = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const NO_FIXTURES = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const SIGMA = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+
+  function baseRule(id: string, name: string): string {
+    return `title: Rule ${name}
+id: ${id}
+name: ${name}
+status: experimental
+author: DavidRamPari
+logsource: { product: linux, service: sshd }
+detection:
+  selection:
+    event.action: ssh_login
+    event.outcome: failure
+  condition: selection
+level: low
+`;
+  }
+
+  function setUp(): { rulesRoot: string; content: string } {
+    const rulesRoot = join(root, 'repo-rules');
+    const files: Record<string, string> = {
+      'centinela/linux/a.yml': baseRule(BASE, 'test-auth-failure'),
+      'centinela/linux/b.yml': baseRule(UNCOVERED, 'test-uncovered'),
+      'centinela/linux/c.yml': baseRule(NO_FIXTURES, 'test-no-fixtures'),
+      'correlation/burst.yml': `title: Burst of failures
+id: ${CORRELATION}
+name: test-burst
+status: experimental
+author: DavidRamPari
+correlation:
+  type: event_count
+  rules:
+    - test-auth-failure
+  group-by:
+    - source.ip
+  timespan: 5m
+  condition:
+    gte: 10
+level: high
+`,
+      // SigmaHQ rules in the root are not expected to have Centinela content.
+      'sigma/s.yml': RULES['web/bare.yml']?.replace(IDS.bare, SIGMA) ?? '',
+    };
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(join(rulesRoot, path, '..'), { recursive: true });
+      writeFileSync(join(rulesRoot, path), text);
+    }
+    const dir = join(root, 'content', 'centinela');
+    mkdirSync(dir, { recursive: true });
+    const failure = { 'event.action': 'ssh_login', 'event.outcome': 'failure', 'source.ip': '203.0.113.45' };
+    writeJson(join(dir, `${BASE}.json`), content(BASE, [failure], [{ ...failure, 'event.outcome': 'success' }]));
+    const { fixtures: _none, ...playbookOnly } = content(CORRELATION, [], []);
+    writeJson(join(dir, `${CORRELATION}.json`), playbookOnly);
+    writeJson(join(dir, `${NO_FIXTURES}.json`), { ...content(NO_FIXTURES, [], []), fixtures: undefined });
+    return { rulesRoot, content: dir };
+  }
+
+  it('loads a rules root with the engine loader and expects content for Centinela rules only', () => {
+    const { rulesRoot, content: dir } = setUp();
+    expect(isRulesRoot(rulesRoot)).toBe(true);
+    expect(isRulesRoot(rulesDir)).toBe(false);
+    const folder = loadRuleFolder(rulesRoot);
+    expect(folder.ruleSet.rule(CORRELATION)?.meta.supported).toBe(true);
+    expect(folder.ruleSet.rule(BASE)?.meta.license).toBe('MIT');
+
+    const v = validateContent(folder, readContentDir(dir));
+    expect(v.evaluated.map((r) => [r.rulePath, r.fixtures.map((f) => f.passed)])).toEqual([
+      ['centinela/linux/a.yml', [true, true]],
+    ]);
+    expect(v.playbookOnly).toEqual([
+      { ruleId: CORRELATION, title: 'Burst of failures', rulePath: 'correlation/burst.yml', file: `${CORRELATION}.json`, ignoredFixtures: 0 },
+    ]);
+    expect(v.malformed).toEqual([
+      { file: `${NO_FIXTURES}.json`, reason: 'no fixtures (only correlation rules may have a playbook only)' },
+    ]);
+    expect(v.missing.map((r) => r.rulePath)).toEqual(['centinela/linux/b.yml']);
+    expect(v.rulesTotal).toBe(4);
+
+    const report = buildContentReport(v, { rulesDir: 'rules', contentDir: 'content/centinela', failuresFile: 'f', pruned: false });
+    expect(report).toContain('| Correlation rules with a playbook only (not evaluated) | 1 |');
+    expect(report).toContain('- `correlation/burst.yml` (Burst of failures)');
+    expect(contentSummary(v)).toContain('correlation playbooks (not evaluated): 1');
+  });
+
+  it('ignores, and counts, fixtures given to a correlation rule', () => {
+    const { rulesRoot, content: dir } = setUp();
+    writeJson(join(dir, `${CORRELATION}.json`), content(CORRELATION, [{ a: 1 }], [{ b: 2 }]));
+    const v = validateContent(loadRuleFolder(rulesRoot), readContentDir(dir));
+    expect(v.playbookOnly[0]?.ignoredFixtures).toBe(2);
+    expect(v.evaluated.map((r) => r.ruleId)).toEqual([BASE]);
+  });
+});
+
+describe('SigmaHQ folders other than rules/', () => {
+  const HUNT = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+  it('knows which SigmaHQ folder a rules folder belongs to', () => {
+    expect(sigmaFolderOf(join(repoRoot, 'rules', 'sigma'))).toBe('rules');
+    expect(sigmaFolderOf('/home/david/sigmahq/rules-emerging-threats')).toBe('rules-emerging-threats');
+    expect(sigmaFolderOf('/home/david/sigmahq/rules-threat-hunting/windows')).toBe('rules-threat-hunting');
+    expect(sigmaFolderOf('/home/david/sigmahq/rules/windows')).toBe('rules');
+    expect(sigmaFolderOf('/srv/my-sigma')).toBeNull();
+  });
+
+  it('validates only the content files of that folder and counts the others', () => {
+    const huntDir = join(root, 'sigmahq', 'rules-threat-hunting');
+    mkdirSync(join(huntDir, 'windows'), { recursive: true });
+    writeFileSync(
+      join(huntDir, 'windows', 'hunt.yml'),
+      (RULES['windows/process_creation/cmd_whoami.yml'] ?? '').replace(IDS.cmd, HUNT),
+    );
+    const pack = join(root, 'pack');
+    mkdirSync(pack);
+    const hunt = content(
+      HUNT,
+      [{ Image: CMD, CommandLine: 'cmd.exe /c whoami', User: 'ANDES\\jperez' }],
+      [{ Image: CMD, CommandLine: 'cmd.exe /c dir' }],
+    );
+    writeJson(join(pack, `${HUNT}.json`), { ...hunt, rule: { ...hunt.rule, folder: 'rules-threat-hunting' } });
+    // Content for rules/ (no folder recorded) and for another folder share the content folder.
+    writeJson(join(pack, `${IDS.cmd}.json`), content(IDS.cmd, [{ a: 1 }], [{ b: 2 }]));
+    const emerging = content(IDS.keywords, [{ a: 1 }], [{ b: 2 }]);
+    writeJson(join(pack, `${IDS.keywords}.json`), {
+      ...emerging,
+      rule: { ...emerging.rule, folder: 'rules-emerging-threats' },
+    });
+
+    const folder = loadSigmaFolder(huntDir);
+    expect(folder.folder).toBe('rules-threat-hunting');
+    const v = validateContent(folder, readContentDir(pack));
+    expect(v.contentFiles).toBe(3);
+    expect(v.otherFolders).toBe(2);
+    expect(v.orphans).toEqual([]);
+    expect(v.evaluated.map((r) => [r.rulePath, r.fixtures.map((f) => f.passed)])).toEqual([
+      ['windows/hunt.yml', [true, true]],
+    ]);
+    const report = buildContentReport(v, { rulesDir: 'r', contentDir: 'c', failuresFile: 'f', pruned: false });
+    expect(report).toContain('| Content files for other SigmaHQ folders (skipped) | 2 |');
+
+    // The rules/ folder sees the same pack the other way round.
+    const rulesFolder = loadSigmaFolder(rulesDir);
+    expect(rulesFolder.folder).toBe('rules');
+    const fromRules = validateContent(rulesFolder, readContentDir(pack));
+    expect(fromRules.otherFolders).toBe(2);
+    expect(fromRules.evaluated.map((r) => r.ruleId)).toEqual([IDS.cmd]);
   });
 });
