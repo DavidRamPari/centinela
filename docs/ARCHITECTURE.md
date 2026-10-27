@@ -666,8 +666,8 @@ Since S6 every endpoint except `GET /api/health`, `POST /api/ingest` (bearer tok
 
 - Structure: `src/app` (router, providers, layout), `src/pages`, `src/features/<area>` (alerts, events, attack, rules, ingest, overview), `src/components/ui`, `src/api` (typed client and TanStack Query hooks), `src/i18n` (`en.json`, `es.json`), `src/mocks` (MSW handlers and fixtures).
 - URL search params are the source of truth for filters, so every view is shareable.
-- Visual direction: a calm, dense "SOC console". Dark theme by default with a light alternative; neutral slate surfaces, one accent color, severity colors used sparingly (badges, heatmap). Base text 14 px, tabular numbers, monospace (system stack, no web font downloads) for raw logs, IPs and hashes.
-- Severity must be readable without color: badges carry the text label and an icon.
+- Visual direction (S7b, `docs/decisions/S7b.md`): a true black base (dark theme by default, light alternative) organised by lines and spacing, not cards; yellow for actions, selection and focus, red for danger only, blue for structure and links; orange, pink and cyan for the rest of the severity scale and the charts. Base text 14 px with tabular numbers in Atkinson Hyperlegible Next; Atkinson Hyperlegible Mono only for raw logs, ids and code. Both fonts are self-hosted, so the dashboard makes no request to another origin.
+- Severity must be readable without color: badges carry the text label and a five-pip level meter.
 - Accessibility: visible focus, keyboard navigation in tables (arrow keys, Enter opens), drawers trap focus and close with Escape, charts have text alternatives.
 - i18n: `en` and `es` (neutral Latin American Spanish), formatted dates and numbers per locale, technique names stay in English (official ATT&CK names).
 

@@ -1,4 +1,5 @@
 import { clsx } from 'clsx';
+import { useTranslation } from 'react-i18next';
 import { LETTERS, layout } from './corridor';
 import { Mark } from './Mark';
 
@@ -45,6 +46,7 @@ export function Wordmark({ height = 20, className }: { height?: number; classNam
 
 /** Mark and wordmark together, the primary brand lockup, with the product name as text. */
 export function Lockup({ size = 'md', className }: { size?: 'md' | 'lg'; className?: string }) {
+  const { t } = useTranslation();
   const markSize = size === 'lg' ? 56 : 28;
   const wordHeight = size === 'lg' ? 40 : 19;
   return (
@@ -53,7 +55,7 @@ export function Lockup({ size = 'md', className }: { size?: 'md' | 'lg'; classNa
     >
       <Mark size={markSize} />
       <Wordmark height={wordHeight} />
-      <span className="sr-only">Centinela</span>
+      <span className="sr-only">{t('app.name')}</span>
     </span>
   );
 }

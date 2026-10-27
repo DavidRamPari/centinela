@@ -11,9 +11,11 @@ const files = import.meta.glob<string>(['../public/brand/*.svg', '../public/favi
 describe('brand files', () => {
   it('match the geometry the app draws (regenerate with scripts/brand-assets.ts)', () => {
     const expected = brandFiles();
-    expect(Object.keys(files).map((path) => path.split('/').pop()).sort()).toEqual(
-      Object.keys(expected).sort(),
-    );
+    expect(
+      Object.keys(files)
+        .map((path) => path.split('/').pop())
+        .sort(),
+    ).toEqual(Object.keys(expected).sort());
     for (const [path, text] of Object.entries(files)) {
       const name = path.split('/').pop() ?? '';
       expect(text, name).toBe(expected[name]);
