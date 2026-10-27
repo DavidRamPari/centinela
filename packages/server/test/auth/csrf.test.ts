@@ -41,7 +41,12 @@ describe('CSRF tokens', () => {
 
   describe('middleware', () => {
     const app = express();
-    app.use(requireCsrfToken(() => 'expected-token'));
+    app.use(
+      requireCsrfToken(
+        () => 'expected-token',
+        () => CSRF_COOKIE,
+      ),
+    );
     app.all('/x', (_req, res) => {
       res.json({ ok: true });
     });
@@ -88,7 +93,7 @@ describe('CSRF tokens', () => {
     it("refuses another session's CSRF token, even when cookie and header agree", async () => {
       const res = await request(app)
         .post('/api/tokens')
-        .set('Cookie', `${SESSION_COOKIE}=${mine.token}; ${CSRF_COOKIE}=${theirs.csrf}`)
+        .set('Cookie', `${mine.names.session}=${mine.token}; ${mine.names.csrf}=${theirs.csrf}`)
         .set(CSRF_HEADER, theirs.csrf)
         .send({ label: 'forged' });
       expect(res.status).toBe(403);

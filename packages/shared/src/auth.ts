@@ -14,6 +14,14 @@ import { utcTimestampSchema } from './events.js';
 export const SESSION_COOKIE = '__Host-centinela';
 /** CSRF double-submit cookie, readable by the dashboard's JavaScript. */
 export const CSRF_COOKIE = '__Host-centinela-csrf';
+/**
+ * The same two cookies without the prefix and without `Secure`, used only in development
+ * over plain HTTP on `localhost`: WebKit (Safari) does not store `Secure` cookies from
+ * `http://localhost`, and a `__Host-` cookie must be `Secure`. HTTPS and production always
+ * use the `__Host-` names.
+ */
+export const LOCAL_SESSION_COOKIE = 'centinela-local';
+export const LOCAL_CSRF_COOKIE = 'centinela-local-csrf';
 /** Header that must repeat the CSRF cookie on every state-changing request. */
 export const CSRF_HEADER = 'X-CSRF-Token';
 

@@ -5,6 +5,7 @@ import { CSRF_COOKIE, SESSION_COOKIE, problemSchema, sessionInfoSchema } from '@
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sessionStoreFor } from '../../src/auth/index.js';
+import { HOST_COOKIES, LOCAL_COOKIES } from '../../src/security/cookies.js';
 import { createTestApp } from '../helpers/app.js';
 import {
   TEST_PASSWORD,
@@ -43,10 +44,11 @@ describe('sign-in, session and sign-out', () => {
   /** Stored key of a session token. */
   const idHash = (token: string) => sessionStoreFor(deps.config, db.pool).idHash(token);
 
-  const login = (ip: string, body: unknown) =>
+  const login = (ip: string, body: unknown, headers: Record<string, string> = {}) =>
     request(app)
       .post('/api/auth/login')
       .set('X-Forwarded-For', ip)
+      .set(headers)
       .send(body as object);
 
   async function auditActions(): Promise<
@@ -61,9 +63,14 @@ describe('sign-in, session and sign-out', () => {
   }
 
   describe('POST /api/auth/login', () => {
-    it('sets a __Host- httpOnly session cookie and a readable CSRF cookie', async () => {
+    it('sets a __Host- httpOnly session cookie and a readable CSRF cookie over HTTPS', async () => {
       const ip = freshIp();
-      const res = await login(ip, { username: TEST_USERNAME, password: TEST_PASSWORD }).expect(200);
+      // The trusted proxy (loopback) says the browser used HTTPS.
+      const res = await login(
+        ip,
+        { username: TEST_USERNAME, password: TEST_PASSWORD },
+        { 'X-Forwarded-Proto': 'https' },
+      ).expect(200);
       const info = sessionInfoSchema.parse(res.body);
       expect(info.username).toBe(TEST_USERNAME);
       const hours = (Date.parse(info.expiresAt) - Date.now()) / 3_600_000;
@@ -155,7 +162,7 @@ describe('sign-in, session and sign-out', () => {
         .set('Cookie', first.cookie)
         .send({ username: TEST_USERNAME, password: TEST_PASSWORD })
         .expect(200);
-      expect(setCookies(res).get(SESSION_COOKIE)?.value).not.toBe(first.token);
+      expect(setCookies(res).get(first.names.session)?.value).not.toBe(first.token);
       await request(app).get('/api/auth/me').set('Cookie', first.cookie).expect(401);
     });
   });
@@ -192,14 +199,14 @@ describe('sign-in, session and sign-out', () => {
       const session = await signIn(app);
       const res = await request(app).get('/api/auth/me').set('Cookie', session.cookie).expect(200);
       expect(sessionInfoSchema.parse(res.body).username).toBe(TEST_USERNAME);
-      expect(setCookies(res).get(CSRF_COOKIE)?.value).toBe(session.csrf);
+      expect(setCookies(res).get(session.names.csrf)?.value).toBe(session.csrf);
       expect(res.headers['cache-control']).toBe('no-store');
     });
 
     it.each([
       ['no cookie', undefined],
-      ['a malformed token', `${SESSION_COOKIE}=not-a-token`],
-      ['an unknown token', `${SESSION_COOKIE}=${'A'.repeat(43)}`],
+      ['a malformed token', `${LOCAL_COOKIES.session}=not-a-token`],
+      ['an unknown token', `${LOCAL_COOKIES.session}=${'A'.repeat(43)}`],
     ])('answers 401 with %s', async (_label, cookie) => {
       const req = request(app).get('/api/auth/me');
       if (cookie) req.set('Cookie', cookie);
@@ -250,7 +257,7 @@ describe('sign-in, session and sign-out', () => {
 
       const res = await request(app).post('/api/auth/logout').set(session.headers).expect(204);
       const cleared = setCookies(res);
-      for (const name of [SESSION_COOKIE, CSRF_COOKIE]) {
+      for (const name of [session.names.session, session.names.csrf]) {
         expect(cleared.get(name)?.value).toBe('');
         expect(
           cleared.get(name)?.attributes.some((a) => a.startsWith('expires=thu, 01 jan 1970')),
@@ -343,8 +350,12 @@ describe('sign-in, session and sign-out', () => {
   });
 
   it('builds the expected headers for a signed-in browser', () => {
-    expect(signedInHeaders('t', 'c').headers).toEqual({
+    expect(signedInHeaders('t', 'c', HOST_COOKIES).headers).toEqual({
       Cookie: `${SESSION_COOKIE}=t; ${CSRF_COOKIE}=c`,
+      'X-CSRF-Token': 'c',
+    });
+    expect(signedInHeaders('t', 'c').headers).toEqual({
+      Cookie: 'centinela-local=t; centinela-local-csrf=c',
       'X-CSRF-Token': 'c',
     });
   });

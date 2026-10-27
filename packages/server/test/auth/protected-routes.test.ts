@@ -6,7 +6,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SESSION_COOKIE, problemSchema } from '@centinela/shared';
+import { problemSchema } from '@centinela/shared';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEV_INGEST_TOKEN } from '../../src/config.js';
@@ -80,7 +80,7 @@ describe('protected routes', () => {
   it.each(protectedEndpoints)(
     '$label answers 401 with an unknown session',
     async ({ method, path }) => {
-      const unknown = `${SESSION_COOKIE}=${'x'.repeat(43)}`;
+      const unknown = `${session.names.session}=${'x'.repeat(43)}`;
       const res = await request(app)[method](path).set('Cookie', unknown);
       expectProblem(res, 401);
     },

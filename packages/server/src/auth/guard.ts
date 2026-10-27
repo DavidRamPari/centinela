@@ -3,10 +3,9 @@
  * carries the cookie of a live session for the configured admin; `requireCsrf` then
  * answers `403` for state-changing requests without the session's CSRF token.
  */
-import { SESSION_COOKIE } from '@centinela/shared';
 import type { RequestHandler, Response } from 'express';
 import { HttpError } from '../http/problem.js';
-import { readCookie } from '../security/cookies.js';
+import { cookieMode, readCookie } from '../security/cookies.js';
 import { csrfTokenFor, requireCsrfToken } from '../security/csrf.js';
 import type { Session, SessionStore } from './sessions.js';
 
@@ -31,6 +30,8 @@ export interface SessionGuardOptions {
   secret: string;
   /** Sessions of any other user name (the admin was renamed) are refused. */
   username: string;
+  /** Production always reads the `__Host-` cookies (`cookieMode`). */
+  isProduction: boolean;
 }
 
 export interface SessionGuard {
@@ -43,11 +44,12 @@ export function createSessionGuard({
   sessions,
   secret,
   username,
+  isProduction,
 }: SessionGuardOptions): SessionGuard {
   return {
     requireSession({ touch = true } = {}) {
       return async (req, res, next) => {
-        const token = readCookie(req.headers.cookie, SESSION_COOKIE);
+        const token = readCookie(req.headers.cookie, cookieMode(req, isProduction).session);
         const session = token === undefined ? undefined : await sessions.find(token, { touch });
         if (!token || !session || session.username !== username) {
           throw new HttpError(401, 'Sign in to continue');
@@ -57,6 +59,9 @@ export function createSessionGuard({
         next();
       };
     },
-    requireCsrf: requireCsrfToken((res) => authOf(res).csrfToken),
+    requireCsrf: requireCsrfToken(
+      (res) => authOf(res).csrfToken,
+      (req) => cookieMode(req, isProduction).csrf,
+    ),
   };
 }

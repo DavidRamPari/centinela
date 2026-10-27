@@ -1,4 +1,4 @@
-import { CSRF_COOKIE, CSRF_HEADER } from '@centinela/shared';
+import { CSRF_COOKIE, CSRF_HEADER, LOCAL_CSRF_COOKIE } from '@centinela/shared';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
@@ -17,6 +17,7 @@ function setCsrfCookie(value: string) {
 
 afterEach(() => {
   document.cookie = `${CSRF_COOKIE}=; Path=/; Secure; Max-Age=0`;
+  document.cookie = `${LOCAL_CSRF_COOKIE}=; Path=/; Max-Age=0`;
 });
 
 async function signInWith(user: ReturnType<typeof userEvent.setup>, password: string) {
@@ -44,6 +45,24 @@ describe('API client and the session', () => {
       { method: 'POST', csrf: 'token-123' },
       { method: 'PATCH', csrf: 'token-123' },
     ]);
+  });
+
+  it('repeats the unprefixed CSRF cookie of a plain-HTTP localhost server', async () => {
+    // A development server on http://localhost sets `centinela-local-csrf` (no `Secure`,
+    // which Safari would refuse there) instead of the `__Host-` cookie.
+    document.cookie = `${LOCAL_CSRF_COOKIE}=local-456; Path=/; SameSite=Strict`;
+    const seen: Array<string | null> = [];
+    server.use(
+      http.post('/api/echo', ({ request }) => {
+        seen.push(request.headers.get(CSRF_HEADER));
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const schema = z.object({ ok: z.boolean() });
+    await apiRequest('/echo', schema, { method: 'POST', json: {} });
+    setCsrfCookie('host-789');
+    await apiRequest('/echo', schema, { method: 'POST', json: {} });
+    expect(seen).toEqual(['local-456', 'host-789']);
   });
 
   it('tells listeners about a 401 unless the call opts out, and reads Retry-After', async () => {

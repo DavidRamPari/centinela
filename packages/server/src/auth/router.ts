@@ -6,8 +6,8 @@
  * `MAX_CONCURRENT_PASSWORD_CHECKS` at once) and user name (constant time). The password is
  * always checked, so a wrong user name takes as long as a wrong password.
  */
-import { CSRF_COOKIE, SESSION_COOKIE, loginBodySchema, type SessionInfo } from '@centinela/shared';
-import express, { Router, type Response } from 'express';
+import { loginBodySchema, type SessionInfo } from '@centinela/shared';
+import express, { Router, type Request, type Response } from 'express';
 import type { Pool } from 'pg';
 import type { Config } from '../config.js';
 import { withTransaction } from '../db/sql.js';
@@ -16,10 +16,14 @@ import { validate } from '../http/validate.js';
 import { clientIp } from '../security/client-ip.js';
 import { safeEqual } from '../security/compare.js';
 import {
+  HOST_COOKIES,
+  LOCAL_COOKIES,
   clearCookieOptions,
+  cookieMode,
   csrfCookieOptions,
   readCookie,
   sessionCookieOptions,
+  type CookieMode,
 } from '../security/cookies.js';
 import { csrfTokenFor } from '../security/csrf.js';
 import { createRateLimiter } from '../security/rate-limit.js';
@@ -49,6 +53,17 @@ function sessionInfo(session: Session): SessionInfo {
 
 function remainingMs(session: Session): number {
   return Math.max(0, session.expiresAt.getTime() - Date.now());
+}
+
+/** Clears the cookies of `mode` that the request carries. */
+function clearCookies(req: Request, res: Response, mode: CookieMode): void {
+  const sent = req.headers.cookie;
+  if (readCookie(sent, mode.session) !== undefined) {
+    res.clearCookie(mode.session, clearCookieOptions(true, mode));
+  }
+  if (readCookie(sent, mode.csrf) !== undefined) {
+    res.clearCookie(mode.csrf, clearCookieOptions(false, mode));
+  }
 }
 
 function sendLocked(res: Response, retryAfterMs: number): void {
@@ -120,8 +135,9 @@ export function createAuthRouter({
     }
 
     lockout.recordSuccess(key);
+    const mode = cookieMode(req, config.isProduction);
     // A new token on every sign-in (no session fixation); the browser's old session goes.
-    const previous = readCookie(req.headers.cookie, SESSION_COOKIE);
+    const previous = readCookie(req.headers.cookie, mode.session);
     if (previous !== undefined) {
       streams.endSession(sessions.idHash(previous));
       await sessions.delete(previous);
@@ -131,21 +147,25 @@ export function createAuthRouter({
       ip,
       userAgent: req.get('user-agent') ?? null,
     });
-    res.cookie(SESSION_COOKIE, token, sessionCookieOptions(config.session.maxAgeMs));
+    // Cookies left from the other mode (the same browser on HTTPS and on plain HTTP) go, so
+    // the dashboard only ever finds this session's CSRF cookie.
+    clearCookies(req, res, mode === HOST_COOKIES ? LOCAL_COOKIES : HOST_COOKIES);
+    res.cookie(mode.session, token, sessionCookieOptions(config.session.maxAgeMs, mode));
     res.cookie(
-      CSRF_COOKIE,
+      mode.csrf,
       csrfTokenFor(config.sessionSecret, token),
-      csrfCookieOptions(config.session.maxAgeMs),
+      csrfCookieOptions(config.session.maxAgeMs, mode),
     );
     await recordAudit(pool, { actor: session.username, action: 'auth.login', ip });
     res.json(sessionInfo(session));
   });
 
   // Checking the session is not activity: the dashboard polls this to notice expiry.
-  router.get('/auth/me', guard.requireSession({ touch: false }), (_req, res) => {
+  router.get('/auth/me', guard.requireSession({ touch: false }), (req, res) => {
     const { session, csrfToken } = authOf(res);
+    const mode = cookieMode(req, config.isProduction);
     // Re-issue the CSRF cookie in case the browser lost it.
-    res.cookie(CSRF_COOKIE, csrfToken, csrfCookieOptions(remainingMs(session)));
+    res.cookie(mode.csrf, csrfToken, csrfCookieOptions(remainingMs(session), mode));
     res.json(sessionInfo(session));
   });
 
@@ -153,8 +173,9 @@ export function createAuthRouter({
     const { session, token } = authOf(res);
     await sessions.delete(token);
     streams.endSession(session.idHash);
-    res.clearCookie(SESSION_COOKIE, clearCookieOptions(true));
-    res.clearCookie(CSRF_COOKIE, clearCookieOptions(false));
+    const mode = cookieMode(req, config.isProduction);
+    res.clearCookie(mode.session, clearCookieOptions(true, mode));
+    res.clearCookie(mode.csrf, clearCookieOptions(false, mode));
     await recordAudit(pool, { actor: session.username, action: 'auth.logout', ip: clientIp(req) });
     res.status(204).end();
   });

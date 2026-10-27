@@ -2,14 +2,19 @@
  * Signing in for API tests. `signIn` goes through `POST /api/auth/login` like the dashboard;
  * `createSignedInSession` writes a session row directly (for the app helper). Both return
  * the headers a browser would send: the two cookies and the CSRF header. supertest's agent
- * would not send these `Secure` cookies over plain HTTP, so tests set the headers by hand.
+ * would not send `Secure` cookies over plain HTTP, so tests set the headers by hand.
+ *
+ * supertest talks plain HTTP to 127.0.0.1, so outside production the server answers with the
+ * local cookie names (`cookieMode`); a request that says `X-Forwarded-Proto: https`, or any
+ * request to a production app, gets the `__Host-` names.
  */
-import { CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE } from '@centinela/shared';
+import { CSRF_HEADER, SESSION_COOKIE } from '@centinela/shared';
 import argon2 from 'argon2';
 import type { Pool } from 'pg';
 import request from 'supertest';
 import { sessionStoreFor } from '../../src/auth/index.js';
 import type { Config } from '../../src/config.js';
+import { HOST_COOKIES, LOCAL_COOKIES, type CookieMode } from '../../src/security/cookies.js';
 import { csrfTokenFor } from '../../src/security/csrf.js';
 
 /** Credentials of the test admin (`createTestApp` configures them). */
@@ -26,15 +31,26 @@ export const TEST_PASSWORD_HASH = await argon2.hash(TEST_PASSWORD, {
 export interface SignedIn {
   token: string;
   csrf: string;
+  /** The cookie names the server uses for these requests. */
+  names: CookieMode;
   /** `Cookie` header with both cookies. */
   cookie: string;
   /** Headers for a state-changing request: `Cookie` and `X-CSRF-Token`. */
   headers: Record<string, string>;
 }
 
-export function signedInHeaders(token: string, csrf: string): SignedIn {
-  const cookie = `${SESSION_COOKIE}=${token}; ${CSRF_COOKIE}=${csrf}`;
-  return { token, csrf, cookie, headers: { Cookie: cookie, [CSRF_HEADER]: csrf } };
+export function signedInHeaders(
+  token: string,
+  csrf: string,
+  names: CookieMode = LOCAL_COOKIES,
+): SignedIn {
+  const cookie = `${names.session}=${token}; ${names.csrf}=${csrf}`;
+  return { token, csrf, names, cookie, headers: { Cookie: cookie, [CSRF_HEADER]: csrf } };
+}
+
+/** The cookie names a plain-HTTP test request to an app with `config` uses. */
+export function testCookieMode(config: Config): CookieMode {
+  return config.isProduction ? HOST_COOKIES : LOCAL_COOKIES;
 }
 
 export async function createSignedInSession(config: Config, pool: Pool): Promise<SignedIn> {
@@ -43,7 +59,7 @@ export async function createSignedInSession(config: Config, pool: Pool): Promise
     ip: null,
     userAgent: 'vitest',
   });
-  return signedInHeaders(token, csrfTokenFor(config.sessionSecret, token));
+  return signedInHeaders(token, csrfTokenFor(config.sessionSecret, token), testCookieMode(config));
 }
 
 /** Parsed `Set-Cookie` headers of a response, by cookie name. */
@@ -64,23 +80,28 @@ export function setCookies(
   return cookies;
 }
 
-/** Sign in through the API; throws unless the login succeeds. */
+/**
+ * Sign in through the API; throws unless the login succeeds. `https` sends
+ * `X-Forwarded-Proto: https`, as a TLS-terminating proxy would.
+ */
 export async function signIn(
   app: Parameters<typeof request>[0],
-  credentials: { username?: string; password?: string } = {},
+  options: { username?: string; password?: string; https?: boolean } = {},
 ): Promise<SignedIn> {
-  const res = await request(app)
-    .post('/api/auth/login')
+  const req = request(app).post('/api/auth/login');
+  if (options.https) req.set('X-Forwarded-Proto', 'https');
+  const res = await req
     .send({
-      username: credentials.username ?? TEST_USERNAME,
-      password: credentials.password ?? TEST_PASSWORD,
+      username: options.username ?? TEST_USERNAME,
+      password: options.password ?? TEST_PASSWORD,
     })
     .expect(200);
   const cookies = setCookies(res);
-  const token = cookies.get(SESSION_COOKIE)?.value;
-  const csrf = cookies.get(CSRF_COOKIE)?.value;
+  const names = cookies.has(SESSION_COOKIE) ? HOST_COOKIES : LOCAL_COOKIES;
+  const token = cookies.get(names.session)?.value;
+  const csrf = cookies.get(names.csrf)?.value;
   if (!token || !csrf) throw new Error('login did not set both cookies');
-  return signedInHeaders(token, csrf);
+  return signedInHeaders(token, csrf, names);
 }
 
 let productionHash: Promise<string> | undefined;

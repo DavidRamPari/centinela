@@ -4,13 +4,16 @@
  * problem+json body when there is one.
  *
  * Session (S6): the browser sends the session cookie itself (same origin). State-changing
- * requests repeat the CSRF cookie in the `X-CSRF-Token` header (double submit), and a `401`
+ * requests repeat the CSRF cookie in the `X-CSRF-Token` header (double submit): the
+ * `__Host-` cookie, or its unprefixed twin that a development server on plain-HTTP
+ * localhost sets instead (the server clears the other one at sign-in). A `401`
  * tells the listeners registered with `onUnauthorized` (the auth gate sends the analyst to
  * the sign-in page).
  */
 import {
   CSRF_COOKIE,
   CSRF_HEADER,
+  LOCAL_CSRF_COOKIE,
   alertBulkResponseSchema,
   alertDetailResponseSchema,
   alertSchema,
@@ -124,7 +127,8 @@ export async function apiRequest<T extends z.ZodType>(
 ): Promise<z.infer<T>> {
   const method = options.method ?? 'GET';
   const headers: Record<string, string> = { Accept: 'application/json' };
-  const csrf = method === 'GET' ? undefined : readCookie(CSRF_COOKIE);
+  const csrf =
+    method === 'GET' ? undefined : (readCookie(CSRF_COOKIE) ?? readCookie(LOCAL_CSRF_COOKIE));
   if (csrf) headers[CSRF_HEADER] = csrf;
   let body: string | undefined;
   if (options.json !== undefined) {
