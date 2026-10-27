@@ -1,6 +1,8 @@
 /**
- * Toast notifications in a polite live region. Used for live alerts (SSE) and actions.
+ * Toast notifications in a polite live region. Used for live alerts (SSE) and actions; a
+ * failed action's toast is an alert, announced at once.
  */
+import { clsx } from 'clsx';
 import { X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -54,8 +56,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            role="status"
-            className="pointer-events-auto animate-toast-in rounded-panel border border-line-strong bg-raised py-3 pl-4 pr-2"
+            role={toast.tone === 'error' ? 'alert' : 'status'}
+            className={clsx(
+              'pointer-events-auto animate-toast-in rounded-panel border border-line-strong bg-raised py-3 pl-4 pr-2',
+              toast.tone === 'error' && 'border-l-4 border-l-danger',
+            )}
           >
             <div className="flex items-start gap-2">
               <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -78,7 +83,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               <button
                 type="button"
                 onClick={() => dismiss(toast.id)}
-                className="grid size-8 shrink-0 place-items-center rounded-control text-muted hover:bg-hover hover:text-fg"
+                className="grid size-8 shrink-0 place-items-center rounded-control text-muted transition-colors duration-100 hover:bg-hover hover:text-fg active:translate-y-px active:bg-pressed"
                 aria-label={t('toasts.dismiss')}
               >
                 <X aria-hidden="true" strokeWidth={1.75} className="size-4" />

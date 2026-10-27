@@ -8,6 +8,8 @@ export interface Toast {
   level?: Level;
   href?: string;
   linkLabel?: string;
+  /** An action failed: announced at once (`role="alert"`) and marked with a red edge. */
+  tone?: 'error';
 }
 
 export interface ToastApi {

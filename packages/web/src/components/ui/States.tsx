@@ -1,7 +1,8 @@
-import { CircleAlert, Inbox, LoaderCircle, type LucideIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { clsx } from 'clsx';
+import { CircleAlert, Inbox, LoaderCircle, RotateCw, type LucideIcon } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ApiError } from '../../api/client';
+import { useErrorText } from '../../lib/error-text';
 import { Button } from './Button';
 
 export function LoadingState({ label }: { label?: string }) {
@@ -47,24 +48,92 @@ export function EmptyState({
   );
 }
 
-export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
-  const { t } = useTranslation();
-  const detail =
-    error instanceof ApiError
-      ? t('common.errorStatus', { status: error.status, message: error.message })
-      : t('common.errorGeneric');
+/**
+ * A load failed and there is nothing to show: what happened, what to do about it, and a
+ * retry. Used only when a query has no data; a failed refresh keeps the data on screen
+ * with a `RefreshFailed` notice instead.
+ */
+export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => unknown }) {
+  const text = useErrorText(error);
   return (
     <div role="alert" className="flex items-start gap-3 border-l-2 border-danger py-2 pl-4">
       <CircleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-danger" />
       <div className="flex min-w-0 flex-col items-start gap-1">
-        <p className="font-semibold text-fg">{t('common.error')}</p>
-        <p className="break-words text-muted">{detail}</p>
-        {onRetry ? (
-          <Button size="sm" className="mt-2" onClick={onRetry}>
-            {t('common.retry')}
-          </Button>
-        ) : null}
+        <p className="font-semibold text-fg">{text.title}</p>
+        <p className="max-w-prose text-fg">{text.action}</p>
+        {text.detail ? <p className="break-words text-small text-muted">{text.detail}</p> : null}
+        {onRetry ? <RetryButton onRetry={onRetry} className="mt-2" /> : null}
       </div>
+    </div>
+  );
+}
+
+/**
+ * A refresh failed but the last data is still on screen: say so in one line above it,
+ * with a retry, instead of replacing the page with an error.
+ */
+export function RefreshFailed({ error, onRetry }: { error: unknown; onRetry: () => unknown }) {
+  const { t } = useTranslation();
+  const text = useErrorText(error);
+  return (
+    <div
+      role="alert"
+      className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-l-2 border-danger py-1 pl-3"
+    >
+      <CircleAlert aria-hidden="true" className="size-4 shrink-0 text-danger" />
+      <p className="min-w-0 flex-1">
+        <span className="font-semibold text-fg">{t('common.refreshFailed')}</span>{' '}
+        <span className="text-muted">{text.action}</span>
+      </p>
+      <RetryButton onRetry={onRetry} />
+    </div>
+  );
+}
+
+/** "Try again", busy until the retry settles, so a second click does not queue another. */
+function RetryButton({ onRetry, className }: { onRetry: () => unknown; className?: string }) {
+  const { t } = useTranslation();
+  const [busy, setBusy] = useState(false);
+  return (
+    <Button
+      size="sm"
+      icon={RotateCw}
+      className={className}
+      loading={busy}
+      onClick={() => {
+        setBusy(true);
+        void Promise.resolve(onRetry()).finally(() => setBusy(false));
+      }}
+    >
+      {t('common.retry')}
+    </Button>
+  );
+}
+
+/**
+ * While a new filter or range loads, the previous answer stays on screen instead of a
+ * skeleton: marked busy, and dimmed only after 200 ms, so a fast answer never flickers.
+ */
+export function Updating({
+  active,
+  className,
+  children,
+}: {
+  active: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      aria-busy={active || undefined}
+      data-updating={active || undefined}
+      className={clsx(
+        'transition-opacity duration-150 ease-out',
+        active && 'opacity-60 delay-200',
+        className,
+      )}
+    >
+      {children}
     </div>
   );
 }
