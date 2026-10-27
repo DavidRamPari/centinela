@@ -10,6 +10,7 @@ import { CSRF_COOKIE, SESSION_COOKIE, loginBodySchema, type SessionInfo } from '
 import express, { Router, type Response } from 'express';
 import type { Pool } from 'pg';
 import type { Config } from '../config.js';
+import { withTransaction } from '../db/sql.js';
 import { HttpError, problem, sendProblem } from '../http/problem.js';
 import { validate } from '../http/validate.js';
 import { clientIp } from '../security/client-ip.js';
@@ -98,14 +99,20 @@ export function createAuthRouter({
 
     if (!passwordOk || !usernameOk) {
       const after = lockout.recordFailure(key);
-      await recordAudit(pool, { actor: body.username, action: 'auth.login_failed', ip });
+      // One transaction, failure first: the lockout row never exists without the failed
+      // sign-in that caused it, and `seq` orders them as written.
+      await withTransaction(pool, async (client) => {
+        await recordAudit(client, { actor: body.username, action: 'auth.login_failed', ip });
+        if (after.locked) {
+          await recordAudit(client, {
+            actor: body.username,
+            action: 'auth.lockout',
+            ip,
+            details: { seconds: Math.ceil(after.retryAfterMs / 1000) },
+          });
+        }
+      });
       if (after.locked) {
-        await recordAudit(pool, {
-          actor: body.username,
-          action: 'auth.lockout',
-          ip,
-          details: { seconds: Math.ceil(after.retryAfterMs / 1000) },
-        });
         sendLocked(res, after.retryAfterMs);
         return;
       }

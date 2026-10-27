@@ -18,9 +18,9 @@ import type { Pool } from 'pg';
 import { withTransaction } from '../db/sql.js';
 import { HttpError } from '../http/problem.js';
 import { validate } from '../http/validate.js';
-import { parseCursor } from '../routes/query.js';
+import { invalidQuery } from '../routes/query.js';
 import { clientIp } from '../security/client-ip.js';
-import { listAudit, recordAudit } from './audit.js';
+import { decodeAuditCursor, listAudit, recordAudit } from './audit.js';
 import { authOf } from './guard.js';
 import { MAX_ACTIVE_TOKENS, createToken, listTokens, revokeToken } from './ingest-tokens.js';
 
@@ -77,13 +77,11 @@ export function createAdminRouter({ pool }: { pool: Pool }): Router {
 
   router.get('/audit', async (req, res) => {
     const query = validate(auditQuerySchema, req.query, 'query');
-    res.json(
-      await listAudit(pool, {
-        actions: query.action,
-        after: parseCursor(query.cursor),
-        limit: query.limit,
-      }),
-    );
+    const afterSeq = query.cursor === undefined ? undefined : decodeAuditCursor(query.cursor);
+    if (query.cursor !== undefined && afterSeq === undefined) {
+      throw invalidQuery('cursor', 'invalid cursor');
+    }
+    res.json(await listAudit(pool, { actions: query.action, afterSeq, limit: query.limit }));
   });
 
   return router;

@@ -4,13 +4,13 @@
  *
  * Rows are only inserted, never updated or deleted by the application. Writers pass the
  * client of the transaction that makes the change when there is one, so the change and its
- * audit row commit together. `at` is written from the application clock with millisecond
- * precision so keyset cursors (`at|id`) round-trip exactly.
+ * audit row commit together. Rows are ordered by `seq`, a database identity that increases
+ * with every insert: several rows can share the same `at` millisecond (a failed sign-in and
+ * the lockout it triggers), and their UUIDs carry no order within a millisecond (S6-17).
  */
 import { auditEntrySchema, type AuditAction, type AuditEntry, type Page } from '@centinela/shared';
 import type { Pool, PoolClient } from 'pg';
 import { v7 as uuidv7 } from 'uuid';
-import { encodeCursor, type KeysetPosition } from '../db/cursor.js';
 import { SqlParams, whereClause } from '../db/sql.js';
 
 export type Queryable = Pool | PoolClient;
@@ -39,7 +39,7 @@ export async function recordAudit(
     `INSERT INTO audit_log (id, at, actor, action, target, ip, details)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [
-      uuidv7({ msecs: at.getTime() }),
+      uuidv7(),
       at.toISOString(),
       record.actor?.slice(0, MAX_AUDIT_TEXT) ?? null,
       record.action,
@@ -50,13 +50,27 @@ export async function recordAudit(
   );
 }
 
+/** Keyset cursor of the audit log: base64url of the last row's `seq`. */
+export function encodeAuditCursor(seq: string): string {
+  return Buffer.from(seq, 'utf8').toString('base64url');
+}
+
+/** The `seq` in a cursor, or undefined when the server did not produce it. */
+export function decodeAuditCursor(cursor: string): string | undefined {
+  const seq = Buffer.from(cursor, 'base64url').toString('utf8');
+  return /^[1-9]\d{0,18}$/.test(seq) ? seq : undefined;
+}
+
 export interface AuditFilter {
   actions?: readonly AuditAction[];
-  after?: KeysetPosition;
+  /** `seq` of the last row already seen (from `decodeAuditCursor`). */
+  afterSeq?: string;
   limit: number;
 }
 
 interface AuditRow {
+  /** bigint, returned as text by pg. */
+  seq: string;
   id: string;
   at: Date;
   actor: string | null;
@@ -66,25 +80,23 @@ interface AuditRow {
   details: unknown;
 }
 
-/** Newest first by `(at, id)`, keyset-paginated like events and alerts. */
+/** Newest first, in insertion order (`seq`), keyset-paginated. */
 export async function listAudit(pool: Pool, filter: AuditFilter): Promise<Page<AuditEntry>> {
   const params = new SqlParams();
   const conditions: string[] = [];
   if (filter.actions) conditions.push(`action = ANY(${params.add(filter.actions)}::text[])`);
-  if (filter.after) {
-    conditions.push(
-      `(at, id) < (${params.add(filter.after.ts)}::timestamptz, ${params.add(filter.after.id)}::uuid)`,
-    );
-  }
+  if (filter.afterSeq !== undefined)
+    conditions.push(`seq < ${params.add(filter.afterSeq)}::bigint`);
   const { rows } = await pool.query<AuditRow>(
-    `SELECT id, at, actor, action, target, host(ip) AS ip, details
+    `SELECT seq, id, at, actor, action, target, host(ip) AS ip, details
        FROM audit_log
        ${whereClause(conditions)}
-      ORDER BY at DESC, id DESC
+      ORDER BY seq DESC
       LIMIT ${params.add(filter.limit + 1)}`,
     params.values,
   );
-  const items = rows.slice(0, filter.limit).map((row) =>
+  const page = rows.slice(0, filter.limit);
+  const items = page.map((row) =>
     auditEntrySchema.parse({
       id: row.id,
       at: row.at.toISOString(),
@@ -95,10 +107,9 @@ export async function listAudit(pool: Pool, filter: AuditFilter): Promise<Page<A
       details: row.details,
     }),
   );
-  const last = items.at(-1);
+  const last = page.at(-1);
   return {
     items,
-    nextCursor:
-      rows.length > filter.limit && last ? encodeCursor({ ts: last.at, id: last.id }) : null,
+    nextCursor: rows.length > filter.limit && last ? encodeAuditCursor(last.seq) : null,
   };
 }

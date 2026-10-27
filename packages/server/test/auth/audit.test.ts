@@ -3,6 +3,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { listAudit, recordAudit } from '../../src/auth/audit.js';
 import { createPgAlertSink } from '../../src/db/alert-sink.js';
+import { withTransaction } from '../../src/db/sql.js';
 import { createTestApp } from '../helpers/app.js';
 import { TEST_USERNAME } from '../helpers/auth.js';
 import { createTestDatabase, type TestDatabase } from '../helpers/db.js';
@@ -88,12 +89,10 @@ describe('audit log', () => {
   });
 
   it('pages newest first with a cursor and filters by action', async () => {
+    // Same millisecond for every row: the order must come from the insertion sequence.
+    const at = new Date();
     for (let i = 0; i < 5; i += 1) {
-      await recordAudit(
-        db.pool,
-        { actor: `user-${i}`, action: 'auth.login_failed' },
-        new Date(Date.now() + i),
-      );
+      await recordAudit(db.pool, { actor: `user-${i}`, action: 'auth.login_failed' }, at);
     }
     const seen: AuditEntry[] = [];
     let cursor: string | null = null;
@@ -127,9 +126,26 @@ describe('audit log', () => {
     ).toEqual(['alert.triage', 'rule.update']);
   });
 
+  it('reads rows written in the same millisecond in the order they were written', async () => {
+    // Regression (CI on 2 vCPUs): ordering by (at, id) put a lockout row before the failed
+    // sign-in written just before it, because UUIDs carry no order within a millisecond.
+    const at = new Date('2026-10-27T10:00:00.000Z');
+    const actors = Array.from({ length: 40 }, (_, i) => `same-ms-${i}`);
+    await withTransaction(db.pool, async (client) => {
+      for (const actor of actors) await recordAudit(client, { actor, action: 'auth.lockout' }, at);
+    });
+    const page = await listAudit(db.pool, { actions: ['auth.lockout'], limit: 200 });
+    expect(page.items.map((entry) => entry.actor)).toEqual([...actors].reverse());
+  });
+
   it('validates the query', async () => {
     await request(app).get('/api/audit?action=alert.delete').expect(400);
     await request(app).get('/api/audit?cursor=bm90LWEtY3Vyc29y').expect(400);
+    // A cursor from the events API (`ts|id`) is not an audit cursor.
+    const eventsCursor = Buffer.from(
+      `${new Date().toISOString()}|${RULES.notInSudoers.id}`,
+    ).toString('base64url');
+    await request(app).get(`/api/audit?cursor=${eventsCursor}`).expect(400);
     await request(app).get('/api/audit?limit=500').expect(400);
   });
 

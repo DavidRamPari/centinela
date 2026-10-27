@@ -34,7 +34,8 @@ describe('sign-in, session and sign-out', () => {
     ({ app, deps } = createTestApp({
       pool: db.pool,
       signedIn: false,
-      env: { TRUST_PROXY: 'true' },
+      // supertest connects from the loopback address, like a proxy on the same host.
+      env: { TRUST_PROXY: 'loopback' },
     }));
   });
   afterAll(() => db.cleanup());
@@ -55,7 +56,7 @@ describe('sign-in, session and sign-out', () => {
       action: string;
       actor: string | null;
       ip: string | null;
-    }>('SELECT action, actor, host(ip) AS ip FROM audit_log ORDER BY at, id');
+    }>('SELECT action, actor, host(ip) AS ip FROM audit_log ORDER BY seq');
     return rows;
   }
 

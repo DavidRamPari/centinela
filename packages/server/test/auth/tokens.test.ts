@@ -40,7 +40,7 @@ describe('ingest tokens API', () => {
 
   async function auditRows(action: string) {
     const { rows } = await db.pool.query<{ actor: string; target: string; details: unknown }>(
-      'SELECT actor, target, details FROM audit_log WHERE action = $1 ORDER BY at, id',
+      'SELECT actor, target, details FROM audit_log WHERE action = $1 ORDER BY seq',
       [action],
     );
     return rows;
