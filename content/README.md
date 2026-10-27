@@ -1,6 +1,15 @@
 # Content pack
 
-`content/sigma/<rule-id>.json` holds, for each vendored SigmaHQ rule, an AI-generated bilingual investigation playbook and test fixtures, produced by `tools/content-pack` (see its README). Session S7 loads the playbooks into the dashboard and validates every fixture with Centinela's engine; fixtures that fail move to `content/sigma-rejected/` with the reason.
+`content/sigma/<rule-id>.json` holds, for each vendored SigmaHQ rule, an AI-generated bilingual investigation playbook and test fixtures, produced by `tools/content-pack` (see its README). The server loads the playbooks at start-up and serves them at `GET /api/rules/:id/playbook`; the dashboard shows them on alert and rule pages.
+
+## Fixture validation
+
+`npm run content:validate` evaluates every fixture against its rule with Centinela's engine (positives must match, negatives must not) and writes:
+
+- `docs/content-pack-report.md`: pass rates by rule folder, every failing fixture with the engine's reason, unsupported rules and rules without content;
+- `content/sigma-failures.json`: each failing fixture (rule id, kind, index, event, reason). `tools/content-pack/content_pack.py repair` sends these back for correction, and the regression suite in `npm test` skips exactly these fixtures and requires every other one to pass. Re-run the command and commit both files whenever the content changes.
+
+`--prune` moves failing fixtures to `content/sigma-rejected/` with their reason. It has not been run yet: the failing fixtures are kept for `repair` first.
 
 Each file keeps the rule's author, link and license (Detection Rule License 1.1). The content is marked `"review": "unreviewed"` until a person checks it.
 
@@ -10,7 +19,7 @@ Each file keeps the rule's author, link and license (Detection Rule License 1.1)
 - Input: the 1,231 vendored SigmaHQ rules in `rules/sigma/` (SigmaHQ commit `05d1031f`).
 - Output: 1,221 files in `content/sigma/`. Each rule had up to two attempts. Cost: about $53.
 - 10 rules have no file: Anthropic's safety filter stopped the answer in both attempts (`stop_reason: refusal`). Those rules detect offensive techniques, so their test events would have to contain attack command lines; they were left out instead of working around the filter.
-- The fixtures are not validated yet: session S7 runs every one of them through Centinela's engine.
+- Fixture validation (session S7, 2026-10-26): 4,843 of 4,851 fixtures pass (99.8%); see `docs/content-pack-report.md`.
 
 ### Rules without content
 

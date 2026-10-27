@@ -15,9 +15,7 @@ export interface PendingEndpoint {
  * Endpoints from ARCHITECTURE §9 that still answer `501`. A session that implements an
  * endpoint removes its row here and in `test/routes/not-implemented.test.ts`.
  */
-export const pendingEndpoints: readonly PendingEndpoint[] = [
-  { method: 'get', path: '/rules/:id/playbook', session: 'S7' },
-];
+export const pendingEndpoints: readonly PendingEndpoint[] = [];
 
 /** `501` problem naming the endpoint (e.g. `GET /api/events`) and the session that implements it. */
 export function notImplemented(endpoint: string, session: string): RequestHandler {

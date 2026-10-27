@@ -8,6 +8,7 @@
  */
 import express, { Router } from 'express';
 import type { Auth } from '../auth/index.js';
+import { createPlaybookRouter } from '../content/router.js';
 import type { AppDeps } from '../deps.js';
 import { createIngestRouter } from '../ingest/router.js';
 import { createAlertsRouter } from './alerts.js';
@@ -32,6 +33,7 @@ export function createApiRouter(deps: AppDeps, auth: Auth): Router {
   router.use(createEventsRouter(deps));
   router.use(createAlertsRouter(deps));
   router.use(createRulesRouter(deps));
+  router.use(createPlaybookRouter(deps));
   router.use(createStatsRouter(deps));
   router.use(createAttackRouter(deps));
   router.use(auth.trackStreams, createStreamRouter(deps));

@@ -16,6 +16,8 @@ Commands (run from the repository root):
   status              show batch progress
   collect             download finished results and write the files
   retry               resubmit rules whose results failed
+  repair              resubmit fixtures that Centinela's engine rejected
+                      (run `npm run content:validate` first; `collect` writes them back)
 
 The API key is read from ANTHROPIC_API_KEY. Use a key from the Claude Console
 organization that receives your plan's monthly API credits.
@@ -45,11 +47,17 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_RULES_DIR = REPO_ROOT / "rules" / "sigma"
 DEFAULT_OUT_DIR = REPO_ROOT / "content" / "sigma"
 WORK_DIR = Path(__file__).resolve().parent / ".work"
+# Written by `npm run content:validate` (Centinela's engine); read by `repair`.
+DEFAULT_FAILURES = REPO_ROOT / "content" / "sigma-failures.json"
+FAILURES_FORMAT = "centinela-content-failures/1"
 DEFAULT_MODEL = "claude-opus-5-5"
 # Opus 5.5 and Sonnet 5.5 always think before answering (adaptive thinking), and thinking
 # tokens count toward max_tokens and are billed as output, so leave plenty of room.
 MAX_TOKENS = 16000
 TOOL_NAME = "save_content_pack"
+REPAIR_TOOL_NAME = "save_fixtures"
+# Repairs answer with a few fixtures only, but the model still thinks first.
+REPAIR_OUTPUT_TOKENS_PER_RULE = 3000
 EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 
 # USD per million tokens (standard input, standard output). Batch = 50% of these.
@@ -65,7 +73,8 @@ CHARS_PER_TOKEN = 3.5
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 TECHNIQUE_RE = re.compile(r"^attack\.(t\d{4}(?:\.\d{3})?)$", re.IGNORECASE)
 
-SYSTEM_PROMPT = """You are a senior detection engineer and SOC lead. You write investigation playbooks and test fixtures for the detection rules of Centinela, an open-source SIEM. Analysts read a playbook while triaging an alert from that rule, so it must be specific to the rule, accurate and actionable.
+# Shared by the generation prompt and the repair prompt, so both describe the same semantics.
+PLAYBOOK_GUIDE = """You are a senior detection engineer and SOC lead. You write investigation playbooks and test fixtures for the detection rules of Centinela, an open-source SIEM. Analysts read a playbook while triaging an alert from that rule, so it must be specific to the rule, accurate and actionable.
 
 Ground rules
 - Base everything on the rule YAML you receive. Do not invent threat-actor attributions, CVE numbers, statistics or vendor claims. If the rule names a tool or technique, describe it factually and briefly.
@@ -74,16 +83,20 @@ Ground rules
 - Response steps are proportionate: verify, contain, eradicate, recover. Never recommend destructive actions without verification.
 - Spanish: neutral Latin American Spanish, professional tone, no voseo. Keep usual SOC terms in English when that is what analysts say (user agent, hash, payload, endpoint).
 - English: concise and plain.
-- Length per language: summary at most 2 sentences; each list item at most 30 words; about 350 words in total.
+- Length per language: summary at most 2 sentences; each list item at most 30 words; about 350 words in total."""
 
-Fixtures
+FIXTURE_GUIDE = """Fixtures
 - Each event is a flat JSON object that uses exactly the Sigma field names the rule uses (for example "Image", "CommandLine", "cs-uri-query", "cs-user-agent"). Add a few other realistic fields of that log source when it helps.
 - For rules whose detection is a plain list of strings (keywords), put the complete raw log line in a "message" field, written the way that log source really writes it (for Linux, a syslog line such as "Oct 25 14:03:12 bastion-01 sudo: ..."). A keyword only matches when it appears verbatim and in one piece in that line, so pick a format that records the whole command line contiguously (for example a shell history line or a sudo COMMAND= line), never auditd EXECVE records, which split the arguments into a0, a1 and so on.
 - Positive events MUST satisfy the rule's condition under Sigma semantics: string matching is case-insensitive; '*' is a wildcard; contains / startswith / endswith wrap the value with wildcards; |all requires every listed value; |windash means an option dash may also be '/', '–', '—' or '―'; |re is a regular expression (case-sensitive unless |i); |base64offset|contains means the value appears base64-encoded at any offset; |fieldref compares two fields; filters joined with 'and not' must NOT match; '1 of selection_*' needs one of those selections, 'all of' needs all of them.
 - Negative events are realistic near-misses that must NOT match, for example the same binary used legitimately so that a filter excludes it, or a value that only partly matches.
-- Use safe placeholder data: documentation IP ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24), example.com or example.org domains, fictitious users and hosts (for example ANDES\\jperez, WS-0142, bastion-01). Do not include working exploit payloads beyond the literal strings the rule needs in order to match.
+- Use safe placeholder data: documentation IP ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24), example.com or example.org domains, fictitious users and hosts (for example ANDES\\jperez, WS-0142, bastion-01). Do not include working exploit payloads beyond the literal strings the rule needs in order to match."""
 
-Always answer by calling the save_content_pack tool exactly once."""
+SYSTEM_PROMPT = f"""{PLAYBOOK_GUIDE}
+
+{FIXTURE_GUIDE}
+
+Always answer by calling the {TOOL_NAME} tool exactly once."""
 
 
 def playbook_schema() -> dict[str, Any]:
@@ -349,6 +362,242 @@ def client():
     return anthropic.Anthropic()
 
 
+# --------------------------------------------------------------------------- repair
+#
+# `npm run content:validate` evaluates every fixture with Centinela's engine and writes a
+# failures file: rule id, fixture kind and index, the event and the engine's reason. `repair`
+# sends one request per failing rule (the rule YAML, its fixtures and those reasons) asking
+# for corrected fixtures only; `collect` writes them back into the same content files, in
+# place of the failing fixtures. Playbooks and passing fixtures are never touched.
+
+REPAIR_SYSTEM_PROMPT = f"""You are a senior detection engineer. You fix the test fixtures of a Sigma rule for Centinela, an open-source SIEM. Centinela's engine evaluated the fixtures against the rule and rejected some of them: a positive fixture that the rule does not match, or a negative fixture that the rule matches. You receive the rule YAML, every fixture with its result, and the engine's reason for each rejected one.
+
+How Centinela evaluates a fixture
+- The event is evaluated directly against the rule's detection; the logsource is not checked.
+- Field names are case-sensitive and must be spelled exactly as in the rule. A field missing from the event never matches a value.
+- A value without wildcards and without contains/startswith/endswith must equal the whole field value (case-insensitive).
+- Values are taken literally: a backslash-escaped quote inside a JSON string is a backslash followed by a quote, so write the text exactly as the process would log it.
+- Keyword lists (plain strings in the detection) are searched in the event's "message" field, or in the event's JSON text when it has no "message".
+
+{FIXTURE_GUIDE}
+
+Write a replacement for every rejected fixture: same kind, same index, a realistic event that now satisfies (positive) or fails (negative) the rule's condition, and a one-sentence description. Do not return fixtures that passed, and do not write a playbook. If no event can satisfy the rule as it is written (for example an exact value that contradicts another selection), do not invent one: list that fixture under "unfixable" with the reason.
+
+Always answer by calling the {REPAIR_TOOL_NAME} tool exactly once."""
+
+REPAIR_TOOL = {
+    "name": REPAIR_TOOL_NAME,
+    "description": "Save corrected replacements for the rejected fixtures of one Sigma rule.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "fixtures": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {"type": "string", "enum": ["positive", "negative"]},
+                        "index": {"type": "integer", "minimum": 0},
+                        "description": {"type": "string"},
+                        "event": {
+                            "type": "object",
+                            "additionalProperties": {"type": ["string", "number", "boolean", "null"]},
+                        },
+                    },
+                    "required": ["kind", "index", "description", "event"],
+                },
+            },
+            "unfixable": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {"type": "string", "enum": ["positive", "negative"]},
+                        "index": {"type": "integer", "minimum": 0},
+                        "reason": {"type": "string"},
+                    },
+                    "required": ["kind", "index", "reason"],
+                },
+            },
+        },
+        "required": ["fixtures"],
+    },
+}
+
+FIXTURE_KINDS = ("positive", "negative")
+
+
+def load_failures(path: Path) -> dict[str, Any]:
+    """Read and check the failures file written by `npm run content:validate`."""
+    if not path.exists():
+        sys.exit(f"{path} not found. Run `npm run content:validate` first (it writes the failures file).")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or data.get("format") != FAILURES_FORMAT or not isinstance(data.get("failures"), list):
+        sys.exit(f"{path} is not a failures file from `npm run content:validate` ({FAILURES_FORMAT})")
+    return data
+
+
+def failures_by_rule(failures: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """Failing fixtures grouped by rule id (lower-cased), in file order."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for failure in failures["failures"]:
+        if not isinstance(failure, dict) or failure.get("kind") not in FIXTURE_KINDS:
+            continue
+        if not isinstance(failure.get("index"), int) or not isinstance(failure.get("event"), dict):
+            continue
+        grouped.setdefault(str(failure.get("ruleId", "")).lower(), []).append(failure)
+    return grouped
+
+
+def current_fixture(content: dict[str, Any], kind: str, index: int) -> dict[str, Any] | None:
+    items = (content.get("fixtures") or {}).get(kind)
+    if not isinstance(items, list) or not 0 <= index < len(items) or not isinstance(items[index], dict):
+        return None
+    return items[index]
+
+
+def still_failing(content: dict[str, Any], failure: dict[str, Any]) -> bool:
+    """True when the content file still holds the fixture the engine rejected (not repaired yet)."""
+    fixture = current_fixture(content, failure["kind"], failure["index"])
+    return fixture is not None and fixture.get("event") == failure["event"]
+
+
+def repair_prompt(rule: dict[str, Any], content: dict[str, Any], failures: list[dict[str, Any]]) -> str:
+    rejected = {(f["kind"], f["index"]): f.get("reason", "") for f in failures}
+    listing = []
+    for kind in FIXTURE_KINDS:
+        for index, fixture in enumerate((content.get("fixtures") or {}).get(kind) or []):
+            status = "REJECTED" if (kind, index) in rejected else "passed"
+            listing.append({"kind": kind, "index": index, "status": status,
+                            "description": fixture.get("description", ""), "event": fixture.get("event", {})})
+    reasons = "\n".join(f"- {kind} #{index}: {reason}" for (kind, index), reason in rejected.items())
+    return (
+        f"Rule file: {rule['path']}\n"
+        "Origin: SigmaHQ, Detection Rule License 1.1\n\n"
+        f"```yaml\n{rule['text'].strip()}\n```\n\n"
+        "Current fixtures:\n\n"
+        f"```json\n{json.dumps(listing, ensure_ascii=False, indent=2)}\n```\n\n"
+        f"Centinela's engine rejected these fixtures:\n{reasons}\n\n"
+        f"Write a corrected replacement for each rejected fixture (same kind and index), "
+        f"then deliver them by calling {REPAIR_TOOL_NAME} exactly once. Do not reply in plain text."
+    )
+
+
+def build_repair_params(rule: dict[str, Any], content: dict[str, Any], failures: list[dict[str, Any]],
+                        model: str, effort: str | None = None) -> dict[str, Any]:
+    # Same constraints as build_params: forced tool use is rejected by these models.
+    params: dict[str, Any] = {
+        "model": model,
+        "max_tokens": MAX_TOKENS,
+        "system": REPAIR_SYSTEM_PROMPT,
+        "tools": [REPAIR_TOOL],
+        "tool_choice": {"type": "auto"},
+        "messages": [{"role": "user", "content": repair_prompt(rule, content, failures)}],
+    }
+    if effort:
+        params["output_config"] = {"effort": effort}
+    return params
+
+
+def plan_repairs(failures: dict[str, Any], rules: list[dict[str, Any]], out_dir: Path
+                 ) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
+    """One job per rule that still has rejected fixtures: (jobs, skipped as (rule id, reason))."""
+    by_id = {r["id"].lower(): r for r in rules}
+    unsupported = {str(u.get("ruleId", "")).lower() for u in failures.get("unsupported") or [] if isinstance(u, dict)}
+    jobs: list[dict[str, Any]] = []
+    skipped: list[tuple[str, str]] = []
+    for rule_id, items in sorted(failures_by_rule(failures).items()):
+        rule = by_id.get(rule_id)
+        if rule is None:
+            skipped.append((rule_id, "rule not found in --rules-dir"))
+            continue
+        if rule_id in unsupported:
+            skipped.append((rule_id, "the engine does not support this rule"))
+            continue
+        path = out_path(out_dir, rule)
+        if not path.exists():
+            skipped.append((rule_id, f"no content file {path.name} in --out"))
+            continue
+        content = json.loads(path.read_text(encoding="utf-8"))
+        pending = [f for f in items if still_failing(content, f)]
+        if not pending:
+            skipped.append((rule_id, "fixtures changed since validation (already repaired?); run `npm run content:validate`"))
+            continue
+        jobs.append({"rule": rule, "content": content, "failures": pending})
+    return jobs, skipped
+
+
+def repair_input_from_message(message: Any) -> tuple[dict[str, Any] | None, str | None]:
+    stop_reason = getattr(message, "stop_reason", None)
+    if stop_reason == "max_tokens":
+        return None, "output truncated (max_tokens)"
+    for block in getattr(message, "content", []) or []:
+        if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == REPAIR_TOOL_NAME:
+            data = block.input
+            if not isinstance(data, dict) or not isinstance(data.get("fixtures"), list):
+                return None, "tool input has no fixtures list"
+            if not data["fixtures"] and not data.get("unfixable"):
+                return None, "tool input has neither fixtures nor unfixable entries"
+            return data, None
+    return None, f"no {REPAIR_TOOL_NAME} tool call in the response (stop_reason: {stop_reason})"
+
+
+def scalar_event(event: Any) -> bool:
+    return (isinstance(event, dict) and bool(event)
+            and all(isinstance(k, str) and (v is None or isinstance(v, (str, int, float, bool))) for k, v in event.items()))
+
+
+def merge_repair(content: dict[str, Any], failures: list[dict[str, Any]], answer: dict[str, Any],
+                 model: str, at: str) -> tuple[dict[str, Any], list[str], list[str]]:
+    """Replace each rejected fixture with the model's correction.
+
+    Returns (updated content, applied "kind/index" labels, problems). A fixture is only
+    replaced when the content file still holds the event the engine rejected, so a file
+    edited since the validation run is never overwritten. Answers for fixtures that were
+    not rejected are ignored. The input is not modified.
+    """
+    updated = json.loads(json.dumps(content))
+    answers: dict[tuple[str, int], dict[str, Any]] = {}
+    problems: list[str] = []
+    for item in answer.get("fixtures") or []:
+        if isinstance(item, dict) and item.get("kind") in FIXTURE_KINDS and isinstance(item.get("index"), int):
+            answers.setdefault((item["kind"], item["index"]), item)
+    unfixable: dict[tuple[str, int], str] = {}
+    for item in answer.get("unfixable") or []:
+        if isinstance(item, dict) and item.get("kind") in FIXTURE_KINDS and isinstance(item.get("index"), int):
+            unfixable.setdefault((item["kind"], item["index"]), str(item.get("reason", "")))
+    wanted = {(f["kind"], f["index"]) for f in failures}
+    for key in sorted(set(answers) - wanted):
+        problems.append(f"ignored {key[0]}/{key[1]}: it was not rejected")
+    applied: list[str] = []
+    for failure in failures:
+        key = (failure["kind"], failure["index"])
+        label = f"{key[0]}/{key[1]}"
+        replacement = answers.get(key)
+        if replacement is None:
+            if key in unfixable:
+                problems.append(f"unfixable {label}: {unfixable[key]}")
+            else:
+                problems.append(f"no replacement for {label}")
+            continue
+        if not scalar_event(replacement.get("event")):
+            problems.append(f"invalid event for {label}")
+            continue
+        if not still_failing(updated, failure):
+            problems.append(f"{label} changed since validation; left as it is")
+            continue
+        updated["fixtures"][key[0]][key[1]] = {
+            "description": str(replacement.get("description", "")),
+            "event": replacement["event"],
+        }
+        applied.append(label)
+    if applied:
+        generated = updated.setdefault("generated", {})
+        generated.setdefault("repairs", []).append(
+            {"tool": TOOL_VERSION, "model": model, "at": at, "fixtures": applied})
+    return updated, applied, problems
+
+
 # --------------------------------------------------------------------------- commands
 
 
@@ -476,6 +725,85 @@ def cmd_status(args: argparse.Namespace) -> None:
               f"errored {c.errored}, canceled {c.canceled}, expired {c.expired} | {entry['count']} requests")
 
 
+def collect_generation(api: Any, entry: dict[str, Any], args: argparse.Namespace, failed: dict[str, Any]) -> None:
+    rules = {r["custom_id"]: r for r in load_rules(Path(entry.get("rules_dir", args.rules_dir)))}
+    out_dir = Path(entry.get("out", args.out))
+    ok = bad = 0
+    total_in = total_out = 0
+    for result in api.messages.batches.results(entry["id"]):
+        cid = result.custom_id
+        rule = rules.get(cid)
+        if result.result.type != "succeeded":
+            detail = getattr(result.result, "error", None)
+            failed[cid] = f"{result.result.type}: {detail}" if detail else result.result.type
+            bad += 1
+            continue
+        message = result.result.message
+        total_in += message.usage.input_tokens
+        total_out += message.usage.output_tokens
+        if rule is None:
+            failed[cid] = "rule file no longer found"
+            bad += 1
+            continue
+        data, error = tool_input_from_message(message)
+        if error:
+            failed[cid] = error
+            bad += 1
+            continue
+        atomic_write_json(out_path(out_dir, rule), record_for(rule, data, entry["model"]))
+        failed.pop(cid, None)
+        ok += 1
+    entry["collected"] = True
+    entry["usage"] = {"input_tokens": total_in, "output_tokens": total_out,
+                      "cost_usd": round(usage_cost(entry["model"], total_in, total_out, batch=True), 2)}
+    print(f"{entry['id']}: wrote {ok} files, {bad} failed, cost ${entry['usage']['cost_usd']:.2f}")
+
+
+def collect_repair(api: Any, entry: dict[str, Any], repair_failed: dict[str, Any]) -> None:
+    """Merge the corrected fixtures of a repair batch into the content files."""
+    out_dir = Path(entry["out"])
+    at = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+    ok = bad = fixtures = 0
+    total_in = total_out = 0
+    for result in api.messages.batches.results(entry["id"]):
+        cid = result.custom_id
+        failures = (entry.get("fixtures") or {}).get(cid)
+        if result.result.type != "succeeded":
+            detail = getattr(result.result, "error", None)
+            repair_failed[cid] = {"error": f"{result.result.type}: {detail}" if detail else result.result.type,
+                                  "stop_reason": None}
+            bad += 1
+            continue
+        message = result.result.message
+        total_in += message.usage.input_tokens
+        total_out += message.usage.output_tokens
+        stop_reason = getattr(message, "stop_reason", None)
+        data, error = repair_input_from_message(message)
+        path = out_dir / f"{cid}.json"
+        if error is None and (failures is None or not path.exists()):
+            error = "content file or batch record no longer found"
+        if error is not None:
+            repair_failed[cid] = {"error": error, "stop_reason": stop_reason}
+            bad += 1
+            continue
+        content = json.loads(path.read_text(encoding="utf-8"))
+        updated, applied, problems = merge_repair(content, failures, data, entry["model"], at)
+        if applied:
+            atomic_write_json(path, updated)
+            fixtures += len(applied)
+        if problems:
+            repair_failed[cid] = {"error": "; ".join(problems), "stop_reason": stop_reason, "applied": applied}
+            bad += 1
+        else:
+            repair_failed.pop(cid, None)
+            ok += 1
+    entry["collected"] = True
+    entry["usage"] = {"input_tokens": total_in, "output_tokens": total_out,
+                      "cost_usd": round(usage_cost(entry["model"], total_in, total_out, batch=True), 2)}
+    print(f"{entry['id']} (repair): replaced {fixtures} fixtures in {ok + bad} rules, {bad} with problems, "
+          f"cost ${entry['usage']['cost_usd']:.2f}")
+
+
 def cmd_collect(args: argparse.Namespace) -> None:
     state = load_json(WORK_DIR / "batches.json", [])
     if not state:
@@ -483,6 +811,8 @@ def cmd_collect(args: argparse.Namespace) -> None:
         return
     api = client()
     failed = load_json(WORK_DIR / "failed.json", {})
+    repair_failed = load_json(WORK_DIR / "repair-failed.json", {})
+    repaired = False
     for entry in state:
         if entry.get("collected"):
             continue
@@ -490,41 +820,20 @@ def cmd_collect(args: argparse.Namespace) -> None:
         if batch.processing_status != "ended":
             print(f"{entry['id']}: still {batch.processing_status}; try again later")
             continue
-        rules = {r["custom_id"]: r for r in load_rules(Path(entry.get("rules_dir", args.rules_dir)))}
-        out_dir = Path(entry.get("out", args.out))
-        ok = bad = 0
-        total_in = total_out = 0
-        for result in api.messages.batches.results(entry["id"]):
-            cid = result.custom_id
-            rule = rules.get(cid)
-            if result.result.type != "succeeded":
-                detail = getattr(result.result, "error", None)
-                failed[cid] = f"{result.result.type}: {detail}" if detail else result.result.type
-                bad += 1
-                continue
-            message = result.result.message
-            total_in += message.usage.input_tokens
-            total_out += message.usage.output_tokens
-            if rule is None:
-                failed[cid] = "rule file no longer found"
-                bad += 1
-                continue
-            data, error = tool_input_from_message(message)
-            if error:
-                failed[cid] = error
-                bad += 1
-                continue
-            atomic_write_json(out_path(out_dir, rule), record_for(rule, data, entry["model"]))
-            failed.pop(cid, None)
-            ok += 1
-        entry["collected"] = True
-        entry["usage"] = {"input_tokens": total_in, "output_tokens": total_out,
-                          "cost_usd": round(usage_cost(entry["model"], total_in, total_out, batch=True), 2)}
-        print(f"{entry['id']}: wrote {ok} files, {bad} failed, cost ${entry['usage']['cost_usd']:.2f}")
+        if entry.get("kind") == "repair":
+            collect_repair(api, entry, repair_failed)
+            repaired = True
+        else:
+            collect_generation(api, entry, args, failed)
     atomic_write_json(WORK_DIR / "batches.json", state)
     atomic_write_json(WORK_DIR / "failed.json", failed)
+    atomic_write_json(WORK_DIR / "repair-failed.json", repair_failed)
     if failed:
         print(f"{len(failed)} rules failed; see {WORK_DIR / 'failed.json'} and run `retry`")
+    if repair_failed:
+        print(f"{len(repair_failed)} repairs failed or were partial; see {WORK_DIR / 'repair-failed.json'}")
+    if repaired:
+        print("Re-run `npm run content:validate` to check the repaired fixtures and refresh the failures file.")
 
 
 def cmd_retry(args: argparse.Namespace) -> None:
@@ -533,6 +842,62 @@ def cmd_retry(args: argparse.Namespace) -> None:
         print("no failed rules to retry")
         return
     cmd_submit(args, only_ids=set(failed))
+
+
+def cmd_repair(args: argparse.Namespace) -> None:
+    failures = load_failures(args.failures)
+    rules = load_rules(args.rules_dir)
+    jobs, skipped = plan_repairs(failures, rules, args.out)
+    for rule_id, reason in skipped:
+        print(f"skip {rule_id}: {reason}")
+    state = load_json(WORK_DIR / "batches.json", [])
+    busy = in_flight_ids(state)
+    if busy and not args.force:
+        waiting = [j for j in jobs if j["rule"]["custom_id"] in busy]
+        jobs = [j for j in jobs if j["rule"]["custom_id"] not in busy]
+        if waiting:
+            print(f"skipping {len(waiting)} rules that are in a batch you have not collected yet (run `status` / `collect`)")
+    if args.limit:
+        jobs = jobs[: args.limit]
+    if not jobs:
+        print("nothing to repair: no rule in", args.failures, "has rejected fixtures left to send")
+        return
+    requests = [{"custom_id": j["rule"]["custom_id"],
+                 "params": build_repair_params(j["rule"], j["content"], j["failures"], args.model, args.effort)}
+                for j in jobs]
+    input_chars = sum(len(r["params"]["system"]) + len(json.dumps(REPAIR_TOOL)) + len(r["params"]["messages"][0]["content"])
+                      for r in requests)
+    est = usage_cost(args.model, int(input_chars / CHARS_PER_TOKEN), REPAIR_OUTPUT_TOKENS_PER_RULE * len(requests), batch=True)
+    count = sum(len(j["failures"]) for j in jobs)
+    print(f"repairing {count} fixtures of {len(jobs)} rules with {args.model}; estimated cost ${est:,.2f}")
+    if est > args.max_cost and not args.yes:
+        sys.exit(f"estimate exceeds --max-cost {args.max_cost}; re-run with a higher --max-cost or --yes")
+    if args.dry_run:
+        WORK_DIR.mkdir(parents=True, exist_ok=True)
+        dump = WORK_DIR / "repair-requests.jsonl"
+        with dump.open("w", encoding="utf-8") as fh:
+            for req in requests:
+                fh.write(json.dumps(req, ensure_ascii=False) + "\n")
+        print(f"dry run: wrote {len(requests)} requests to {dump}")
+        return
+    api = client()
+    batch = api.messages.batches.create(requests=requests)
+    state.append({
+        "id": batch.id,
+        "kind": "repair",
+        "model": args.model,
+        "count": len(requests),
+        "custom_ids": [j["rule"]["custom_id"] for j in jobs],
+        # The rejected fixtures as validated: collect only replaces fixtures that still match them.
+        "fixtures": {j["rule"]["custom_id"]: j["failures"] for j in jobs},
+        "rules_dir": str(args.rules_dir),
+        "out": str(args.out),
+        "failures": str(args.failures),
+        "created": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "collected": False,
+    })
+    atomic_write_json(WORK_DIR / "batches.json", state)
+    print(f"batch {batch.id} created ({batch.processing_status}). Check it with: python tools/content-pack/content_pack.py status")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -557,12 +922,21 @@ def main(argv: list[str] | None = None) -> None:
         p.add_argument("--max-cost", type=float, default=120.0, help="refuse to submit above this estimate (USD)")
         p.add_argument("--yes", action="store_true", help="submit even above --max-cost")
         p.add_argument("--dry-run", action="store_true", help="write the requests to .work/requests.jsonl instead of sending")
+    p_repair = sub.add_parser("repair", help="send rejected fixtures back for correction (after npm run content:validate)")
+    p_repair.add_argument("--failures", type=Path, default=DEFAULT_FAILURES,
+                          help="failures file from npm run content:validate (default: content/sigma-failures.json)")
+    p_repair.add_argument("--limit", type=int, default=0, help="only the first N rules")
+    p_repair.add_argument("--max-cost", type=float, default=20.0, help="refuse to submit above this estimate (USD)")
+    p_repair.add_argument("--yes", action="store_true", help="submit even above --max-cost")
+    p_repair.add_argument("--dry-run", action="store_true", help="write the requests to .work/repair-requests.jsonl instead of sending")
     sub.add_parser("status", help="show batch progress")
     sub.add_parser("collect", help="download results and write files")
 
     args = parser.parse_args(argv)
     args.rules_dir = args.rules_dir.resolve()
     args.out = args.out.resolve()
+    if getattr(args, "failures", None) is not None:
+        args.failures = args.failures.resolve()
     commands = {
         "estimate": cmd_estimate,
         "sample": cmd_sample,
@@ -570,6 +944,7 @@ def main(argv: list[str] | None = None) -> None:
         "status": cmd_status,
         "collect": cmd_collect,
         "retry": cmd_retry,
+        "repair": cmd_repair,
     }
     commands[args.command](args)
 

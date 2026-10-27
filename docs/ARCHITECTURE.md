@@ -649,7 +649,7 @@ JSON over HTTP, all under `/api`. Request and response schemas live in `packages
 | `GET /api/stats/overview` | dashboard numbers | `from`, `to`, `bucket` (`5m`, `1h`, `1d`) | `{ events, alerts: { total, byLevel, byStatus }, eventsOverTime, alertsOverTime, topSourceIps, topUsers, topRules }` |
 | `GET /api/attack` | ATT&CK matrix data | `from`, `to` | `{ tactics: [{ id, shortname, name, techniques: [{ id, name, url, rules, alerts }] }] }` |
 | `GET /api/stream` | live changes (SSE) | — | events `alert.created`, `alert.updated`, `ping` |
-| `GET /api/rules/:id/playbook` | content pack (S7) | `lang` (`es`, `en`) | playbook object |
+| `GET /api/rules/:id/playbook` | content pack (S7) | `lang` (`en` default, `es`) | `PlaybookResponse`: `{ ruleId, lang, playbook: { summary, whatItDetects, whyItMatters, triageSteps, falsePositives, responseSteps, severityRationale }, rule: { title, author, url, license }, generated: { tool, model, at, review, notice } }`; `404` when the rule is unknown or has no playbook |
 | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me` | session auth (S6) | login body `{ username, password }` | `SessionInfo` (`204` for logout) |
 | `GET /api/tokens` | ingest tokens (S6) | — | `{ items: IngestToken[] }` (newest 200, revoked included, never secrets) |
 | `POST /api/tokens` | create an ingest token (S6) | body `{ label }` | `201 { token: IngestToken, secret }` (secret shown once) |

@@ -74,6 +74,7 @@ function AlertDetail({ id }: { id: string }) {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
           <SummaryCard alert={alert} />
+          <PlaybookPanel ruleId={alert.ruleId} />
           <EntitiesCard alert={alert} />
           <TimelineCard events={events} />
         </div>
@@ -81,7 +82,6 @@ function AlertDetail({ id }: { id: string }) {
           <TriagePanel key={`${alert.status}|${alert.updatedAt}`} alert={alert} />
           <TechniquesCard alert={alert} />
           <RulePanel alert={alert} rule={rule} />
-          <PlaybookPanel ruleId={alert.ruleId} />
         </div>
       </div>
     </section>
