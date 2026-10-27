@@ -20,11 +20,13 @@ import { displayUser } from '../features/alerts/entities';
 import { Truncate } from '../components/ui/Truncate';
 import { useFormat } from '../lib/format';
 import { useParamUpdater } from '../lib/search-params';
+import { useDocumentTitle } from '../lib/document-title';
 
 const eventIdSchema = z.uuid();
 
 export default function EventsPage() {
   const { t } = useTranslation();
+  useDocumentTitle(t('pages.events.title'));
   const format = useFormat();
   const [params] = useSearchParams();
   const update = useParamUpdater();

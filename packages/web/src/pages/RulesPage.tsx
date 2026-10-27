@@ -17,9 +17,11 @@ import { EmptyState, ErrorState, RefreshFailed, Updating } from '../components/u
 import { readRuleFilters, ruleQueryParams, type RuleFilters } from '../features/rules/rule-filters';
 import { useFormat } from '../lib/format';
 import { useParamUpdater } from '../lib/search-params';
+import { useDocumentTitle } from '../lib/document-title';
 
 export default function RulesPage() {
   const { t } = useTranslation();
+  useDocumentTitle(t('pages.rules.title'));
   const format = useFormat();
   const navigate = useNavigate();
   const [params] = useSearchParams();

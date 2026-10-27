@@ -17,9 +17,11 @@ import { ThemeToggle } from '../../components/ui/ThemeToggle';
 import { useLogin, useSession } from './hooks';
 import { useSingleFlight } from '../../lib/single-flight';
 import { safeNextPath } from './next-path';
+import { useDocumentTitle } from '../../lib/document-title';
 
 export default function LoginPage() {
   const { t } = useTranslation();
+  useDocumentTitle(t('auth.login.title'));
   const [params] = useSearchParams();
   const next = safeNextPath(params.get('next'));
   const session = useSession();

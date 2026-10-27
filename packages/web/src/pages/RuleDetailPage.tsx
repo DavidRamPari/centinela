@@ -3,6 +3,7 @@ import { Power } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 import { z } from 'zod';
+import { ApiError } from '../api/client';
 import { useRule, useUpdateRule } from '../api/hooks';
 import { SeverityBadge } from '../components/ui/Badges';
 import { Button } from '../components/ui/Button';
@@ -20,22 +21,26 @@ import { useSingleFlight } from '../lib/single-flight';
 import { LicenseValue } from '../features/alerts/RulePanel';
 import { PlaybookPanel } from '../features/alerts/playbook/PlaybookPanel';
 import { TechniqueList } from '../features/attack/TechniqueLink';
+import { useDocumentTitle } from '../lib/document-title';
 
 const ruleIdSchema = z.guid();
 
 export default function RuleDetailPage() {
-  const { t } = useTranslation();
   const params = useParams();
   const id = ruleIdSchema.safeParse(params.id);
-  if (!id.success) {
-    return (
-      <section>
-        <BackLink />
-        <EmptyState title={t('ruleDetail.notFound')} />
-      </section>
-    );
-  }
+  if (!id.success) return <RuleNotFound />;
   return <RuleDetail id={id.data} />;
+}
+
+function RuleNotFound() {
+  const { t } = useTranslation();
+  useDocumentTitle(t('ruleDetail.notFound'));
+  return (
+    <section>
+      <BackLink />
+      <EmptyState title={t('ruleDetail.notFound')} />
+    </section>
+  );
 }
 
 function BackLink() {
@@ -56,6 +61,12 @@ function BackLink() {
 function RuleDetail({ id }: { id: string }) {
   const { t } = useTranslation();
   const detail = useRule(id);
+  useDocumentTitle(
+    detail.data?.rule.title ??
+      (detail.error instanceof ApiError && detail.error.status === 404
+        ? t('ruleDetail.notFound')
+        : t('tabTitles.rule')),
+  );
   if (detail.data === undefined) {
     if (detail.isError) {
       return (

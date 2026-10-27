@@ -22,6 +22,7 @@ import {
 } from '../features/ingest/upload-history';
 import { useFormat } from '../lib/format';
 import { useSingleFlight } from '../lib/single-flight';
+import { useDocumentTitle } from '../lib/document-title';
 
 /** Same limit as the server (ARCHITECTURE §9, §12): checked before reading the file. */
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
@@ -35,6 +36,7 @@ const DEFAULT_HOST: Readonly<Record<SourceType, string>> = {
 
 export default function IngestPage() {
   const { t } = useTranslation();
+  useDocumentTitle(t('pages.ingest.title'));
   const [history, setHistory] = useState<UploadRecord[]>(readUploadHistory);
   return (
     <section>

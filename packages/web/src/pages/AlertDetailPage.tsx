@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 import { z } from 'zod';
+import { ApiError } from '../api/client';
 import { useAlert } from '../api/hooks';
 import { SeverityBadge, StatusBadge } from '../components/ui/Badges';
 import { CopyButton } from '../components/ui/CopyButton';
@@ -19,6 +20,7 @@ import { TriagePanel } from '../features/alerts/TriagePanel';
 import { PlaybookPanel } from '../features/alerts/playbook/PlaybookPanel';
 import { TechniqueList } from '../features/attack/TechniqueLink';
 import { useFormat } from '../lib/format';
+import { useDocumentTitle } from '../lib/document-title';
 
 const idSchema = z.uuid();
 
@@ -28,18 +30,21 @@ function sameDay(a: string, b: string): boolean {
 }
 
 export default function AlertDetailPage() {
-  const { t } = useTranslation();
   const params = useParams();
   const id = idSchema.safeParse(params.id);
-  if (!id.success) {
-    return (
-      <section>
-        <Breadcrumb />
-        <EmptyState title={t('alertDetail.notFound')} />
-      </section>
-    );
-  }
+  if (!id.success) return <AlertNotFound />;
   return <AlertDetail id={id.data} />;
+}
+
+function AlertNotFound() {
+  const { t } = useTranslation();
+  useDocumentTitle(t('alertDetail.notFound'));
+  return (
+    <section>
+      <Breadcrumb />
+      <EmptyState title={t('alertDetail.notFound')} />
+    </section>
+  );
 }
 
 function Breadcrumb() {
@@ -64,6 +69,13 @@ function Breadcrumb() {
 function AlertDetail({ id }: { id: string }) {
   const { t } = useTranslation();
   const detail = useAlert(id);
+  // The tab names the rule once the alert is here; "Alert" (or "not found") until then.
+  useDocumentTitle(
+    detail.data?.alert.ruleTitle ??
+      (detail.error instanceof ApiError && detail.error.status === 404
+        ? t('alertDetail.notFound')
+        : t('tabTitles.alert')),
+  );
 
   if (detail.data === undefined) {
     if (detail.isError) {

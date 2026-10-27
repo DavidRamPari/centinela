@@ -25,6 +25,7 @@ import {
   type RangePreset,
   type TimeRange,
 } from '../lib/time-range';
+import { useDocumentTitle } from '../lib/document-title';
 
 /** Page size for the new alerts behind the scoreboard; more shows as "200+". */
 const NEW_ALERTS_LIMIT = 200;
@@ -48,6 +49,7 @@ function rangeKey(range: TimeRange): RangePreset | 'custom' {
  */
 export default function OverviewPage() {
   const { t } = useTranslation();
+  useDocumentTitle(t('pages.overview.title'));
   const [params] = useSearchParams();
   const update = useParamUpdater();
   const search = params.toString();

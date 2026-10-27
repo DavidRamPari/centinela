@@ -26,9 +26,11 @@ import { useFreshAlerts } from '../features/live/live-context';
 import { describeError } from '../lib/error-text';
 import { useFormat } from '../lib/format';
 import { useSingleFlight } from '../lib/single-flight';
+import { useDocumentTitle } from '../lib/document-title';
 
 export default function AlertsPage() {
   const { t } = useTranslation();
+  useDocumentTitle(t('pages.alerts.title'));
   const format = useFormat();
   const navigate = useNavigate();
   const { push } = useToasts();

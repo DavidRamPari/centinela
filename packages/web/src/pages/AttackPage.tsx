@@ -14,6 +14,7 @@ import { HEAT_CLASSES, heatLevel } from '../features/attack/heat';
 import { useFormat } from '../lib/format';
 import { useParamUpdater } from '../lib/search-params';
 import { rangeQuery, readTimeRange, writeTimeRange, type TimeRange } from '../lib/time-range';
+import { useDocumentTitle } from '../lib/document-title';
 
 type Mode = 'alerts' | 'coverage';
 type Tactic = AttackResponse['tactics'][number];
@@ -31,6 +32,7 @@ function rangeSearch(range: TimeRange): URLSearchParams {
  */
 export default function AttackPage() {
   const { t } = useTranslation();
+  useDocumentTitle(t('pages.attack.title'));
   const format = useFormat();
   const [params] = useSearchParams();
   const update = useParamUpdater();
