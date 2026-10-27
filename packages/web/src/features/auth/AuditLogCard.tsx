@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { flattenPages } from '../../api/hooks';
-import { Card } from '../../components/ui/Card';
+import { Section } from '../../components/ui/Section';
+import { Truncate } from '../../components/ui/Truncate';
 import { DataTable, type Column } from '../../components/ui/DataTable';
 import { SelectField } from '../../components/ui/Fields';
 import { LoadMore } from '../../components/ui/LoadMore';
@@ -20,62 +21,70 @@ export function AuditLogCard() {
   const audit = useAuditLog({ action });
   const entries = flattenPages(audit.data);
 
+  // Fixed widths for the short columns; the details take what is left (S6 known gap).
   const columns: Array<Column<AuditEntry>> = [
     {
       id: 'at',
       header: t('auth.audit.at'),
-      cell: (entry) => <time dateTime={entry.at}>{format.dateTime(entry.at)}</time>,
-      className: 'whitespace-nowrap',
+      cell: (entry) => (
+        <time dateTime={entry.at} title={format.dateTime(entry.at)}>
+          {format.eventTime(entry.at)}
+        </time>
+      ),
+      className: 'w-44 whitespace-nowrap',
     },
     {
       id: 'actor',
       header: t('auth.audit.actor'),
-      cell: (entry) => (
-        <span className="inline-block min-w-20 font-mono text-xs wrap-anywhere">
-          {entry.actor ?? '—'}
-        </span>
-      ),
+      cell: (entry) => <Truncate text={entry.actor ?? t('common.none')} className="max-w-[9rem]" />,
+      className: 'w-36',
     },
     {
       id: 'action',
       header: t('auth.audit.action'),
       cell: (entry) => t(`auth.audit.actions.${actionKey(entry.action)}`),
+      className: 'w-48',
     },
     {
       id: 'target',
       header: t('auth.audit.target'),
       cell: (entry) => {
         const href = targetLink(entry);
-        const text = <span className="font-mono text-xs wrap-anywhere">{entry.target ?? '—'}</span>;
+        const text = (
+          <Truncate text={entry.target ?? t('common.none')} mono className="max-w-[13rem]" />
+        );
         return href ? (
-          <Link to={href} className="text-accent underline">
+          <Link
+            to={href}
+            className="block text-link underline decoration-transparent underline-offset-3 hover:decoration-link"
+          >
             {text}
           </Link>
         ) : (
           text
         );
       },
+      className: 'hidden @3xl:table-cell w-56',
     },
     {
       id: 'ip',
       header: t('auth.audit.ip'),
-      cell: (entry) => <span className="font-mono text-xs">{entry.ip ?? '—'}</span>,
+      cell: (entry) => <span className="whitespace-nowrap">{entry.ip ?? t('common.none')}</span>,
+      className: 'hidden @2xl:table-cell w-36',
     },
     {
       id: 'details',
       header: t('auth.audit.details'),
-      cell: (entry) => (
-        <span className="line-clamp-2 max-w-[24rem] font-mono text-xs wrap-anywhere">
-          {formatDetails(entry.details)}
-        </span>
-      ),
+      cell: (entry) => <Truncate text={formatDetails(entry.details) || t('common.none')} mono />,
+      className: 'hidden @5xl:table-cell w-full max-w-0',
     },
   ];
 
   return (
-    <Card
+    <Section
       title={t('auth.audit.title')}
-      className="xl:col-span-2"
+      description={t('auth.audit.description')}
+      divider
       actions={
         <SelectField
           label={t('auth.audit.filter')}
@@ -94,13 +103,12 @@ export function AuditLogCard() {
         />
       }
     >
-      <p className="mb-3 text-muted">{t('auth.audit.description')}</p>
       {audit.isPending ? (
         <LoadingState />
       ) : audit.isError ? (
         <ErrorState error={audit.error} onRetry={() => void audit.refetch()} />
       ) : entries.length === 0 ? (
-        <EmptyState title={t('auth.audit.empty')} />
+        <EmptyState title={t('auth.audit.empty')} description={t('auth.audit.emptyHint')} />
       ) : (
         <>
           <DataTable
@@ -118,6 +126,6 @@ export function AuditLogCard() {
           />
         </>
       )}
-    </Card>
+    </Section>
   );
 }

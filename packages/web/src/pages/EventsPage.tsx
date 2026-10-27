@@ -16,6 +16,8 @@ import {
   readEventFilters,
 } from '../features/events/event-filters';
 import { OutcomeLabel } from '../features/events/OutcomeLabel';
+import { displayUser } from '../features/alerts/entities';
+import { Truncate } from '../components/ui/Truncate';
 import { useFormat } from '../lib/format';
 import { useParamUpdater } from '../lib/search-params';
 
@@ -43,59 +45,57 @@ export default function EventsPage() {
       id: 'time',
       header: t('events.table.time'),
       cell: (event) => (
-        <time dateTime={event.ts} className="whitespace-nowrap text-muted">
-          {format.dateTime(event.ts)}
+        <time dateTime={event.ts} title={format.dateTime(event.ts)} className="whitespace-nowrap">
+          {format.eventTime(event.ts)}
         </time>
       ),
+      className: 'w-40',
     },
     {
       id: 'source',
       header: t('events.table.source'),
       cell: (event) => t(`sources.${event.source}`),
-      className: 'hidden lg:table-cell whitespace-nowrap',
+      className: 'hidden @7xl:table-cell whitespace-nowrap w-40',
     },
     {
       id: 'host',
       header: t('events.table.host'),
-      cell: (event) => <span className="whitespace-nowrap font-mono text-xs">{event.host}</span>,
+      cell: (event) => <Truncate text={event.host} className="max-w-[9rem]" />,
+      className: 'w-36',
     },
     {
       id: 'action',
       header: t('events.table.action'),
-      cell: (event) => <span className="font-mono text-xs">{event.action}</span>,
+      cell: (event) => <Truncate text={event.action} mono className="max-w-[11rem]" />,
+      className: 'w-44',
     },
     {
       id: 'outcome',
       header: t('events.table.outcome'),
       cell: (event) => <OutcomeLabel outcome={event.outcome} />,
-      className: 'hidden sm:table-cell',
+      className: 'hidden @xl:table-cell w-32',
     },
     {
       id: 'user',
       header: t('events.table.user'),
       cell: (event) => (
-        <span className="block max-w-[10rem] truncate font-mono text-xs">{event.user ?? '—'}</span>
+        <Truncate text={displayUser(event) ?? t('common.none')} className="max-w-[10rem]" />
       ),
-      className: 'hidden md:table-cell',
+      className: 'hidden @3xl:table-cell w-40',
     },
     {
       id: 'srcIp',
       header: t('events.table.srcIp'),
-      cell: (event) => <span className="font-mono text-xs">{event.srcIp ?? '—'}</span>,
-      className: 'hidden md:table-cell',
+      cell: (event) => <span className="whitespace-nowrap">{event.srcIp ?? t('common.none')}</span>,
+      className: 'hidden @2xl:table-cell w-36',
     },
     {
       id: 'message',
       header: t('events.table.message'),
-      cell: (event) => (
-        <span
-          className="block max-w-[16rem] truncate font-mono text-xs xl:max-w-[32rem]"
-          title={event.message.slice(0, 500)}
-        >
-          {event.message}
-        </span>
-      ),
-      className: 'hidden xl:table-cell',
+      cell: (event) => <Truncate text={event.message} mono />,
+      // The flexible column: it takes the room left and truncates instead of widening the
+      // table (a no-wrap cell would otherwise ask for its whole text as minimum width).
+      className: 'hidden @5xl:table-cell w-full max-w-0',
     },
   ];
 

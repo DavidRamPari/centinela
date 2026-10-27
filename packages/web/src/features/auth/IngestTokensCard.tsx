@@ -9,10 +9,10 @@ import {
   type IngestTokenCreated,
 } from '@centinela/shared';
 import { Copy, KeyRound, Plus } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../components/ui/Button';
-import { Card } from '../../components/ui/Card';
+import { Section } from '../../components/ui/Section';
 import { CodeBlock } from '../../components/ui/CodeBlock';
 import { DataTable, type Column } from '../../components/ui/DataTable';
 import { TextField } from '../../components/ui/Fields';
@@ -27,22 +27,26 @@ export function IngestTokensCard() {
   const [created, setCreated] = useState<IngestTokenCreated | null>(null);
 
   return (
-    <Card title={t('auth.tokens.title')} className="xl:col-span-2">
-      <p className="mb-3 text-muted">{t('auth.tokens.description')}</p>
+    <Section framed title={t('auth.tokens.title')} description={t('auth.tokens.description')}>
       <CreateTokenForm onCreated={setCreated} />
       {created ? <NewSecret created={created} onDismiss={() => setCreated(null)} /> : null}
-      <div className="mt-4">
+      <div>
         {tokens.isPending ? (
           <LoadingState />
         ) : tokens.isError ? (
           <ErrorState error={tokens.error} onRetry={() => void tokens.refetch()} />
         ) : tokens.data.items.length === 0 ? (
-          <EmptyState title={t('auth.tokens.empty')} />
+          <EmptyState
+            compact
+            icon={KeyRound}
+            title={t('auth.tokens.empty')}
+            description={t('auth.tokens.emptyHint')}
+          />
         ) : (
           <TokensTable tokens={tokens.data.items} />
         )}
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -51,6 +55,7 @@ function CreateTokenForm({ onCreated }: { onCreated: (created: IngestTokenCreate
   const create = useCreateToken();
   const [label, setLabel] = useState('');
   const [invalid, setInvalid] = useState(false);
+  const hintId = useId();
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -67,23 +72,26 @@ function CreateTokenForm({ onCreated }: { onCreated: (created: IngestTokenCreate
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-2" noValidate>
-      <div className="flex flex-wrap items-end gap-2">
+      <div className="flex flex-wrap items-end gap-3">
         <TextField
           label={t('auth.tokens.label')}
-          hint={t('auth.tokens.labelHint')}
           value={label}
           onChange={(event) => setLabel(event.target.value)}
           maxLength={MAX_TOKEN_LABEL_LENGTH}
           spellCheck={false}
-          className="min-w-[14rem] flex-1"
+          className="min-w-[14rem] max-w-xl flex-1"
+          aria-describedby={hintId}
+          aria-invalid={invalid || undefined}
         />
-        <Button type="submit" variant="primary" disabled={create.isPending} className="mb-5">
-          <Plus aria-hidden="true" className="size-4" />
+        <Button type="submit" variant="primary" icon={Plus} loading={create.isPending}>
           {create.isPending ? t('auth.tokens.creating') : t('auth.tokens.create')}
         </Button>
       </div>
+      <p id={hintId} className="text-small text-muted">
+        {t('auth.tokens.labelHint')}
+      </p>
       {invalid ? (
-        <p role="alert" className="text-danger">
+        <p role="alert" className="font-semibold text-danger">
           {t('auth.tokens.labelInvalid')}
         </p>
       ) : null}
@@ -106,19 +114,18 @@ function NewSecret({ created, onDismiss }: { created: IngestTokenCreated; onDism
   }
 
   return (
-    <div role="status" className="mt-3 flex flex-col gap-2 rounded-md border border-accent p-3">
-      <p className="flex items-center gap-2 font-medium text-fg">
-        <KeyRound aria-hidden="true" className="size-4 text-accent" />
+    <div role="status" className="flex flex-col gap-3 border-l-2 border-accent-edge py-1 pl-4">
+      <p className="flex items-center gap-2 font-semibold text-fg">
+        <KeyRound aria-hidden="true" strokeWidth={1.75} className="size-5 text-accent-text" />
         {t('auth.tokens.createdTitle', { label: created.token.label })}
       </p>
       <p className="text-muted">{t('auth.tokens.createdWarning')}</p>
       <CodeBlock text={created.secret} label={t('auth.tokens.secret')} />
       <div className="flex gap-2">
-        <Button size="sm" onClick={() => void copy()}>
-          <Copy aria-hidden="true" className="size-3.5" />
+        <Button size="sm" variant="primary" icon={Copy} onClick={() => void copy()}>
           {t('auth.tokens.copy')}
         </Button>
-        <Button size="sm" variant="ghost" onClick={onDismiss}>
+        <Button size="sm" variant="quiet" onClick={onDismiss}>
           {t('auth.tokens.dismiss')}
         </Button>
       </div>
@@ -134,7 +141,7 @@ function TokensTable({ tokens }: { tokens: IngestToken[] }) {
     {
       id: 'prefix',
       header: t('auth.tokens.prefix'),
-      cell: (token) => <span className="font-mono text-xs">{token.prefix}…</span>,
+      cell: (token) => <span className="font-mono text-small">{token.prefix}…</span>,
     },
     {
       id: 'created',
@@ -196,13 +203,13 @@ function RevokeButton({ token }: { token: IngestToken }) {
       <Button
         size="sm"
         variant="danger"
-        disabled={revoke.isPending}
+        loading={revoke.isPending}
         aria-label={t('auth.tokens.confirmRevokeLabel', { label: token.label })}
         onClick={() => revoke.mutate(token.id, { onSettled: () => setConfirming(false) })}
       >
         {t('auth.tokens.confirmRevoke')}
       </Button>
-      <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+      <Button size="sm" variant="quiet" onClick={() => setConfirming(false)}>
         {t('auth.tokens.cancel')}
       </Button>
     </span>

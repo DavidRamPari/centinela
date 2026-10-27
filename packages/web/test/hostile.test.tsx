@@ -1,4 +1,5 @@
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { HOSTILE } from '../src/mocks/fixtures/build';
 import { mockDb } from '../src/mocks/handlers';
@@ -32,6 +33,11 @@ describe('attacker-controlled strings render as text', () => {
     expect(await screen.findByRole('link', { name: HOSTILE.img })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: HOSTILE.sqli })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: HOSTILE.script })).toBeInTheDocument();
+    // Folded timeline groups hold the raw lines; open them all, then look for the line.
+    const user = userEvent.setup();
+    for (const button of screen.queryAllByRole('button', { name: /^Show the/ })) {
+      await user.click(button);
+    }
     expect(
       screen.getAllByText((text) => text.includes(`Failed password for ${HOSTILE.script} from`))
         .length,

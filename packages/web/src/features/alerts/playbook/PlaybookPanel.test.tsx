@@ -82,16 +82,17 @@ describe('PlaybookPanel', () => {
   it('shows an empty state for rules without a playbook', async () => {
     renderApp({ path: `/alerts/${centinelaAlert().id}`, language: 'en' });
     const card = await playbookCard('Playbook');
+    // Centinela's own rules: playbooks come later, and the panel says so calmly.
     expect(
-      await within(card).findByText('This rule has no playbook in the content pack.'),
+      await within(card).findByText("Playbooks for Centinela's own rules are on the way"),
     ).toBeInTheDocument();
     expect(within(card).queryByRole('note')).not.toBeInTheDocument();
+    expect(within(card).queryByRole('alert')).not.toBeInTheDocument();
 
     const rule = mockDb().rules.find((r) => r.path === MOCK_RULE_WITHOUT_PLAYBOOK);
     renderApp({ path: `/rules/${rule?.id ?? ''}`, language: 'es' });
-    expect(
-      await screen.findByText('Esta regla no tiene guía en el paquete de contenido.'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('Esta regla no tiene guía de respuesta')).toBeInTheDocument();
+    expect(screen.getByText(/El paquete de contenido no tiene guía/)).toBeInTheDocument();
   });
 
   it('renders playbook text as text, never as HTML', async () => {
@@ -130,9 +131,7 @@ describe('PlaybookPanel', () => {
       }),
     );
     const { router } = renderApp({ path: `/rules/${alert.ruleId}`, language: 'es' });
-    expect(
-      await screen.findByText('Esta regla no tiene guía en el paquete de contenido.'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('Esta regla no tiene guía de respuesta')).toBeInTheDocument();
     expect(languages).toEqual(['es']);
     expect(currentSearch(router).toString()).toBe('');
   });

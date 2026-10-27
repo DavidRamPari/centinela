@@ -1,5 +1,11 @@
 /** Rule list filters, read from and written to the URL (ARCHITECTURE §11). */
-import { LEVELS, RULE_ORIGINS, techniqueIdSchema, type Level, type RuleOrigin } from '@centinela/shared';
+import {
+  LEVELS,
+  RULE_ORIGINS,
+  techniqueIdSchema,
+  type Level,
+  type RuleOrigin,
+} from '@centinela/shared';
 import type { QueryParams } from '../../api/client';
 import { readListParam, readTextParam } from '../../lib/search-params';
 

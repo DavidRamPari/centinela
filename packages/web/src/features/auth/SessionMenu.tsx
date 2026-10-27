@@ -1,6 +1,6 @@
-/** Signed-in analyst and the sign-out button, in the dashboard header. */
+/** Signed-in analyst and the sign-out button, in the rail's account group. */
 import { useQueryClient } from '@tanstack/react-query';
-import { LogOut, UserRound } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { ApiError } from '../../api/client';
@@ -24,16 +24,16 @@ export function SessionMenu() {
 
   if (!session.data) return null;
   return (
-    <div className="flex items-center gap-2">
-      <span className="flex items-center gap-1 text-xs text-muted">
-        <UserRound aria-hidden="true" className="size-3.5" />
-        <span className="sr-only">{t('auth.session.signedInAs')}</span>
-        <span className="font-mono text-fg">{session.data.username}</span>
-      </span>
+    <div className="flex flex-col items-start gap-1.5">
+      <p className="min-w-0 max-w-full text-small">
+        <span className="text-muted">{t('auth.session.signedInAs')} </span>
+        <span className="font-semibold break-all text-fg">{session.data.username}</span>
+      </p>
       <Button
         size="sm"
-        variant="ghost"
-        disabled={logout.isPending}
+        variant="secondary"
+        icon={LogOut}
+        loading={logout.isPending}
         onClick={() =>
           logout.mutate(undefined, {
             onSuccess: signedOut,
@@ -45,7 +45,6 @@ export function SessionMenu() {
           })
         }
       >
-        <LogOut aria-hidden="true" className="size-3.5" />
         {t('auth.session.signOut')}
       </Button>
     </div>

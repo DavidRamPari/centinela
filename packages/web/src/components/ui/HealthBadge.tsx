@@ -1,15 +1,14 @@
-import { clsx } from 'clsx';
-import { CircleAlert, CircleCheck, LoaderCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useHealth } from '../../api/hooks';
+import { StatusLine, type StatusTone } from './StatusLine';
 
-/** API and database status; icon plus text, never color alone. */
+/** API and database status, as a status line (icon plus text). */
 export function HealthBadge() {
   const { t } = useTranslation();
   const health = useHealth();
 
   let label: string;
-  let tone: 'ok' | 'warn' | 'pending';
+  let tone: StatusTone;
   if (health.isPending) {
     label = t('health.checking');
     tone = 'pending';
@@ -24,19 +23,9 @@ export function HealthBadge() {
     tone = 'warn';
   }
 
-  const Icon = tone === 'ok' ? CircleCheck : tone === 'warn' ? CircleAlert : LoaderCircle;
   return (
-    <span
-      role="status"
-      className={clsx(
-        'inline-flex items-center gap-1.5 text-xs',
-        tone === 'ok' && 'text-success',
-        tone === 'warn' && 'text-warn',
-        tone === 'pending' && 'text-muted',
-      )}
-    >
-      <Icon aria-hidden="true" className={clsx('size-4', tone === 'pending' && 'animate-spin')} />
-      {label}
+    <span role="status">
+      <StatusLine tone={tone}>{label}</StatusLine>
     </span>
   );
 }

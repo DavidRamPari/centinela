@@ -149,13 +149,18 @@ describe('alert detail', () => {
     renderApp({ path: `/alerts/${alert.id}`, language: 'en' });
     // The official name appears once the ATT&CK data chunk has loaded.
     const link = (await screen.findByText('Password Spraying')).closest('a');
-    expect(link).toHaveTextContent('T1110.003 Password Spraying');
+    expect(link).toHaveTextContent('Password Spraying T1110.003');
     expect(link).toHaveAttribute('href', 'https://attack.mitre.org/techniques/T1110/003');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     const timeline = (
       await screen.findByRole('heading', { name: 'Timeline of related events' })
     ).closest('section') as HTMLElement;
-    expect(within(timeline).getAllByRole('listitem')).toHaveLength(
+    // Every linked event is reachable: expand the folded groups, then count the events.
+    const user = userEvent.setup();
+    for (const button of within(timeline).queryAllByRole('button', { name: /^Show the/ })) {
+      await user.click(button);
+    }
+    expect(within(timeline).getAllByRole('link', { name: 'Open event' })).toHaveLength(
       mockDb().alertEvents.get(alert.id)?.length ?? -1,
     );
     expect(screen.getByRole('heading', { name: 'Playbook' })).toBeInTheDocument();
