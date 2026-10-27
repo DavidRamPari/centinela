@@ -55,7 +55,7 @@ export default function LoginPage() {
             <Lockup size="lg" />
             <p className="text-lead text-muted">{t('auth.login.pitch')}</p>
           </div>
-          <section aria-labelledby="sign-in-title" className="maze-frame px-6 py-7 sm:px-8">
+          <section aria-labelledby="sign-in-title" className="answer-frame px-6 py-7 sm:px-8">
             <h1 id="sign-in-title" className="text-title font-semibold text-fg">
               {t('auth.login.title')}
             </h1>

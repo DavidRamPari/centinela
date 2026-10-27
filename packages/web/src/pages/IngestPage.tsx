@@ -122,7 +122,7 @@ function UploadCard({ onUploaded }: { onUploaded: (record: UploadRecord) => void
             />
             <label
               htmlFor={fileInputId}
-              className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-control border border-line-strong px-3.5 font-semibold text-fg transition-colors duration-100 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-focus hover:border-link hover:bg-hover active:translate-y-px"
+              className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-control border border-line-strong px-3.5 font-semibold text-fg transition-colors duration-100 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-focus hover:border-line-hover hover:bg-hover active:translate-y-px"
             >
               <FileText aria-hidden="true" strokeWidth={1.75} className="size-4" />
               {t('ingest.upload.choose')}

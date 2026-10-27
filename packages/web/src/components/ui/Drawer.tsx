@@ -57,7 +57,7 @@ export function Drawer({ title, onClose, children }: DrawerProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="maze-edge-l relative flex h-full w-full max-w-2xl animate-drawer-in flex-col bg-raised"
+        className="relative flex border-l border-line-strong h-full w-full max-w-2xl animate-drawer-in flex-col bg-raised"
       >
         <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
           <h2 id={titleId} className="min-w-0 truncate text-lead font-semibold text-fg">

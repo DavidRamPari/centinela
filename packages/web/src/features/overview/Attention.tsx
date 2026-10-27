@@ -1,6 +1,6 @@
 /**
  * The Overview's first answer: what needs attention now. A scoreboard of new alerts in
- * Corridor numerals inside the page's one maze frame, then the new alerts to start with,
+ * Corridor numerals inside the page's one framed area, then the new alerts to start with,
  * most severe first (docs/decisions/S7b.md).
  */
 import type { Alert } from '@centinela/shared';
@@ -42,7 +42,7 @@ export function AttentionScoreboard({
   return (
     <section
       aria-labelledby="attention-title"
-      className="@container maze-frame px-4 py-5 sm:px-7 sm:py-7"
+      className="@container answer-frame px-4 py-5 sm:px-7 sm:py-7"
     >
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div>

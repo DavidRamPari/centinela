@@ -12,7 +12,7 @@ import {
 } from 'react';
 
 export const controlClass =
-  'w-full rounded-control border border-line-strong bg-bg px-3 text-body text-fg placeholder:text-faint hover:border-link focus-visible:border-focus disabled:cursor-not-allowed disabled:border-dashed disabled:text-disabled-fg aria-invalid:border-danger';
+  'w-full rounded-control border border-line-strong bg-bg px-3 text-body text-fg placeholder:text-faint hover:border-line-hover focus-visible:border-focus disabled:cursor-not-allowed disabled:border-dashed disabled:text-disabled-fg aria-invalid:border-danger';
 
 export const labelClass = 'text-small font-semibold text-fg';
 
@@ -124,7 +124,7 @@ export function Checkbox({ label, indeterminate = false, className, ...props }: 
         ref={(element) => {
           if (element) element.indeterminate = indeterminate;
         }}
-        className="peer absolute inset-0 m-0 cursor-pointer appearance-none rounded-badge border border-line-strong bg-bg checked:border-accent-edge checked:bg-accent indeterminate:border-accent-edge indeterminate:bg-accent hover:border-link disabled:cursor-not-allowed disabled:border-dashed"
+        className="peer absolute inset-0 m-0 cursor-pointer appearance-none rounded-badge border border-line-strong bg-bg checked:border-accent-edge checked:bg-accent indeterminate:border-accent-edge indeterminate:bg-accent hover:border-line-hover disabled:cursor-not-allowed disabled:border-dashed"
         {...props}
       />
       <Check
@@ -188,7 +188,7 @@ export function ToggleChips<T extends string>({
                 'inline-flex h-8 items-center gap-1.5 rounded-control border px-2.5 text-small font-semibold transition-colors duration-100 active:translate-y-px',
                 pressed
                   ? 'border-accent-edge bg-accent text-accent-fg hover:bg-accent-hover'
-                  : 'border-line-strong text-fg hover:border-link hover:bg-hover',
+                  : 'border-line-strong text-fg hover:border-line-hover hover:bg-hover',
               )}
             >
               {pressed ? <Check aria-hidden="true" strokeWidth={2.5} className="size-3.5" /> : null}

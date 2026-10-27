@@ -34,7 +34,7 @@ Variants (drawn by `packages/web/src/components/brand/`; standalone files in `pa
 
 | Variant | Use |
 | --- | --- |
-| Full colour on black | default: sidebar, sign-in page, favicon (`favicon.svg` has its own black tile, so it reads on light browser tabs too) |
+| Full colour on black | default: rail, sign-in page, favicon (`favicon.svg` has its own black tile, so it reads on light browser tabs too); yellow `#F2C94C`, blue `#5D84C2`, red `#E5534B` since S7b-16 |
 | Full colour on white | light theme: the yellow piece gains a thin dark keyline and the wordmark is written in ink (`#0B0B14`), because yellow alone disappears on white; the mark still carries all three primaries |
 | One colour | `currentColor`; for monochrome contexts (print, embossing, a one-ink sticker) |
 
@@ -46,21 +46,22 @@ Clear space: one piece thickness (3/16 of the mark's width) on every side. Minim
 
 ### Palette
 
-Values tuned from the arcade references so they read vivid but never glow on black; every text pair passes WCAG AA (4.5:1) and every graphical mark (pips, chart lines, control borders) passes 3:1, checked by `test/theme.test.ts`.
+Revised after David's review (S7b-16): the first palette took the arcade colours too literally, and the saturated blue strokes and pink fills were tiring. Most of the interface is now neutral; colour appears only where it means something, in small areas: badges, pips, icons, key numbers and the primary button. Every text pair passes WCAG AA (4.5:1) and every graphical mark (pips, chart marks, control borders, focus ring) passes 3:1 in both themes, checked by `test/theme.test.ts`.
 
-| Name | Dark theme | Light theme | Role |
+| Name | Dark theme (on `#000000`) | Light theme (on `#FFFFFF`) | Role |
 | --- | --- | --- | --- |
-| Arcade black | `#000000` | `#FFFFFF` (paper) | the base; areas are separated by lines, spacing and alignment, not by grey cards |
-| Defender yellow | `#FFDE3D` (15.8:1 on black) | `#FFD60A` fill, `#8F6B00` for rings and text | primary actions, selection, focus, "you are here"; reference `#FFFF00`, warmed and softened |
-| Threat red | `#FF453A` (6.2:1) | `#D0180F` (5.5:1 on white) | danger only: critical alerts, destructive actions, errors; reference `#FF0000` |
-| Maze blue | `#2E2EE8` walls, `#4747F0` control borders (3.4:1), `#20208F` hairlines | `#2121DE` | structure: navigation, frames, dividers; reference `#2121DE` |
-| Link blue | `#9494FF` (7.9:1) | `#2121DE` (9.0:1) | links: the same blue family, lightened for text on black |
-| Orange | `#FFAE57` | `#B35400` | high severity; warnings (degraded API, reconnecting) |
-| Pink | `#F5A3EE` | `#A8239A` | medium severity; the alerts series in charts |
-| Cyan | `#5ED8E4` | `#00737E` | low severity; "connected" and "API online"; the events series in charts |
-| Pellet peach | `#FFB8AE` on frightened blue | `#FFD9D3` on frightened blue | the acknowledged ("frightened") status, nothing else |
-| Frightened blue | `#1C1CA8` | `#1C1CA8` | acknowledged alerts (see S7b-05) |
-| Text | `#F2F0EA` warm white (18.4:1), muted `#A9A9C2` (9.1:1) | `#0B0B14`, muted `#4C4C66` | warm white, not pure white, so long reading on black does not bloom |
+| Arcade black / paper | `#000000` | `#FFFFFF` | the page base |
+| Neutral greys | lines `#262626`, frame `#333333`, raised surfaces `#111111`, hover `#171717`, control borders `#6B6B6B` (3.9:1) | lines `#E5E5E5`, frame `#D4D4D4`, raised `#F7F7F7`, control borders `#8C8C8C` (3.4:1) | all structure: dividers, the one framed area per page, the rail's edge, drawers, menus, inputs |
+| Text | off-white `#E6E4DF` (16.5:1, not pure white, to avoid glare), muted `#A1A1A1` (8.1:1) | `#1A1A1A` (17.4:1), muted `#595959` (7.0:1) | body text and secondary text |
+| Defender yellow | `#F2C94C` (13.2:1) | `#F2C230` fill with a `#8A6A00` edge; `#7A5C00` for text and the focus ring (6.3:1) | primary actions, selection, focus, "you are here"; warmer and softer than the reference `#FFFF00` |
+| Threat red | `#E5534B` (5.7:1) | `#C0392F` (5.4:1) | danger only: critical alerts, destructive actions, errors |
+| Calm blue | `#8FB0D9` (9.4:1) | `#2F5D8F` (6.8:1) | links, information icons, the low severity, rule coverage, the acknowledged status and the brand mark; never frames or strokes |
+| Severity | critical `#E5534B`, high `#E07B39`, medium amber `#BF8A2E`, low `#7D9CC4`, informational `#8A8A8A` | critical `#C0392F`, high `#B45A1C`, medium `#8F6410`, low `#3F6A9A`, informational `#6E6E6E` | pips and the critical label; every level also has its label and a pip count |
+| Status | OK teal `#5AA89A`; warning amber `#BF8A2E` | OK `#2E7D6E`; warning `#8F6410` | live updates and API status dots, outcome icons |
+| Sequential scales | alerts: black to muted amber (`#1A1610` … `#7D5E27`); coverage: black to calm blue (`#12171E` … `#45618A`) | alerts: `#FAF5EA` … `#C7A25A`; coverage: `#F2F5F9` … `#8FABD0` | ATT&CK heat maps; charts draw events in neutral grey and alerts in amber |
+| Brand | yellow `#F2C94C`, red `#E5534B`, blue `#5D84C2` | the same, with an ink keyline on the yellow piece and ink letters | the mark and the wordmark only; identical in both themes |
+
+The medium amber is darker and browner than the yellow of primary actions (1.9:1 against it in the dark theme, 3.1:1 in the light one, also checked by a test), and it only ever appears in pips, small icons and chart marks, never as a fill for something clickable, so a severity can't be mistaken for an action.
 
 ### Type
 
@@ -77,8 +78,8 @@ The font files are the Latin and Latin Extended subsets from Fontsource 5.3.0, v
 ### Principles
 
 1. **Each page answers one question first**, in the first screen, before anything else.
-2. **Structure, not boxes.** Pages sit on black and are organised with blue hairlines, spacing and alignment. The arcade maze wall (a blue double stroke with rounded corners) frames **one area per page: the area that answers that page's question.** Everything else is open.
-3. **Each colour has one job** (palette table). If something is yellow, the analyst can act on it or is on it; if it is red, it is dangerous.
+2. **Structure, not boxes.** Pages sit on black and are organised with neutral grey hairlines, spacing and alignment. One quiet grey frame with the rounded corners of the arcade maze marks **one area per page: the area that answers that page's question.** Everything else is open. (The first version drew it, and the rail's edge, as a saturated blue double stroke; S7b-16 made both neutral.)
+3. **Each colour has one job, in small doses** (palette table). If something is yellow, the analyst can act on it or is on it; if it is red, it is dangerous; everything else is grey unless it carries meaning.
 4. **Severity never relies on colour**: every level shows a label and a five-pip meter (one pip for informational, five for critical), so a column of levels reads as a bar chart even in greyscale.
 5. **Plain words.** Sentence case, no all-caps labels, no `·` separators, the same verb for the same action everywhere.
 
@@ -91,12 +92,12 @@ The font files are the Latin and Latin Extended subsets from Fontsource 5.3.0, v
 
 ### Components
 
-- **Buttons** in four kinds with the same heights (35 px, and 28 px small: 2.5 and 2 rem at the default 14 px root; the hit area is never under 24 px): primary (yellow fill, black text), secondary (blue outline), quiet (text only), destructive (red outline that fills red on hover). Each has designed hover, pressed (1 px down, darker fill), focus-visible (yellow ring with a black gap), disabled (flat dark fill, dim text, not just transparency) and loading (spinner in place of the icon, `aria-busy`, a progressive label such as "Signing in…") states.
-- **Inputs, selects and checkboxes** share the 35 px height, the blue control border, the yellow focus ring and the red error state; selects get a drawn chevron and checkboxes a drawn yellow check, so they look the same in every browser.
+- **Buttons** in four kinds with the same heights (35 px, and 28 px small: 2.5 and 2 rem at the default 14 px root; the hit area is never under 24 px): primary (yellow fill, black text), secondary (grey outline), quiet (text only), destructive (red outline that fills red on hover). Each has designed hover, pressed (1 px down, darker fill), focus-visible (yellow ring with a black gap), disabled (flat dark fill, dim text, not just transparency) and loading (spinner in place of the icon, `aria-busy`, a progressive label such as "Signing in…") states.
+- **Inputs, selects and checkboxes** share the 35 px height, the grey control border, the yellow focus ring and the red error state; selects get a drawn chevron and checkboxes a drawn yellow check, so they look the same in every browser.
 - **Segmented controls** (language, theme, ATT&CK colouring): the selected segment takes the selection treatment, a yellow edge on a dark yellow tint, the same as selected table rows. A solid yellow fill was tried first and competed with the page's primary button.
 - **Badges**: severity (pips and label; the critical label is red), status (new: bright dot and bold label; acknowledged: frightened blue; closed: check and muted label).
-- **Tables**: 40 px rows, sentence-case sticky headers on a blue rule, right-aligned tabular numbers, long values cut with an ellipsis that shows the full value on hover (tooltip) and on keyboard focus (the focused row expands).
-- **Drawer and toasts** on a near-black raised surface with a blue edge; the drawer's leading edge is a maze wall.
+- **Tables**: 40 px rows, sentence-case sticky headers on a grey rule, right-aligned tabular numbers, long values cut with an ellipsis that shows the full value on hover (tooltip) and on keyboard focus (the focused row expands).
+- **Drawer and toasts** on a near-black raised surface with a grey edge.
 - **Empty states** are calm: an icon, one sentence saying what is going on, one saying what to do next. Never a dashed box.
 - **Icons**: one set (Lucide), 1.75 px stroke, 16 or 20 px, always next to text or with an accessible name. External links lose their arrow icon; their text says where they go.
 
@@ -107,22 +108,22 @@ The font files are the Latin and Latin Extended subsets from Fontsource 5.3.0, v
 
 ### Pages
 
-- **Overview: "what needs my attention now?"** A maze-framed scoreboard first: new alerts, new critical, new high (Corridor numerals) and acknowledged, then "Start with these": up to five new alerts, most severe first, each a full-width link showing level, title, host, user or IP and how long ago; a yellow "Review new alerts" button. Then Activity: events and alerts over time, each with its total and a plain-language trend against the previous period of the same length ("12% more than the previous 24 hours"). Then "Where alerts come from": by level, top source IPs, top users, top rules, as four ranked lists divided by blue rules. Axis widths are measured from the largest label, so four-digit counts fit.
+- **Overview: "what needs my attention now?"** A framed scoreboard first: new alerts, new critical, new high (Corridor numerals) and acknowledged, then "Start with these": up to five new alerts, most severe first, each a full-width link showing level, title, host, user or IP and how long ago; a yellow "Review new alerts" button. Then Activity: events and alerts over time, each with its total and a plain-language trend against the previous period of the same length ("12% more than the previous 24 hours"). Then "Where alerts come from": by level, top source IPs, top users, top rules, as four ranked lists divided by blue rules. Axis widths are measured from the largest label, so four-digit counts fit.
 - **Alerts: "which alert do I look at next?"** Filters in one quiet band (chips apply at once, text filters on Enter), then the bulk action bar, then the table. Acknowledged rows carry the frightened badge.
 - **Alert detail: "what happened, to which host and user, and what do I do next?"** Breadcrumb, level and status, title. Left: the maze-framed "What happened" (the rule's description, then host, user, source IP, first and last seen with the duration, matches, ATT&CK techniques by name), the grouped timeline, the rule and its DRL attribution, and a collapsed "Technical details" (alert id, rule id, group key, deduplication key, timestamps). Right, beside the facts: "What to do next", the triage actions and the playbook. Identical consecutive timeline events fold into one line ("46 failed sign-ins from 203.0.113.77 for deploy between 8:18:00 and 8:20:19") that expands.
-- **ATT&CK: "which techniques have we seen, and where are we blind?"** Shows only techniques with activity by default ("Show all techniques" brings the full matrix back); cells name the technique first and show the id second, in monospace; zero cells are quiet text; alert counts use a pink scale ("where the threats showed up"), rule coverage a blue scale ("the ground we guard"). Tactic headers stay visible while scrolling.
+- **ATT&CK: "which techniques have we seen, and where are we blind?"** Shows only techniques with activity by default ("Show all techniques" brings the full matrix back); cells name the technique first and show the id second, in monospace; zero cells are quiet text; alert counts use a muted amber scale ("where the threats showed up"), rule coverage a calm blue scale ("the ground we guard"); first planned in pink and saturated blue, revised in S7b-16. Tactic headers stay visible while scrolling.
 - **Events, Rules, Ingest, Security**: the shared table and form system; Windows users shown as `DOMAIN\name`; the audit table gets fixed column widths.
 - **Sign-in**: the large lockup, a one-line description of the product, the maze-framed form, language and theme at the top.
 
 ### The one memorable element
 
-The Overview scoreboard: the number of new alerts drawn in Corridor numerals inside a maze wall, the first thing anyone sees after signing in. It is where the arcade idea earns its place, and it answers the page's question.
+The Overview scoreboard: the number of new alerts drawn in Corridor numerals inside the page's one frame, the first thing anyone sees after signing in. It is where the arcade idea earns its place, and it answers the page's question.
 
 ### Critique of this plan against David's brief (before building)
 
 - *Black base, structure not grey cards*: yes; the only raised surfaces are the drawer, menus and toasts, which float above content.
 - *Each primary has one job*: checked component by component. Two traps found and fixed in the plan: success outcomes were green (no green in the palette; now a neutral check icon and label) and the old accent coloured chart bars (now cyan and pink, which are chart colours).
-- *Pink, cyan, orange for severities and charts*: high orange, medium pink, low cyan; informational is neutral grey because it is not a threat level.
+- *Pink, cyan, orange for severities and charts*: high orange, medium pink, low cyan; informational is neutral grey because it is not a threat level. Revised in S7b-16: pink and cyan left the interface; medium is amber and low a muted blue.
 - *One symbolic touch*: the frightened blue on acknowledged alerts, nothing else. Considered and dropped as theme-park: pellet-dot dividers, a dot-matrix display font (Doto was tested: arcade, but the dotted digits read worse than Corridor at a glance), ghost-like empty-state art.
 - *Nothing AI-looking*: no identical cards, no uppercase labels above headings, no gradients, no emoji, no arrow suffixes, no `·`.
 - *Fonts self-hosted under open licences*: OFL files vendored with their licence texts; Corridor is ours.
@@ -131,7 +132,7 @@ The Overview scoreboard: the number of new alerts drawn in Corridor numerals ins
 
 ## S7b-05 — The one arcade touch: acknowledged alerts turn "frightened" blue (2026-10-27, S7b)
 
-In the game, threats turn deep blue when the hero can catch them. In Centinela the acknowledged status badge is a deep blue fill (`#1C1CA8`) with pellet-peach text (7.1:1): the threat has been seen and someone is on it. New alerts are bright (a white dot and a bold label), closed ones step back (a check and muted text). Nothing else borrows from the game: no pellet dividers, no maze sprites, no sounds.
+In the game, threats turn deep blue when the hero can catch them. In Centinela the acknowledged status badge is a calm, desaturated blue chip (`#1E2B3D` with `#B7C9E2` text, 8.5:1; light theme `#E3EBF5` with `#23466E`; S7b-16 replaced the first saturated `#1C1CA8` with pellet-peach text): the threat has been seen and someone is on it. New alerts are bright (a white dot and a bold label), closed ones step back (a check and muted text). Nothing else borrows from the game: no pellet dividers, no maze sprites, no sounds.
 
 ## S7b-06 — Shell: a rail with grouped controls, from 1024 px (2026-10-27, S7b)
 
@@ -143,7 +144,7 @@ With a rail next to the content, viewport breakpoints lie about the room a table
 
 ## S7b-08 — Overview data without API changes (2026-10-27, S7b)
 
-The scoreboard counts come from `GET /api/alerts?status=new&limit=200` in the selected range (critical and high counted from that page; a full page shows as "200+"), plus `byStatus.acknowledged` from the stats. "Start with these" sorts the same page most severe first, then newest. Each activity total is compared with the previous period of the same length, fetched with a second `GET /api/stats/overview` (`previousPeriod` in `lib/time-range.ts`), and said in words and neutral colour ("8% fewer than the previous 24 hours"): more events is not bad news by itself, and red means danger. The y axis width is measured from the largest label (`features/overview/axis.ts`), which fixes the clipped "1,500" S4 reported.
+The scoreboard counts come from `GET /api/alerts?status=new&limit=200` in the selected range (critical and high counted from that page; a full page shows as "200+"), plus `byStatus.acknowledged` from the stats. "Start with these" sorts the same page most severe first, then newest. Charts draw events in neutral grey and alerts in amber (S7b-16). Each activity total is compared with the previous period of the same length, fetched with a second `GET /api/stats/overview` (`previousPeriod` in `lib/time-range.ts`), and said in words and neutral colour ("8% fewer than the previous 24 hours"): more events is not bad news by itself, and red means danger. The y axis width is measured from the largest label (`features/overview/axis.ts`), which fixes the clipped "1,500" S4 reported.
 
 ## S7b-09 — Alert detail: facts first, internals folded, playbook beside (2026-10-27, S7b)
 
@@ -151,7 +152,7 @@ The scoreboard counts come from `GET /api/alerts?status=new&limit=200` in the se
 
 ## S7b-10 — ATT&CK: active techniques by default, names first (2026-10-27, S7b)
 
-The matrix used to open as 14 columns and 4,000 px of "Alerts: 0". It now shows only techniques with activity and folds away tactics without any, saying how many it hid; "Show all techniques" (`?all=1`, replacing S3's `?active=1`) brings the full matrix back. Cells name the technique first and show the id second in monospace; empty cells are plain text and still say "0 rules" to screen readers. Alert counts use a pink scale and rule coverage a blue one. Visible tactics share the width (an inline `grid-template-columns`, set through the CSSOM, which the CSP allows) and the page scrolls sideways only when they cannot fit. The legend's ranges now follow `heatLevel` exactly; S3's legend computed them differently and showed overlapping ranges ("1–2", "2–3"). On the alert and rule pages, technique lists wait for the ATT&CK names before rendering, so ids never flash before names.
+The matrix used to open as 14 columns and 4,000 px of "Alerts: 0". It now shows only techniques with activity and folds away tactics without any, saying how many it hid; "Show all techniques" (`?all=1`, replacing S3's `?active=1`) brings the full matrix back. Cells name the technique first and show the id second in monospace; empty cells are plain text and still say "0 rules" to screen readers. Alert counts use a neutral-to-muted-amber scale and rule coverage a neutral-to-calm-blue one (S7b-16; the first version used saturated pink and blue). Visible tactics share the width (an inline `grid-template-columns`, set through the CSSOM, which the CSP allows) and the page scrolls sideways only when they cannot fit. The legend's ranges now follow `heatLevel` exactly; S3's legend computed them differently and showed overlapping ranges ("1–2", "2–3"). On the alert and rule pages, technique lists wait for the ATT&CK names before rendering, so ids never flash before names.
 
 ## S7b-11 — Fonts vendored, not installed (2026-10-27, S7b)
 
@@ -181,3 +182,18 @@ Kept: contrast, i18n parity, hostile strings, keyboard tables and drawer, CSP. C
 - The scoreboard counts the first 200 new alerts of the range and shows "200+" beyond that; an exact count would need a count in the API, which this session does not change.
 - The y-axis width is estimated from the label length (7.2 px per character at 12 px), not measured from the rendered text.
 - Toast colour and placement were reviewed with one live alert; a burst of alerts stacks at most four toasts, as before.
+
+## S7b-16 — Colour revision after review: neutral first, colour only where it means something (2026-10-27, S7b)
+
+David liked the structure and the concept but not how the colours were used: the saturated maze blue and the intense pink were tiring and looked unprofessional, even though they came from the palette he had asked for. Only the colour system changed; layout, type, the wordmark's construction and the components stay.
+
+- **Neutral greys carry the structure.** Lines, the one framed area per page (now `answer-frame`: a 1 px `#333333` outline with the maze's rounded corners on a `#0A0A0A` fill), the rail's edge, the mobile top bar, the drawer's edge, control borders and hovers are grey. No blue strokes are left. Body text is off-white `#E6E4DF` on true black.
+- **Colour only in small, meaningful areas:** pips, status dots, outcome icons, the critical number on the Overview, the primary button, selection and focus. No large saturated fills and no neon. The "What to do next" label on the alert page became grey: a heading needs no colour.
+- **Blue is calm and desaturated** (`#8FB0D9` dark, `#2F5D8F` light) and kept for links, information icons, the low severity, the rule-coverage scale, the acknowledged chip and the brand mark.
+- **Pink is gone**, including from the ATT&CK heat map. The severity scale is critical red, high orange, medium amber, low muted blue and informational grey; the pips and labels stay, so colour is never the only cue. A test keeps the amber clearly apart from the yellow of primary actions.
+- **Yellow** (`#F2C94C`) is warmer and less acidic than before (`#FFDE3D`) and still means "act here", selection and focus. **Red** (`#E5534B`) stays for danger only.
+- **One calm sequential scale per chart or heat map:** ATT&CK alert counts go from black to a muted amber (the top step is a dark ochre, `#7D5E27`, not a bright fill), rule coverage from black to a calm blue; the events chart is neutral grey and the alerts chart amber.
+- **The brand mark keeps its three colours, retuned:** yellow `#F2C94C`, red `#E5534B`, blue `#5D84C2`, the same in both themes. The files in `public/brand/` and the favicon were regenerated from `BRAND_COLORS`.
+- **The frightened acknowledged state stays,** now in the calm blue (S7b-05).
+
+Supersedes the palette and principle 2 of the first brand sheet (S7b-03, S7b-04), the colours in S7b-05 and S7b-10, and the "orange, pink and cyan" sentence in ARCHITECTURE §11, which is updated in the same change. The theme test also checks that the dark theme's text is off-white rather than pure white.

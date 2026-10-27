@@ -56,7 +56,7 @@ function Breadcrumb() {
 
 /**
  * Alert detail: what happened, to which host and user, and what to do next. The facts
- * come first in the page's maze frame, the playbook and triage beside them; internals
+ * come first in the page's framed area, the playbook and triage beside them; internals
  * (keys, ids) wait in a collapsed "Technical details" (docs/decisions/S7b.md).
  */
 function AlertDetail({ id }: { id: string }) {
@@ -105,7 +105,7 @@ function AlertDetail({ id }: { id: string }) {
           aria-labelledby="next-title"
           className="flex min-w-0 flex-col gap-8 xl:border-l xl:border-line xl:pl-10"
         >
-          <h2 id="next-title" className="-mb-4 text-small font-semibold text-accent-text">
+          <h2 id="next-title" className="-mb-4 text-small font-semibold text-muted">
             {t('alertDetail.next')}
           </h2>
           <TriagePanel key={`${alert.status}|${alert.updatedAt}`} alert={alert} />

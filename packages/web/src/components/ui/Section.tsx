@@ -11,8 +11,8 @@ interface SectionProps {
   /** Heading level; pages use h1, so sections default to h2. */
   as?: 'h2' | 'h3';
   /**
-   * Draw the maze wall around the section. Use it once per page, for the area that answers
-   * the page's question (docs/decisions/S7b.md); other sections stay open on the black.
+   * Frame the section (a quiet grey outline). Use it once per page, for the area that
+   * answers the page's question (docs/decisions/S7b.md); other sections stay open.
    */
   framed?: boolean;
   /** A blue hairline above the section, to separate it from the one before. */
@@ -37,7 +37,7 @@ export function Section({
       id={id}
       className={clsx(
         'flex min-w-0 flex-col gap-4',
-        framed && 'maze-frame p-4 md:p-6',
+        framed && 'answer-frame p-4 md:p-6',
         divider && 'border-t border-line pt-6',
         className,
       )}

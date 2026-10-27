@@ -39,7 +39,7 @@ const NAV_ITEMS: ReadonlyArray<{ to: string; key: NavKey; icon: LucideIcon }> = 
 /**
  * Two zones (docs/decisions/S7b.md): a rail with the brand, the navigation and, grouped at
  * its foot, the system status, display preferences and account; and the workspace. The
- * rail's edge is a maze wall. Under 1024 px the rail becomes a sheet opened from a top bar.
+ * rail is set off by a grey line. Under 1024 px the rail becomes a sheet opened from a top bar.
  * Toasts and live updates live here, inside the router, so toasts can link to pages.
  */
 export function Layout() {
@@ -82,7 +82,7 @@ function Shell() {
         {t('app.skipToContent')}
       </a>
 
-      <header className="maze-edge-b flex h-14 items-center gap-3 px-3 lg:hidden">
+      <header className="flex h-14 border-b border-line items-center gap-3 px-3 lg:hidden">
         <button
           ref={menuButton}
           type="button"
@@ -109,8 +109,8 @@ function Shell() {
           onClick={close}
         />
       ) : null}
-      {/* The wrapper runs the full page height, so the rail's maze wall does too. */}
-      <div className="contents lg:block lg:maze-edge-r">
+      {/* The wrapper runs the full page height, so the rail's edge line does too. */}
+      <div className="contents lg:block lg:border-r lg:border-line">
         <aside
           id={railId}
           onKeyDown={(event) => {
@@ -119,7 +119,7 @@ function Shell() {
           className={clsx(
             'flex-col bg-bg',
             open
-              ? 'maze-edge-r fixed inset-y-0 left-0 z-40 flex w-[min(18rem,85vw)] animate-sheet-in overflow-y-auto'
+              ? 'fixed inset-y-0 left-0 z-40 border-r border-line flex w-[min(18rem,85vw)] animate-sheet-in overflow-y-auto'
               : 'hidden',
             'lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-auto lg:animate-none lg:overflow-y-auto lg:border-r-0',
           )}

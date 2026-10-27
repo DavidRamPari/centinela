@@ -8,7 +8,7 @@ interface TimeSeriesChartProps {
   data: ReadonlyArray<{ t: string; count: number }>;
   bucket: Bucket;
   kind: 'area' | 'bar';
-  /** Series colour: events are cyan, alerts pink (docs/decisions/S7b.md). */
+  /** Series colour: events are neutral grey, alerts amber (docs/decisions/S7b.md, S7b-16). */
   series: 'events' | 'alerts';
 }
 

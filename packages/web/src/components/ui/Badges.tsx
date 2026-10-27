@@ -54,7 +54,7 @@ export function SeverityBadge({ level, size = 'md' }: { level: Level; size?: 'md
 }
 
 /**
- * Alert status. New is bright and bold; acknowledged takes the deep "frightened" blue (the
+ * Alert status. New is bright and bold; acknowledged takes a calm "frightened" blue (the
  * one arcade touch, S7b-05); closed steps back.
  */
 export function StatusBadge({ status }: { status: AlertStatus }) {

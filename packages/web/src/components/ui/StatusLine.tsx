@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 export type StatusTone = 'ok' | 'warn' | 'pending';
 
 /**
- * One line of system status: a shape plus text, never colour alone. OK is a cyan dot, a
+ * One line of system status: a shape plus text, never colour alone. OK is a teal dot, a
  * problem an orange warning icon, a pending check a spinner.
  */
 export function StatusLine({ tone, children }: { tone: StatusTone; children: ReactNode }) {

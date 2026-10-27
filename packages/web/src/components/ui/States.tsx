@@ -36,7 +36,7 @@ export function EmptyState({
       <Icon
         aria-hidden="true"
         strokeWidth={1.5}
-        className={compact ? 'mt-0.5 size-5 shrink-0 text-link' : 'size-8 shrink-0 text-link'}
+        className={compact ? 'mt-0.5 size-5 shrink-0 text-info' : 'size-8 shrink-0 text-info'}
       />
       <div className="flex min-w-0 flex-col gap-1">
         <p className="font-semibold text-fg">{title}</p>

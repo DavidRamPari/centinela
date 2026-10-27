@@ -6,8 +6,9 @@ export function heatLevel(count: number, max: number): 0 | 1 | 2 | 3 | 4 {
 }
 
 /**
- * Cell colours per view: alert counts on a pink scale ("where the threats showed up"),
- * rule coverage on a blue one ("the ground we guard"). Level 0 is plain text on the page.
+ * Cell colours per view, each a calm sequential scale from neutral: alert counts in muted
+ * amber ("where the threats showed up"), rule coverage in a calm blue ("the ground we
+ * guard"). Level 0 is plain text on the page.
  */
 export const HEAT_CLASSES = {
   alerts: [

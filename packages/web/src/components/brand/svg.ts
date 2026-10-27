@@ -5,12 +5,13 @@
 import { LETTERS, layout } from './corridor';
 import { MARK_PATHS } from './mark-paths';
 
+/** The brand's three colours as the dark theme draws them (S7b-16), plus black and ink. */
 export const BRAND_COLORS = {
   black: '#000000',
-  yellow: '#FFDE3D',
-  red: '#FF453A',
-  blue: '#3A3AF2',
-  ink: '#0B0B14',
+  yellow: '#F2C94C',
+  red: '#E5534B',
+  blue: '#5D84C2',
+  ink: '#1A1A1A',
 } as const;
 
 interface Colors {

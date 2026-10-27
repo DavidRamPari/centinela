@@ -32,6 +32,7 @@ const TEXT_PAIRS: Array<[fg: string, bg: string]> = [
     ['fg', bg],
     ['muted', bg],
     ['link', bg],
+    ['info', bg],
   ]),
   ['faint', 'bg'],
   ['faint', 'raised'],
@@ -97,8 +98,22 @@ describe('design tokens', () => {
     });
   }
 
-  it('use true black as the dark base', () => {
-    expect(tokens('.dark').bg).toBe('#000000');
+  it('use true black as the dark base, with off-white text', () => {
+    const dark = tokens('.dark');
+    expect(dark.bg).toBe('#000000');
+    // Pure white on pure black glares; body text is a warm off-white.
+    expect(dark.fg).not.toBe('#ffffff');
+    expect(contrast(dark.fg ?? '', '#000000')).toBeLessThan(19);
+  });
+
+  it('keep the medium severity amber apart from the yellow of primary actions', () => {
+    for (const selector of [':root', '.dark']) {
+      const palette = tokens(selector);
+      const medium = palette['sev-medium'] ?? '';
+      const accent = palette.accent ?? '';
+      // A clear lightness gap, not only a hue shift (a pip must never read as a button).
+      expect(contrast(medium, accent), selector).toBeGreaterThanOrEqual(1.7);
+    }
   });
 
   it('define the same tokens in both themes', () => {

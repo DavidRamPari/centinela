@@ -13,7 +13,7 @@ export type ButtonVariant = 'primary' | 'secondary' | 'quiet' | 'danger';
 const VARIANTS: Readonly<Record<ButtonVariant, string>> = {
   primary:
     'border-accent-edge bg-accent text-accent-fg hover:bg-accent-hover active:bg-accent-pressed',
-  secondary: 'border-line-strong text-fg hover:border-link hover:bg-hover active:bg-raised',
+  secondary: 'border-line-strong text-fg hover:border-line-hover hover:bg-hover active:bg-raised',
   quiet: 'border-transparent text-fg hover:bg-hover active:bg-raised',
   danger:
     'border-danger text-danger hover:bg-danger-fill hover:text-danger-fg active:bg-danger-fill active:text-danger-fg',
