@@ -92,8 +92,10 @@ export default function EventsPage() {
     {
       id: 'message',
       header: t('events.table.message'),
-      cell: (event) => <Truncate text={event.message} mono className="max-w-[40rem]" />,
-      className: 'hidden @5xl:table-cell',
+      cell: (event) => <Truncate text={event.message} mono />,
+      // The flexible column: it takes the room left and truncates instead of widening the
+      // table (a no-wrap cell would otherwise ask for its whole text as minimum width).
+      className: 'hidden @5xl:table-cell w-full max-w-0',
     },
   ];
 

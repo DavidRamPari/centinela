@@ -39,9 +39,11 @@ export default function RulesPage() {
           >
             {rule.title}
           </Link>
-          <Truncate text={rule.path} mono className="hidden max-w-[30rem] text-muted @3xl:block" />
+          <Truncate text={rule.path} mono className="hidden text-muted @3xl:block" />
         </div>
       ),
+      // The flexible column: the path truncates instead of widening the table.
+      className: 'w-full max-w-0',
     },
     {
       id: 'level',

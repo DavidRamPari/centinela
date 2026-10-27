@@ -177,10 +177,10 @@ function TacticColumn({
                 <span className={clsx('text-small', level > 0 && 'font-semibold')}>
                   {technique.name}
                 </span>{' '}
-                <span className="flex items-baseline justify-between gap-2 text-caption">
+                <span className="flex flex-wrap items-baseline justify-between gap-x-2 text-caption">
                   <span className="font-mono opacity-90">{technique.id}</span>{' '}
                   {level > 0 ? (
-                    <span className="font-semibold whitespace-nowrap">
+                    <span className="ml-auto font-semibold whitespace-nowrap">
                       {t(mode === 'alerts' ? 'attack.alertsCount' : 'attack.rulesCount', {
                         count,
                         value: format.number(count),
