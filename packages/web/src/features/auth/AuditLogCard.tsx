@@ -6,10 +6,10 @@ import { Link } from 'react-router';
 import { flattenPages } from '../../api/hooks';
 import { Section } from '../../components/ui/Section';
 import { Truncate } from '../../components/ui/Truncate';
-import { DataTable, type Column } from '../../components/ui/DataTable';
+import { DataTable, TableSkeleton, type Column } from '../../components/ui/DataTable';
 import { SelectField } from '../../components/ui/Fields';
 import { LoadMore } from '../../components/ui/LoadMore';
-import { EmptyState, ErrorState, LoadingState } from '../../components/ui/States';
+import { EmptyState, ErrorState, RefreshFailed, Updating } from '../../components/ui/States';
 import { useFormat } from '../../lib/format';
 import { actionKey, formatDetails, targetLink } from './audit-format';
 import { useAuditLog } from './hooks';
@@ -103,27 +103,39 @@ export function AuditLogCard() {
         />
       }
     >
-      {audit.isPending ? (
-        <LoadingState />
-      ) : audit.isError ? (
-        <ErrorState error={audit.error} onRetry={() => void audit.refetch()} />
-      ) : entries.length === 0 ? (
-        <EmptyState title={t('auth.audit.empty')} description={t('auth.audit.emptyHint')} />
+      {audit.data === undefined ? (
+        audit.isError ? (
+          <ErrorState error={audit.error} onRetry={() => audit.refetch()} />
+        ) : (
+          <TableSkeleton columns={columns} rows={5} label={t('auth.audit.loading')} />
+        )
       ) : (
         <>
-          <DataTable
-            caption={t('auth.audit.title')}
-            columns={columns}
-            rows={entries}
-            getRowId={(entry) => entry.id}
-            rowLabel={(entry) => `${entry.action} ${entry.actor ?? ''}`}
-          />
-          <LoadMore
-            hasMore={audit.hasNextPage}
-            loading={audit.isFetchingNextPage}
-            onLoadMore={() => void audit.fetchNextPage()}
-            shown={entries.length}
-          />
+          {audit.isRefetchError ? (
+            <RefreshFailed error={audit.error} onRetry={() => audit.refetch()} />
+          ) : null}
+          <Updating active={audit.isPlaceholderData}>
+            {entries.length === 0 ? (
+              <EmptyState title={t('auth.audit.empty')} description={t('auth.audit.emptyHint')} />
+            ) : (
+              <>
+                <DataTable
+                  caption={t('auth.audit.title')}
+                  columns={columns}
+                  rows={entries}
+                  getRowId={(entry) => entry.id}
+                  rowLabel={(entry) => `${entry.action} ${entry.actor ?? ''}`}
+                />
+                <LoadMore
+                  hasMore={audit.hasNextPage}
+                  loading={audit.isFetchingNextPage}
+                  failed={audit.isFetchNextPageError}
+                  onLoadMore={() => void audit.fetchNextPage({ cancelRefetch: false })}
+                  shown={entries.length}
+                />
+              </>
+            )}
+          </Updating>
         </>
       )}
     </Section>

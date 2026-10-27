@@ -8,17 +8,18 @@ import {
   type IngestToken,
   type IngestTokenCreated,
 } from '@centinela/shared';
-import { Copy, KeyRound, Plus } from 'lucide-react';
+import { KeyRound, Plus } from 'lucide-react';
 import { useId, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../components/ui/Button';
+import { CopyTextButton } from '../../components/ui/CopyButton';
 import { Section } from '../../components/ui/Section';
 import { CodeBlock } from '../../components/ui/CodeBlock';
-import { DataTable, type Column } from '../../components/ui/DataTable';
+import { DataTable, TableSkeleton, type Column } from '../../components/ui/DataTable';
 import { TextField } from '../../components/ui/Fields';
-import { EmptyState, ErrorState, LoadingState } from '../../components/ui/States';
-import { useToasts } from '../../components/ui/toast-context';
+import { EmptyState, ErrorState, RefreshFailed } from '../../components/ui/States';
 import { useFormat } from '../../lib/format';
+import { useSingleFlight } from '../../lib/single-flight';
 import { useCreateToken, useRevokeToken, useTokens } from './hooks';
 
 export function IngestTokensCard() {
@@ -31,19 +32,28 @@ export function IngestTokensCard() {
       <CreateTokenForm onCreated={setCreated} />
       {created ? <NewSecret created={created} onDismiss={() => setCreated(null)} /> : null}
       <div>
-        {tokens.isPending ? (
-          <LoadingState />
-        ) : tokens.isError ? (
-          <ErrorState error={tokens.error} onRetry={() => void tokens.refetch()} />
-        ) : tokens.data.items.length === 0 ? (
-          <EmptyState
-            compact
-            icon={KeyRound}
-            title={t('auth.tokens.empty')}
-            description={t('auth.tokens.emptyHint')}
-          />
+        {tokens.data === undefined ? (
+          tokens.isError ? (
+            <ErrorState error={tokens.error} onRetry={() => tokens.refetch()} />
+          ) : (
+            <TokensTable tokens={undefined} />
+          )
         ) : (
-          <TokensTable tokens={tokens.data.items} />
+          <>
+            {tokens.isRefetchError ? (
+              <RefreshFailed error={tokens.error} onRetry={() => tokens.refetch()} />
+            ) : null}
+            {tokens.data.items.length === 0 ? (
+              <EmptyState
+                compact
+                icon={KeyRound}
+                title={t('auth.tokens.empty')}
+                description={t('auth.tokens.emptyHint')}
+              />
+            ) : (
+              <TokensTable tokens={tokens.data.items} />
+            )}
+          </>
         )}
       </div>
     </Section>
@@ -53,6 +63,7 @@ export function IngestTokensCard() {
 function CreateTokenForm({ onCreated }: { onCreated: (created: IngestTokenCreated) => void }) {
   const { t } = useTranslation();
   const create = useCreateToken();
+  const flight = useSingleFlight();
   const [label, setLabel] = useState('');
   const [invalid, setInvalid] = useState(false);
   const hintId = useId();
@@ -62,12 +73,15 @@ function CreateTokenForm({ onCreated }: { onCreated: (created: IngestTokenCreate
     const body = ingestTokenCreateBodySchema.safeParse({ label });
     setInvalid(!body.success);
     if (!body.success) return;
-    create.mutate(body.data.label, {
-      onSuccess: (result) => {
-        setLabel('');
-        onCreated(result);
-      },
-    });
+    const value = body.data.label;
+    flight.run(() =>
+      create.mutateAsync(value, {
+        onSuccess: (result) => {
+          setLabel('');
+          onCreated(result);
+        },
+      }),
+    );
   }
 
   return (
@@ -83,8 +97,8 @@ function CreateTokenForm({ onCreated }: { onCreated: (created: IngestTokenCreate
           aria-describedby={hintId}
           aria-invalid={invalid || undefined}
         />
-        <Button type="submit" variant="primary" icon={Plus} loading={create.isPending}>
-          {create.isPending ? t('auth.tokens.creating') : t('auth.tokens.create')}
+        <Button type="submit" variant="primary" icon={Plus} loading={flight.busy}>
+          {flight.busy ? t('auth.tokens.creating') : t('auth.tokens.create')}
         </Button>
       </div>
       <p id={hintId} className="text-small text-muted">
@@ -102,16 +116,6 @@ function CreateTokenForm({ onCreated }: { onCreated: (created: IngestTokenCreate
 
 function NewSecret({ created, onDismiss }: { created: IngestTokenCreated; onDismiss: () => void }) {
   const { t } = useTranslation();
-  const { push } = useToasts();
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(created.secret);
-      push({ title: t('auth.tokens.copied') });
-    } catch {
-      push({ title: t('auth.tokens.copyFailed') });
-    }
-  }
 
   return (
     <div role="status" className="flex flex-col gap-3 border-l-2 border-accent-edge py-1 pl-4">
@@ -122,9 +126,9 @@ function NewSecret({ created, onDismiss }: { created: IngestTokenCreated; onDism
       <p className="text-muted">{t('auth.tokens.createdWarning')}</p>
       <CodeBlock text={created.secret} label={t('auth.tokens.secret')} />
       <div className="flex gap-2">
-        <Button size="sm" variant="primary" icon={Copy} onClick={() => void copy()}>
+        <CopyTextButton size="sm" variant="primary" value={created.secret}>
           {t('auth.tokens.copy')}
-        </Button>
+        </CopyTextButton>
         <Button size="sm" variant="quiet" onClick={onDismiss}>
           {t('auth.tokens.dismiss')}
         </Button>
@@ -133,7 +137,8 @@ function NewSecret({ created, onDismiss }: { created: IngestTokenCreated; onDism
   );
 }
 
-function TokensTable({ tokens }: { tokens: IngestToken[] }) {
+/** The tokens, or (while they load) the same table with placeholder rows. */
+function TokensTable({ tokens }: { tokens: IngestToken[] | undefined }) {
   const { t } = useTranslation();
   const format = useFormat();
   const columns: Array<Column<IngestToken>> = [
@@ -176,6 +181,9 @@ function TokensTable({ tokens }: { tokens: IngestToken[] }) {
       cell: (token) => (token.revokedAt ? null : <RevokeButton token={token} />),
     },
   ];
+  if (tokens === undefined) {
+    return <TableSkeleton columns={columns} rows={3} label={t('auth.tokens.loading')} />;
+  }
   return (
     <DataTable
       caption={t('auth.tokens.title')}
@@ -190,6 +198,7 @@ function TokensTable({ tokens }: { tokens: IngestToken[] }) {
 function RevokeButton({ token }: { token: IngestToken }) {
   const { t } = useTranslation();
   const revoke = useRevokeToken();
+  const flight = useSingleFlight();
   const [confirming, setConfirming] = useState(false);
   if (!confirming) {
     return (
@@ -203,13 +212,15 @@ function RevokeButton({ token }: { token: IngestToken }) {
       <Button
         size="sm"
         variant="danger"
-        loading={revoke.isPending}
+        loading={flight.busy}
         aria-label={t('auth.tokens.confirmRevokeLabel', { label: token.label })}
-        onClick={() => revoke.mutate(token.id, { onSettled: () => setConfirming(false) })}
+        onClick={() =>
+          flight.run(() => revoke.mutateAsync(token.id, { onSettled: () => setConfirming(false) }))
+        }
       >
         {t('auth.tokens.confirmRevoke')}
       </Button>
-      <Button size="sm" variant="quiet" onClick={() => setConfirming(false)}>
+      <Button size="sm" variant="quiet" disabled={flight.busy} onClick={() => setConfirming(false)}>
         {t('auth.tokens.cancel')}
       </Button>
     </span>

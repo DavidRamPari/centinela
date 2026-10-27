@@ -99,7 +99,7 @@ describe('alert detail', () => {
     const user = userEvent.setup();
     const alert = alertByTitle('Cross Site Scripting Strings');
     renderApp({ path: `/alerts/${alert.id}`, language: 'en' });
-    // The panel remounts after every change (fresh form state), so look it up each time.
+    // The panel changes with each status (its buttons come and go), so look it up each time.
     const triagePanel = async () =>
       within(
         (await screen.findByRole('heading', { name: 'Triage' })).closest('section') as HTMLElement,

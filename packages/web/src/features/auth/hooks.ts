@@ -1,6 +1,12 @@
 /** TanStack Query hooks for the session, ingest tokens and the audit log. */
 import type { SessionInfo } from '@centinela/shared';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { ApiError, type QueryParams } from '../../api/client';
 import { authApi } from './api';
 
@@ -77,5 +83,7 @@ export function useAuditLog(params: QueryParams) {
     queryFn: ({ pageParam, signal }) => authApi.listAudit({ ...params, cursor: pageParam }, signal),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
+    // A new action filter keeps the last entries on screen while it loads (S7b-17).
+    placeholderData: keepPreviousData,
   });
 }

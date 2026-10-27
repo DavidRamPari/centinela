@@ -6,13 +6,17 @@ import { z } from 'zod';
 import { useRule, useUpdateRule } from '../api/hooks';
 import { SeverityBadge } from '../components/ui/Badges';
 import { Button } from '../components/ui/Button';
+import { CopyButton } from '../components/ui/CopyButton';
 import { Section } from '../components/ui/Section';
 import { CodeBlock } from '../components/ui/CodeBlock';
 import { DescriptionList } from '../components/ui/DescriptionList';
 import { ExternalLink } from '../components/ui/ExternalLink';
 import { PageHeader } from '../components/ui/PageHeader';
-import { EmptyState, ErrorState, LoadingState } from '../components/ui/States';
+import { LoadingRegion, Skeleton, SkeletonLines, SkeletonText } from '../components/ui/Skeleton';
+import { EmptyState, ErrorState, RefreshFailed } from '../components/ui/States';
 import { useToasts } from '../components/ui/toast-context';
+import { describeError } from '../lib/error-text';
+import { useSingleFlight } from '../lib/single-flight';
 import { LicenseValue } from '../features/alerts/RulePanel';
 import { PlaybookPanel } from '../features/alerts/playbook/PlaybookPanel';
 import { TechniqueList } from '../features/attack/TechniqueLink';
@@ -52,16 +56,18 @@ function BackLink() {
 function RuleDetail({ id }: { id: string }) {
   const { t } = useTranslation();
   const detail = useRule(id);
-  if (detail.isPending) return <LoadingState />;
-  if (detail.isError) {
-    return (
-      <section>
-        <BackLink />
-        <div className="mt-6">
-          <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
-        </div>
-      </section>
-    );
+  if (detail.data === undefined) {
+    if (detail.isError) {
+      return (
+        <section>
+          <BackLink />
+          <div className="mt-6">
+            <ErrorState error={detail.error} onRetry={() => detail.refetch()} />
+          </div>
+        </section>
+      );
+    }
+    return <RuleDetailSkeleton />;
   }
   const { rule, source } = detail.data;
   return (
@@ -78,14 +84,17 @@ function RuleDetail({ id }: { id: string }) {
           </span>
         }
       />
-      <div className="grid grid-cols-1 gap-x-12 gap-y-12 xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+      {detail.isRefetchError ? (
+        <RefreshFailed error={detail.error} onRetry={() => detail.refetch()} />
+      ) : null}
+      <div className={COLUMNS}>
         <div className="flex min-w-0 flex-col gap-10">
           <WhatItDetects rule={rule} />
           <Section title={t('ruleDetail.source')} description={t('ruleDetail.sourceHint')}>
             <CodeBlock text={source} label={t('ruleDetail.source')} />
           </Section>
         </div>
-        <div className="flex min-w-0 flex-col gap-8 xl:border-l xl:border-line xl:pl-10">
+        <div className={ASIDE}>
           <EnablePanel rule={rule} />
           <div className="border-t border-line pt-8">
             <PlaybookPanel ruleId={rule.id} origin={rule.origin} />
@@ -157,6 +166,7 @@ function EnablePanel({ rule }: { rule: RuleMeta }) {
   const { t } = useTranslation();
   const { push } = useToasts();
   const update = useUpdateRule(rule.id);
+  const flight = useSingleFlight();
   const state = !rule.supported
     ? t('ruleDetail.stateUnsupported', { reason: rule.unsupportedReason ?? '' })
     : rule.buildingBlock
@@ -176,19 +186,26 @@ function EnablePanel({ rule }: { rule: RuleMeta }) {
         <Button
           variant={rule.enabled ? 'secondary' : 'primary'}
           icon={Power}
-          loading={update.isPending}
+          loading={flight.busy}
           onClick={() =>
-            update.mutate(
-              { enabled: !rule.enabled },
-              {
-                onSuccess: (next) =>
-                  push({
-                    title: next.enabled
-                      ? t('ruleDetail.enabledToast')
-                      : t('ruleDetail.disabledToast'),
-                  }),
-                onError: () => push({ title: t('ruleDetail.updateFailed') }),
-              },
+            flight.run(() =>
+              update.mutateAsync(
+                { enabled: !rule.enabled },
+                {
+                  onSuccess: (next) =>
+                    push({
+                      title: next.enabled
+                        ? t('ruleDetail.enabledToast')
+                        : t('ruleDetail.disabledToast'),
+                    }),
+                  onError: (error) =>
+                    push({
+                      tone: 'error',
+                      title: t('ruleDetail.updateFailed'),
+                      description: describeError(t, error).action,
+                    }),
+                },
+              ),
             )
           }
         >
@@ -234,7 +251,12 @@ function MetadataCard({ rule }: { rule: RuleMeta }) {
           },
           {
             term: t('rules.fields.id'),
-            value: <span className="break-all font-mono text-small">{rule.id}</span>,
+            value: (
+              <span className="flex items-center gap-0.5">
+                <span className="break-all font-mono text-small">{rule.id}</span>
+                <CopyButton value={rule.id} />
+              </span>
+            ),
           },
           {
             term: t('rules.fields.name'),
@@ -251,5 +273,62 @@ function MetadataCard({ rule }: { rule: RuleMeta }) {
         ]}
       />
     </Section>
+  );
+}
+
+const COLUMNS = 'grid grid-cols-1 gap-x-12 gap-y-12 xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]';
+const ASIDE = 'flex min-w-0 flex-col gap-8 xl:border-l xl:border-line xl:pl-10';
+
+/** The rule page before its first answer: real headings, placeholder values. */
+function RuleDetailSkeleton() {
+  const { t } = useTranslation();
+  const terms = [
+    t('rules.fields.logsource'),
+    t('alertDetail.attack'),
+    t('rules.fields.falsepositives'),
+    t('rules.fields.references'),
+  ];
+  return (
+    <LoadingRegion label={t('ruleDetail.loading')}>
+      <PageHeader
+        eyebrow={<BackLink />}
+        title={
+          <span className="block">
+            <SkeletonText className="w-[min(32rem,80%)]" />
+          </span>
+        }
+        description={
+          <span className="flex items-center gap-x-5 text-body">
+            <Skeleton className="h-6 w-24 rounded-badge" />
+            <Skeleton className="h-5 w-40 rounded-badge" />
+          </span>
+        }
+      />
+      <div className={COLUMNS}>
+        <div className="flex min-w-0 flex-col gap-10">
+          <Section framed title={t('ruleDetail.whatItDetects')}>
+            <SkeletonLines lines={2} className="max-w-prose text-lead" />
+            <DescriptionList
+              items={terms.map((term, index) => ({
+                term,
+                value: <SkeletonText className={index % 2 === 0 ? 'w-1/2' : 'w-2/3'} />,
+              }))}
+            />
+          </Section>
+          <Section title={t('ruleDetail.source')} description={t('ruleDetail.sourceHint')}>
+            <Skeleton className="h-64 rounded-control" />
+          </Section>
+        </div>
+        <div className={ASIDE}>
+          <div className="flex flex-col gap-4">
+            <div>
+              <p className="text-lead font-semibold text-fg">{t('ruleDetail.state')}</p>
+              <SkeletonLines lines={1} className="mt-0.5" />
+            </div>
+            <Skeleton className="h-10 w-32 rounded-control" />
+          </div>
+        </div>
+      </div>
+    </LoadingRegion>
   );
 }

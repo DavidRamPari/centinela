@@ -8,10 +8,12 @@ import { SeverityBadge, StatusBadge } from '../components/ui/Badges';
 import { Button } from '../components/ui/Button';
 import { Checkbox } from '../components/ui/Fields';
 import { Truncate } from '../components/ui/Truncate';
-import { DataTable, type Column } from '../components/ui/DataTable';
+import { DataTable, TableSkeleton, type Column } from '../components/ui/DataTable';
 import { LoadMore } from '../components/ui/LoadMore';
 import { PageHeader } from '../components/ui/PageHeader';
-import { EmptyState, ErrorState, LoadingState } from '../components/ui/States';
+import { Skeleton, SkeletonText } from '../components/ui/Skeleton';
+import { lineWidth } from '../components/ui/skeleton-widths';
+import { EmptyState, ErrorState, RefreshFailed, Updating } from '../components/ui/States';
 import { useToasts } from '../components/ui/toast-context';
 import { AlertFilterBar } from '../features/alerts/AlertFilterBar';
 import {
@@ -20,7 +22,10 @@ import {
   readAlertFilters,
 } from '../features/alerts/alert-filters';
 import { EntitySummary } from '../features/alerts/EntityList';
+import { useFreshAlerts } from '../features/live/live-context';
+import { describeError } from '../lib/error-text';
 import { useFormat } from '../lib/format';
+import { useSingleFlight } from '../lib/single-flight';
 
 export default function AlertsPage() {
   const { t } = useTranslation();
@@ -33,6 +38,8 @@ export default function AlertsPage() {
   const query = useMemo(() => alertQueryParams(filters), [filters]);
   const list = useAlertsList(query);
   const bulk = useBulkUpdateAlerts();
+  const flight = useSingleFlight();
+  const fresh = useFreshAlerts();
   const alerts = flattenPages(list.data);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [selectionKey, setSelectionKey] = useState(search);
@@ -56,15 +63,25 @@ export default function AlertsPage() {
   function acknowledgeSelected() {
     const ids = visibleSelected.filter((alert) => alert.status === 'new').map((alert) => alert.id);
     if (ids.length === 0) return;
-    bulk.mutate(
-      { ids, status: 'acknowledged' },
-      {
-        onSuccess: ({ updated }) => {
-          setSelected(new Set());
-          push({ title: t('alerts.bulk.done', { value: format.number(updated) }) });
+    // The rows show "Acknowledged" at once; a refusal puts them back and says so.
+    flight.run(() =>
+      bulk.mutateAsync(
+        { ids, status: 'acknowledged' },
+        {
+          onSuccess: ({ updated }) => {
+            setSelected(new Set());
+            push({ title: t('alerts.bulk.done', { value: format.number(updated) }) });
+          },
+          onError: (error) =>
+            push({
+              tone: 'error',
+              title: t('alerts.bulk.failed'),
+              description: t('alerts.bulk.rolledBack', {
+                action: describeError(t, error).action,
+              }),
+            }),
         },
-        onError: () => push({ title: t('alerts.bulk.failed') }),
-      },
+      ),
     );
   }
 
@@ -87,12 +104,18 @@ export default function AlertsPage() {
         />
       ),
       className: 'w-10 pr-0',
+      skeleton: () => (
+        <span className="flex h-[1lh] items-center">
+          <Skeleton className="size-[18px] rounded-badge" />
+        </span>
+      ),
     },
     {
       id: 'level',
       header: t('alerts.table.level'),
       cell: (alert) => <SeverityBadge level={alert.level} />,
       className: 'w-32',
+      skeleton: () => <SkeletonText className="w-20" />,
     },
     {
       id: 'title',
@@ -113,6 +136,15 @@ export default function AlertsPage() {
             <time dateTime={alert.lastSeen} className="text-small text-muted">
               {format.relative(alert.lastSeen)}
             </time>
+          </span>
+        </span>
+      ),
+      // Title, then (on narrow tables) the status and time line under it.
+      skeleton: (index) => (
+        <span className="flex flex-col gap-1">
+          <SkeletonText className={lineWidth(index)} />
+          <span className="@3xl:hidden">
+            <SkeletonText className="w-28" />
           </span>
         </span>
       ),
@@ -170,41 +202,60 @@ export default function AlertsPage() {
         <Button
           variant="primary"
           icon={CheckCheck}
-          loading={bulk.isPending}
+          loading={flight.busy}
           disabled={newSelected === 0}
           onClick={acknowledgeSelected}
         >
           {t('alerts.bulk.acknowledge')}
         </Button>
         <span className="text-muted" aria-live="polite">
-          {visibleSelected.length > 0 && newSelected === 0
-            ? t('alerts.bulk.nothingNew', { value: format.number(visibleSelected.length) })
-            : t('alerts.bulk.selected', { value: format.number(visibleSelected.length) })}
+          {/* The rows already show the new status; this says it is still being saved. */}
+          {flight.busy
+            ? t('alerts.bulk.saving')
+            : visibleSelected.length > 0 && newSelected === 0
+              ? t('alerts.bulk.nothingNew', { value: format.number(visibleSelected.length) })
+              : t('alerts.bulk.selected', { value: format.number(visibleSelected.length) })}
         </span>
       </div>
-      {list.isPending ? (
-        <LoadingState />
-      ) : list.isError ? (
-        <ErrorState error={list.error} onRetry={() => void list.refetch()} />
-      ) : alerts.length === 0 ? (
-        <EmptyState title={t('alerts.empty.title')} description={t('alerts.empty.description')} />
+      {list.data === undefined ? (
+        list.isError ? (
+          <ErrorState error={list.error} onRetry={() => list.refetch()} />
+        ) : (
+          <TableSkeleton columns={columns} label={t('alerts.loading')} />
+        )
       ) : (
         <>
-          <DataTable
-            caption={t('alerts.table.caption')}
-            columns={columns}
-            rows={alerts}
-            getRowId={(alert) => alert.id}
-            rowLabel={(alert) => `${t(`levels.${alert.level}`)}: ${alert.ruleTitle}`}
-            isRowSelected={(alert) => selected.has(alert.id)}
-            onOpen={(alert) => void navigate(`/alerts/${alert.id}`)}
-          />
-          <LoadMore
-            shown={alerts.length}
-            hasMore={list.hasNextPage}
-            loading={list.isFetchingNextPage}
-            onLoadMore={() => void list.fetchNextPage()}
-          />
+          {list.isRefetchError ? (
+            <RefreshFailed error={list.error} onRetry={() => list.refetch()} />
+          ) : null}
+          <Updating active={list.isPlaceholderData}>
+            {alerts.length === 0 ? (
+              <EmptyState
+                title={t('alerts.empty.title')}
+                description={t('alerts.empty.description')}
+              />
+            ) : (
+              <>
+                <DataTable
+                  caption={t('alerts.table.caption')}
+                  columns={columns}
+                  rows={alerts}
+                  getRowId={(alert) => alert.id}
+                  rowLabel={(alert) => `${t(`levels.${alert.level}`)}: ${alert.ruleTitle}`}
+                  isRowSelected={(alert) => selected.has(alert.id)}
+                  isRowFresh={(alert) => fresh.has(alert.id)}
+                  onOpen={(alert) => void navigate(`/alerts/${alert.id}`)}
+                />
+                <LoadMore
+                  shown={alerts.length}
+                  hasMore={list.hasNextPage}
+                  loading={list.isFetchingNextPage}
+                  failed={list.isFetchNextPageError}
+                  onLoadMore={() => void list.fetchNextPage({ cancelRefetch: false })}
+                />
+              </>
+            )}
+          </Updating>
         </>
       )}
     </section>
