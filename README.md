@@ -39,20 +39,19 @@ The operator's guide is [docs/SECURITY.md](docs/SECURITY.md).
 ## From a log line to an alert on screen
 
 ```mermaid
-flowchart LR
-  L["Log line: auth.log, access log or Sysmon JSON"] --> I["POST /api/ingest<br/>bearer token, rate limit"]
-  I --> P["Parser<br/>normalized event"]
-  P --> E[("PostgreSQL<br/>events")]
-  P --> R["Logsource routing<br/>and prefilter"]
-  R --> S["Sigma rules<br/>(compiled at start-up)"]
-  S --> C["Correlation<br/>windows on event time"]
-  S --> A["Alert sink<br/>deduplication"]
+%%{init: {"flowchart": {"rankSpacing": 32, "nodeSpacing": 28}}}%%
+flowchart TB
+  I["Log lines → POST /api/ingest (bearer token, rate limit)"]
+  I --> P["Parser: one normalized event per line"]
+  P --> E[("PostgreSQL: events")]
+  P --> S["Sigma rules: logsource routing, prefilter, matching"]
+  S --> C["Correlation: windows on event time"]
+  S --> A["Alert sink: deduplication, suppression"]
   C --> A
-  A --> DB[("PostgreSQL<br/>alerts")]
-  A --> SSE["Live stream<br/>/api/stream"]
-  DB --> API["REST API"]
-  API --> UI["Dashboard<br/>English and Spanish"]
-  SSE --> UI
+  A --> DB[("PostgreSQL: alerts")]
+  A -->|"live stream (SSE)"| UI["Dashboard in English and Spanish"]
+  DB -->|REST API| UI
+  E -->|REST API| UI
 ```
 
 The same pipeline serves `npm run ingest` (files) and the dashboard's upload. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DETECTION.md](docs/DETECTION.md).

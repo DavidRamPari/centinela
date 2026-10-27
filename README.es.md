@@ -39,20 +39,19 @@ La guía para operadores es [docs/SECURITY.md](docs/SECURITY.md) (en inglés).
 ## De una línea de log a una alerta en pantalla
 
 ```mermaid
-flowchart LR
-  L["Línea de log: auth.log, log de acceso o JSON de Sysmon"] --> I["POST /api/ingest<br/>token bearer, límite de solicitudes"]
-  I --> P["Parser<br/>evento normalizado"]
-  P --> E[("PostgreSQL<br/>eventos")]
-  P --> R["Enrutamiento por logsource<br/>y prefiltro"]
-  R --> S["Reglas Sigma<br/>(compiladas al arrancar)"]
-  S --> C["Correlación<br/>ventanas en tiempo del evento"]
-  S --> A["Receptor de alertas<br/>deduplicación"]
+%%{init: {"flowchart": {"rankSpacing": 32, "nodeSpacing": 28}}}%%
+flowchart TB
+  I["Líneas de log → POST /api/ingest (token bearer, límite de solicitudes)"]
+  I --> P["Parser: un evento normalizado por línea"]
+  P --> E[("PostgreSQL: eventos")]
+  P --> S["Reglas Sigma: enrutamiento por logsource, prefiltro, evaluación"]
+  S --> C["Correlación: ventanas en tiempo del evento"]
+  S --> A["Receptor de alertas: deduplicación, supresión"]
   C --> A
-  A --> DB[("PostgreSQL<br/>alertas")]
-  A --> SSE["Flujo en vivo<br/>/api/stream"]
-  DB --> API["API REST"]
-  API --> UI["Panel<br/>español e inglés"]
-  SSE --> UI
+  A --> DB[("PostgreSQL: alertas")]
+  A -->|"flujo en vivo (SSE)"| UI["Panel en español e inglés"]
+  DB -->|API REST| UI
+  E -->|API REST| UI
 ```
 
 El mismo pipeline atiende a `npm run ingest` (archivos) y a la carga de archivos del panel. Detalles: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) y [docs/DETECTION.md](docs/DETECTION.md) (en inglés).
