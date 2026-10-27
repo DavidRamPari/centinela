@@ -626,7 +626,7 @@ CREATE TABLE rule_state (
 );
 ```
 
-S6 adds `admin_sessions` (HMAC of the session token, user name, created, last seen, expiry, IP, user agent), `ingest_tokens` (SHA-256 of the secret, label, display prefix, created/last used/revoked timestamps and actors) and `audit_log` (time, actor, action, target, IP, `details` jsonb) in migration `002_auth-sessions-tokens-audit.sql`. Integration tests create a throwaway schema per run and drop it afterwards.
+S6 adds `admin_sessions` (HMAC of the session token, user name, created, last seen, expiry, IP, user agent), `ingest_tokens` (SHA-256 of the secret, label, display prefix, created/last used/revoked timestamps and actors) and `audit_log` (time, actor, action, target, IP, `details` jsonb; `seq`, an identity column added by migration `003_audit-log-sequence.sql`, orders the rows) in migration `002_auth-sessions-tokens-audit.sql`. Integration tests create a throwaway schema per run and drop it afterwards.
 
 ## 9. HTTP API
 
@@ -713,7 +713,7 @@ Tests never call external networks. Database tests use a throwaway schema.
 | `INGEST_TOKEN` | `dev-ingest-token-change-me` | required, at least 32 characters, in production |
 | `RULES_DIR` | `./rules` | |
 | `CONTENT_DIR` | `./content` | S7 |
-| `TRUST_PROXY` | `false` | set when behind a reverse proxy (rate limiting by client IP) |
+| `TRUST_PROXY` | `false` | set when behind a reverse proxy (rate limiting, lockout and audit by client IP): a hop count (1–32) or a comma-separated list of proxy addresses, subnets or `loopback`/`linklocal`/`uniquelocal`; `true` is refused (S6) |
 | `ADMIN_USERNAME` | `admin` | S6; required in production |
 | `ADMIN_PASSWORD_HASH` | argon2id hash of `centinela-dev` | S6; required in production (`npm run hash-password`), argon2id with m ≥ 19456 and t ≥ 2, never the development password |
 | `SESSION_SECRET` | `dev-session-secret-change-me` | S6; keys session ids and CSRF tokens; required, at least 32 characters, in production |

@@ -59,8 +59,34 @@ describe('loadConfig', () => {
       trustProxy: 1,
     });
     expect(isAbsolute(config.contentDir)).toBe(true);
-    expect(loadConfig({ TRUST_PROXY: 'true' }).trustProxy).toBe(true);
-    expect(loadConfig({ TRUST_PROXY: 'loopback' }).trustProxy).toBe('loopback');
+  });
+
+  it.each([
+    ['false', false],
+    ['0', false],
+    ['2', 2],
+    ['loopback', ['loopback']],
+    [
+      '10.0.0.5, 172.16.0.0/12,fd00::/8, uniquelocal',
+      ['10.0.0.5', '172.16.0.0/12', 'fd00::/8', 'uniquelocal'],
+    ],
+  ])('reads TRUST_PROXY=%s', (value, expected) => {
+    expect(loadConfig({ TRUST_PROXY: value }).trustProxy).toEqual(expected);
+  });
+
+  it.each([
+    // Trusting every hop lets any client pick its IP (ERR_ERL_PERMISSIVE_TRUST_PROXY).
+    'true',
+    'yes',
+    '-1',
+    '33',
+    '10.0.0.300',
+    '10.1',
+    '10.0.0.0/33',
+    'loopback,',
+    'proxy.internal',
+  ])('rejects TRUST_PROXY=%s', (value) => {
+    expect(() => loadConfig({ TRUST_PROXY: value })).toThrow('TRUST_PROXY');
   });
 
   it.each([

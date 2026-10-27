@@ -33,7 +33,7 @@ Steps:
 1. `npm run hash-password --silent` (type the password twice; or `printf '%s' "$PASSWORD" | npm run hash-password --silent`). The password is never taken from the command line. It needs at least 12 characters, and the development password is refused. Store the printed line in your secret store; keep the single quotes in `.env` files because the hash contains `$`.
 2. `openssl rand -hex 32` for `SESSION_SECRET` and again for `INGEST_TOKEN`.
 3. Serve the dashboard and the API over HTTPS from one origin (the bundled nginx proxies `/api`). Set HSTS on the TLS terminator.
-4. Set `TRUST_PROXY` to the proxy hop count or address when a reverse proxy you control sits in front of the API. Rate limits, the sign-in lockout and the audit log use the client IP Express derives from it. Without it every request seems to come from the proxy, so one lockout locks everyone out.
+4. Set `TRUST_PROXY` when a reverse proxy you control sits in front of the API: the number of proxy hops (`1` for the bundled nginx alone) or a comma-separated list of the proxies' addresses or subnets (`10.0.0.5`, `172.16.0.0/12`, `loopback`). Rate limits, the sign-in lockout and the audit log use the client IP Express derives from it. Without it every request seems to come from the proxy, so one lockout locks everyone out. `true` is refused: trusting every hop would let any client set its own IP with `X-Forwarded-For` and walk around the rate limits and the lockout.
 
 Every variable is documented in [`.env.example`](../.env.example) and ARCHITECTURE §15.
 
@@ -73,7 +73,7 @@ The Security page creates and revokes bearer tokens for `POST /api/ingest`. A to
 
 ## Audit log
 
-The Security page and `GET /api/audit` list, newest first: sign-ins, failed sign-ins (with the attempted user name), lockouts, sign-outs, alert triage (single and bulk), rule enable/disable, token creation and revocation, and dashboard uploads, each with the actor, the target, the client IP and details. Triage and token changes are written in the same transaction as the change. The application only inserts audit rows; it cannot protect them from someone with direct write access to the database.
+The Security page and `GET /api/audit` list, newest first: sign-ins, failed sign-ins (with the attempted user name), lockouts, sign-outs, alert triage (single and bulk), rule enable/disable, token creation and revocation, and dashboard uploads, each with the actor, the target, the client IP and details. Triage and token changes are written in the same transaction as the change, and so are a failed sign-in and the lockout it triggers. Entries are listed in the order they were written (a database sequence), not by timestamp, so rows written in the same millisecond keep their order. The application only inserts audit rows; it cannot protect them from someone with direct write access to the database.
 
 ## Security headers
 

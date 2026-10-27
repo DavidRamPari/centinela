@@ -4,6 +4,7 @@
  * with the development secrets or without the admin credentials.
  */
 import { isAbsolute, resolve } from 'node:path';
+import ipaddr from 'ipaddr.js';
 import { z } from 'zod';
 import { MIN_PRODUCTION_ARGON2, parseArgon2idHash } from './auth/phc.js';
 import { repoRoot } from './paths.js';
@@ -23,15 +24,44 @@ export const MIN_PRODUCTION_SECRET_LENGTH = 32;
 
 const LOG_LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'] as const;
 
-export type TrustProxy = boolean | number | string;
+/**
+ * Express `trust proxy`: `false` (default: the socket address is the client), the number of
+ * proxy hops in front of the server, or the proxies' addresses and subnets. `true` is
+ * refused: it trusts every hop, so any client could choose its own IP with
+ * `X-Forwarded-For` and walk around the rate limits, the sign-in lockout and the audit log
+ * (express-rate-limit reports it as ERR_ERL_PERMISSIVE_TRUST_PROXY).
+ */
+export type TrustProxy = false | number | string[];
 
-/** Express `trust proxy` value: `true`/`false`, a hop count, or an address/subnet list. */
-function parseTrustProxy(raw: string): TrustProxy {
+/** proxy-addr's names for the special ranges. */
+const TRUST_PROXY_KEYWORDS = new Set(['loopback', 'linklocal', 'uniquelocal']);
+export const MAX_TRUST_PROXY_HOPS = 32;
+
+function isStrictIp(text: string): boolean {
+  return ipaddr.IPv4.isValidFourPartDecimal(text) || ipaddr.IPv6.isValid(text);
+}
+
+/** An address, a subnet in CIDR notation or a keyword (`loopback`, ...). */
+function isTrustedProxyEntry(entry: string): boolean {
+  if (TRUST_PROXY_KEYWORDS.has(entry)) return true;
+  const slash = entry.indexOf('/');
+  if (slash === -1) return isStrictIp(entry);
+  const address = entry.slice(0, slash);
+  const prefix = entry.slice(slash + 1);
+  if (!isStrictIp(address) || !/^\d{1,3}$/.test(prefix)) return false;
+  return Number(prefix) <= (ipaddr.IPv4.isValidFourPartDecimal(address) ? 32 : 128);
+}
+
+/** `TRUST_PROXY` → Express setting, or undefined when the value is not allowed. */
+export function parseTrustProxy(raw: string): TrustProxy | undefined {
   const value = raw.trim();
-  if (value === '' || value === 'false') return false;
-  if (value === 'true') return true;
-  if (/^\d+$/.test(value)) return Number(value);
-  return value;
+  if (value === '' || value === 'false' || value === '0') return false;
+  if (/^\d+$/.test(value)) {
+    const hops = Number(value);
+    return hops <= MAX_TRUST_PROXY_HOPS ? hops : undefined;
+  }
+  const entries = value.split(',').map((entry) => entry.trim());
+  return entries.every(isTrustedProxyEntry) ? entries : undefined;
 }
 
 /** Empty strings count as unset, so `FOO=` in a .env file falls back to the default. */
@@ -61,7 +91,15 @@ const envSchema = z
     INGEST_TOKEN: optionalString.pipe(z.string().default(DEV_INGEST_TOKEN)),
     RULES_DIR: optionalString.pipe(z.string().default('./rules')),
     CONTENT_DIR: optionalString.pipe(z.string().default('./content')),
-    TRUST_PROXY: optionalString.pipe(z.string().default('false')),
+    TRUST_PROXY: optionalString.pipe(
+      z
+        .string()
+        .default('false')
+        .refine((value) => parseTrustProxy(value) !== undefined, {
+          message:
+            'must be false, a hop count (1-32) or a comma-separated list of proxy addresses, subnets or loopback/linklocal/uniquelocal; true is refused because it lets any client choose its IP',
+        }),
+    ),
     ADMIN_USERNAME: optionalString.pipe(
       z
         .string()
@@ -232,7 +270,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     ingestToken: parsed.INGEST_TOKEN,
     rulesDir: resolveDir(parsed.RULES_DIR),
     contentDir: resolveDir(parsed.CONTENT_DIR),
-    trustProxy: parseTrustProxy(parsed.TRUST_PROXY),
+    trustProxy: parseTrustProxy(parsed.TRUST_PROXY) ?? false,
     admin: {
       username: parsed.ADMIN_USERNAME ?? DEV_ADMIN_USERNAME,
       passwordHash: parsed.ADMIN_PASSWORD_HASH ?? DEV_ADMIN_PASSWORD_HASH,
