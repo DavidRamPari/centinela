@@ -1,16 +1,24 @@
 /**
- * Load a folder of Sigma rules for fixture validation: Centinela's vendored subset
- * (`rules/sigma`, the default) or the `rules/` folder of a full SigmaHQ checkout. Every
- * `.yml`/`.yaml` file below the folder is compiled with the detection engine's own rule
- * set builder (S2), so validation uses exactly the semantics the pipeline uses.
+ * Load the rules that content is validated against, in one of two shapes:
  *
- * `regression/` at the top of the folder holds test data, not rules, and hidden folders
- * (`.git`, `.github`) are skipped. Symbolic links are not followed.
+ * - a folder of Sigma rules: Centinela's vendored subset (`rules/sigma`) or the `rules/`
+ *   folder of a full SigmaHQ checkout. Every `.yml`/`.yaml` file below it is compiled
+ *   as a SigmaHQ rule. `regression/` at the top holds test data, not rules, and hidden
+ *   folders (`.git`, `.github`) are skipped;
+ * - a Centinela rules root (the repository's `rules/`, recognized by its `centinela/` or
+ *   `correlation/` folder), read with the detection engine's own loader, so correlation
+ *   references resolve exactly as in the pipeline. Content for this shape is content for
+ *   Centinela's own rules (`content/centinela`), so only those rules are expected to have
+ *   a file.
+ *
+ * Both are compiled with the detection engine's own rule set builder (S2), so validation
+ * uses exactly the semantics the pipeline uses. Symbolic links are not followed.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import type { RuleMeta } from '@centinela/shared';
 import { loadAttackIndexSync } from '@centinela/shared/node';
-import type { RuleSource } from '../detection/rules/loader.js';
+import { readRuleSources, readSigmaCommit, type RuleSource } from '../detection/rules/loader.js';
 import { buildRuleSet, type RuleSet } from '../detection/rules/ruleset.js';
 
 const RULE_FILE = /\.ya?ml$/i;
@@ -46,6 +54,39 @@ export interface SigmaFolder {
   ruleSet: RuleSet;
   /** Path of a rule relative to the folder, from its `RuleMeta.path`. */
   relPath(metaPath: string): string;
+  /** Rules expected to have a content file (deprecated and unsupported-status rules aside). */
+  expectsContent(meta: RuleMeta): boolean;
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** A Centinela rules root has the engine's `centinela/` or `correlation/` folder. */
+export function isRulesRoot(dir: string): boolean {
+  return isDirectory(join(dir, 'centinela')) || isDirectory(join(dir, 'correlation'));
+}
+
+/** The repository's `rules/` folder (or one shaped like it), with the engine's loader. */
+export function loadRulesRoot(dir: string): SigmaFolder {
+  const ruleSet = buildRuleSet(readRuleSources(dir), {
+    sigmaCommit: readSigmaCommit(dir),
+    attack: loadAttackIndexSync(),
+  });
+  return {
+    ruleSet,
+    relPath: (metaPath) => (metaPath.startsWith('rules/') ? metaPath.slice('rules/'.length) : metaPath),
+    expectsContent: (meta) => meta.origin === 'centinela',
+  };
+}
+
+/** `loadRulesRoot` for a Centinela rules root, `loadSigmaFolder` for anything else. */
+export function loadRuleFolder(dir: string): SigmaFolder {
+  return isRulesRoot(dir) ? loadRulesRoot(dir) : loadSigmaFolder(dir);
 }
 
 export function loadSigmaFolder(dir: string): SigmaFolder {
@@ -62,5 +103,7 @@ export function loadSigmaFolder(dir: string): SigmaFolder {
   return {
     ruleSet,
     relPath: (metaPath) => (metaPath.startsWith(prefix) ? metaPath.slice(prefix.length) : metaPath),
+    // The SigmaHQ generator writes content for detection rules only.
+    expectsContent: (meta) => meta.type === 'sigma',
   };
 }

@@ -14,14 +14,19 @@ the regression suite in npm test).
 
 Options:
   --content <dir>   content folder (default: <repo>/content/sigma)
-  --rules <dir>     Sigma rules folder, for example the rules/ folder of a SigmaHQ
-                    checkout (default: <repo>/rules/sigma)
+  --rules <dir>     rules folder: a folder of Sigma rules such as the rules/ folder of a
+                    SigmaHQ checkout, or a Centinela rules root (with centinela/ and
+                    correlation/) for Centinela's own content (default: <repo>/rules/sigma
+                    for <repo>/content/sigma, <repo>/rules for any other content folder)
   --out <file>      failures file (default: <content>-failures.json next to the content folder)
-  --report <file>   Markdown report (default: <repo>/docs/content-pack-report.md)
+  --report <file>   Markdown report (default: <repo>/docs/content-pack-report.md for
+                    <repo>/content/sigma, <content>-report.md for any other content folder)
   --rejected <dir>  where --prune moves failing fixtures (default: <content>-rejected)
   --prune           move failing fixtures out of the content files, with their reason
   -h, --help        show this help
 `;
+
+const DEFAULT_CONTENT = join(repoRoot, 'content', 'sigma');
 
 export interface ValidateArgs {
   contentDir: string;
@@ -77,16 +82,16 @@ export function parseValidateArgs(argv: string[]): ValidateArgs | 'help' {
   const path = z.string().trim().min(1);
   const schema = z.object({
     content: path,
-    rules: path,
+    rules: path.optional(),
     out: path.optional(),
-    report: path,
+    report: path.optional(),
     rejected: path.optional(),
   });
   const result = schema.safeParse({
-    content: values.content ?? join(repoRoot, 'content', 'sigma'),
-    rules: values.rules ?? join(repoRoot, 'rules', 'sigma'),
+    content: values.content ?? DEFAULT_CONTENT,
+    rules: values.rules,
     out: values.out,
-    report: values.report ?? join(repoRoot, 'docs', 'content-pack-report.md'),
+    report: values.report,
     rejected: values.rejected,
   });
   if (!result.success) {
@@ -94,11 +99,22 @@ export function parseValidateArgs(argv: string[]): ValidateArgs | 'help' {
   }
   const at = (p: string) => fromInvocationDir(expandHome(p));
   const contentDir = at(result.data.content);
+  // The vendored SigmaHQ content keeps its historical defaults; other folders (Centinela's
+  // own content, or another pack) default to the full rules root and a report beside them.
+  const vendored = contentDir === DEFAULT_CONTENT;
   return {
     contentDir,
-    rulesDir: at(result.data.rules),
+    rulesDir:
+      result.data.rules === undefined
+        ? join(repoRoot, 'rules', ...(vendored ? ['sigma'] : []))
+        : at(result.data.rules),
     out: result.data.out === undefined ? siblingOf(contentDir, '-failures.json') : at(result.data.out),
-    report: at(result.data.report),
+    report:
+      result.data.report === undefined
+        ? vendored
+          ? join(repoRoot, 'docs', 'content-pack-report.md')
+          : siblingOf(contentDir, '-report.md')
+        : at(result.data.report),
     rejectedDir:
       result.data.rejected === undefined ? siblingOf(contentDir, '-rejected') : at(result.data.rejected),
     prune: values.prune,

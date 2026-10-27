@@ -40,7 +40,19 @@ describe('content:validate options', () => {
       contentDir: join(homedir(), 'sigma-playbooks', 'content'),
       out: join(homedir(), 'sigma-playbooks', 'content-failures.json'),
       rejectedDir: join(homedir(), 'sigma-playbooks', 'content-rejected'),
+      report: join(homedir(), 'sigma-playbooks', 'content-report.md'),
       prune: true,
+    });
+  });
+
+  it("defaults Centinela's own content to the full rules root and a report beside it", () => {
+    expect(parseValidateArgs(['--content', join(repoRoot, 'content', 'centinela')])).toEqual({
+      contentDir: join(repoRoot, 'content', 'centinela'),
+      rulesDir: join(repoRoot, 'rules'),
+      out: join(repoRoot, 'content', 'centinela-failures.json'),
+      report: join(repoRoot, 'content', 'centinela-report.md'),
+      rejectedDir: join(repoRoot, 'content', 'centinela-rejected'),
+      prune: false,
     });
   });
 

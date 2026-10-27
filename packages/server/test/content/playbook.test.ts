@@ -13,7 +13,7 @@ import { createTestDatabase, type TestDatabase } from '../helpers/db.js';
 const WITH_CONTENT = '0022869c-49f7-4ff2-ba03-85ac42ddac58';
 /** `proc_creation_win_hktl_dinjector.yml`: the generator's safety filter refused it. */
 const WITHOUT_CONTENT = 'd78b5d61-187d-44b6-bf02-93486a80de5a';
-/** `centinela-ssh-auth-failure`: Centinela's own rules have no content pack. */
+/** `centinela-ssh-auth-failure`, a Centinela base rule. */
 const CENTINELA_RULE = '5ab518e4-b4bf-44a2-9874-a8e86a590287';
 
 const playbook = {
@@ -42,6 +42,17 @@ function contentFile(id: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** `centinela-ssh-bruteforce-success`, the demo's critical correlation. */
+const CORRELATION_RULE = '1751f556-a4e2-493f-a475-ead6e0163909';
+
+/** A correlation rule's content: a playbook and no fixtures. */
+function playbookOnly(id: string) {
+  const { fixtures: _fixtures, ...rest } = contentFile(id, {
+    rule: { id, title: 't', license: 'MIT', url: null, author: 'DavidRamPari' },
+  });
+  return rest;
+}
+
 describe('GET /api/rules/:id/playbook', () => {
   // Since S6 the route sits behind the session guard, which needs a session row.
   let db: TestDatabase;
@@ -60,6 +71,40 @@ describe('GET /api/rules/:id/playbook', () => {
       .expect(401);
     expect(res.headers['content-type']).toMatch(/^application\/problem\+json/);
     expect(res.body).not.toHaveProperty('playbook');
+  });
+
+  it("serves a Centinela correlation's playbook-only content with MIT attribution", async () => {
+    const contentDir = mkdtempSync(join(tmpdir(), 'centinela-content-dir-'));
+    try {
+      mkdirSync(join(contentDir, 'centinela'));
+      writeFileSync(
+        join(contentDir, 'centinela', `${CORRELATION_RULE}.json`),
+        JSON.stringify(playbookOnly(CORRELATION_RULE)),
+      );
+      const { app: withCentinela } = createTestApp({
+        pool: db.pool,
+        env: { CONTENT_DIR: contentDir },
+      });
+      const res = await request(withCentinela)
+        .get(`/api/rules/${CORRELATION_RULE}/playbook?lang=es`)
+        .expect(200);
+      const body = playbookResponseSchema.parse(res.body);
+      expect(body.playbook.summary).toBe('Resumen.');
+      // Attribution comes from the loaded rule: Centinela's rules are MIT, with no SigmaHQ link.
+      expect(body.rule).toEqual({
+        title: 'Successful SSH login after a brute force',
+        author: 'DavidRamPari',
+        url: null,
+        license: 'MIT',
+      });
+      // A Centinela rule without a file in that folder has no playbook.
+      const missing = await request(withCentinela)
+        .get(`/api/rules/${CENTINELA_RULE}/playbook`)
+        .expect(404);
+      expect(problemSchema.parse(missing.body).detail).toBe('No playbook for this rule');
+    } finally {
+      rmSync(contentDir, { recursive: true, force: true });
+    }
   });
 
   it('returns the English playbook with the rule attribution and the AI notice', async () => {
@@ -97,7 +142,6 @@ describe('GET /api/rules/:id/playbook', () => {
 
   it.each([
     ['a rule without content', WITHOUT_CONTENT, 'No playbook for this rule'],
-    ['a Centinela rule', CENTINELA_RULE, 'No playbook for this rule'],
     ['an unknown rule', '00000000-0000-4000-8000-00000000abcd', 'Rule not found'],
   ])('answers 404 problem+json for %s', async (_label, id, detail) => {
     const res = await request(app).get(`/api/rules/${id}/playbook?lang=es`).expect(404);
@@ -121,7 +165,8 @@ describe('content pack loading', () => {
 
   it('loads every vendored playbook once per folder', () => {
     const pack = loadContentPack(join(repoRoot, 'content'));
-    expect(pack.size).toBe(1221);
+    // 1,221 SigmaHQ rules, plus Centinela's own rules once content/centinela is generated.
+    expect(pack.size).toBeGreaterThanOrEqual(1221);
     expect(pack.errors).toEqual([]);
     expect(loadContentPack(join(repoRoot, 'content'))).toBe(pack);
     expect(pack.get(WITH_CONTENT.toUpperCase())?.playbooks.es.summary).toMatch(/^reg\.exe/);
@@ -155,9 +200,28 @@ describe('content pack loading', () => {
     expect(pack.get(a)?.playbooks.en.summary).toBe('Summary <script>alert(1)</script>.');
     expect(pack.get(a)?.playbooks.es.summary).toBe('Resumen.');
     expect(pack.errors.map((e) => [e.file, e.reason])).toEqual([
-      ['broken.json', 'invalid JSON'],
-      [`${b}.json`, 'playbook does not fit the API schema'],
-      ['copy.json', `duplicate content for rule ${a}`],
+      ['sigma/broken.json', 'invalid JSON'],
+      [`sigma/${b}.json`, 'playbook does not fit the API schema'],
+      ['sigma/copy.json', `duplicate content for rule ${a}`],
+    ]);
+  });
+
+  it('reads Centinela content after SigmaHQ content and accepts playbook-only files', () => {
+    const base = join(root, 'both');
+    mkdirSync(join(base, 'sigma'), { recursive: true });
+    mkdirSync(join(base, 'centinela'), { recursive: true });
+    const a = '33333333-3333-4333-8333-333333333333';
+    writeFileSync(join(base, 'sigma', `${a}.json`), JSON.stringify(contentFile(a)));
+    writeFileSync(join(base, 'centinela', `${a}.json`), JSON.stringify(contentFile(a)));
+    writeFileSync(
+      join(base, 'centinela', `${CORRELATION_RULE}.json`),
+      JSON.stringify(playbookOnly(CORRELATION_RULE)),
+    );
+    const pack = readContentPack(base);
+    expect(pack.size).toBe(2);
+    expect(pack.get(CORRELATION_RULE)?.playbooks.en.whatItDetects).toBe('What.');
+    expect(pack.errors).toEqual([
+      { file: `centinela/${a}.json`, reason: `duplicate content for rule ${a}` },
     ]);
   });
 });

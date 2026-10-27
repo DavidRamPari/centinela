@@ -43,10 +43,16 @@ export const contentFileSchema = z.object({
     license: z.string().nullish(),
   }),
   playbook: z.object({ es: contentPlaybookSchema, en: contentPlaybookSchema }),
-  fixtures: z.object({
-    positive: z.array(contentFixtureSchema),
-    negative: z.array(contentFixtureSchema),
-  }),
+  /**
+   * Absent for correlation rules: their content is a playbook only, because a correlation
+   * cannot be tested with single events.
+   */
+  fixtures: z
+    .object({
+      positive: z.array(contentFixtureSchema),
+      negative: z.array(contentFixtureSchema),
+    })
+    .optional(),
   generated: z.object({
     tool: z.string(),
     model: z.string(),

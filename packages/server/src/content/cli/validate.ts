@@ -9,7 +9,7 @@ import { dirname } from 'node:path';
 import { buildFailuresFile } from '../failures.js';
 import { pruneFailures, writeJsonAtomic } from '../prune.js';
 import { buildContentReport, contentSummary } from '../report.js';
-import { loadSigmaFolder } from '../rules.js';
+import { loadRuleFolder } from '../rules.js';
 import { readContentDir, validateContent } from '../validate.js';
 import { displayPath, parseValidateArgs, VALIDATE_USAGE, type ValidateArgs } from './args.js';
 
@@ -41,7 +41,7 @@ function main(argv: string[]): number {
   }
   try {
     const started = performance.now();
-    const folder = loadSigmaFolder(args.rulesDir);
+    const folder = loadRuleFolder(args.rulesDir);
     const validation = validateContent(folder, readContentDir(args.contentDir));
     const shown = {
       rulesDir: displayPath(args.rulesDir),
