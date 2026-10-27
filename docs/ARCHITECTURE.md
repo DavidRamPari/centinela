@@ -43,7 +43,7 @@ flowchart LR
 ```text
 centinela/
   CLAUDE.md                    instructions for Claude sessions
-  docs/                        PLAN, ARCHITECTURE, DECISIONS, later THREAT_MODEL, DETECTION, DEPLOY
+  docs/                        PLAN, ARCHITECTURE, DECISIONS, DETECTION, THREAT_MODEL, SECURITY
   data/mitre-attack/           compact ATT&CK tactics and techniques (from mitre/cti)
   rules/
     sigma/                     vendored SigmaHQ subset (DRL 1.1) + regression samples
@@ -676,7 +676,7 @@ Since S6 every endpoint except `GET /api/health`, `POST /api/ingest` (bearer tok
 - Trust boundaries: log sources → ingest endpoint (authenticated by token); browser → API (session cookie plus CSRF header, S6); repository → rules (trusted).
 - Attacker-controlled data: every log line and every field derived from it. Rendered as text only, stored with parameterized queries, matched with linear-time regexes, never executed.
 - Limits: 5 MB per ingest request, 8,192 characters per message, 1,000 lines per batch, rate limits on ingest and `/api/auth/*`, sign-in lockout, bounded SSE clients.
-- Authentication (S6): one admin (argon2id hash in `ADMIN_PASSWORD_HASH`), server-side sessions in PostgreSQL behind an httpOnly `__Host-centinela` cookie, CSRF double-submit (`__Host-centinela-csrf` cookie repeated in `X-CSRF-Token`) on every state-changing request, ingest tokens stored hashed, audit log of analyst actions.
+- Authentication (S6): one admin (argon2id hash in `ADMIN_PASSWORD_HASH`), server-side sessions in PostgreSQL behind an httpOnly `__Host-centinela` cookie, CSRF double-submit (`__Host-centinela-csrf` cookie repeated in `X-CSRF-Token`) on every state-changing request, ingest tokens stored hashed, audit log of analyst actions. Over plain HTTP on localhost outside production the two cookies are `centinela-local` and `centinela-local-csrf`, without `Secure`, because WebKit refuses `Secure` cookies there (S8; `docs/SECURITY.md`).
 - Headers: API responses carry `helmet` headers with `default-src 'none'` and `Cache-Control: no-store`; the HTML (nginx in Docker, Vite in development) carries a strict Content Security Policy defined in `packages/web/security/headers.ts`.
 - Secrets only in environment variables; production refuses to start with development defaults or without the admin credentials.
 - `docs/THREAT_MODEL.md` has the full analysis; `docs/SECURITY.md` the operator's guide.
@@ -721,3 +721,4 @@ Tests never call external networks. Database tests use a throwaway schema.
 | `LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_MINUTES` | `5`, `15` | S6; per-IP sign-in lockout |
 | `RATE_LIMIT_INGEST_PER_MINUTE`, `RATE_LIMIT_UPLOAD_PER_MINUTE`, `RATE_LIMIT_AUTH_PER_MINUTE` | `120`, `30`, `30` | per client IP (S1's constants, moved to configuration in S6) |
 | `VITE_USE_MOCKS` | `false` | web: use MSW instead of the API |
+| `VITE_PUBLIC_URL` | empty | web build: public origin of the dashboard for link previews (S7b-18); empty leaves the card tags out |
