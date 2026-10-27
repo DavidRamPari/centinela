@@ -11,10 +11,13 @@ import {
 } from '@centinela/shared';
 import { Router } from 'express';
 import { z } from 'zod';
+import { recordAudit } from '../auth/audit.js';
+import { authOf } from '../auth/guard.js';
 import { alertCountsByRule } from '../db/alerts.js';
 import type { AppDeps } from '../deps.js';
 import { HttpError } from '../http/problem.js';
 import { validate } from '../http/validate.js';
+import { clientIp } from '../security/client-ip.js';
 import { invalidQuery } from './query.js';
 
 /**
@@ -98,6 +101,14 @@ export function createRulesRouter({ pool, rules }: Pick<AppDeps, 'pool' | 'rules
     const body = validate(rulePatchBodySchema, req.body, 'body');
     const rule = await rules.setEnabled(id, body.enabled);
     if (!rule) throw new HttpError(404, 'Rule not found');
+    // Written after the change: the rule catalog owns the rule_state write (S6-07).
+    await recordAudit(pool, {
+      actor: authOf(res).session.username,
+      action: 'rule.update',
+      target: rule.id,
+      ip: clientIp(req),
+      details: { enabled: body.enabled, title: rule.title },
+    });
     res.json(rule);
   });
 

@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { parseArgs } from 'node:util';
 import { DEFAULT_SEED, generate } from '@centinela/loggen';
-import { ConfigError, loadConfig } from '../packages/server/src/config.js';
+import { ConfigError, DEV_ADMIN_PASSWORD, loadConfig } from '../packages/server/src/config.js';
 import { checkScenarios } from '../packages/server/src/db/ground-truth.js';
 import { runMigrations } from '../packages/server/src/db/migrate.js';
 import { createPool } from '../packages/server/src/db/pool.js';
@@ -115,7 +115,7 @@ async function main(argv: string[]): Promise<number> {
       pipeline,
       sample.files.map((file) => ({
         path: file.path,
-        source: file.file === 'auth' ? 'linux_auth' : 'nginx_access',
+        source: file.source,
         host: file.host,
         lines: file.content.split('\n'),
       })),
@@ -147,7 +147,7 @@ async function main(argv: string[]): Promise<number> {
     print('Scenarios (ground truth):');
     for (const scenario of results) {
       const detail = scenario.rules.map((rule) => `${rule.expected} (${rule.alerts})`).join(', ');
-      print(`  ${scenario.detected ? 'ok     ' : 'MISSED '} ${scenario.id.padEnd(20)} ${detail}`);
+      print(`  ${scenario.detected ? 'ok     ' : 'MISSED '} ${scenario.id.padEnd(24)} ${detail}`);
     }
     const detected = results.filter((scenario) => scenario.detected).length;
     print();
@@ -157,6 +157,12 @@ async function main(argv: string[]): Promise<number> {
       'Open the dashboard: http://localhost:8080 (docker compose) or http://localhost:5173 (npm run dev).',
     );
     print('The default view shows the last 24 hours; pick "Last 7 days" to see every scenario.');
+    // The demo runs with the server's configuration, so this is the sign-in the server uses.
+    print(
+      config.admin.usingDevPassword
+        ? `Sign in as ${config.admin.username} / ${DEV_ADMIN_PASSWORD} (development credentials).`
+        : `Sign in as ${config.admin.username} with the password behind ADMIN_PASSWORD_HASH.`,
+    );
     return detected === results.length ? 0 : 1;
   } finally {
     await pool.end();

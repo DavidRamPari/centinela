@@ -2,12 +2,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { playbookResponseSchema, problemSchema } from '@centinela/shared';
-import pg from 'pg';
 import request from 'supertest';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadContentPack, readContentPack } from '../../src/content/pack.js';
 import { repoRoot } from '../../src/paths.js';
 import { createTestApp } from '../helpers/app.js';
+import { createTestDatabase, type TestDatabase } from '../helpers/db.js';
 
 /** `proc_creation_win_discovery_via_reg_queries.yml`, which has content. */
 const WITH_CONTENT = '0022869c-49f7-4ff2-ba03-85ac42ddac58';
@@ -31,16 +31,36 @@ function contentFile(id: string, overrides: Record<string, unknown> = {}) {
     rule: { id, title: 't' },
     playbook: { es: { ...playbook, summary: 'Resumen.' }, en: playbook },
     fixtures: { positive: [], negative: [] },
-    generated: { tool: 'content-pack/1', model: 'm', at: '2026-10-25T00:00:00Z', review: 'unreviewed', notice: 'AI-generated.' },
+    generated: {
+      tool: 'content-pack/1',
+      model: 'm',
+      at: '2026-10-25T00:00:00Z',
+      review: 'unreviewed',
+      notice: 'AI-generated.',
+    },
     ...overrides,
   };
 }
 
 describe('GET /api/rules/:id/playbook', () => {
-  // The route reads rules and content from disk only; the pool is never connected.
-  const pool = new pg.Pool({ connectionString: 'postgres://unused@127.0.0.1:1/unused' });
-  afterAll(() => pool.end());
-  const { app } = createTestApp({ pool });
+  // Since S6 the route sits behind the session guard, which needs a session row.
+  let db: TestDatabase;
+  let app: ReturnType<typeof createTestApp>['app'];
+  let signedOut: ReturnType<typeof createTestApp>['app'];
+  beforeAll(async () => {
+    db = await createTestDatabase();
+    ({ app } = createTestApp({ pool: db.pool }));
+    ({ app: signedOut } = createTestApp({ pool: db.pool, signedIn: false }));
+  });
+  afterAll(() => db.cleanup());
+
+  it('answers 401 without the dashboard session', async () => {
+    const res = await request(signedOut)
+      .get(`/api/rules/${WITH_CONTENT}/playbook?lang=en`)
+      .expect(401);
+    expect(res.headers['content-type']).toMatch(/^application\/problem\+json/);
+    expect(res.body).not.toHaveProperty('playbook');
+  });
 
   it('returns the English playbook with the rule attribution and the AI notice', async () => {
     const res = await request(app).get(`/api/rules/${WITH_CONTENT}/playbook?lang=en`).expect(200);
@@ -52,7 +72,9 @@ describe('GET /api/rules/:id/playbook', () => {
     expect(body.rule).toEqual({
       title: 'System Information Discovery via Registry Queries',
       author: 'lazarg',
-      url: expect.stringMatching(/^https:\/\/github\.com\/SigmaHQ\/sigma\/blob\/[0-9a-f]{40}\/rules\/windows\/process_creation\/proc_creation_win_discovery_via_reg_queries\.yml$/) as string,
+      url: expect.stringMatching(
+        /^https:\/\/github\.com\/SigmaHQ\/sigma\/blob\/[0-9a-f]{40}\/rules\/windows\/process_creation\/proc_creation_win_discovery_via_reg_queries\.yml$/,
+      ) as string,
       license: 'DRL-1.1',
     });
     expect(body.generated).toMatchObject({ tool: 'content-pack/1', review: 'unreviewed' });
@@ -66,7 +88,8 @@ describe('GET /api/rules/:id/playbook', () => {
     expect(es.lang).toBe('es');
     expect(es.playbook.summary).toMatch(/^reg\.exe o PowerShell leyeron/);
     const byDefault = playbookResponseSchema.parse(
-      (await request(app).get(`/api/rules/${WITH_CONTENT.toUpperCase()}/playbook`).expect(200)).body,
+      (await request(app).get(`/api/rules/${WITH_CONTENT.toUpperCase()}/playbook`).expect(200))
+        .body,
     );
     expect(byDefault.lang).toBe('en');
     expect(byDefault.ruleId).toBe(WITH_CONTENT);
@@ -120,7 +143,11 @@ describe('content pack loading', () => {
     writeFileSync(join(dir, 'copy.json'), JSON.stringify(contentFile(a)));
     writeFileSync(
       join(dir, `${b}.json`),
-      JSON.stringify(contentFile(b, { playbook: { es: playbook, en: { ...playbook, summary: 'x'.repeat(5000) } } })),
+      JSON.stringify(
+        contentFile(b, {
+          playbook: { es: playbook, en: { ...playbook, summary: 'x'.repeat(5000) } },
+        }),
+      ),
     );
     writeFileSync(join(dir, 'broken.json'), '{');
     const pack = readContentPack(join(root, 'content'));

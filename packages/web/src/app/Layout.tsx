@@ -4,6 +4,7 @@ import {
   Bell,
   FileUp,
   Grid3x3,
+  KeyRound,
   LayoutDashboard,
   ScrollText,
   ShieldHalf,
@@ -16,10 +17,11 @@ import { LanguageToggle } from '../components/ui/LanguageToggle';
 import { LoadingState } from '../components/ui/States';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { ToastProvider } from '../components/ui/Toasts';
+import { SessionMenu } from '../features/auth/SessionMenu';
 import { LiveIndicator } from '../features/live/LiveIndicator';
 import { LiveUpdates } from '../features/live/LiveUpdates';
 
-type NavKey = 'overview' | 'alerts' | 'events' | 'attack' | 'rules' | 'ingest';
+type NavKey = 'overview' | 'alerts' | 'events' | 'attack' | 'rules' | 'ingest' | 'security';
 
 const NAV_ITEMS: ReadonlyArray<{
   to: string;
@@ -32,6 +34,7 @@ const NAV_ITEMS: ReadonlyArray<{
   { to: '/attack', key: 'attack', icon: Grid3x3 },
   { to: '/rules', key: 'rules', icon: ScrollText },
   { to: '/ingest', key: 'ingest', icon: FileUp },
+  { to: '/security', key: 'security', icon: KeyRound },
 ];
 
 /**
@@ -96,6 +99,7 @@ function Shell() {
           <HealthBadge />
           <ThemeToggle />
           <LanguageToggle />
+          <SessionMenu />
         </header>
         <main id="main" className="min-w-0 flex-1 p-4 md:p-6">
           <Suspense fallback={<LoadingState />}>

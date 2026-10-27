@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * `npm run loggen -- [--seed n] [--days n] [--start iso] [--out dir] [--small]`: writes
- * `<out>/<host>/auth.log`, `<out>/<host>/access.log` and `<out>/ground-truth.json`.
+ * `<out>/<host>/auth.log`, `<out>/<host>/access.log`, `<out>/<host>/sysmon.jsonl` and
+ * `<out>/ground-truth.json`.
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';

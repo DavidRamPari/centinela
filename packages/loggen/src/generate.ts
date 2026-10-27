@@ -3,10 +3,13 @@
  * Everything random comes from seeded streams, so the same options always give
  * byte-identical output.
  */
+import type { SourceType } from '@centinela/shared';
 import { generateBackgroundAuth } from './background-auth.js';
 import { generateBackgroundWeb } from './background-web.js';
+import { generateBackgroundWindows } from './background-windows.js';
 import {
   FILE_NAMES,
+  FILE_SOURCES,
   HOSTS,
   type GeneratedLine,
   type GeneratorOptions,
@@ -37,6 +40,8 @@ const SCHEDULE_DAYS = 3;
 export interface GeneratedFile {
   host: Host;
   file: LogFile;
+  /** The `source` to ingest the file with. */
+  source: SourceType;
   /** `<host>/<file name>`, relative to the output folder. */
   path: string;
   content: string;
@@ -44,7 +49,7 @@ export interface GeneratedFile {
 }
 
 export interface GenerationResult {
-  /** Every line, each file's lines in time order (files in host order, auth first). */
+  /** Every line, each file's lines in time order (files in host order: auth, access, sysmon). */
   lines: GeneratedLine[];
   files: GeneratedFile[];
   groundTruth: GroundTruth;
@@ -130,6 +135,7 @@ export function generate(options: GeneratorOptions): GenerationResult {
     : [{ fromMs: startMs, toMs: startMs + days * DAY_MS }];
   generateBackgroundAuth(collector, seed, intervals);
   generateBackgroundWeb(collector, seed, intervals);
+  generateBackgroundWindows(collector, seed, intervals);
 
   const byFile = new Map<string, GeneratedLine[]>();
   for (const line of collector.lines) {
@@ -142,7 +148,7 @@ export function generate(options: GeneratorOptions): GenerationResult {
   const files: GeneratedFile[] = [];
   const lines: GeneratedLine[] = [];
   for (const host of HOSTS) {
-    for (const file of ['auth', 'access'] as const) {
+    for (const file of ['auth', 'access', 'sysmon'] as const) {
       const list = byFile.get(`${host}/${file}`);
       if (!list) continue;
       // Array.prototype.sort is stable: equal timestamps keep their generation order.
@@ -150,6 +156,7 @@ export function generate(options: GeneratorOptions): GenerationResult {
       files.push({
         host,
         file,
+        source: FILE_SOURCES[file],
         path: `${host}/${FILE_NAMES[file]}`,
         content: `${list.map((line) => line.text).join('\n')}\n`,
         lineCount: list.length,

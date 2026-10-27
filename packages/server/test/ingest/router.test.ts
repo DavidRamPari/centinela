@@ -1,21 +1,13 @@
 import { ingestSummarySchema, problemSchema } from '@centinela/shared';
-import express from 'express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEV_INGEST_TOKEN } from '../../src/config.js';
-import { createErrorHandler } from '../../src/http/errors.js';
 import { tokensEqual } from '../../src/ingest/auth.js';
-import { createIngestRouter } from '../../src/ingest/router.js';
 import { createTestApp } from '../helpers/app.js';
+import { TEST_USERNAME, productionTestEnv, signIn } from '../helpers/auth.js';
 import { createTestDatabase, type TestDatabase } from '../helpers/db.js';
 
 const AUTH = `Bearer ${DEV_INGEST_TOKEN}`;
-const PRODUCTION_TOKEN = 'prod-token-0123456789abcdef0123456789';
-const PRODUCTION_ENV = {
-  NODE_ENV: 'production',
-  INGEST_TOKEN: PRODUCTION_TOKEN,
-  DATABASE_URL: 'postgres://centinela:not-the-dev-password@localhost:5432/centinela',
-};
 
 const AUTH_LINES = [
   'Oct 25 14:03:12 bastion-01 sshd[1234]: Failed password for root from 203.0.113.45 port 40000 ssh2',
@@ -214,14 +206,54 @@ describe('POST /api/ingest and /api/ingest/upload', () => {
   });
 
   describe('upload', () => {
-    it('ingests without a token outside production', async () => {
+    it('ingests with the dashboard session and CSRF token, and audits the upload', async () => {
       const res = await request(app)
-        .post('/api/ingest/upload?source=linux_auth')
+        .post('/api/ingest/upload?source=linux_auth&host=upload-host')
         .type('text/plain')
         .send('Oct 25 14:03:12 upload-host sshd[1]: Invalid user x from 192.0.2.1 port 1\n')
         .expect(200);
       expect(res.body).toMatchObject({ accepted: 1 });
       expect(await countEvents('upload-host')).toBe(1);
+      const { rows } = await db.pool.query<{ actor: string; details: unknown }>(
+        `SELECT actor, details FROM audit_log WHERE action = 'ingest.upload'`,
+      );
+      expect(rows).toEqual([
+        {
+          actor: TEST_USERNAME,
+          details: { source: 'linux_auth', host: 'upload-host', accepted: 1, rejected: 0 },
+        },
+      ]);
+    });
+
+    it('answers 401 without a session and 403 without the CSRF token', async () => {
+      const { app: anonymous } = createTestApp({ pool: db.pool, signedIn: false });
+      const line = 'Oct 25 14:03:12 anon-host sshd[1]: Invalid user x from 192.0.2.1 port 1';
+      expectProblem(
+        await request(anonymous)
+          .post('/api/ingest/upload?source=linux_auth')
+          .type('text/plain')
+          .send(line),
+        401,
+      );
+      // A bearer token is not a dashboard session.
+      expectProblem(
+        await request(anonymous)
+          .post('/api/ingest/upload?source=linux_auth')
+          .set('Authorization', AUTH)
+          .type('text/plain')
+          .send(line),
+        401,
+      );
+      const session = await signIn(anonymous);
+      expectProblem(
+        await request(anonymous)
+          .post('/api/ingest/upload?source=linux_auth')
+          .set('Cookie', session.cookie)
+          .type('text/plain')
+          .send(line),
+        403,
+      );
+      expect(await countEvents('anon-host')).toBe(0);
     });
 
     it('validates the query like /api/ingest', async () => {
@@ -232,41 +264,46 @@ describe('POST /api/ingest and /api/ingest/upload', () => {
       expectProblem(res, 400);
     });
 
-    it('answers 404 in production, while the token endpoint keeps working', async () => {
-      const { app: production } = createTestApp({ pool: db.pool, env: PRODUCTION_ENV });
-      const upload = await request(production)
+    it('works in production behind the session, next to the token endpoint', async () => {
+      const env = await productionTestEnv();
+      const { app: production } = createTestApp({ pool: db.pool, env, signedIn: false });
+      const line = 'Oct 25 14:03:12 prod-host sshd[1]: x';
+      expectProblem(
+        await request(production)
+          .post('/api/ingest/upload?source=linux_auth')
+          .type('text/plain')
+          .send(line),
+        401,
+      );
+      const session = await signIn(production);
+      await request(production)
         .post('/api/ingest/upload?source=linux_auth')
+        .set(session.headers)
         .type('text/plain')
-        .send('Oct 25 14:03:12 prod-host sshd[1]: x');
-      expectProblem(upload, 404);
+        .send(line)
+        .expect(200);
       await request(production)
         .post('/api/ingest?source=linux_auth')
         .set('Authorization', AUTH)
         .type('text/plain')
-        .send('Oct 25 14:03:12 prod-host sshd[1]: x')
+        .send(line)
         .expect(401);
       await request(production)
         .post('/api/ingest?source=linux_auth')
-        .set('Authorization', `Bearer ${PRODUCTION_TOKEN}`)
+        .set('Authorization', `Bearer ${env.INGEST_TOKEN}`)
         .type('text/plain')
-        .send('Oct 25 14:03:12 prod-host sshd[1]: x')
+        .send(line)
         .expect(200);
-      expect(await countEvents('prod-host')).toBe(1);
+      expect(await countEvents('prod-host')).toBe(2);
     });
   });
 
   describe('rate limiting', () => {
-    it('answers 429 problem+json past the limit, also for bad tokens', async () => {
-      const { deps } = createTestApp({ pool: db.pool });
-      const limited = express();
-      limited.use(
-        '/api',
-        createIngestRouter(deps, {
-          ingestRateLimit: { windowMs: 60_000, limit: 2 },
-          uploadRateLimit: { windowMs: 60_000, limit: 1 },
-        }),
-      );
-      limited.use(createErrorHandler(deps.logger));
+    it('answers 429 problem+json past the configured limits, also for bad tokens', async () => {
+      const { app: limited } = createTestApp({
+        pool: db.pool,
+        env: { RATE_LIMIT_INGEST_PER_MINUTE: '2', RATE_LIMIT_UPLOAD_PER_MINUTE: '1' },
+      });
 
       const send = (auth: string) =>
         request(limited)

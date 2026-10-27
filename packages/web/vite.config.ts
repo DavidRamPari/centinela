@@ -4,6 +4,7 @@ import { msw } from 'msw/vite';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, loadEnv } from 'vite';
 import { browserSourceResolve } from '../../vitest.shared.js';
+import { securityHeaders } from './security/vite-plugin.js';
 
 /** One `.env` for the whole repository (see .env.example). */
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
@@ -17,7 +18,14 @@ const apiTarget =
 export default defineConfig({
   // `worker-only` serves mockServiceWorker.js on the dev server only (never in a production
   // build); src/main.tsx starts the worker when VITE_USE_MOCKS=true.
-  plugins: [react(), tailwindcss(), { ...msw({ mode: 'worker-only' }), apply: 'serve' }],
+  // securityHeaders(): Content Security Policy and security headers for `vite` and
+  // `vite preview` (S6); nginx sends the same production headers in Docker.
+  plugins: [
+    react(),
+    tailwindcss(),
+    { ...msw({ mode: 'worker-only' }), apply: 'serve' },
+    securityHeaders(),
+  ],
   ...browserSourceResolve,
   // Only VITE_* variables reach the browser bundle.
   envDir: repoRoot,

