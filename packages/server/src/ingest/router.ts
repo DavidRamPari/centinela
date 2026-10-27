@@ -2,58 +2,38 @@
  * Ingest endpoints (ARCHITECTURE §9):
  *
  * - `POST /api/ingest`: for agents and scripts. Bearer token (`INGEST_TOKEN`, compared in
- *   constant time), body `text/plain` lines or `application/x-ndjson`, at most 5 MB.
+ *   constant time, or an active token created in the dashboard), body `text/plain` lines or
+ *   `application/x-ndjson`, at most 5 MB.
  * - `POST /api/ingest/upload`: file upload from the dashboard, same pipeline and limits,
- *   no token. Mounted only when `NODE_ENV` is not `production` (so it answers `404`
- *   there); session S6 puts it behind the dashboard session and CSRF.
+ *   behind the dashboard session and its CSRF token (S6), in every environment.
  *
- * Middleware order: rate limit → token → query validation → content type → body parser →
- * pipeline. Unauthenticated or malformed requests are refused before the body is read.
+ * Middleware order: rate limit → credentials → query validation → content type → body
+ * parser → pipeline. Unauthenticated or malformed requests are refused before the body is
+ * read. Rate limits come from the configuration (`RATE_LIMIT_*_PER_MINUTE`).
  */
 import { ingestQuerySchema, type IngestQuery } from '@centinela/shared';
-import express, { Router, type RequestHandler } from 'express';
-import { rateLimit } from 'express-rate-limit';
+import express, { Router, type Request, type RequestHandler, type Response } from 'express';
+import { recordAudit } from '../auth/audit.js';
+import { authOf } from '../auth/guard.js';
+import type { Auth } from '../auth/index.js';
 import type { AppDeps } from '../deps.js';
-import { HttpError, problem, sendProblem } from '../http/problem.js';
+import { HttpError } from '../http/problem.js';
 import { validate } from '../http/validate.js';
+import type { IngestSummary } from '../pipeline/types.js';
 import { MAX_REJECTION_SAMPLES } from '../pipeline/orchestrator.js';
+import { clientIp } from '../security/client-ip.js';
+import { createRateLimiter } from '../security/rate-limit.js';
 import { requireBearerToken } from './auth.js';
 import { decodeBody, mergeRejections, type BodyFormat } from './body.js';
 
 export const INGEST_BODY_LIMIT = '5mb';
-
-export interface RateLimitOptions {
-  windowMs: number;
-  /** Requests per client IP per window. */
-  limit: number;
-}
-
-/** Agents batch their lines, so two requests per second per client is generous. */
-export const INGEST_RATE_LIMIT: RateLimitOptions = { windowMs: 60_000, limit: 120 };
-/** The dashboard uploads files by hand. */
-export const UPLOAD_RATE_LIMIT: RateLimitOptions = { windowMs: 60_000, limit: 30 };
-
-export interface IngestRouterOptions {
-  ingestRateLimit?: RateLimitOptions;
-  uploadRateLimit?: RateLimitOptions;
-}
 
 const CONTENT_TYPES: Record<string, BodyFormat> = {
   'text/plain': 'text',
   'application/x-ndjson': 'ndjson',
 };
 
-function limiter({ windowMs, limit }: RateLimitOptions): RequestHandler {
-  return rateLimit({
-    windowMs,
-    limit,
-    standardHeaders: 'draft-8',
-    legacyHeaders: false,
-    handler: (_req, res) => {
-      sendProblem(res, problem(429, 'Too many ingest requests; slow down and retry later'));
-    },
-  });
-}
+const RATE_LIMITED = 'Too many ingest requests; slow down and retry later';
 
 interface IngestLocals {
   query: IngestQuery;
@@ -78,7 +58,9 @@ const textBody = express.text({
   limit: INGEST_BODY_LIMIT,
 });
 
-function runPipeline(deps: AppDeps): RequestHandler {
+type AfterIngest = (req: Request, res: Response, summary: IngestSummary) => Promise<void>;
+
+function runPipeline(deps: AppDeps, after?: AfterIngest): RequestHandler {
   return async (req, res) => {
     const { query, format } = res.locals.ingest as IngestLocals;
     const body: unknown = req.body;
@@ -89,28 +71,52 @@ function runPipeline(deps: AppDeps): RequestHandler {
       timezone: query.tz,
       receivedAt: new Date(),
     });
-    res.json(mergeRejections(summary, decoded.rejections, MAX_REJECTION_SAMPLES));
+    const merged = mergeRejections(summary, decoded.rejections, MAX_REJECTION_SAMPLES);
+    await after?.(req, res, merged);
+    res.json(merged);
   };
 }
 
-export function createIngestRouter(deps: AppDeps, options: IngestRouterOptions = {}): Router {
+/** Uploads are analyst actions: who sent what, and how much of it was accepted. */
+function auditUpload(deps: AppDeps): AfterIngest {
+  return async (req, res, summary) => {
+    const { query } = res.locals.ingest as IngestLocals;
+    await recordAudit(deps.pool, {
+      actor: authOf(res).session.username,
+      action: 'ingest.upload',
+      ip: clientIp(req),
+      details: {
+        source: query.source,
+        host: query.host,
+        accepted: summary.accepted,
+        rejected: summary.rejected,
+      },
+    });
+  };
+}
+
+export function createIngestRouter(
+  deps: AppDeps,
+  auth: Pick<Auth, 'verifyIngestToken' | 'requireSession' | 'requireCsrf'>,
+): Router {
+  const { rateLimits } = deps.config;
   const router = Router();
   router.post(
     '/ingest',
-    limiter(options.ingestRateLimit ?? INGEST_RATE_LIMIT),
-    requireBearerToken(deps.config.ingestToken),
+    createRateLimiter(rateLimits.ingest, RATE_LIMITED),
+    requireBearerToken(auth.verifyIngestToken),
     checkRequest,
     textBody,
     runPipeline(deps),
   );
-  if (!deps.config.isProduction) {
-    router.post(
-      '/ingest/upload',
-      limiter(options.uploadRateLimit ?? UPLOAD_RATE_LIMIT),
-      checkRequest,
-      textBody,
-      runPipeline(deps),
-    );
-  }
+  router.post(
+    '/ingest/upload',
+    createRateLimiter(rateLimits.upload, RATE_LIMITED),
+    auth.requireSession(),
+    auth.requireCsrf,
+    checkRequest,
+    textBody,
+    runPipeline(deps, auditUpload(deps)),
+  );
   return router;
 }

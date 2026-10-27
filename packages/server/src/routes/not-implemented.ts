@@ -17,9 +17,6 @@ export interface PendingEndpoint {
  */
 export const pendingEndpoints: readonly PendingEndpoint[] = [
   { method: 'get', path: '/rules/:id/playbook', session: 'S7' },
-  { method: 'post', path: '/auth/login', session: 'S6' },
-  { method: 'post', path: '/auth/logout', session: 'S6' },
-  { method: 'get', path: '/auth/me', session: 'S6' },
 ];
 
 /** `501` problem naming the endpoint (e.g. `GET /api/events`) and the session that implements it. */

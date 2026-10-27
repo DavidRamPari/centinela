@@ -21,6 +21,7 @@ import {
 } from '@centinela/shared';
 import { http, HttpResponse } from 'msw';
 import type { z } from 'zod';
+import { createAuthHandlers, resetAuthMock } from '../features/auth/mocks';
 import { createMockDb, type MockDb } from './fixtures/build';
 import {
   alertDetail,
@@ -115,6 +116,8 @@ export function mockIngest(source: string, text: string): IngestSummary {
 
 export function createHandlers(getDb: () => MockDb) {
   return [
+    ...createAuthHandlers(),
+
     http.get('/api/health', () =>
       HttpResponse.json<HealthResponse>({ status: 'ok', db: 'ok', version: '0.1.0-mock' }),
     ),
@@ -237,6 +240,7 @@ export function mockDb(): MockDb {
 
 export function resetMockDb(): void {
   current = undefined;
+  resetAuthMock();
 }
 
 export const handlers = createHandlers(mockDb);

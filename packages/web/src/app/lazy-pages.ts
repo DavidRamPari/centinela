@@ -9,3 +9,5 @@ export const AttackPage = lazy(() => import('../pages/AttackPage'));
 export const RulesPage = lazy(() => import('../pages/RulesPage'));
 export const RuleDetailPage = lazy(() => import('../pages/RuleDetailPage'));
 export const IngestPage = lazy(() => import('../pages/IngestPage'));
+export const LoginPage = lazy(() => import('../features/auth/LoginPage'));
+export const SecurityPage = lazy(() => import('../features/auth/SecurityPage'));

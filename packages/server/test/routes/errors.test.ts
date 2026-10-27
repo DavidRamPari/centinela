@@ -1,19 +1,24 @@
 import { problemSchema } from '@centinela/shared';
 import express from 'express';
-import pg from 'pg';
 import request from 'supertest';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { createErrorHandler } from '../../src/http/errors.js';
 import { HttpError } from '../../src/http/problem.js';
 import { validate } from '../../src/http/validate.js';
 import { createLogger } from '../../src/logger.js';
 import { createTestApp } from '../helpers/app.js';
+import { createTestDatabase, type TestDatabase } from '../helpers/db.js';
 
 describe('problem+json errors', () => {
-  const pool = new pg.Pool({ connectionString: 'postgres://unused@127.0.0.1:1/unused' });
-  afterAll(() => pool.end());
-  const { app } = createTestApp({ pool });
+  // Signed in (S6): the session guard runs before routing and body parsing.
+  let db: TestDatabase;
+  let app: ReturnType<typeof createTestApp>['app'];
+  beforeAll(async () => {
+    db = await createTestDatabase();
+    ({ app } = createTestApp({ pool: db.pool }));
+  });
+  afterAll(() => db.cleanup());
 
   it('answers 404 problem+json for unknown routes', async () => {
     const res = await request(app).get('/api/nope').expect(404);

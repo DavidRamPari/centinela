@@ -1,6 +1,7 @@
 /** Server entry point: configuration, database pool, pipeline, HTTP server, signals. */
 import { createApp } from './app.js';
-import { ConfigError, loadConfig, type Config } from './config.js';
+import { isDevPassword } from './auth/password.js';
+import { ConfigError, DEV_ADMIN_PASSWORD, loadConfig, type Config } from './config.js';
 import { createPool } from './db/pool.js';
 import { createDetector } from './detection/index.js';
 import { loadDotEnv } from './env.js';
@@ -23,6 +24,21 @@ function readConfig(): Config {
 
 const config = readConfig();
 const logger = createLogger(config);
+
+// The configuration refuses the development hash itself; this also catches the development
+// password hashed again with another salt (checking a password needs async argon2).
+if (config.isProduction && (await isDevPassword(config.admin.passwordHash))) {
+  console.error(
+    'Invalid configuration:\n  - ADMIN_PASSWORD_HASH: must not hash the development password in production',
+  );
+  process.exit(1);
+}
+if (config.admin.usingDevPassword) {
+  logger.warn(
+    { username: config.admin.username, password: DEV_ADMIN_PASSWORD },
+    'development sign-in in use; set ADMIN_PASSWORD_HASH (npm run hash-password) outside local development',
+  );
+}
 const pool = createPool(config.databaseUrl, logger);
 const detector = createDetector({ rulesDir: config.rulesDir });
 const rules = createRuleCatalog({ engine: detector, pool });

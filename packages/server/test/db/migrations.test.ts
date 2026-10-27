@@ -18,15 +18,18 @@ describe('migrations', () => {
     return Object.fromEntries(rows.map((r) => [r.column_name, r.data_type]));
   }
 
-  it('creates every table from ARCHITECTURE §8 in the target schema', async () => {
+  it('creates every table from ARCHITECTURE §8 (and S6) in the target schema', async () => {
     const { rows } = await db.pool.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 ORDER BY table_name`,
       [db.schema],
     );
     expect(rows.map((r) => r.table_name)).toEqual([
+      'admin_sessions',
       'alert_events',
       'alerts',
+      'audit_log',
       'events',
+      'ingest_tokens',
       'pgmigrations',
       'rule_state',
     ]);
