@@ -67,7 +67,7 @@ export function Drawer({ title, onClose, children }: DrawerProps) {
             ref={closeRef}
             type="button"
             onClick={onClose}
-            className="grid size-10 place-items-center rounded-control text-fg hover:bg-hover active:translate-y-px"
+            className="grid size-10 place-items-center rounded-control text-fg transition-colors duration-100 hover:bg-hover active:translate-y-px active:bg-pressed"
             aria-label={t('common.close')}
           >
             <X aria-hidden="true" strokeWidth={1.75} className="size-5" />

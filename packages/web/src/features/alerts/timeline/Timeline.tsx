@@ -113,7 +113,7 @@ function GroupedEvents({ group }: { group: TimelineGroup }) {
         aria-expanded={open}
         aria-controls={listId}
         onClick={() => setOpen(!open)}
-        className="ml-4.5 inline-flex h-8 w-fit items-center gap-1 rounded-control px-1.5 font-semibold text-link hover:bg-hover"
+        className="ml-4.5 inline-flex h-8 w-fit items-center gap-1 rounded-control px-1.5 font-semibold text-link transition-colors duration-100 hover:bg-hover active:bg-pressed"
       >
         <ChevronRight
           aria-hidden="true"
@@ -125,7 +125,10 @@ function GroupedEvents({ group }: { group: TimelineGroup }) {
           : t('timeline.show', { count: group.events.length })}
       </button>
       {open ? (
-        <ol id={listId} className="mt-1 flex flex-col border-l border-line-strong pl-4">
+        <ol
+          id={listId}
+          className="mt-1 flex animate-expand-in flex-col border-l border-line-strong pl-4"
+        >
           {group.events.map((event) => (
             <li key={event.id} className="flex flex-col gap-0.5 py-1.5">
               <span className="flex flex-wrap items-baseline gap-x-3">

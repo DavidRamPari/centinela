@@ -28,12 +28,14 @@ function tokens(selector: string): Record<string, string> {
 
 /** Text on a background: WCAG AA for normal text (4.5:1). */
 const TEXT_PAIRS: Array<[fg: string, bg: string]> = [
-  ...['bg', 'raised', 'hover', 'selected'].flatMap((bg): Array<[string, string]> => [
-    ['fg', bg],
-    ['muted', bg],
-    ['link', bg],
-    ['info', bg],
-  ]),
+  ...['bg', 'raised', 'hover', 'pressed', 'selected', 'arrive'].flatMap(
+    (bg): Array<[string, string]> => [
+      ['fg', bg],
+      ['muted', bg],
+      ['link', bg],
+      ['info', bg],
+    ],
+  ),
   ['faint', 'bg'],
   ['faint', 'raised'],
   ['accent-text', 'bg'],
