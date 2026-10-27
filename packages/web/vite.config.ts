@@ -4,6 +4,7 @@ import { msw } from 'msw/vite';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, loadEnv } from 'vite';
 import { browserSourceResolve } from '../../vitest.shared.js';
+import { linkPreview } from './link-preview/vite-plugin.js';
 import { securityHeaders } from './security/vite-plugin.js';
 
 /** One `.env` for the whole repository (see .env.example). */
@@ -20,11 +21,14 @@ export default defineConfig({
   // build); src/main.tsx starts the worker when VITE_USE_MOCKS=true.
   // securityHeaders(): Content Security Policy and security headers for `vite` and
   // `vite preview` (S6); nginx sends the same production headers in Docker.
+  // linkPreview(): the description, plus Open Graph and Twitter cards when VITE_PUBLIC_URL
+  // gives the public origin (S7b-18).
   plugins: [
     react(),
     tailwindcss(),
     { ...msw({ mode: 'worker-only' }), apply: 'serve' },
     securityHeaders(),
+    linkPreview(),
   ],
   ...browserSourceResolve,
   // Only VITE_* variables reach the browser bundle.
