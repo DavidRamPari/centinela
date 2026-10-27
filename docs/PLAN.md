@@ -6,15 +6,16 @@ Each session below is one Claude Code cloud session that ends with a pushed bran
 
 | Session | Title | Depends on | Status |
 | --- | --- | --- | --- |
-| S0 | Foundations | — | todo |
-| S1 | Ingestion, parsers and log generator | S0 | todo |
-| S2 | Detection engine (Sigma + correlation) | S0 | todo |
-| S3 | Dashboard on mocks | S0 | todo |
-| S4 | Integration, persistence and end-to-end detection | S1, S2, S3 | todo |
-| S5 | Windows Sysmon support | S4 | todo |
-| S6 | Authentication, hardening and threat model | S4 | todo |
-| S7 | Content pack in the product | S4 and `content/sigma/` | todo |
-| S8 | Demo deployment and documentation | S5, S6, S7 | todo |
+| S0 | Foundations | — | done (PR #1) |
+| S1 | Ingestion, parsers and log generator | S0 | done (PR #2) |
+| S2 | Detection engine (Sigma + correlation) | S0 | done (PR #4) |
+| S3 | Dashboard on mocks | S0 | done (PR #5) |
+| S4 | Integration, persistence and end-to-end detection | S1, S2, S3 | done (PR #6) |
+| S5 | Windows Sysmon support | S4 | done (PR #7) |
+| S6 | Authentication, hardening and threat model | S4 | done (PR #8) |
+| S7 | Content pack in the product | S4 and `content/sigma/` | done (PR #9) |
+| S7b | Dashboard polish | S7 | todo |
+| S8 | Demo deployment and documentation | S5, S6, S7, S7b | todo |
 
 Status values: `todo`, `in progress`, `done (PR #n)`, `partial (see notes)`. David updates this table when he merges a session; sessions do not edit it (parallel edits to adjacent rows conflict).
 
@@ -226,9 +227,33 @@ Before finishing, run lint, typecheck, test and build, push your branch and end 
 
 ---
 
+## S7b — Dashboard polish
+
+**Depends on.** S7. Runs alone, before S8, because S8 takes the README screenshots and deploys the public demo.
+
+**Owns.** `packages/web/**` (touch `src/api/**` only to fix a bug), `docs/screenshots/**`.
+
+**Goal.** The dashboard works; make it look like a product a SOC team would choose. No new features and no API changes.
+
+**Build.**
+
+1. Start from the real thing: run `npm run demo`, sign in, and capture every page at 360, 768 and 1440 px, in both themes and both languages. Write down what looks weak.
+2. Before coding, write a short design plan in `docs/decisions/S7b.md`: four to six named colours, the typefaces and their roles, the layout of the Overview, and the one element that should be memorable. Check it against the subject (a SOC console named Centinela, "sentinel", for analysts who triage alerts for hours) and revise whatever would fit any generic dashboard: identical rounded cards with the same shadow, gradient washes, all-caps labels above headings, monospace for ordinary labels, a near-black background with one neon accent.
+3. Apply the plan through the design tokens in `src/index.css`: a type scale with tabular numbers, a spacing scale, radii that follow hierarchy, a severity palette that never relies on colour alone and passes WCAG AA in both themes, and chart colours that match. Fonts are self-hosted, with no requests to other origins, so S6's Content Security Policy stays strict. Monospace is for raw logs, ids and code only.
+4. Brand: a simple Centinela mark as inline SVG, a matching favicon, and a sign-in page that looks finished.
+5. The Overview is the demo's first screen: a clear reading order, KPI cards with a trend, charts whose axis labels fit (S4 found four-digit counts cut off), and latest alerts that invite a click.
+6. Every other page: tables (density, sticky headers, right-aligned numbers, truncation that shows the full value on hover and focus), the alert detail page and its playbook panel, the ATT&CK matrix without ids flashing before the technique names, rules, the events drawer, ingest, security and sign-in. Empty, loading and error states say what to do next; focus is always visible; motion only answers an action and respects `prefers-reduced-motion`.
+7. Known gaps: show Windows users as `DOMAIN\name` from `user.domain` and `user` (S5), and give the audit table's columns sensible widths (S6).
+8. Copy: plain and in sentence case, with the same name for an action everywhere, in English and neutral Latin American Spanish.
+9. Save the final screenshots as optimised PNGs in `docs/screenshots/` for S8: Overview, Alerts, an alert with its playbook, ATT&CK and sign-in at 1440 px in the dark theme, plus the Overview in the light theme and at 360 px.
+
+**Acceptance.** Every page reviewed in a real browser against the demo data, with no console errors and no CSP violations, and the summary describes what changed on each page; the contrast, i18n parity, hostile-string and keyboard tests still pass; the largest chunk stays under 500 kB; the full check sequence passes in a fresh clone on two CPUs.
+
+---
+
 ## S8 — Demo deployment and documentation
 
-**Depends on.** S5, S6, S7.
+**Depends on.** S5, S6, S7 and S7b.
 
 **Owns.** `README.md`, `README.es.md`, `docs/**` (except other sessions' sections of PLAN and DECISIONS), deployment configuration files.
 
