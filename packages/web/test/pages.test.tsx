@@ -27,7 +27,7 @@ const cases: PageCase[] = [
     name: 'overview',
     path: () => '/',
     heading: 'Overview',
-    ready: () => screen.findByRole('heading', { name: 'Latest alerts' }),
+    ready: () => screen.findByRole('heading', { name: 'Needs your attention' }),
   },
   {
     name: 'alerts',

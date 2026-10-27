@@ -17,10 +17,10 @@ export function LoadMore({
   const { t } = useTranslation();
   const format = useFormat();
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 pt-3 text-xs text-muted">
+    <div className="flex flex-wrap items-center justify-between gap-3 pt-4 text-muted">
       <span>{t('common.shown', { value: format.number(shown) })}</span>
       {hasMore ? (
-        <Button size="sm" onClick={onLoadMore} disabled={loading}>
+        <Button size="sm" onClick={onLoadMore} loading={loading}>
           {loading ? t('common.loading') : t('common.loadMore')}
         </Button>
       ) : (

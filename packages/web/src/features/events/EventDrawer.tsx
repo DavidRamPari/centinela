@@ -7,6 +7,7 @@ import { Drawer } from '../../components/ui/Drawer';
 import { ErrorState, LoadingState } from '../../components/ui/States';
 import { useFormat } from '../../lib/format';
 import { OutcomeLabel } from './OutcomeLabel';
+import { displayUser } from '../alerts/entities';
 
 /** Event detail: normalized fields, the rule-matching field view and the raw message. */
 export function EventDrawer({ id, onClose }: { id: string; onClose: () => void }) {
@@ -30,11 +31,9 @@ function EventDetail({ event }: { event: NormalizedEvent }) {
   const format = useFormat();
   const fields = Object.entries(event.fields).sort(([a], [b]) => a.localeCompare(b));
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-8">
       <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-          {t('events.drawer.normalized')}
-        </h3>
+        <h3 className="mb-3 font-semibold text-fg">{t('events.drawer.normalized')}</h3>
         <DescriptionList
           items={[
             {
@@ -48,7 +47,7 @@ function EventDetail({ event }: { event: NormalizedEvent }) {
             { term: t('events.table.source'), value: t(`sources.${event.source}`) },
             {
               term: t('events.table.host'),
-              value: <span className="font-mono">{event.host}</span>,
+              value: event.host,
             },
             { term: t('events.drawer.category'), value: t(`categories.${event.category}`) },
             {
@@ -58,73 +57,69 @@ function EventDetail({ event }: { event: NormalizedEvent }) {
             { term: t('events.table.outcome'), value: <OutcomeLabel outcome={event.outcome} /> },
             {
               term: t('events.table.user'),
-              value: <span className="break-all font-mono">{event.user ?? '—'}</span>,
+              value: <span className="break-all">{displayUser(event) ?? t('common.none')}</span>,
             },
             {
               term: t('events.table.srcIp'),
-              value: <span className="font-mono">{event.srcIp ?? '—'}</span>,
+              value: event.srcIp ?? t('common.none'),
             },
             {
               term: t('events.drawer.srcPort'),
-              value: <span className="font-mono">{event.srcPort ?? '—'}</span>,
+              value: event.srcPort ?? t('common.none'),
             },
             {
               term: t('events.drawer.logsources'),
               value: (
-                <span className="font-mono text-xs">
-                  {event.logsources
-                    .map((ls) =>
-                      Object.entries(ls)
-                        .map(([key, value]) => `${key}:${value}`)
-                        .join(' '),
-                    )
-                    .join(' · ')}
-                </span>
+                <ul className="flex flex-col gap-0.5 font-mono text-small">
+                  {event.logsources.map((ls) => {
+                    const text = Object.entries(ls)
+                      .map(([key, value]) => `${key}: ${value}`)
+                      .join(', ');
+                    return <li key={text}>{text}</li>;
+                  })}
+                </ul>
               ),
             },
             {
               term: t('events.drawer.id'),
-              value: <span className="break-all font-mono text-xs">{event.id}</span>,
+              value: <span className="break-all font-mono text-small">{event.id}</span>,
             },
           ]}
         />
       </section>
       <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-          {t('events.drawer.raw')}
-        </h3>
+        <h3 className="mb-3 font-semibold text-fg">{t('events.drawer.raw')}</h3>
         <CodeBlock text={event.message} label={t('events.drawer.raw')} />
-        <p className="mt-1 text-xs text-muted">
+        <p className="mt-1.5 text-small text-muted">
           {t('events.drawer.length', { value: format.number(event.message.length) })}
         </p>
       </section>
       <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-          {t('events.drawer.fields')}
-        </h3>
-        <div className="overflow-x-auto rounded-md border border-line">
-          <table className="w-full text-left text-xs">
+        <h3 className="mb-1 font-semibold text-fg">{t('events.drawer.fields')}</h3>
+        <p className="mb-3 text-muted">{t('events.drawer.fieldsHint')}</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-small">
             <caption className="sr-only">{t('events.drawer.fields')}</caption>
-            <thead className="bg-surface-2 text-muted">
-              <tr>
-                <th scope="col" className="px-2 py-1 font-medium">
+            <thead className="text-muted">
+              <tr className="border-b border-line-strong">
+                <th scope="col" className="py-2 pr-4 font-semibold">
                   {t('events.drawer.field')}
                 </th>
-                <th scope="col" className="px-2 py-1 font-medium">
+                <th scope="col" className="py-2 font-semibold">
                   {t('events.drawer.value')}
                 </th>
               </tr>
             </thead>
             <tbody>
               {fields.map(([key, value]) => (
-                <tr key={key} className="border-t border-line align-top">
+                <tr key={key} className="border-b border-line align-top">
                   <th
                     scope="row"
-                    className="whitespace-nowrap px-2 py-1 font-mono font-normal text-muted"
+                    className="whitespace-nowrap py-1.5 pr-4 font-mono font-normal text-muted"
                   >
                     {key}
                   </th>
-                  <td className="break-all px-2 py-1 font-mono">
+                  <td className="break-all py-1.5 font-mono text-fg">
                     {value === null ? 'null' : String(value)}
                   </td>
                 </tr>

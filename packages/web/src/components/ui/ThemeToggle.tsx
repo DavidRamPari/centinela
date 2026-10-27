@@ -1,21 +1,21 @@
-import { Moon, Sun } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { setTheme, useTheme } from '../../lib/theme';
+import { Segmented } from './Fields';
 
-export function ThemeToggle() {
+/** Dark (the default, like an arcade screen) or light. */
+export function ThemeToggle({ showLabel = true }: { showLabel?: boolean }) {
   const { t } = useTranslation();
   const theme = useTheme();
-  const next = theme === 'dark' ? 'light' : 'dark';
-  const Icon = theme === 'dark' ? Sun : Moon;
   return (
-    <button
-      type="button"
-      onClick={() => setTheme(next)}
-      className="rounded-md border border-line p-1.5 text-muted hover:text-fg"
-      aria-label={t(next === 'light' ? 'theme.toLight' : 'theme.toDark')}
-      title={t(next === 'light' ? 'theme.toLight' : 'theme.toDark')}
-    >
-      <Icon aria-hidden="true" className="size-4" />
-    </button>
+    <Segmented
+      label={t('theme.label')}
+      showLabel={showLabel}
+      value={theme}
+      onChange={setTheme}
+      options={[
+        { value: 'dark', label: t('theme.dark') },
+        { value: 'light', label: t('theme.light') },
+      ]}
+    />
   );
 }

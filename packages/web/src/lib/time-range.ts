@@ -117,3 +117,34 @@ export function fromLocalInput(value: string): string | undefined {
   const time = Date.parse(value);
   return Number.isNaN(time) ? undefined : new Date(time).toISOString();
 }
+
+/**
+ * The period of the same length that ends where `query` starts, for "compared with the
+ * previous 24 hours". `to` defaults to `now` like the server does.
+ */
+export function previousPeriod(
+  query: { from: string; to?: string },
+  now = Date.now(),
+): { from: string; to: string } {
+  const from = Date.parse(query.from);
+  const to = query.to ? Date.parse(query.to) : now;
+  const span = Math.max(0, to - from);
+  return { from: new Date(from - span).toISOString(), to: new Date(from).toISOString() };
+}
+
+export type Trend =
+  | { kind: 'none' }
+  | { kind: 'same' }
+  | { kind: 'up' | 'down'; percent: number; difference: number };
+
+/** How `current` compares with `previous`; `none` when there is nothing to compare with. */
+export function trend(current: number, previous: number): Trend {
+  if (previous <= 0) return { kind: 'none' };
+  if (current === previous) return { kind: 'same' };
+  const difference = current - previous;
+  return {
+    kind: difference > 0 ? 'up' : 'down',
+    percent: Math.round((Math.abs(difference) / previous) * 100),
+    difference: Math.abs(difference),
+  };
+}

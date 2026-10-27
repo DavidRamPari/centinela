@@ -1,16 +1,24 @@
+import { clsx } from 'clsx';
 import type { ReactNode } from 'react';
 
 export function DescriptionList({
   items,
+  className,
 }: {
   items: ReadonlyArray<{ term: string; value: ReactNode; key?: string }>;
+  className?: string;
 }) {
   return (
-    <dl className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-[minmax(8rem,auto)_1fr]">
+    <dl
+      className={clsx(
+        'grid grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-[minmax(8rem,max-content)_1fr] sm:gap-y-2.5',
+        className,
+      )}
+    >
       {items.map((item) => (
         <div key={item.key ?? item.term} className="contents">
-          <dt className="text-xs font-medium text-muted sm:pt-0.5">{item.term}</dt>
-          <dd className="min-w-0 break-words text-fg">{item.value}</dd>
+          <dt className="text-muted">{item.term}</dt>
+          <dd className="mb-2 min-w-0 break-words text-fg sm:mb-0">{item.value}</dd>
         </div>
       ))}
     </dl>

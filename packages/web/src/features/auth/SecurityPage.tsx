@@ -9,7 +9,7 @@ export default function SecurityPage() {
   return (
     <section>
       <PageHeader title={t('auth.security.title')} description={t('auth.security.description')} />
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div className="flex flex-col gap-12">
         <IngestTokensCard />
         <AuditLogCard />
       </div>

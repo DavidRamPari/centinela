@@ -6,6 +6,8 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 import { flattenPages, useAlertsList, useBulkUpdateAlerts } from '../api/hooks';
 import { SeverityBadge, StatusBadge } from '../components/ui/Badges';
 import { Button } from '../components/ui/Button';
+import { Checkbox } from '../components/ui/Fields';
+import { Truncate } from '../components/ui/Truncate';
 import { DataTable, type Column } from '../components/ui/DataTable';
 import { LoadMore } from '../components/ui/LoadMore';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -70,77 +72,88 @@ export default function AlertsPage() {
     {
       id: 'select',
       header: (
-        <input
-          type="checkbox"
+        <Checkbox
           aria-label={t('alerts.table.selectAll')}
           checked={allSelected}
-          ref={(element) => {
-            if (element) element.indeterminate = !allSelected && visibleSelected.length > 0;
-          }}
+          indeterminate={!allSelected && visibleSelected.length > 0}
           onChange={() => setSelected(allSelected ? new Set() : new Set(alerts.map((a) => a.id)))}
         />
       ),
       cell: (alert) => (
-        <input
-          type="checkbox"
+        <Checkbox
           aria-label={t('alerts.table.select', { title: alert.ruleTitle })}
           checked={selected.has(alert.id)}
           onChange={() => toggle(alert.id)}
         />
       ),
-      className: 'w-8',
+      className: 'w-10 pr-0',
     },
     {
       id: 'level',
       header: t('alerts.table.level'),
       cell: (alert) => <SeverityBadge level={alert.level} />,
+      className: 'w-32',
     },
     {
       id: 'title',
       header: t('alerts.table.title'),
       cell: (alert) => (
-        <Link
-          to={`/alerts/${alert.id}`}
-          className="font-medium text-fg hover:text-accent hover:underline"
-          tabIndex={-1}
-        >
-          {alert.ruleTitle}
-        </Link>
+        <span className="flex flex-col items-start gap-1">
+          <Link
+            to={`/alerts/${alert.id}`}
+            className="font-semibold text-fg underline decoration-transparent underline-offset-3 hover:decoration-line-strong"
+            tabIndex={-1}
+          >
+            {alert.ruleTitle}
+          </Link>
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1 @3xl:hidden">
+            <span className="@xl:hidden">
+              <StatusBadge status={alert.status} />
+            </span>
+            <time dateTime={alert.lastSeen} className="text-small text-muted">
+              {format.relative(alert.lastSeen)}
+            </time>
+          </span>
+        </span>
       ),
     },
     {
       id: 'status',
       header: t('alerts.table.status'),
       cell: (alert) => <StatusBadge status={alert.status} />,
+      className: 'hidden @xl:table-cell w-36',
     },
     {
       id: 'host',
       header: t('alerts.table.host'),
-      cell: (alert) => (
-        <span className="whitespace-nowrap font-mono text-xs">{alert.host ?? '—'}</span>
-      ),
-      className: 'hidden md:table-cell',
+      cell: (alert) => <Truncate text={alert.host ?? t('common.none')} className="max-w-[9rem]" />,
+      className: 'hidden @2xl:table-cell w-36',
     },
     {
       id: 'entities',
       header: t('alerts.table.entities'),
       cell: (alert) => <EntitySummary entities={alert.entities} />,
-      className: 'hidden lg:table-cell',
+      className: 'hidden @5xl:table-cell w-60',
     },
     {
       id: 'count',
       header: t('alerts.table.count'),
       cell: (alert) => format.number(alert.count),
-      className: 'hidden sm:table-cell text-right',
+      className: 'hidden @4xl:table-cell w-20 text-right',
     },
     {
       id: 'lastSeen',
       header: t('alerts.table.lastSeen'),
       cell: (alert) => (
-        <time dateTime={alert.lastSeen} className="whitespace-nowrap text-muted">
+        <time
+          dateTime={alert.lastSeen}
+          title={format.dateTime(alert.lastSeen)}
+          className="whitespace-nowrap text-muted"
+        >
           {format.shortDateTime(alert.lastSeen)}
         </time>
       ),
+      className: 'hidden @3xl:table-cell w-36 text-right',
     },
   ];
 
@@ -153,17 +166,20 @@ export default function AlertsPage() {
         key={ALERT_TEXT_FILTERS.map((key) => filters.text[key] ?? '').join('|')}
         filters={filters}
       />
-      <div className="mb-3 flex flex-wrap items-center gap-3">
+      <div className="mb-2 flex min-h-12 flex-wrap items-center gap-x-4 gap-y-2">
         <Button
           variant="primary"
-          disabled={newSelected === 0 || bulk.isPending}
+          icon={CheckCheck}
+          loading={bulk.isPending}
+          disabled={newSelected === 0}
           onClick={acknowledgeSelected}
         >
-          <CheckCheck aria-hidden="true" className="size-4" />
           {t('alerts.bulk.acknowledge')}
         </Button>
-        <span className="text-xs text-muted" aria-live="polite">
-          {t('alerts.bulk.selected', { value: format.number(visibleSelected.length) })}
+        <span className="text-muted" aria-live="polite">
+          {visibleSelected.length > 0 && newSelected === 0
+            ? t('alerts.bulk.nothingNew', { value: format.number(visibleSelected.length) })
+            : t('alerts.bulk.selected', { value: format.number(visibleSelected.length) })}
         </span>
       </div>
       {list.isPending ? (

@@ -55,19 +55,22 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div
             key={toast.id}
             role="status"
-            className="pointer-events-auto rounded-lg border border-line bg-surface p-3 shadow-lg"
+            className="pointer-events-auto animate-toast-in rounded-panel border border-line-strong bg-raised py-3 pl-4 pr-2"
           >
             <div className="flex items-start gap-2">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <p className="font-semibold text-fg">{toast.title}</p>
                   {toast.level ? <SeverityBadge level={toast.level} /> : null}
-                  <p className="font-medium text-fg">{toast.title}</p>
                 </div>
                 {toast.description ? (
-                  <p className="mt-1 break-words text-muted">{toast.description}</p>
+                  <p className="break-words text-muted">{toast.description}</p>
                 ) : null}
                 {toast.href ? (
-                  <Link to={toast.href} className="mt-1 inline-block text-accent hover:underline">
+                  <Link
+                    to={toast.href}
+                    className="w-fit font-semibold text-link underline decoration-line-strong underline-offset-3 hover:decoration-link"
+                  >
                     {toast.linkLabel ?? t('toasts.open')}
                   </Link>
                 ) : null}
@@ -75,10 +78,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               <button
                 type="button"
                 onClick={() => dismiss(toast.id)}
-                className="rounded p-1 text-muted hover:text-fg"
+                className="grid size-8 shrink-0 place-items-center rounded-control text-muted hover:bg-hover hover:text-fg"
                 aria-label={t('toasts.dismiss')}
               >
-                <X aria-hidden="true" className="size-4" />
+                <X aria-hidden="true" strokeWidth={1.75} className="size-4" />
               </button>
             </div>
           </div>

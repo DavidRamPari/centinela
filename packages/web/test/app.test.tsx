@@ -39,10 +39,11 @@ describe('app shell', () => {
     renderApp({ path: '/alerts', language: 'en' });
     expect(await screen.findByRole('heading', { level: 1, name: 'Alerts' })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'es' }));
+    await user.click(screen.getByRole('button', { name: 'Español' }));
 
     expect(screen.getByRole('heading', { level: 1, name: 'Alertas' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'es' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Español' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Español' })).toHaveAttribute('lang', 'es');
     expect(window.localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe('es');
     expect(document.documentElement.lang).toBe('es');
 
@@ -50,7 +51,7 @@ describe('app shell', () => {
     await user.click(within(nav).getByRole('link', { name: 'Reglas' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Reglas' })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'en' }));
+    await user.click(screen.getByRole('button', { name: 'English' }));
     expect(screen.getByRole('heading', { level: 1, name: 'Rules' })).toBeInTheDocument();
     expect(window.localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe('en');
   });
@@ -65,7 +66,7 @@ describe('app shell', () => {
     const user = userEvent.setup();
     renderApp({ path: '/alerts', language: 'en' });
     expect((await screen.findAllByText(/^[A-Z][a-z]{2} \d{1,2}, /)).length).toBeGreaterThan(0);
-    await user.click(screen.getByRole('button', { name: 'es' }));
+    await user.click(screen.getByRole('button', { name: 'Español' }));
     expect((await screen.findAllByText(/^\d{1,2} [a-z]{3}/)).length).toBeGreaterThan(0);
     expect(screen.getByRole('columnheader', { name: 'Última vez' })).toBeInTheDocument();
   });
@@ -74,10 +75,15 @@ describe('app shell', () => {
     const user = userEvent.setup();
     renderApp({ language: 'en' });
     expect(document.documentElement).toHaveClass('dark');
-    await user.click(screen.getByRole('button', { name: 'Switch to light theme' }));
+    const theme = screen.getByRole('group', { name: 'Theme' });
+    expect(within(theme).getByRole('button', { name: 'Dark' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await user.click(within(theme).getByRole('button', { name: 'Light' }));
     expect(document.documentElement).not.toHaveClass('dark');
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('light');
-    await user.click(screen.getByRole('button', { name: 'Switch to dark theme' }));
+    await user.click(within(theme).getByRole('button', { name: 'Dark' }));
     expect(document.documentElement).toHaveClass('dark');
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark');
     expect(initialTheme()).toBe('dark');
