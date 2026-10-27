@@ -126,7 +126,8 @@ class Workspace(unittest.TestCase):
         self.tmp.cleanup()
 
     def args(self, **overrides) -> argparse.Namespace:
-        values = dict(rules_dir=self.rules_dir, out=self.out, failures=self.failures_path, model=cp.DEFAULT_MODEL,
+        values = dict(origin="sigmahq", rules_dir=self.rules_dir, out=self.out, failures=self.failures_path,
+                      model=cp.DEFAULT_MODEL,
                       effort=None, force=False, limit=0, max_cost=20.0, yes=False, dry_run=True)
         values.update(overrides)
         return argparse.Namespace(**values)
@@ -328,6 +329,210 @@ class CollectRepairTest(Workspace):
         state = json.loads((cp.WORK_DIR / "batches.json").read_text(encoding="utf-8"))
         self.assertTrue(state[0]["collected"])
         self.assertEqual(json.loads((cp.WORK_DIR / "repair-failed.json").read_text(encoding="utf-8")), {})
+
+
+# --------------------------------------------------------------------------- --origin centinela
+
+BASE_ID = "5ab518e4-b4bf-44a2-9874-a8e86a590287"
+SUCCESS_ID = "5a38afe9-0000-4000-8000-000000000001"
+INNER_ID = "6c1f0b6e-5f5a-4e61-9a0e-1f2b3c4d5e6f"
+CHAINED_ID = "1751f556-a4e2-493f-a475-ead6e0163909"
+
+BASE_YAML = f"""title: SSH authentication failure
+id: {BASE_ID}
+name: centinela-ssh-auth-failure
+status: experimental
+author: DavidRamPari
+logsource:
+    product: linux
+    service: sshd
+detection:
+    selection:
+        event.action: ssh_login
+        event.outcome: failure
+    condition: selection
+level: low
+"""
+
+SUCCESS_YAML = BASE_YAML.replace(BASE_ID, SUCCESS_ID).replace("failure", "success").replace(
+    "SSH authentication success", "SSH authentication success")
+
+INNER_YAML = f"""title: SSH brute force
+id: {INNER_ID}
+name: centinela-ssh-bruteforce
+status: experimental
+author: DavidRamPari
+correlation:
+    type: event_count
+    rules:
+        - centinela-ssh-auth-failure
+    group-by:
+        - source.ip
+    timespan: 5m
+    condition:
+        gte: 10
+level: high
+"""
+
+CHAINED_YAML = f"""title: Successful SSH login after a brute force
+id: {CHAINED_ID}
+name: centinela-ssh-bruteforce-success
+status: experimental
+author: DavidRamPari
+correlation:
+    type: temporal_ordered
+    rules:
+        - centinela-ssh-bruteforce
+        - {SUCCESS_ID}
+        - centinela-missing-rule
+    group-by:
+        - source.ip
+    timespan: 30m
+level: critical
+tags:
+    - attack.t1110.001
+"""
+
+PLAYBOOK_ANSWER = {"es": PLAYBOOK, "en": PLAYBOOK}
+CONTENT_ANSWER = {**PLAYBOOK_ANSWER, "fixtures": {
+    "positive": [{"description": "p", "event": {"event.action": "ssh_login", "event.outcome": "failure"}}],
+    "negative": [{"description": "n", "event": {"event.action": "ssh_login", "event.outcome": "success"}}],
+}}
+
+
+class CentinelaOriginTest(unittest.TestCase):
+    """--origin centinela: rules/centinela/** and rules/correlation/** into content/centinela."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.rules_root = root / "rules"
+        files = {
+            "centinela/linux/ssh_auth_failure.yml": BASE_YAML,
+            "centinela/linux/ssh_auth_success.yml": SUCCESS_YAML,
+            "correlation/ssh_bruteforce.yml": INNER_YAML,
+            "correlation/ssh_bruteforce_success.yml": CHAINED_YAML,
+            # SigmaHQ rules in the same root are not Centinela's.
+            "sigma/windows/whoami.yml": RULE_YAML,
+        }
+        for rel, text in files.items():
+            (self.rules_root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.rules_root / rel).write_text(text, encoding="utf-8")
+        self.out = root / "content" / "centinela"
+        self.saved_work_dir = cp.WORK_DIR
+        cp.WORK_DIR = root / ".work"
+
+    def tearDown(self) -> None:
+        cp.WORK_DIR = self.saved_work_dir
+        self.tmp.cleanup()
+
+    def rules(self) -> list[dict]:
+        return cp.load_rules(self.rules_root, "centinela")
+
+    def by_id(self, rule_id: str) -> dict:
+        return next(r for r in self.rules() if r["id"] == rule_id)
+
+    def test_loads_centinela_and_correlation_rules_as_mit_with_their_own_attribution(self):
+        rules = self.rules()
+        self.assertEqual([r["path"] for r in rules], [
+            "centinela/linux/ssh_auth_failure.yml", "centinela/linux/ssh_auth_success.yml",
+            "correlation/ssh_bruteforce.yml", "correlation/ssh_bruteforce_success.yml"])
+        self.assertEqual({r["license"] for r in rules}, {"MIT"})
+        self.assertEqual({r["author"] for r in rules}, {"DavidRamPari"})
+        self.assertEqual({r["url"] for r in rules}, {None})
+        self.assertEqual([r["kind"] for r in rules], ["detection", "detection", "correlation", "correlation"])
+        self.assertEqual(self.by_id(CHAINED_ID)["techniques"], ["T1110.001"])
+        with self.assertRaises(SystemExit):
+            cp.load_rules(self.rules_root / "sigma", "centinela")
+
+    def test_sigmahq_records_keep_their_license_and_link(self):
+        rules = cp.load_rules(self.rules_root / "sigma")
+        self.assertEqual(len(rules), 1)
+        self.assertEqual((rules[0]["license"], rules[0]["origin"], rules[0]["kind"]), ("DRL-1.1", "sigmahq", "detection"))
+
+    def test_detection_rules_get_the_content_tool_with_a_note_on_field_names(self):
+        params = cp.build_params(self.by_id(BASE_ID), "claude-opus-5-5", None, self.rules())
+        self.assertEqual(params["system"], cp.SYSTEM_PROMPT)
+        self.assertEqual([t["name"] for t in params["tools"]], [cp.TOOL_NAME])
+        prompt = params["messages"][0]["content"]
+        self.assertIn("Origin: Centinela (this project's own rule), MIT License", prompt)
+        self.assertIn("event.action, event.outcome", prompt)
+        self.assertIn(BASE_YAML.strip(), prompt)
+
+    def test_correlations_get_a_playbook_only_request_with_the_rules_they_reference(self):
+        params = cp.build_params(self.by_id(CHAINED_ID), "claude-opus-5-5", "high", self.rules())
+        self.assertEqual(params["system"], cp.CORRELATION_SYSTEM_PROMPT)
+        self.assertIn("Do not write test fixtures", params["system"])
+        self.assertEqual([t["name"] for t in params["tools"]], [cp.PLAYBOOK_TOOL_NAME])
+        self.assertNotIn("fixtures", params["tools"][0]["input_schema"]["properties"])
+        self.assertEqual(params["output_config"], {"effort": "high"})
+        prompt = params["messages"][0]["content"]
+        self.assertIn(CHAINED_YAML.strip(), prompt)
+        # Chained: the inner correlation, the base rule it counts and the success rule (by id).
+        for text in (INNER_YAML, BASE_YAML, SUCCESS_YAML):
+            self.assertIn(text.strip(), prompt)
+        self.assertIn("References not found among the loaded rules: centinela-missing-rule", prompt)
+        self.assertNotIn("Whoami", prompt)
+
+    def test_playbook_only_answers_and_content_files(self):
+        rule = self.by_id(CHAINED_ID)
+        data, error = cp.tool_input_from_message(tool_message(PLAYBOOK_ANSWER, name=cp.PLAYBOOK_TOOL_NAME), True)
+        self.assertIsNone(error)
+        record = cp.record_for(rule, data, "m")
+        self.assertNotIn("fixtures", record)
+        self.assertEqual(record["rule"]["license"], "MIT")
+        self.assertIsNone(record["rule"]["url"])
+        self.assertEqual(record["rule"]["path"], "correlation/ssh_bruteforce_success.yml")
+        self.assertEqual(record["generated"]["notice"], "AI-generated content. Review it before relying on it.")
+        # The content tool is not accepted for a correlation, and a detection rule still needs fixtures.
+        self.assertEqual(cp.tool_input_from_message(tool_message(CONTENT_ANSWER, name=cp.TOOL_NAME), True)[1],
+                         "no save_playbook tool call in the response")
+        self.assertEqual(cp.tool_input_from_message(tool_message(PLAYBOOK_ANSWER, name=cp.TOOL_NAME))[1],
+                         "missing fixtures")
+        base = cp.record_for(self.by_id(BASE_ID), CONTENT_ANSWER, "m")
+        self.assertEqual(base["fixtures"], CONTENT_ANSWER["fixtures"])
+
+    def test_main_defaults_to_the_rules_root_and_content_centinela(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            cp.main(["--origin", "centinela", "--rules-dir", str(self.rules_root), "--out", str(self.out),
+                     "submit", "--dry-run"])
+        self.assertIn("dry run: wrote 4 requests", output.getvalue())
+        requests = [json.loads(line) for line in (cp.WORK_DIR / "requests.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([r["params"]["tools"][0]["name"] for r in requests],
+                         [cp.TOOL_NAME, cp.TOOL_NAME, cp.PLAYBOOK_TOOL_NAME, cp.PLAYBOOK_TOOL_NAME])
+
+    def test_collect_writes_playbook_only_files_for_correlations(self):
+        entry = {"id": "msgbatch_2", "model": "m", "count": 2, "custom_ids": [CHAINED_ID, BASE_ID],
+                 "origin": "centinela", "rules_dir": str(self.rules_root), "out": str(self.out), "collected": False}
+        api = SimpleNamespace(messages=SimpleNamespace(batches=FakeBatches([
+            succeeded(CHAINED_ID, tool_message(PLAYBOOK_ANSWER, name=cp.PLAYBOOK_TOOL_NAME)),
+            succeeded(BASE_ID, tool_message(CONTENT_ANSWER, name=cp.TOOL_NAME)),
+        ])))
+        failed: dict = {}
+        args = argparse.Namespace(rules_dir=self.rules_root, out=self.out)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cp.collect_generation(api, entry, args, failed)
+        self.assertEqual(failed, {})
+        chained = json.loads((self.out / f"{CHAINED_ID}.json").read_text(encoding="utf-8"))
+        self.assertNotIn("fixtures", chained)
+        self.assertEqual(chained["playbook"]["en"], PLAYBOOK)
+        base = json.loads((self.out / f"{BASE_ID}.json").read_text(encoding="utf-8"))
+        self.assertEqual(base["rule"]["license"], "MIT")
+        self.assertIn("fixtures", base)
+
+    def test_main_resolves_defaults_per_origin(self):
+        seen = {}
+        saved = cp.cmd_estimate
+        cp.cmd_estimate = lambda args: seen.update(origin=args.origin, rules=args.rules_dir, out=args.out)
+        try:
+            cp.main(["--origin", "centinela", "estimate"])
+            self.assertEqual(seen, {"origin": "centinela", "rules": cp.REPO_ROOT / "rules",
+                                    "out": cp.REPO_ROOT / "content" / "centinela"})
+            cp.main(["estimate"])
+            self.assertEqual(seen, {"origin": "sigmahq", "rules": cp.DEFAULT_RULES_DIR, "out": cp.DEFAULT_OUT_DIR})
+        finally:
+            cp.cmd_estimate = saved
 
 
 if __name__ == "__main__":

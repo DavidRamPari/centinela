@@ -2,12 +2,16 @@
 
 `content/sigma/<rule-id>.json` holds, for each vendored SigmaHQ rule, an AI-generated bilingual investigation playbook and test fixtures, produced by `tools/content-pack` (see its README). The server loads the playbooks at start-up and serves them at `GET /api/rules/:id/playbook`; the dashboard shows them on alert and rule pages.
 
+`content/centinela/<rule-id>.json` holds the same for Centinela's own rules (`rules/centinela/**`, `rules/correlation/**`, MIT), generated with `tools/content-pack/content_pack.py --origin centinela`. Correlation rules have a playbook and no fixtures: a correlation cannot be tested with single events. The server reads both folders.
+
 ## Fixture validation
 
 `npm run content:validate` evaluates every fixture against its rule with Centinela's engine (positives must match, negatives must not) and writes:
 
 - `docs/content-pack-report.md`: pass rates by rule folder, every failing fixture with the engine's reason, unsupported rules and rules without content;
 - `content/sigma-failures.json`: each failing fixture (rule id, kind, index, event, reason). `tools/content-pack/content_pack.py repair` sends these back for correction, and the regression suite in `npm test` skips exactly these fixtures and requires every other one to pass. Re-run the command and commit both files whenever the content changes.
+
+For Centinela's own content, run `npm run content:validate -- --content content/centinela`: it loads the full `rules/` folder with the engine's loader, evaluates the detection rules' fixtures, lists the correlation playbooks without evaluating them, and writes `content/centinela-report.md` and `content/centinela-failures.json`. Once `content/centinela` exists, the regression suite checks it too, so commit those files with it.
 
 `--prune` moves failing fixtures to `content/sigma-rejected/` with their reason. It has not been run yet: the failing fixtures are kept for `repair` first.
 
