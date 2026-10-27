@@ -19,6 +19,9 @@ Commands (run from the repository root):
   repair              resubmit fixtures that Centinela's engine rejected
                       (run `npm run content:validate` first; `collect` writes them back)
 
+--origin centinela does the same for Centinela's own rules (rules/centinela/** and
+rules/correlation/**, MIT) into content/centinela/; correlation rules get a playbook only.
+
 The API key is read from ANTHROPIC_API_KEY. Use a key from the Claude Console
 organization that receives your plan's monthly API credits.
 """
@@ -46,15 +49,25 @@ TOOL_VERSION = "content-pack/1"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_RULES_DIR = REPO_ROOT / "rules" / "sigma"
 DEFAULT_OUT_DIR = REPO_ROOT / "content" / "sigma"
+# --origin: SigmaHQ rules (DRL 1.1) or Centinela's own rules (MIT). Centinela's rules are
+# read from a rules root (the repository's rules/) with these folders, as the engine does.
+ORIGINS = ("sigmahq", "centinela")
+CENTINELA_RULE_FOLDERS = ("centinela", "correlation")
+DEFAULT_DIRS = {
+    "sigmahq": (DEFAULT_RULES_DIR, DEFAULT_OUT_DIR),
+    "centinela": (REPO_ROOT / "rules", REPO_ROOT / "content" / "centinela"),
+}
 WORK_DIR = Path(__file__).resolve().parent / ".work"
-# Written by `npm run content:validate` (Centinela's engine); read by `repair`.
-DEFAULT_FAILURES = REPO_ROOT / "content" / "sigma-failures.json"
+# Written by `npm run content:validate` (Centinela's engine) next to the content folder as
+# <out>-failures.json (content/sigma-failures.json by default); read by `repair`.
 FAILURES_FORMAT = "centinela-content-failures/1"
 DEFAULT_MODEL = "claude-opus-5-5"
 # Opus 5.5 and Sonnet 5.5 always think before answering (adaptive thinking), and thinking
 # tokens count toward max_tokens and are billed as output, so leave plenty of room.
 MAX_TOKENS = 16000
 TOOL_NAME = "save_content_pack"
+# Correlation rules get a playbook only: a correlation cannot be tested with single events.
+PLAYBOOK_TOOL_NAME = "save_playbook"
 REPAIR_TOOL_NAME = "save_fixtures"
 # Repairs answer with a few fixtures only, but the model still thinks first.
 REPAIR_OUTPUT_TOKENS_PER_RULE = 3000
@@ -162,6 +175,34 @@ TOOL = {
 }
 
 
+PLAYBOOK_TOOL = {
+    "name": PLAYBOOK_TOOL_NAME,
+    "description": "Save the bilingual playbook for one correlation rule (no fixtures).",
+    "input_schema": {
+        "type": "object",
+        "properties": {"es": playbook_schema(), "en": playbook_schema()},
+        "required": ["es", "en"],
+    },
+}
+
+CORRELATION_GUIDE = """Correlation rules
+- This rule is a correlation: it does not match single events. It fires when the rules it references match in the pattern it declares, per group of group-by values (for example per source IP) within the timespan: event_count needs at least the threshold of matches, value_count at least that many distinct values of a field, temporal every referenced rule in any order and temporal_ordered every referenced rule in the listed order. A referenced rule may itself be a correlation (chaining). The referenced rules are given after the correlation.
+- The alert carries the group-by values and links the contributing events (at most 100). Start the triage steps from them: review the contributing events in order, the entity of the group, what happened right before and after.
+- Write the playbook only. Do not write test fixtures: a correlation cannot be tested with single events."""
+
+CORRELATION_SYSTEM_PROMPT = f"""{PLAYBOOK_GUIDE}
+
+{CORRELATION_GUIDE}
+
+Always answer by calling the {PLAYBOOK_TOOL_NAME} tool exactly once."""
+
+CENTINELA_FIELDS_NOTE = (
+    "Field names: Centinela's normalized event fields, as the rule writes them (ECS-style keys such as "
+    "event.action, event.outcome, source.ip, user.name and host.name for Linux and web events; "
+    "Sigma names such as Image, CommandLine or TargetFilename for Windows Sysmon events)."
+)
+
+
 # --------------------------------------------------------------------------- helpers
 
 
@@ -184,76 +225,180 @@ def load_json(path: Path, default: Any) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def sigma_commit(rules_dir: Path) -> str | None:
-    """Commit of the SigmaHQ rules: from rules/sigma/README.md, or from git for a SigmaHQ clone."""
+# SigmaHQ keeps rules in several top-level folders of its repository; the folder decides
+# the rule's link. Folders other than rules/ get a short note in the prompt.
+SIGMAHQ_FOLDER_RE = re.compile(r"^rules(-[a-z0-9-]+)?$")
+SIGMAHQ_FOLDER_NOTES = {
+    "rules-emerging-threats": "SigmaHQ folder: rules-emerging-threats (rules for specific, time-bound threats such as a "
+                              "campaign, a malware family or an exploited CVE).",
+    "rules-threat-hunting": "SigmaHQ folder: rules-threat-hunting (broader hunting rules: leads to investigate, "
+                            "expected to match benign activity more often than detection rules).",
+    "rules-compliance": "SigmaHQ folder: rules-compliance (rules that check compliance and configuration "
+                        "requirements rather than attacker behaviour).",
+}
+
+
+def sigma_location(rules_dir: Path) -> tuple[str | None, str]:
+    """(commit, prefix) of a SigmaHQ rules folder; a rule's link is <commit>/<prefix>/<path below rules_dir>.
+
+    - Centinela's vendored subset (rules/sigma, whose README records the commit) is a subset of
+      SigmaHQ's rules/ folder: prefix "rules".
+    - Inside a git checkout of SigmaHQ, the commit is HEAD and the prefix is the folder's path in
+      the repository: "rules", "rules-emerging-threats", "rules-threat-hunting/windows"...
+    - Without git, there is no commit (no link); the prefix is guessed from the nearest folder
+      named rules or rules-*, so each rule still records its SigmaHQ folder.
+    """
     readme = rules_dir / "README.md"
     if readme.exists():
         match = re.search(r"\b([0-9a-f]{40})\b", readme.read_text(encoding="utf-8"))
         if match:
-            return match.group(1)
+            return match.group(1), "rules"
     try:
-        out = subprocess.run(["git", "-C", str(rules_dir), "rev-parse", "HEAD"],
+        out = subprocess.run(["git", "-C", str(rules_dir), "rev-parse", "HEAD", "--show-prefix"],
                              capture_output=True, text=True, timeout=10, check=True)
-        commit = out.stdout.strip()
-        return commit if re.fullmatch(r"[0-9a-f]{40}", commit) else None
+        lines = out.stdout.splitlines()
+        commit = lines[0].strip() if lines else ""
+        prefix = lines[1].strip().strip("/") if len(lines) > 1 else ""
+        if re.fullmatch(r"[0-9a-f]{40}", commit):
+            return commit, prefix
     except (OSError, subprocess.SubprocessError):
-        return None
+        pass
+    return None, guess_prefix(rules_dir)
 
 
-def rule_url(rel_path: str, commit: str | None) -> str | None:
+def guess_prefix(rules_dir: Path) -> str:
+    parts = rules_dir.resolve().parts
+    for index in range(len(parts) - 1, -1, -1):
+        if SIGMAHQ_FOLDER_RE.match(parts[index]):
+            return "/".join(parts[index:])
+    return "rules"
+
+
+def sigma_commit(rules_dir: Path) -> str | None:
+    """Commit of the SigmaHQ rules: from rules/sigma/README.md, or from git for a SigmaHQ clone."""
+    return sigma_location(rules_dir)[0]
+
+
+def rule_url(rel_path: str, commit: str | None, prefix: str = "rules") -> str | None:
     if not commit:
         return None
-    return f"https://github.com/SigmaHQ/sigma/blob/{commit}/rules/{rel_path}"
+    return f"https://github.com/SigmaHQ/sigma/blob/{commit}/{prefix + '/' if prefix else ''}{rel_path}"
 
 
-def load_rules(rules_dir: Path) -> list[dict[str, Any]]:
-    """Return rule records sorted by path. Skips regression data, deprecated and broken files."""
-    commit = sigma_commit(rules_dir)
+def sigma_folder(rel_path: str, prefix: str) -> str:
+    """The SigmaHQ top-level folder a rule comes from (rules, rules-emerging-threats, ...)."""
+    full = f"{prefix}/{rel_path}" if prefix else rel_path
+    return full.split("/", 1)[0]
+
+
+def read_rule(path: Path, rel: str, rule_keys: tuple[str, ...]) -> tuple[dict[str, Any], str] | None:
+    """Parse one rule file: (document, text), or None (with a message) when it is not usable."""
+    text = path.read_text(encoding="utf-8")
+    try:
+        docs = list(yaml.safe_load_all(text))
+    except yaml.YAMLError as exc:
+        eprint(f"skip {rel}: invalid YAML ({exc.__class__.__name__})")
+        return None
+    if len(docs) != 1 or not isinstance(docs[0], dict):
+        eprint(f"skip {rel}: expected one YAML document")
+        return None
+    doc = docs[0]
+    if not str(doc.get("id", "")) or "title" not in doc or not any(k in doc for k in rule_keys):
+        eprint(f"skip {rel}: missing id, title or {' or '.join(rule_keys)}")
+        return None
+    if str(doc.get("status", "")).lower() in {"deprecated", "unsupported"}:
+        return None
+    return doc, text
+
+
+def rule_record(doc: dict[str, Any], text: str, rel: str, url: str | None, license_id: str) -> dict[str, Any]:
+    rid = str(doc.get("id", ""))
+    techniques = sorted(
+        {m.group(1).upper() for t in doc.get("tags") or [] if (m := TECHNIQUE_RE.match(str(t)))}
+    )
+    return {
+        "id": rid,
+        "custom_id": rid if ID_RE.match(rid) else re.sub(r"[^A-Za-z0-9_-]", "_", rid)[:64],
+        "title": str(doc.get("title")),
+        "level": doc.get("level"),
+        "status": doc.get("status"),
+        "author": doc.get("author"),
+        "path": rel,
+        "url": url,
+        "license": license_id,
+        "techniques": techniques,
+        "text": text,
+    }
+
+
+def load_rules(rules_dir: Path, origin: str = "sigmahq") -> list[dict[str, Any]]:
+    """Return rule records sorted by path. Skips regression data, deprecated and broken files.
+
+    sigmahq: every rule below `rules_dir` (a Sigma rules folder: Centinela's vendored subset or any
+    rule folder of a SigmaHQ checkout), DRL 1.1, with the SigmaHQ folder it comes from and its link.
+    centinela: `rules_dir/centinela/**` and `rules_dir/correlation/**` (a rules root), MIT, with
+    the author from the rule and its own `url` if it has one (Centinela's rules link nowhere
+    else); correlation rules are marked `kind: correlation` and get a playbook only.
+    """
+    if origin == "centinela":
+        return load_centinela_rules(rules_dir)
+    commit, prefix = sigma_location(rules_dir)
     records: list[dict[str, Any]] = []
     seen: set[str] = set()
     for path in sorted(rules_dir.rglob("*.yml")):
         rel = path.relative_to(rules_dir).as_posix()
         if rel.startswith("regression/"):
             continue
-        text = path.read_text(encoding="utf-8")
-        try:
-            docs = list(yaml.safe_load_all(text))
-        except yaml.YAMLError as exc:
-            eprint(f"skip {rel}: invalid YAML ({exc.__class__.__name__})")
+        parsed = read_rule(path, rel, ("detection",))
+        if parsed is None:
             continue
-        if len(docs) != 1 or not isinstance(docs[0], dict):
-            eprint(f"skip {rel}: expected one YAML document")
-            continue
-        doc = docs[0]
+        doc, text = parsed
         rid = str(doc.get("id", ""))
-        if not rid or "detection" not in doc or "title" not in doc:
-            eprint(f"skip {rel}: missing id, title or detection")
-            continue
-        if str(doc.get("status", "")).lower() in {"deprecated", "unsupported"}:
-            continue
         if rid in seen:
             eprint(f"skip {rel}: duplicate id {rid}")
             continue
         seen.add(rid)
-        techniques = sorted(
-            {m.group(1).upper() for t in doc.get("tags") or [] if (m := TECHNIQUE_RE.match(str(t)))}
-        )
-        records.append(
-            {
-                "id": rid,
-                "custom_id": rid if ID_RE.match(rid) else re.sub(r"[^A-Za-z0-9_-]", "_", rid)[:64],
-                "title": str(doc.get("title")),
-                "level": doc.get("level"),
-                "status": doc.get("status"),
-                "author": doc.get("author"),
-                "path": rel,
-                "url": rule_url(rel, commit),
-                "license": "DRL-1.1",
-                "techniques": techniques,
-                "text": text,
-            }
-        )
+        records.append({**rule_record(doc, text, rel, rule_url(rel, commit, prefix), "DRL-1.1"),
+                        "origin": "sigmahq", "kind": "detection", "folder": sigma_folder(rel, prefix)})
     return records
+
+
+def load_centinela_rules(rules_dir: Path) -> list[dict[str, Any]]:
+    folders = [rules_dir / name for name in CENTINELA_RULE_FOLDERS if (rules_dir / name).is_dir()]
+    if not folders:
+        sys.exit(f"{rules_dir} has no {' or '.join(CENTINELA_RULE_FOLDERS)} folder; "
+                 "with --origin centinela, --rules-dir is the rules root (default: rules/)")
+    records: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for path in sorted(p for folder in folders for p in folder.rglob("*.yml")):
+        rel = path.relative_to(rules_dir).as_posix()
+        parsed = read_rule(path, rel, ("detection", "correlation"))
+        if parsed is None:
+            continue
+        doc, text = parsed
+        rid = str(doc.get("id", ""))
+        if rid in seen:
+            eprint(f"skip {rel}: duplicate id {rid}")
+            continue
+        seen.add(rid)
+        own_url = doc.get("url") if isinstance(doc.get("url"), str) else None
+        records.append({
+            **rule_record(doc, text, rel, own_url, "MIT"),
+            "origin": "centinela",
+            "kind": "correlation" if "correlation" in doc else "detection",
+            "name": doc.get("name") if isinstance(doc.get("name"), str) else None,
+            "references": correlation_refs(doc),
+        })
+    return records
+
+
+def correlation_refs(doc: dict[str, Any]) -> list[str]:
+    """Rule names or ids a correlation references (empty for other rules)."""
+    block = doc.get("correlation")
+    refs = block.get("rules") if isinstance(block, dict) else None
+    if isinstance(refs, str):
+        return [refs]
+    return [str(r) for r in refs] if isinstance(refs, list) else []
 
 
 def out_path(out_dir: Path, rule: dict[str, Any]) -> Path:
@@ -264,17 +409,89 @@ def pending_rules(rules: list[dict[str, Any]], out_dir: Path, force: bool) -> li
     return [r for r in rules if force or not out_path(out_dir, r).exists()]
 
 
+def origin_line(rule: dict[str, Any]) -> str:
+    if rule.get("origin") == "centinela":
+        return "Origin: Centinela (this project's own rule), MIT License"
+    return "Origin: SigmaHQ, Detection Rule License 1.1"
+
+
+def folder_line(rule: dict[str, Any]) -> str:
+    """A note on the rule's SigmaHQ folder, with its line break; empty for rules/ (and Centinela's
+    vendored subset of it), so those requests are unchanged."""
+    note = SIGMAHQ_FOLDER_NOTES.get(str(rule.get("folder")))
+    return f"{note}\n" if note else ""
+
+
 def user_prompt(rule: dict[str, Any]) -> str:
+    note = f"{CENTINELA_FIELDS_NOTE}\n" if rule.get("origin") == "centinela" else folder_line(rule)
     return (
         f"Rule file: {rule['path']}\n"
-        "Origin: SigmaHQ, Detection Rule License 1.1\n\n"
+        f"{origin_line(rule)}\n{note}\n"
         f"```yaml\n{rule['text'].strip()}\n```\n\n"
         "Write the Spanish and English playbooks and the fixtures for this rule, "
         f"then deliver them by calling {TOOL_NAME} exactly once. Do not reply in plain text."
     )
 
 
-def build_params(rule: dict[str, Any], model: str, effort: str | None = None) -> dict[str, Any]:
+def referenced_rules(rule: dict[str, Any], rules: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Rules a correlation references, followed through chained correlations: (found, missing)."""
+    by_ref: dict[str, dict[str, Any]] = {}
+    for r in rules:
+        by_ref[r["id"].lower()] = r
+        if r.get("name"):
+            by_ref.setdefault(r["name"], r)
+    found: list[dict[str, Any]] = []
+    missing: list[str] = []
+    seen = {rule["id"].lower()}
+    queue = list(rule.get("references") or [])
+    while queue:
+        ref = queue.pop(0)
+        target = by_ref.get(ref) or by_ref.get(ref.lower())
+        if target is None:
+            if ref not in missing:
+                missing.append(ref)
+            continue
+        if target["id"].lower() in seen:
+            continue
+        seen.add(target["id"].lower())
+        found.append(target)
+        queue.extend(target.get("references") or [])
+    return found, missing
+
+
+def correlation_prompt(rule: dict[str, Any], rules: list[dict[str, Any]]) -> str:
+    found, missing = referenced_rules(rule, rules)
+    parts = [
+        f"Rule file: {rule['path']}",
+        origin_line(rule),
+        "Kind: correlation rule (playbook only, no fixtures)",
+        "",
+        f"```yaml\n{rule['text'].strip()}\n```",
+        "",
+        "Rules it references (directly or through chained correlations):",
+    ]
+    for ref in found:
+        parts += ["", f"Rule file: {ref['path']}", f"```yaml\n{ref['text'].strip()}\n```"]
+    if not found:
+        parts.append("(none found)")
+    if missing:
+        parts += ["", f"References not found among the loaded rules: {', '.join(missing)}"]
+    parts += [
+        "",
+        "Write the Spanish and English playbooks for the correlation rule (not for the rules it references), "
+        f"then deliver them by calling {PLAYBOOK_TOOL_NAME} exactly once. Do not write fixtures and do not "
+        "reply in plain text.",
+    ]
+    return "\n".join(parts)
+
+
+def is_correlation(rule: dict[str, Any]) -> bool:
+    return rule.get("kind") == "correlation"
+
+
+def build_params(rule: dict[str, Any], model: str, effort: str | None = None,
+                 rules: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Request for one rule. Correlations (playbook only) get the referenced rules from `rules` as context."""
     # Opus 5.5, Sonnet 5.5 and the Fable/Mythos models reject forced tool use
     # (tool_choice "tool" or "any" returns HTTP 400), so the tool is offered with "auto"
     # and the prompt requires the call; responses without it are caught by
@@ -282,17 +499,18 @@ def build_params(rule: dict[str, Any], model: str, effort: str | None = None) ->
     params: dict[str, Any] = {
         "model": model,
         "max_tokens": MAX_TOKENS,
-        "system": SYSTEM_PROMPT,
-        "tools": [TOOL],
+        "system": CORRELATION_SYSTEM_PROMPT if is_correlation(rule) else SYSTEM_PROMPT,
+        "tools": [PLAYBOOK_TOOL if is_correlation(rule) else TOOL],
         "tool_choice": {"type": "auto"},
-        "messages": [{"role": "user", "content": user_prompt(rule)}],
+        "messages": [{"role": "user", "content": correlation_prompt(rule, rules or []) if is_correlation(rule)
+                      else user_prompt(rule)}],
     }
     if effort:
         params["output_config"] = {"effort": effort}
     return params
 
 
-def validate_tool_input(data: Any) -> str | None:
+def validate_tool_input(data: Any, playbook_only: bool = False) -> str | None:
     """Return an error message, or None when the payload has the expected shape."""
     if not isinstance(data, dict):
         return "tool input is not an object"
@@ -307,6 +525,8 @@ def validate_tool_input(data: Any) -> str | None:
             items = pb.get(key)
             if not isinstance(items, list) or not items or not all(isinstance(i, str) for i in items):
                 return f"playbook '{lang}' has an invalid '{key}'"
+    if playbook_only:
+        return None
     fixtures = data.get("fixtures")
     if not isinstance(fixtures, dict):
         return "missing fixtures"
@@ -320,30 +540,39 @@ def validate_tool_input(data: Any) -> str | None:
     return None
 
 
-def tool_input_from_message(message: Any) -> tuple[dict[str, Any] | None, str | None]:
+def tool_input_from_message(message: Any, playbook_only: bool = False) -> tuple[dict[str, Any] | None, str | None]:
     if getattr(message, "stop_reason", None) == "max_tokens":
         return None, "output truncated (max_tokens)"
+    name = PLAYBOOK_TOOL_NAME if playbook_only else TOOL_NAME
     for block in getattr(message, "content", []) or []:
-        if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == TOOL_NAME:
+        if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == name:
             data = block.input
-            error = validate_tool_input(data)
+            error = validate_tool_input(data, playbook_only)
             return (None, error) if error else (data, None)
-    return None, "no save_content_pack tool call in the response"
+    return None, f"no {name} tool call in the response"
 
 
 def record_for(rule: dict[str, Any], data: dict[str, Any], model: str) -> dict[str, Any]:
-    return {
+    """The content file. Correlation rules have no `fixtures` key (playbook only)."""
+    record: dict[str, Any] = {
         "rule": {k: rule[k] for k in ("id", "title", "level", "status", "author", "path", "url", "license", "techniques")},
         "playbook": {"es": data["es"], "en": data["en"]},
-        "fixtures": data["fixtures"],
-        "generated": {
-            "tool": TOOL_VERSION,
-            "model": model,
-            "at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
-            "review": "unreviewed",
-            "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7.",
-        },
     }
+    if rule.get("folder"):
+        # SigmaHQ folder of the rule, so content for several folders can share one content folder.
+        record["rule"]["folder"] = rule["folder"]
+    if not is_correlation(rule):
+        record["fixtures"] = data["fixtures"]
+    notice = ("AI-generated content. Review it before relying on it." if is_correlation(rule) else
+              "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7.")
+    record["generated"] = {
+        "tool": TOOL_VERSION,
+        "model": model,
+        "at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
+        "review": "unreviewed",
+        "notice": notice,
+    }
+    return record
 
 
 def usage_cost(model: str, input_tokens: int, output_tokens: int, batch: bool) -> float:
@@ -473,7 +702,7 @@ def repair_prompt(rule: dict[str, Any], content: dict[str, Any], failures: list[
     reasons = "\n".join(f"- {kind} #{index}: {reason}" for (kind, index), reason in rejected.items())
     return (
         f"Rule file: {rule['path']}\n"
-        "Origin: SigmaHQ, Detection Rule License 1.1\n\n"
+        f"{origin_line(rule)}\n{folder_line(rule)}\n"
         f"```yaml\n{rule['text'].strip()}\n```\n\n"
         "Current fixtures:\n\n"
         f"```json\n{json.dumps(listing, ensure_ascii=False, indent=2)}\n```\n\n"
@@ -602,7 +831,7 @@ def merge_repair(content: dict[str, Any], failures: list[dict[str, Any]], answer
 
 
 def cmd_estimate(args: argparse.Namespace) -> None:
-    rules = load_rules(args.rules_dir)
+    rules = load_rules(args.rules_dir, args.origin)
     todo = pending_rules(rules, args.out, args.force)
     measured = load_json(WORK_DIR / "sample-usage.json", None)
     fixed_chars = len(SYSTEM_PROMPT) + len(json.dumps(TOOL)) + 200
@@ -622,7 +851,7 @@ def cmd_estimate(args: argparse.Namespace) -> None:
 
 
 def cmd_sample(args: argparse.Namespace) -> None:
-    rules = load_rules(args.rules_dir)
+    rules = load_rules(args.rules_dir, args.origin)
     if args.rule:
         chosen = [r for r in rules if r["id"] == args.rule]
         if not chosen:
@@ -635,11 +864,11 @@ def cmd_sample(args: argparse.Namespace) -> None:
     for rule in chosen:
         print(f"-> {rule['path']} ({rule['title']})")
         # Streaming avoids HTTP timeouts on long generations (thinking + two playbooks).
-        with api.messages.stream(**build_params(rule, args.model, args.effort)) as stream:
+        with api.messages.stream(**build_params(rule, args.model, args.effort, rules)) as stream:
             message = stream.get_final_message()
         total_in += message.usage.input_tokens
         total_out += message.usage.output_tokens
-        data, error = tool_input_from_message(message)
+        data, error = tool_input_from_message(message, is_correlation(rule))
         if error:
             eprint(f"   failed: {error}")
             continue
@@ -662,7 +891,7 @@ def in_flight_ids(state: list[dict[str, Any]]) -> set[str]:
 
 
 def cmd_submit(args: argparse.Namespace, only_ids: set[str] | None = None) -> None:
-    rules = load_rules(args.rules_dir)
+    rules = load_rules(args.rules_dir, args.origin)
     todo = pending_rules(rules, args.out, args.force)
     if only_ids is not None:
         todo = [r for r in todo if r["custom_id"] in only_ids]
@@ -686,7 +915,7 @@ def cmd_submit(args: argparse.Namespace, only_ids: set[str] | None = None) -> No
     print(f"submitting {len(todo)} rules with {args.model}; estimated cost ${est:,.2f}")
     if est > args.max_cost and not args.yes:
         sys.exit(f"estimate exceeds --max-cost {args.max_cost}; re-run with a higher --max-cost or --yes")
-    requests = [{"custom_id": r["custom_id"], "params": build_params(r, args.model, args.effort)} for r in todo]
+    requests = [{"custom_id": r["custom_id"], "params": build_params(r, args.model, args.effort, rules)} for r in todo]
     if args.dry_run:
         WORK_DIR.mkdir(parents=True, exist_ok=True)
         dump = WORK_DIR / "requests.jsonl"
@@ -702,6 +931,7 @@ def cmd_submit(args: argparse.Namespace, only_ids: set[str] | None = None) -> No
         "model": args.model,
         "count": len(requests),
         "custom_ids": [r["custom_id"] for r in todo],
+        "origin": args.origin,
         "rules_dir": str(args.rules_dir),
         "out": str(args.out),
         "created": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -726,7 +956,8 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 
 def collect_generation(api: Any, entry: dict[str, Any], args: argparse.Namespace, failed: dict[str, Any]) -> None:
-    rules = {r["custom_id"]: r for r in load_rules(Path(entry.get("rules_dir", args.rules_dir)))}
+    rules = {r["custom_id"]: r for r in load_rules(Path(entry.get("rules_dir", args.rules_dir)),
+                                                   entry.get("origin", "sigmahq"))}
     out_dir = Path(entry.get("out", args.out))
     ok = bad = 0
     total_in = total_out = 0
@@ -745,7 +976,7 @@ def collect_generation(api: Any, entry: dict[str, Any], args: argparse.Namespace
             failed[cid] = "rule file no longer found"
             bad += 1
             continue
-        data, error = tool_input_from_message(message)
+        data, error = tool_input_from_message(message, is_correlation(rule))
         if error:
             failed[cid] = error
             bad += 1
@@ -846,7 +1077,7 @@ def cmd_retry(args: argparse.Namespace) -> None:
 
 def cmd_repair(args: argparse.Namespace) -> None:
     failures = load_failures(args.failures)
-    rules = load_rules(args.rules_dir)
+    rules = load_rules(args.rules_dir, args.origin)
     jobs, skipped = plan_repairs(failures, rules, args.out)
     for rule_id, reason in skipped:
         print(f"skip {rule_id}: {reason}")
@@ -900,10 +1131,25 @@ def cmd_repair(args: argparse.Namespace) -> None:
     print(f"batch {batch.id} created ({batch.processing_status}). Check it with: python tools/content-pack/content_pack.py status")
 
 
+def default_failures(out: Path, rules_dir: Path, origin: str) -> Path:
+    """Where `npm run content:validate` writes the failures file for this content and rules folder:
+    <out>-failures.json, or <out>-<folder>-failures.json for a SigmaHQ folder other than rules/
+    (several folders can share one content folder)."""
+    folder = sigma_folder("", sigma_location(rules_dir)[1]) if origin == "sigmahq" else "rules"
+    suffix = f"-{folder}" if folder and folder != "rules" else ""
+    return out.parent / f"{out.name}{suffix}-failures.json"
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--rules-dir", type=Path, default=DEFAULT_RULES_DIR, help="folder with Sigma rules (default: rules/sigma)")
-    parser.add_argument("--out", type=Path, default=DEFAULT_OUT_DIR, help="output folder (default: content/sigma)")
+    parser.add_argument("--origin", choices=ORIGINS, default="sigmahq",
+                        help="sigmahq: SigmaHQ rules (DRL 1.1); centinela: Centinela's own rules (MIT), "
+                             "correlations get a playbook only (default: sigmahq)")
+    parser.add_argument("--rules-dir", type=Path, default=None,
+                        help="folder with Sigma rules (default: rules/sigma); with --origin centinela, the rules "
+                             "root holding centinela/ and correlation/ (default: rules)")
+    parser.add_argument("--out", type=Path, default=None,
+                        help="output folder (default: content/sigma; content/centinela with --origin centinela)")
     parser.add_argument("--model", default=DEFAULT_MODEL, help=f"model id (default: {DEFAULT_MODEL})")
     parser.add_argument("--force", action="store_true",
                         help="also process rules that already have a file or are waiting in an uncollected batch")
@@ -923,8 +1169,10 @@ def main(argv: list[str] | None = None) -> None:
         p.add_argument("--yes", action="store_true", help="submit even above --max-cost")
         p.add_argument("--dry-run", action="store_true", help="write the requests to .work/requests.jsonl instead of sending")
     p_repair = sub.add_parser("repair", help="send rejected fixtures back for correction (after npm run content:validate)")
-    p_repair.add_argument("--failures", type=Path, default=DEFAULT_FAILURES,
-                          help="failures file from npm run content:validate (default: content/sigma-failures.json)")
+    p_repair.add_argument("--failures", type=Path, default=None,
+                          help="failures file from npm run content:validate (default: <out>-failures.json, e.g. "
+                               "content/sigma-failures.json; <out>-<folder>-failures.json for a SigmaHQ folder other "
+                               "than rules/)")
     p_repair.add_argument("--limit", type=int, default=0, help="only the first N rules")
     p_repair.add_argument("--max-cost", type=float, default=20.0, help="refuse to submit above this estimate (USD)")
     p_repair.add_argument("--yes", action="store_true", help="submit even above --max-cost")
@@ -933,10 +1181,11 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("collect", help="download results and write files")
 
     args = parser.parse_args(argv)
-    args.rules_dir = args.rules_dir.resolve()
-    args.out = args.out.resolve()
-    if getattr(args, "failures", None) is not None:
-        args.failures = args.failures.resolve()
+    default_rules, default_out = DEFAULT_DIRS[args.origin]
+    args.rules_dir = (args.rules_dir or default_rules).resolve()
+    args.out = (args.out or default_out).resolve()
+    if args.command == "repair":
+        args.failures = (args.failures or default_failures(args.out, args.rules_dir, args.origin)).resolve()
     commands = {
         "estimate": cmd_estimate,
         "sample": cmd_sample,

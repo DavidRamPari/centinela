@@ -1,0 +1,132 @@
+{
+  "rule": {
+    "id": "b7b1255e-2d9d-4c62-ae0f-b373fd8a9212",
+    "title": "Sudo attempt by a user not in sudoers",
+    "level": "medium",
+    "status": "experimental",
+    "author": "DavidRamPari",
+    "path": "centinela/linux/sudo_user_not_in_sudoers.yml",
+    "url": null,
+    "license": "MIT",
+    "techniques": [
+      "T1548.003"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un usuario que no figura en sudoers intentó ejecutar un comando con sudo y el sistema lo rechazó. Puede ser un error de un usuario legítimo o un atacante con una cuenta de pocos privilegios que busca escalar.",
+      "what_it_detects": "Eventos del servicio sudo en Linux normalizados con event.action = sudo_not_in_sudoers, es decir, sudo registró \"user NOT in sudoers\" para la cuenta en user.name sobre el equipo host.name.",
+      "why_it_matters": "Abusar de sudo es una vía habitual para escalar a root (MITRE ATT&CK T1548.003, Sudo and Sudo Caching). Que una cuenta sin permisos lo intente suele indicar que alguien la controla y está probando privilegios tras un acceso inicial.",
+      "triage_steps": [
+        "Identifique user.name, host.name y el comando solicitado (COMMAND=, USER=, TTY y PWD en el mensaje de sudo).",
+        "Evalúe el comando: un shell (/bin/bash, su -), lectura de /etc/shadow o edición de sudoers es más sospechoso que una herramienta administrativa común.",
+        "Confirme con RR. HH. o el responsable del equipo si el usuario es nuevo, cambió de rol o espera acceso sudo pendiente.",
+        "Revise el inicio de sesión que originó la sesión: source.ip, método (clave o contraseña), horario y si la IP es habitual para ese usuario.",
+        "Pivote en el mismo host.name +/- 15 minutos: otros intentos de sudo o su, ejecución de scripts de enumeración, descargas o cambios en archivos de cron.",
+        "Busque el mismo user.name en otros equipos y alertas previas de la misma cuenta o de la misma source.ip.",
+        "Revise el historial de shell del usuario si está disponible para ver qué ejecutó antes y después del intento."
+      ],
+      "false_positives": [
+        "Personal nuevo al que todavía no se le concede sudo y lo intenta por costumbre.",
+        "Usuarios que cambiaron de rol y perdieron sudo, o scripts antiguos que aún invocan sudo con esa cuenta.",
+        "Errores de configuración en la gestión de sudoers (Ansible, LDAP/SSSD) que dejan fuera a un administrador legítimo."
+      ],
+      "response_steps": [
+        "Verifique con el usuario por un canal independiente si hizo el intento y por qué.",
+        "Si no lo reconoce o hay actividad sospechosa, bloquee la cuenta, cierre sus sesiones activas y rote credenciales y claves SSH.",
+        "Aísle el host si hay indicios de enumeración, herramientas de escalada o persistencia, y preserve logs y artefactos.",
+        "Busque y elimine persistencia (cron, authorized_keys, servicios) y revise si hubo escalada por otros medios.",
+        "Si fue legítimo, gestione el acceso por el proceso formal o documente la excepción."
+      ],
+      "severity_rationale": "Medium porque un solo intento rechazado no implica compromiso y tiene causas benignas frecuentes, pero es un indicador temprano útil de escalada de privilegios que debe revisarse."
+    },
+    "en": {
+      "summary": "A user who is not listed in sudoers tried to run a command with sudo and was refused. It may be an honest mistake or an attacker on a low-privileged account probing for escalation.",
+      "what_it_detects": "Linux sudo events normalized with event.action = sudo_not_in_sudoers, meaning sudo logged \"user NOT in sudoers\" for the account in user.name on host.name.",
+      "why_it_matters": "Abusing sudo is a common path to root (MITRE ATT&CK T1548.003, Sudo and Sudo Caching). An unprivileged account trying it often means someone controls that account and is testing privileges after initial access.",
+      "triage_steps": [
+        "Identify user.name, host.name and the requested command (COMMAND=, USER=, TTY and PWD in the sudo message).",
+        "Assess the command: a shell (/bin/bash, su -), reading /etc/shadow or editing sudoers is more suspicious than a routine admin tool.",
+        "Confirm with HR or the system owner whether the user is new, changed roles, or has a pending sudo request.",
+        "Review the originating login: source.ip, auth method (key or password), time of day, and whether the IP is usual for this user.",
+        "Pivot on the same host.name +/- 15 minutes: other sudo or su attempts, enumeration scripts, downloads, or cron file changes.",
+        "Search for the same user.name on other hosts and for earlier alerts on the same account or source.ip.",
+        "Check the user's shell history, if available, for activity before and after the attempt."
+      ],
+      "false_positives": [
+        "New staff who have not been granted sudo yet and try it out of habit.",
+        "Users who changed roles and lost sudo, or old scripts still calling sudo under that account.",
+        "Sudoers management mistakes (Ansible, LDAP/SSSD) that drop a legitimate administrator."
+      ],
+      "response_steps": [
+        "Verify with the user through an independent channel whether they made the attempt and why.",
+        "If unrecognized or other activity looks suspicious, lock the account, kill active sessions and rotate passwords and SSH keys.",
+        "Isolate the host if there are signs of enumeration, escalation tools or persistence; preserve logs and artifacts.",
+        "Hunt for and remove persistence (cron, authorized_keys, services) and check for escalation through other means.",
+        "If legitimate, route access through the formal request process or document the exception."
+      ],
+      "severity_rationale": "Medium because a single refused attempt is not proof of compromise and has common benign causes, yet it is a valuable early signal of privilege escalation worth reviewing."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "Unprivileged user tries to open a root shell via sudo and is refused as not in sudoers.",
+        "event": {
+          "@timestamp": "2026-10-26T09:14:02Z",
+          "event.action": "sudo_not_in_sudoers",
+          "event.outcome": "failure",
+          "user.name": "mlopez",
+          "host.name": "web-03",
+          "process.name": "sudo",
+          "message": "Oct 26 09:14:02 web-03 sudo:   mlopez : user NOT in sudoers ; TTY=pts/1 ; PWD=/home/mlopez ; USER=root ; COMMAND=/bin/bash"
+        }
+      },
+      {
+        "description": "Service account attempts to read /etc/shadow through sudo without sudoers entry.",
+        "event": {
+          "@timestamp": "2026-10-26T22:41:37Z",
+          "event.action": "sudo_not_in_sudoers",
+          "event.outcome": "failure",
+          "user.name": "www-data",
+          "host.name": "bastion-01",
+          "process.name": "sudo",
+          "message": "Oct 26 22:41:37 bastion-01 sudo: www-data : user NOT in sudoers ; TTY=unknown ; PWD=/var/www/html ; USER=root ; COMMAND=/usr/bin/cat /etc/shadow"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "Authorized administrator runs a command with sudo successfully.",
+        "event": {
+          "@timestamp": "2026-10-26T10:02:11Z",
+          "event.action": "sudo_command",
+          "event.outcome": "success",
+          "user.name": "jperez",
+          "host.name": "web-03",
+          "process.name": "sudo",
+          "message": "Oct 26 10:02:11 web-03 sudo:   jperez : TTY=pts/0 ; PWD=/home/jperez ; USER=root ; COMMAND=/usr/bin/systemctl restart nginx"
+        }
+      },
+      {
+        "description": "Sudoers member mistypes the password; authentication failure, not a not-in-sudoers event.",
+        "event": {
+          "@timestamp": "2026-10-26T11:20:45Z",
+          "event.action": "sudo_auth_failure",
+          "event.outcome": "failure",
+          "user.name": "jperez",
+          "host.name": "bastion-01",
+          "process.name": "sudo",
+          "message": "Oct 26 11:20:45 bastion-01 sudo:   jperez : 1 incorrect password attempt ; TTY=pts/2 ; PWD=/home/jperez ; USER=root ; COMMAND=/usr/bin/apt update"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-27T16:51:43+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

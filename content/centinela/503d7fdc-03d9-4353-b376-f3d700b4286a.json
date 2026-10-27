@@ -1,0 +1,155 @@
+{
+  "rule": {
+    "id": "503d7fdc-03d9-4353-b376-f3d700b4286a",
+    "title": "Outbound connection to an external address by a Windows download utility",
+    "level": "medium",
+    "status": "experimental",
+    "author": "DavidRamPari",
+    "path": "centinela/windows/lolbin_network_connection.yml",
+    "url": null,
+    "license": "MIT",
+    "techniques": [
+      "T1105",
+      "T1218"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Un binario firmado de Windows que suele usarse para descargar payloads (certutil, bitsadmin, mshta o regsvr32) inició una conexión hacia una IP pública. Puede tratarse de una transferencia de herramientas de ataque hacia el endpoint.",
+      "what_it_detects": "Eventos de conexión de red (Sysmon ID 3) en los que el campo Image termina en certutil.exe, bitsadmin.exe, mshta.exe o regsvr32.exe, Initiated es 'true' y DestinationIp no está en rangos privados, loopback ni link-local, tanto IPv4 como IPv6.",
+      "why_it_matters": "Los atacantes abusan de binarios firmados de Microsoft para descargar y ejecutar código sin que los controles de aplicaciones los bloqueen. Esto corresponde a Ingress Tool Transfer (T1105) y System Binary Proxy Execution (T1218). Suele ser la etapa que precede a la ejecución del malware.",
+      "triage_steps": [
+        "Confirme que Image está en System32 o SysWOW64. Anote User, el host, ProcessId y ProcessGuid.",
+        "Busque la creación del proceso (Sysmon ID 1) con el mismo ProcessGuid para obtener CommandLine y ParentImage. Revise si aparecen -urlcache, -split, /transfer, URLs http, scrobj.dll o /i:.",
+        "Revise la reputación de DestinationIp y DestinationHostname, su ASN y si corresponde a una CA pública, a Microsoft o a un proveedor conocido.",
+        "Evalúe el proceso padre: Office, un navegador, wscript, cscript o cmd lanzado desde la carpeta Descargas son indicios sospechosos.",
+        "En el mismo host, +/- 15 minutos, busque archivos creados (TargetFilename) en Temp, ProgramData o Public, y procesos que los ejecuten.",
+        "Consulte los logs de proxy y firewall para ver la URL completa y los bytes transferidos. Busque otros hosts que se conecten a la misma DestinationIp.",
+        "Revise alertas previas del mismo usuario y del mismo host."
+      ],
+      "false_positives": [
+        "certutil consulta CRL u OCSP directamente a una CA pública en equipos que no usan proxy.",
+        "Scripts de administración o despliegue que usan bitsadmin para descargar paquetes desde la CDN de un proveedor.",
+        "Aplicaciones HTA heredadas o registros de componentes con regsvr32 que obtienen recursos de un proveedor legítimo.",
+        "Instaladores o agentes de actualización que invocan estos binarios."
+      ],
+      "response_steps": [
+        "Verifique la actividad con CommandLine, el proceso padre y los archivos descargados antes de tomar acciones de contención.",
+        "Si se confirma que es maliciosa, aísle el endpoint desde el EDR y bloquee la IP o el dominio de destino en el proxy y el firewall.",
+        "Preserve los archivos descargados y calcule sus hash. Revise la persistencia: tareas programadas, claves Run y trabajos BITS (bitsadmin /list /allusers).",
+        "Si hay indicios de robo de credenciales, restablezca las del usuario. Busque los mismos indicadores en toda la flota.",
+        "Si la actividad es legítima, documéntela y cree una excepción por destino y proceso padre concretos, nunca solo por Image."
+      ],
+      "severity_rationale": "La severidad es media porque una conexión externa no prueba un compromiso por sí sola; si la acompaña una línea de comandos de descarga, se debe escalar a alta."
+    },
+    "en": {
+      "summary": "A signed Windows binary often abused to download payloads (certutil, bitsadmin, mshta or regsvr32) started a connection to a public IP. This may be attack tools being transferred onto the endpoint.",
+      "what_it_detects": "Network connection events (Sysmon ID 3) where Image ends in certutil.exe, bitsadmin.exe, mshta.exe or regsvr32.exe, Initiated is 'true', and DestinationIp is not in a private, loopback or link-local range (IPv4 or IPv6).",
+      "why_it_matters": "Attackers abuse signed Microsoft binaries to download and run code without application controls blocking them. This maps to Ingress Tool Transfer (T1105) and System Binary Proxy Execution (T1218). It usually happens just before the malware runs.",
+      "triage_steps": [
+        "Confirm that Image is in System32 or SysWOW64. Note the User, host, ProcessId and ProcessGuid.",
+        "Find the process creation event (Sysmon ID 1) with the same ProcessGuid to get CommandLine and ParentImage. Look for -urlcache, -split, /transfer, http URLs, scrobj.dll or /i:.",
+        "Check the reputation of DestinationIp and DestinationHostname, their ASN, and whether they belong to a public CA, Microsoft or a known vendor.",
+        "Assess the parent process: Office, a browser, wscript, cscript, or cmd launched from the Downloads folder are suspicious.",
+        "On the same host, within +/- 15 minutes, look for files created (TargetFilename) in Temp, ProgramData or Public, and for processes that run them.",
+        "Check proxy and firewall logs for the full URL and the bytes transferred. Look for other hosts connecting to the same DestinationIp.",
+        "Review earlier alerts for the same user and the same host."
+      ],
+      "false_positives": [
+        "certutil checks CRLs or OCSP directly with a public CA on machines that do not use a proxy.",
+        "Admin or deployment scripts that use bitsadmin to download packages from a vendor CDN.",
+        "Legacy HTA apps, or regsvr32 component registrations, that fetch resources from a legitimate vendor.",
+        "Installers or update agents that call these binaries."
+      ],
+      "response_steps": [
+        "Verify the activity with the CommandLine, the parent process and any downloaded files before you take containment actions.",
+        "If it is confirmed malicious, isolate the endpoint through the EDR and block the destination IP or domain at the proxy and firewall.",
+        "Preserve the downloaded files and record their hashes. Check for persistence: scheduled tasks, Run keys and BITS jobs (bitsadmin /list /allusers).",
+        "If credential theft is suspected, reset the user's credentials. Hunt for the same indicators across the fleet.",
+        "If the activity is legitimate, document it and add an exclusion for the specific destination and parent process, never for Image alone."
+      ],
+      "severity_rationale": "Medium fits because an external connection alone does not prove compromise; escalate to high when a download command line goes with it."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "certutil.exe connects to a public IP on 443, typical of a certutil -urlcache download",
+        "event": {
+          "EventID": 3,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "ProcessId": 6120,
+          "Protocol": "tcp",
+          "Initiated": "true",
+          "SourceIp": "10.10.4.142",
+          "SourcePort": 51544,
+          "DestinationIp": "203.0.113.45",
+          "DestinationHostname": "cdn.example.org",
+          "DestinationPort": 443
+        }
+      },
+      {
+        "description": "mshta.exe launched by an Office document connects to an external IP over HTTP",
+        "event": {
+          "EventID": 3,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mlopez",
+          "Image": "C:\\Windows\\SysWOW64\\mshta.exe",
+          "ProcessId": 4388,
+          "Protocol": "tcp",
+          "Initiated": "true",
+          "SourceIp": "10.10.6.207",
+          "SourcePort": 49822,
+          "DestinationIp": "198.51.100.23",
+          "DestinationHostname": "files.example.com",
+          "DestinationPort": 80
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "certutil.exe checks revocation through the corporate proxy at a private address, so the private-range filter excludes it",
+        "event": {
+          "EventID": 3,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "ProcessId": 5012,
+          "Protocol": "tcp",
+          "Initiated": "true",
+          "SourceIp": "10.10.4.142",
+          "SourcePort": 51600,
+          "DestinationIp": "10.20.0.5",
+          "DestinationHostname": "proxy.andes.example.com",
+          "DestinationPort": 8080
+        }
+      },
+      {
+        "description": "bitsadmin.exe downloads from an internal distribution server in 192.168.0.0/16, which the filter excludes",
+        "event": {
+          "EventID": 3,
+          "Computer": "SRV-DEPLOY-01.andes.example.com",
+          "User": "ANDES\\svc_deploy",
+          "Image": "C:\\Windows\\System32\\bitsadmin.exe",
+          "ProcessId": 2296,
+          "Protocol": "tcp",
+          "Initiated": "true",
+          "SourceIp": "192.168.50.12",
+          "SourcePort": 50110,
+          "DestinationIp": "192.168.50.30",
+          "DestinationHostname": "pkgrepo.andes.example.com",
+          "DestinationPort": 443
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-27T16:51:43+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

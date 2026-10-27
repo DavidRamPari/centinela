@@ -1,0 +1,134 @@
+{
+  "rule": {
+    "id": "8d3f3d97-2797-45e9-b373-2dc2048a4c73",
+    "title": "Local user account created",
+    "level": "low",
+    "status": "experimental",
+    "author": "DavidRamPari",
+    "path": "centinela/linux/user_created.yml",
+    "url": null,
+    "license": "MIT",
+    "techniques": [
+      "T1136.001"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "Se creó una cuenta de usuario local en un host Linux (event.action: user_created), normalmente con useradd. Puede ser aprovisionamiento legítimo o un atacante que deja una cuenta para mantener el acceso.",
+      "what_it_detects": "Eventos del log de autenticación de Linux normalizados como event.action = user_created, por ejemplo la línea de useradd \"new user: name=..., UID=..., home=..., shell=...\" en auth.log o secure.",
+      "why_it_matters": "Crear una cuenta local es una técnica de persistencia (MITRE ATT&CK T1136.001, Create Account: Local Account). Una cuenta nueva con shell interactiva, contraseña o llave SSH le da al atacante un acceso que sobrevive al cambio de credenciales comprometidas.",
+      "triage_steps": [
+        "En el campo message, revise el nombre de la cuenta, el UID, el GID, el home y la shell. Un UID 0 o una shell interactiva en una cuenta que parece de servicio requiere escalar de inmediato.",
+        "Identifique quién ejecutó useradd: busque líneas sudo COMMAND= y sesiones su en el mismo host.name dentro de +/- 15 minutos y anote el user.name que lo invocó.",
+        "Busque inicios de sesión SSH previos de ese operador y su source.ip. Valide si la IP y el horario son habituales para ese administrador.",
+        "Revise los logs del gestor de paquetes (apt, dpkg, dnf) a la misma hora. Si una instalación crea una cuenta de sistema con UID bajo y shell nologin, lo más probable es que sea legítimo.",
+        "Verifique si la cuenta nueva se agregó a sudo, wheel u otro grupo privilegiado, si se le asignó contraseña o si recibió authorized_keys.",
+        "Busque inicios de sesión posteriores de la cuenta nueva y alertas anteriores del mismo host o del mismo operador.",
+        "Confirme con el responsable del host o en el sistema de tickets si había una solicitud de alta aprobada."
+      ],
+      "false_positives": [
+        "Administradores que dan de alta cuentas de forma manual o con herramientas de configuración como Ansible, Puppet o cloud-init.",
+        "Paquetes que crean cuentas de servicio al instalarse, como bases de datos o servidores web, normalmente con UID de sistema y shell nologin.",
+        "Imágenes o pipelines de construcción que crean usuarios al desplegar hosts nuevos."
+      ],
+      "response_steps": [
+        "Si no hay una justificación clara, contacte al responsable del host para confirmar si el alta fue legítima antes de cambiar nada.",
+        "Si no se confirma, bloquee la cuenta (usermod -L, shell nologin) y conserve el home, los logs y las authorized_keys como evidencia.",
+        "Investigue la sesión que creó la cuenta: revise credenciales comprometidas, otros mecanismos de persistencia (cron, systemd, llaves SSH) y movimiento lateral.",
+        "Una vez documentada la evidencia, elimine la cuenta maliciosa, rote las credenciales del operador involucrado y documente el incidente."
+      ],
+      "severity_rationale": "El nivel bajo es adecuado porque crear cuentas es una tarea administrativa frecuente; la severidad sube si hay UID 0, grupos privilegiados o falta de un cambio aprobado."
+    },
+    "en": {
+      "summary": "A local user account was created on a Linux host (event.action: user_created), usually with useradd. It may be normal provisioning or an attacker creating an account to keep access.",
+      "what_it_detects": "Linux auth log events normalized as event.action = user_created, such as the useradd line \"new user: name=..., UID=..., home=..., shell=...\" in auth.log or secure.",
+      "why_it_matters": "Creating a local account is a persistence technique (MITRE ATT&CK T1136.001, Create Account: Local Account). A new account with an interactive shell, a password or an SSH key keeps the attacker's access even after stolen credentials are reset.",
+      "triage_steps": [
+        "In the message field, check the account name, UID, GID, home and shell. Escalate right away for UID 0, or for an interactive shell on an account that looks like a service account.",
+        "Find out who ran useradd: look for sudo COMMAND= lines and su sessions on the same host.name within +/- 15 minutes, and note the invoking user.name.",
+        "Find that operator's earlier SSH logins and their source.ip. Check whether the IP and the time are normal for that administrator.",
+        "Check package manager logs (apt, dpkg, dnf) for the same time. A package install that creates a system account with a low UID and a nologin shell is likely benign.",
+        "Check whether the new account was added to sudo, wheel or another privileged group, or was given a password or authorized_keys.",
+        "Look for later logins by the new account and for earlier alerts on the same host or operator.",
+        "Confirm with the host owner or the ticketing system that an approved account request exists."
+      ],
+      "false_positives": [
+        "Administrators provisioning accounts by hand or with configuration tools such as Ansible, Puppet or cloud-init.",
+        "Packages that create service accounts when installed, such as databases or web servers, usually with a system UID and a nologin shell.",
+        "Image builds or deployment pipelines that create users on new hosts."
+      ],
+      "response_steps": [
+        "If there is no clear reason for the account, ask the host owner whether it is legitimate before changing anything.",
+        "If it is not confirmed, lock the account (usermod -L, nologin shell) and keep its home directory, logs and authorized_keys as evidence.",
+        "Investigate the session that created the account: look for compromised credentials, other persistence (cron, systemd, SSH keys) and lateral movement.",
+        "Once the evidence is recorded, remove the malicious account, rotate the operator's credentials and document the incident."
+      ],
+      "severity_rationale": "Low fits because account creation is a common admin task; raise the severity for UID 0, privileged group membership or no approved change."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "An interactive account is created with useradd on a bastion host from an SSH session",
+        "event": {
+          "@timestamp": "2026-10-25T14:03:12Z",
+          "event.action": "user_created",
+          "event.outcome": "success",
+          "host.name": "bastion-01",
+          "user.name": "svc-backup2",
+          "process.name": "useradd",
+          "process.pid": 4182,
+          "message": "Oct 25 14:03:12 bastion-01 useradd[4182]: new user: name=svc-backup2, UID=1004, GID=1004, home=/home/svc-backup2, shell=/bin/bash, from=/dev/pts/1"
+        }
+      },
+      {
+        "description": "A package install creates a system service account (an expected false positive that still matches)",
+        "event": {
+          "@timestamp": "2026-10-25T09:41:07Z",
+          "event.action": "user_created",
+          "event.outcome": "success",
+          "host.name": "db-03",
+          "user.name": "postgres",
+          "process.name": "useradd",
+          "process.pid": 2291,
+          "message": "Oct 25 09:41:07 db-03 useradd[2291]: new user: name=postgres, UID=114, GID=121, home=/var/lib/postgresql, shell=/bin/bash, from=none"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "A local account is deleted with userdel, which is a different action",
+        "event": {
+          "@timestamp": "2026-10-25T15:20:44Z",
+          "event.action": "user_deleted",
+          "event.outcome": "success",
+          "host.name": "bastion-01",
+          "user.name": "svc-backup2",
+          "process.name": "userdel",
+          "process.pid": 4630,
+          "message": "Oct 25 15:20:44 bastion-01 userdel[4630]: delete user 'svc-backup2'"
+        }
+      },
+      {
+        "description": "Only a group is created with groupadd; no user account is created",
+        "event": {
+          "@timestamp": "2026-10-25T14:01:55Z",
+          "event.action": "group_created",
+          "event.outcome": "success",
+          "host.name": "bastion-01",
+          "group.name": "backupops",
+          "process.name": "groupadd",
+          "process.pid": 4170,
+          "message": "Oct 25 14:01:55 bastion-01 groupadd[4170]: new group: name=backupops, GID=1005"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-27T16:51:43+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}

@@ -57,13 +57,20 @@ export interface UnsupportedRule extends RuleRef {
   fixtures: number;
 }
 
+/** A correlation rule's content: a playbook only (correlations are not tested with single events). */
+export interface PlaybookOnlyRule extends RuleRef {
+  file: string;
+  /** Fixtures found in the file anyway; they are not evaluated. */
+  ignoredFixtures: number;
+}
+
 export interface ContentIssue {
   file: string;
   reason: string;
 }
 
 export interface ContentValidation {
-  /** Sigma rules in the rules folder that content could exist for (not deprecated). */
+  /** Rules in the folder that content is expected for (not deprecated). */
   rulesTotal: number;
   /** Of those, rules the engine cannot compile (with or without content). */
   rulesUnsupported: number;
@@ -73,6 +80,13 @@ export interface ContentValidation {
   contentFiles: number;
   evaluated: RuleOutcome[];
   unsupported: UnsupportedRule[];
+  /** Correlation rules with content: playbook only, nothing evaluated. */
+  playbookOnly: PlaybookOnlyRule[];
+  /**
+   * Content files for another SigmaHQ folder (`rule.folder`), skipped: one content folder
+   * may hold content for several SigmaHQ folders, validated one folder at a time.
+   */
+  otherFolders: number;
   /** Content files whose rule is not in the rules folder. */
   orphans: ContentIssue[];
   /** Content files that are not valid content (JSON or shape). */
@@ -182,13 +196,20 @@ export function validateContent(folder: SigmaFolder, content: ReadContent): Cont
   const { ruleSet } = folder;
   const evaluated: RuleOutcome[] = [];
   const unsupported: UnsupportedRule[] = [];
+  const playbookOnly: PlaybookOnlyRule[] = [];
   const orphans: ContentIssue[] = [];
+  const malformed: ContentIssue[] = [...content.malformed];
   const covered = new Set<string>();
+  let otherFolders = 0;
 
   for (const { file, content: data } of content.entries) {
+    if (folder.folder !== null && (data.rule.folder ?? 'rules') !== folder.folder) {
+      otherFolders += 1;
+      continue;
+    }
     const record = ruleSet.rule(data.rule.id);
-    if (!record || record.meta.type !== 'sigma') {
-      orphans.push({ file, reason: `no Sigma rule with id ${data.rule.id} in the rules folder` });
+    if (!record) {
+      orphans.push({ file, reason: `no rule with id ${data.rule.id} in the rules folder` });
       continue;
     }
     covered.add(record.meta.id.toLowerCase());
@@ -197,19 +218,29 @@ export function validateContent(folder: SigmaFolder, content: ReadContent): Cont
       title: record.meta.title,
       rulePath: folder.relPath(record.meta.path),
     };
+    const fixtureCount = (data.fixtures?.positive.length ?? 0) + (data.fixtures?.negative.length ?? 0);
+    if (record.meta.type === 'correlation') {
+      playbookOnly.push({ ...ref, file, ignoredFixtures: fixtureCount });
+      continue;
+    }
     const compiled = record.compiled;
     if (!record.meta.supported || compiled?.kind !== 'sigma') {
       unsupported.push({
         ...ref,
         file,
         reason: record.meta.unsupportedReason ?? 'not a Sigma rule',
-        fixtures: data.fixtures.positive.length + data.fixtures.negative.length,
+        fixtures: fixtureCount,
       });
+      continue;
+    }
+    const given = data.fixtures;
+    if (given === undefined) {
+      malformed.push({ file, reason: 'no fixtures (only correlation rules may have a playbook only)' });
       continue;
     }
     const explainer = createRuleExplainer(record.source);
     const fixtures = FIXTURE_KINDS.flatMap((kind) =>
-      data.fixtures[kind].map((fixture, index) =>
+      given[kind].map((fixture, index) =>
         evaluateFixture(ruleSet, compiled, explainer, kind, index, fixture),
       ),
     );
@@ -217,7 +248,7 @@ export function validateContent(folder: SigmaFolder, content: ReadContent): Cont
   }
 
   const candidates = ruleSet.rules.filter(
-    (r) => r.meta.type === 'sigma' && isContentCandidate(r.meta.status),
+    (r) => folder.expectsContent(r.meta) && isContentCandidate(r.meta.status),
   );
   const missing = candidates
     .filter((r) => !covered.has(r.meta.id.toLowerCase()))
@@ -230,8 +261,10 @@ export function validateContent(folder: SigmaFolder, content: ReadContent): Cont
     contentFiles: content.files,
     evaluated,
     unsupported,
+    playbookOnly,
+    otherFolders,
     orphans,
-    malformed: content.malformed,
+    malformed,
     missing,
   };
 }

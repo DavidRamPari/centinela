@@ -27,6 +27,30 @@ python tools/content-pack/content_pack.py collect       # write content/sigma/*.
 python tools/content-pack/content_pack.py retry         # resubmit failed rules, then collect again
 ```
 
+## Other SigmaHQ folders
+
+`--rules-dir` can point at any rule folder of a SigmaHQ checkout: `rules`, `rules-emerging-threats`, `rules-threat-hunting`, `rules-compliance`, or a folder below one. Each rule records the SigmaHQ folder it comes from (`rule.folder` in the content file) and links into it (`https://github.com/SigmaHQ/sigma/blob/<commit>/rules-threat-hunting/...`); the commit is the checkout's `HEAD`, so keep the checkout at the commit you generate from. Without git there is no commit and therefore no link, but the folder is still recorded. Prompts for folders other than `rules/` add one line saying what kind of rules the folder holds; requests for `rules/` and for Centinela's vendored subset are unchanged.
+
+Content for several folders can share one content folder (rule ids are unique across SigmaHQ). `npm run content:validate -- --rules <checkout>/<folder> --content <content folder>` validates only that folder's files and writes `<content>-<folder>-failures.json` and `<content>-<folder>-report.md` (plain `<content>-failures.json` for `rules/`), and `repair` with the same `--rules-dir` and `--out` reads that failures file by default.
+
+## Centinela's own rules (`--origin centinela`)
+
+`--origin centinela` (before the command) generates content for Centinela's own rules: `rules/centinela/**` and `rules/correlation/**`, written to `content/centinela/<rule-id>.json`. Defaults change with it: `--rules-dir` is the rules root (`rules/`, holding `centinela/` and `correlation/`) and `--out` is `content/centinela`. SigmaHQ rules (the default origin) are unaffected: their requests are byte-for-byte what they were.
+
+- Every file carries `license: "MIT"` and the author from the rule. Centinela's rules have no SigmaHQ link; `url` is the rule's own `url` field, which none has today, so it is `null`.
+- Detection rules (`rules/centinela/**`) get a playbook and fixtures, like SigmaHQ rules; the prompt says the fields are Centinela's normalized fields (`event.action`, `source.ip`, ...).
+- Correlation rules (`rules/correlation/**`) get a playbook only, through a separate tool (`save_playbook`), and their files have no `fixtures` key: a correlation cannot be tested with single events. The request includes the rules the correlation references, following chained correlations, so the playbook can explain what feeds it.
+- `sample` writes to `content/centinela-sample/`, `repair` reads `content/centinela-failures.json`, and batches remember their origin, so `collect` handles both kinds.
+
+```bash
+python tools/content-pack/content_pack.py --origin centinela estimate
+python tools/content-pack/content_pack.py --origin centinela submit --dry-run   # inspect .work/requests.jsonl
+python tools/content-pack/content_pack.py --origin centinela submit
+python tools/content-pack/content_pack.py status
+python tools/content-pack/content_pack.py collect
+npm run content:validate -- --content content/centinela
+```
+
 ## Repair fixtures that Centinela's engine rejects
 
 Session S7 added `npm run content:validate`, which evaluates every fixture with Centinela's engine and writes `content/sigma-failures.json` (rule id, fixture kind and index, the event and the engine's reason, for example which selection or item failed). `repair` sends those fixtures back for correction:
@@ -45,6 +69,7 @@ npm run content:validate                                   # check them and refr
 - The model may declare a fixture `unfixable` (no event can satisfy the rule as written); those, answers without the tool call, truncated answers and partial answers go to `.work/repair-failed.json` with the error and the answer's `stop_reason` (for example `refusal`).
 - Same safeguards as `submit`: `--max-cost` (default 20 USD for repairs), `--yes`, `--dry-run`, `--limit`, and rules waiting in an uncollected batch are skipped unless `--force`. Rules the engine does not support, rules whose content file is missing and rules already repaired since the last validation are skipped with a message.
 - For another content folder, pass the same folders to both tools: `npm run content:validate -- --rules ~/sigmahq/rules --content ~/sigma-playbooks/content` writes `~/sigma-playbooks/content-failures.json`; then `content_pack.py --rules-dir ~/sigmahq/rules --out ~/sigma-playbooks/content repair --failures ~/sigma-playbooks/content-failures.json`.
+- With `--origin centinela`, `repair` reads `content/centinela-failures.json` and fixes Centinela's detection rules the same way (correlations have no fixtures to fix).
 - Unit tests (no API key needed): `python3 -m unittest discover -s tools/content-pack -v`.
 
 ## Notes
@@ -63,6 +88,7 @@ npm run content:validate                                   # check them and refr
 | --- | ---: | ---: |
 | `rules/sigma/` (Centinela's subset) | 1,231 | about $54 |
 | A full SigmaHQ clone (`--rules-dir <clone>/rules --out <folder>`) | 3,161 | about $139 |
+| SigmaHQ's other folders (`rules-emerging-threats`, `rules-threat-hunting`, `rules-compliance`) | 474 + 141 + 3 | about $21 + $6.3 + $0.13 |
 
 These are upper-end guesses: `estimate` assumes 4,000 output tokens per rule (Opus 5.5 always thinks before answering, and thinking is billed as output) until `sample` has measured the real number; after `sample` it uses the measured average. Truncated or tool-less answers are billed and then billed again by `retry`, so check `sample` first.
 
@@ -83,4 +109,4 @@ These are upper-end guesses: `estimate` assumes 4,000 output tokens per rule (Op
 }
 ```
 
-Playbooks are derived from DRL 1.1 rules, so every file keeps the rule's author, link and license.
+Playbooks are derived from DRL 1.1 rules, so every file keeps the rule's author, link and license. Files in `content/centinela/` have `license: "MIT"`, and those of correlation rules have no `fixtures` key.
