@@ -42,6 +42,7 @@ export function createAuth({ config, pool }: { config: Config; pool: Pool }): Au
     sessions,
     secret: config.sessionSecret,
     username: config.admin.username,
+    isProduction: config.isProduction,
   });
   const lockout = createLoginLockout(config.login);
   const streams = createSessionStreams((res) => authOf(res).session);

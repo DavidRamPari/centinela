@@ -69,7 +69,7 @@ flowchart LR
 | Boundary | Crossing | Control |
 | --- | --- | --- |
 | TB1 | Log sources → `POST /api/ingest` | Bearer token (`INGEST_TOKEN`, constant-time; or a stored token, SHA-256 lookup), per-IP rate limit, 5 MB body, query validated before the body is read |
-| TB2 | Browser → API | Session cookie (`__Host-`, `HttpOnly`, `Secure`, `SameSite=Strict`), CSRF double-submit on state-changing requests, `401` for every route except health, ingest and sign-in |
+| TB2 | Browser → API | Session cookie (`__Host-`, `HttpOnly`, `Secure`, `SameSite=Strict`; unprefixed and without `Secure` only for plain-HTTP development on localhost), CSRF double-submit on state-changing requests, `401` for every route except health, ingest and sign-in |
 | TB3 | Server → PostgreSQL | Parameterized queries only; values as parameters or arrays (`unnest`, `jsonb_to_recordset`), never concatenated |
 | TB4 | Repository → server | Rules load only from `rules/` (no symbolic links, files ≤ 1 MB); no API writes rule files |
 | TB5 | Proxy → server | `TRUST_PROXY` decides whether `X-Forwarded-For` is believed |
@@ -79,7 +79,7 @@ flowchart LR
 | Threat | Example | Mitigation | Tested in |
 | --- | --- | --- | --- |
 | **S**poofing the analyst | A2 guesses the admin password | argon2id (64 MiB, 3 passes); per-IP lockout after 5 failures for 15 min; 30 requests/min on `/api/auth/*`; at most 4 parallel password checks; production refuses missing, weak or development credentials | `test/auth/login.test.ts`, `lockout.test.ts`, `startup.test.ts`, `config.test.ts` |
-| Spoofing via a stolen session | Session cookie read by script or another site | `HttpOnly`, `Secure`, `__Host-` (no subdomain can set or overwrite it), `SameSite=Strict`; the database stores only an HMAC of the token; idle and absolute expiry; new token on every sign-in | `login.test.ts`, `sessions.test.ts` |
+| Spoofing via a stolen session | Session cookie read by script or another site | `HttpOnly`, `Secure`, `__Host-` (no subdomain can set or overwrite it), `SameSite=Strict`; the unprefixed development cookies are never read over HTTPS or in production; the database stores only an HMAC of the token; idle and absolute expiry; new token on every sign-in | `login.test.ts`, `cookies.test.ts`, `sessions.test.ts` |
 | Spoofing a log source | A2 sends events without a token | Bearer token, constant-time comparison of the environment token, 256-bit stored tokens, revocation | `test/auth/tokens.test.ts`, `test/ingest/router.test.ts` |
 | **T**ampering through CSRF | A3 makes the browser close alerts or disable rules | Double-submit token bound to the session, `SameSite=Strict`, JSON-only bodies | `test/auth/csrf.test.ts`, `protected-routes.test.ts` |
 | Tampering with detection | Disabling rules, editing rules | Rule flags only through the authenticated API (audited); rule files only from the repository | `protected-routes.test.ts`, `audit.test.ts` |
@@ -112,7 +112,7 @@ A1 cannot sign in, but every string they put in a log line is stored, matched, s
 - **Single account, no second factor.** No per-analyst identities or roles; the audit log shows the shared admin name and the client IP.
 - **Audit log integrity.** Rows are append-only for the application, not against a database administrator (A5). Rule enable/disable and upload audit rows are written right after the change, not in its transaction; a crash between the two loses the row.
 - **Live streams and idle timeout.** An open alert stream ends at sign-out and at the session's absolute expiry, not when the session goes idle.
-- **Plain HTTP.** Locally the cookies travel over HTTP on `localhost`. Production must terminate TLS (and send HSTS) in front of nginx; the bundled nginx listens on HTTP only.
+- **Plain HTTP.** Locally the cookies travel over HTTP on `localhost`, and outside production they are unprefixed and not `Secure` there, so Safari can sign in: any other service on the same machine (every port of `localhost` shares cookies) could read the CSRF cookie or plant a session cookie. A planted session is replaced at sign-in, and the CSRF token is useless without the session it is bound to and the API's same-origin requirement. Production must terminate TLS (and send HSTS) in front of nginx; the bundled nginx listens on HTTP only.
 - **Development defaults.** `docker compose` and `npm run dev` use the published development password. Production refuses it, but a development stack exposed to a network is open to anyone who reads this repository; Compose binds every port to `127.0.0.1` for that reason.
 - **Dependencies.** `npm run audit` flags known advisories but is not yet part of CI. Recharts and React ship code paths that use `innerHTML`; Centinela never reaches them with log content, and the CSP would block scripts injected through them.
 

@@ -1,5 +1,4 @@
 import { join } from 'node:path';
-import { SESSION_COOKIE } from '@centinela/shared';
 import express, { type Express } from 'express';
 import type { Pool } from 'pg';
 import { createApp } from '../../src/app.js';
@@ -11,6 +10,7 @@ import { createPipeline, type PipelineOptions } from '../../src/pipeline/index.j
 import { createRuleCatalog } from '../../src/pipeline/rule-catalog.js';
 import { repoRoot } from '../../src/paths.js';
 import { createSseHub, type SseHubOptions } from '../../src/realtime/hub.js';
+import { HOST_COOKIES, LOCAL_COOKIES, readCookie } from '../../src/security/cookies.js';
 import { TEST_PASSWORD_HASH, TEST_USERNAME, createSignedInSession, type SignedIn } from './auth.js';
 
 export interface TestAppOptions {
@@ -65,7 +65,11 @@ function signedInApp(app: Express, config: Config, pool: Pool): Express {
   const outer = express();
   outer.disable('x-powered-by');
   outer.use((req, _res, next) => {
-    if (req.headers.cookie?.includes(`${SESSION_COOKIE}=`)) {
+    const sent = req.headers.cookie;
+    if (
+      readCookie(sent, HOST_COOKIES.session) !== undefined ||
+      readCookie(sent, LOCAL_COOKIES.session) !== undefined
+    ) {
       next();
       return;
     }

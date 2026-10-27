@@ -13,9 +13,9 @@ Outside production, when `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH` and `SESSION_SE
 The server logs a warning with these credentials when it starts with them, and `npm run demo` prints them at the end.
 
 - `npm run dev`: open <http://localhost:5173>.
-- `docker compose up -d` (the stack runs with `NODE_ENV=development`): open <http://localhost:8080>.
+- `docker compose up -d --build --wait` (the stack runs with `NODE_ENV=development`): open <http://localhost:8080>.
 
-Both cookies are `Secure` and use the `__Host-` prefix. Browsers accept them over plain HTTP only on `localhost` and `127.0.0.1` (Chrome, Edge and Firefox treat these as secure origins). Opening the dashboard over plain HTTP through another host name or a LAN address does not work: the browser drops the cookies and every sign-in ends on the sign-in page again. Use `localhost`, or put TLS in front.
+Over plain HTTP on localhost the session and CSRF cookies are `centinela-local` and `centinela-local-csrf`, without `Secure` (see [Cookies](#cookies)), so every browser, Safari included, can sign in. Opening the dashboard over plain HTTP through another host name or a LAN address does not work: the server keeps the `__Host-` cookies with `Secure` there, the browser drops them, and every sign-in ends on the sign-in page again. Use `localhost`, or put TLS in front.
 
 To use your own password locally, run `npm run hash-password --silent`, paste the printed `ADMIN_PASSWORD_HASH='…'` line into `.env` and restart the server.
 
@@ -32,7 +32,7 @@ Steps:
 
 1. `npm run hash-password --silent` (type the password twice; or `printf '%s' "$PASSWORD" | npm run hash-password --silent`). The password is never taken from the command line. It needs at least 12 characters, and the development password is refused. Store the printed line in your secret store; keep the single quotes in `.env` files because the hash contains `$`.
 2. `openssl rand -hex 32` for `SESSION_SECRET` and again for `INGEST_TOKEN`.
-3. Serve the dashboard and the API over HTTPS from one origin (the bundled nginx proxies `/api`). Set HSTS on the TLS terminator.
+3. Serve the dashboard and the API over HTTPS from one origin (the bundled nginx proxies `/api`). Set HSTS on the TLS terminator. Production always uses the `__Host-` cookies with `Secure`, so plain HTTP cannot work there.
 4. Set `TRUST_PROXY` when a reverse proxy you control sits in front of the API: the number of proxy hops (`1` for the bundled nginx alone) or a comma-separated list of the proxies' addresses or subnets (`10.0.0.5`, `172.16.0.0/12`, `loopback`). Rate limits, the sign-in lockout and the audit log use the client IP Express derives from it. Without it every request seems to come from the proxy, so one lockout locks everyone out. `true` is refused: trusting every hop would let any client set its own IP with `X-Forwarded-For` and walk around the rate limits and the lockout.
 
 Every variable is documented in [`.env.example`](../.env.example) and ARCHITECTURE §15.
@@ -43,11 +43,21 @@ Every variable is documented in [`.env.example`](../.env.example) and ARCHITECTU
 - Signing in creates a server-side session in PostgreSQL (`admin_sessions`). The cookie carries a random 256-bit token; the table stores only HMAC-SHA256(`SESSION_SECRET`, token), so a database dump yields no usable cookies. Changing `SESSION_SECRET` signs everyone out.
 - A session ends after `SESSION_IDLE_MINUTES` (120) without requests or after `SESSION_MAX_HOURS` (12), whichever comes first. The dashboard checks its session every minute without extending it, and goes to the sign-in page when it has ended.
 - Signing in issues a new token and deletes the session the browser held before. Signing out deletes the session, clears both cookies and closes the session's live alert streams; a stream also ends when its session reaches its absolute expiry.
-- Cookies: `__Host-centinela` (session: `HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/`) and `__Host-centinela-csrf` (CSRF token: readable by the dashboard, otherwise the same attributes).
+- Cookies: see below.
+
+## Cookies
+
+| Request | Session cookie | CSRF cookie |
+| --- | --- | --- |
+| Over HTTPS (TLS at the server, or any `X-Forwarded-Proto: https`), and every request with `NODE_ENV=production` | `__Host-centinela`: `HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/` | `__Host-centinela-csrf`: readable by the dashboard, otherwise the same attributes |
+| Plain HTTP to `localhost`, `127.0.0.0/8` or `::1`, outside production | `centinela-local`: `HttpOnly`, `SameSite=Strict`, `Path=/`, no `Secure` | `centinela-local-csrf`: readable, `SameSite=Strict`, `Path=/`, no `Secure` |
+| Plain HTTP to any other host, outside production | the `__Host-` cookies, which browsers drop over plain HTTP | |
+
+The `__Host-` prefix makes browsers require `Secure`, `Path=/` and no `Domain`, so a sibling subdomain cannot set or overwrite the cookies. Chromium and Firefox accept `Secure` cookies from `http://localhost`, but WebKit (Safari) does not, so a development server reached over plain HTTP on localhost uses unprefixed names without `Secure` instead (S8-02 in [decisions/S8.md](decisions/S8.md)). `X-Forwarded-Proto` is believed even without `TRUST_PROXY` for this decision: it can only make the cookies stricter. Each mode reads only its own cookie names, so an unprefixed cookie never authenticates a production or HTTPS request. Signing in clears the other mode's cookies, so the dashboard, which reads whichever CSRF cookie exists, always repeats the current one.
 
 ## CSRF protection
 
-Every state-changing request (any method except `GET`, `HEAD` and `OPTIONS`) behind the session must carry the `X-CSRF-Token` header with the value of the `__Host-centinela-csrf` cookie. The server accepts it only when header, cookie and HMAC-SHA256(`SESSION_SECRET`, session token) all match, so a token from another session is refused. `SameSite=Strict` already keeps current browsers from sending the cookies on cross-site requests; the token covers older browsers and same-site attackers. The sign-in endpoint only reads JSON bodies, which an HTML form on another site cannot send.
+Every state-changing request (any method except `GET`, `HEAD` and `OPTIONS`) behind the session must carry the `X-CSRF-Token` header with the value of the CSRF cookie (`__Host-centinela-csrf`, or `centinela-local-csrf` over plain HTTP on localhost). The server accepts it only when header, cookie and HMAC-SHA256(`SESSION_SECRET`, session token) all match, so a token from another session is refused. `SameSite=Strict` already keeps current browsers from sending the cookies on cross-site requests; the token covers older browsers and same-site attackers. The sign-in endpoint only reads JSON bodies, which an HTML form on another site cannot send.
 
 ## Which endpoints need what
 

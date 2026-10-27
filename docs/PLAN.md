@@ -13,9 +13,9 @@ Each session below is one Claude Code cloud session that ends with a pushed bran
 | S4 | Integration, persistence and end-to-end detection | S1, S2, S3 | done (PR #6) |
 | S5 | Windows Sysmon support | S4 | done (PR #7) |
 | S6 | Authentication, hardening and threat model | S4 | done (PR #8) |
-| S7 | Content pack in the product | S4 and `content/sigma/` | done (PR #9) |
-| S7b | Dashboard polish | S7 | todo |
-| S8 | Demo deployment and documentation | S5, S6, S7, S7b | todo |
+| S7 | Content pack in the product | S4 and `content/sigma/` | done (PRs #9 and #11) |
+| S7b | Dashboard polish | S7 | done (PRs #10 and #12) |
+| S8 | Documentation and local quick start | S5, S6, S7, S7b | done |
 
 Status values: `todo`, `in progress`, `done (PR #n)`, `partial (see notes)`. David updates this table when he merges a session; sessions do not edit it (parallel edits to adjacent rows conflict).
 
@@ -251,12 +251,20 @@ Before finishing, run lint, typecheck, test and build, push your branch and end 
 
 ---
 
-## S8 — Demo deployment and documentation
+## S8 — Documentation and local quick start
 
-**Depends on.** S5, S6, S7 and S7b.
+**Depends on.** S5, S6, S7 and S7b. Runs alone, as the last session; David's instructions let it update the status table above.
 
-**Owns.** `README.md`, `README.es.md`, `docs/**` (except other sessions' sections of PLAN and DECISIONS), deployment configuration files.
+**Owns.** `README.md`, `README.es.md`, `docs/**` (except other sessions' sections of PLAN and DECISIONS); `.env.example`, `docker-compose.yml` and `scripts/` where the quick start needs them; `packages/server` and `packages/shared` for the cookie fix and its tests; `packages/web` only where it reads the CSRF cookie.
 
-**Build.** README rewrite (pitch, screenshots or GIF, architecture diagram, quick start, how detection works, rule coverage numbers, testing, security notes, roadmap, credits for SigmaHQ under DRL 1.1 and MITRE ATT&CK); `README.es.md`; `docs/DETECTION.md` (engine design, supported Sigma features, correlation semantics, benchmark numbers); deployment configuration for a read-only public demo (Render or Fly.io with managed PostgreSQL, seeded demo data, demo login) plus `docs/DEPLOY.md` with the steps David runs himself (sessions cannot access cloud consoles); a blog post draft in `docs/blog/building-centinela.md`.
+**Goal.** Centinela is presented through its README and run locally. There is no public demo: no hosting configuration (Render, Fly.io or any other provider), no `docs/DEPLOY.md`, no demo mode. The blog post is David's.
 
-**Acceptance.** A stranger can run the demo locally with three commands; every README link works; screenshots match the current UI.
+**Build.**
+
+1. The quick start is the acceptance test: from a fresh clone, with Node 22 and Docker on Windows (WSL), macOS or Linux, at most three commands lead to a dashboard full of demo alerts, then a sign-in with the documented development credentials. Nothing may race PostgreSQL's start-up (`docker compose up -d --build --wait`), and the README quotes what `npm run demo` prints (19/19 scenarios).
+2. Safari sign-in over plain HTTP: `__Host-` cookies must be `Secure`, which WebKit refuses on `http://localhost` (S7b-18). Keep `__Host-` and `Secure` over HTTPS and always with `NODE_ENV=production`; relax them only for plain-HTTP development on localhost; the dashboard keeps finding the CSRF cookie in both modes. Tests for both modes, and a sign-in check in WebKit and Chromium.
+3. `README.md` and `README.es.md` (neutral Latin American Spanish), for a recruiter with 30 seconds and an engineer who checks the claims: what Centinela is, the Overview screenshot and a GIF recorded from the real app (under 8 MB, 30 to 60 seconds), an honest scope, highlights with evidence and links (Sigma engine, detection quality, content pack, security by design, engineering practice), a Mermaid diagram from a log line to an alert on screen, the quick start, sign-in, scripts, ingest tokens, production refusals and running it on your own server (TLS, HSTS, `TRUST_PROXY`, secrets, no provider-specific files), testing, a roadmap with the known gaps from the decision files, and credits (SigmaHQ under DRL 1.1 with the rules the content pack could not cover, MITRE ATT&CK, the Atkinson Hyperlegible fonts under the SIL OFL, the AI-generated label on every playbook). An HTML comment marks where David adds the dataset repository later.
+4. `docs/DETECTION.md`: the engine's design, supported and unsupported Sigma features, correlation semantics, the prefilter, benchmark numbers with the machine they came from, and how detection quality is measured.
+5. Reuse `docs/screenshots` and retake only what no longer matches the UI.
+
+**Acceptance.** The quick start run from a fresh clone, end to end, with its output quoted; every number in the docs comes from the repository and every link works; screenshots match the current UI; the full check sequence passes in a fresh clone on two CPUs.
