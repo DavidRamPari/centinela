@@ -26,24 +26,53 @@ function tokens(selector: string): Record<string, string> {
   );
 }
 
+/** Text on a background: WCAG AA for normal text (4.5:1). */
 const TEXT_PAIRS: Array<[fg: string, bg: string]> = [
-  ['fg', 'bg'],
-  ['fg', 'surface'],
-  ['fg', 'surface-2'],
-  ['muted', 'bg'],
-  ['muted', 'surface'],
-  ['muted', 'surface-2'],
-  ['accent', 'surface'],
-  ['accent', 'bg'],
-  ['accent-fg', 'accent'],
-  ['danger', 'surface'],
-  ['success', 'surface'],
-  ['warn', 'surface'],
-  ...['informational', 'low', 'medium', 'high', 'critical'].map((level): [string, string] => [
-    `sev-${level}-fg`,
-    `sev-${level}`,
+  ...['bg', 'raised', 'hover', 'selected'].flatMap((bg): Array<[string, string]> => [
+    ['fg', bg],
+    ['muted', bg],
+    ['link', bg],
   ]),
-  ...[0, 1, 2, 3, 4].map((step): [string, string] => [`heat-${step}-fg`, `heat-${step}`]),
+  ['faint', 'bg'],
+  ['faint', 'raised'],
+  ['accent-text', 'bg'],
+  ['accent-fg', 'accent'],
+  ['accent-fg', 'accent-hover'],
+  ['accent-fg', 'accent-pressed'],
+  ['danger', 'bg'],
+  ['danger', 'raised'],
+  ['danger-fg', 'danger-fill'],
+  ['ok', 'bg'],
+  ['ok', 'raised'],
+  ['warn', 'bg'],
+  ['warn', 'raised'],
+  ['disabled-fg', 'disabled'],
+  // The critical label is written in red; the other levels write their label in `fg`.
+  ['sev-critical', 'bg'],
+  ['sev-critical', 'raised'],
+  ['frightened-fg', 'frightened'],
+  ...['a', 'c'].flatMap((scale) =>
+    [0, 1, 2, 3, 4].map((step): [string, string] => [
+      `heat-${scale}-${step}-fg`,
+      `heat-${scale}-${step}`,
+    ]),
+  ),
+];
+
+/** Graphical objects and control boundaries (WCAG 1.4.11, 3:1). */
+const GRAPHIC_PAIRS: Array<[fg: string, bg: string]> = [
+  ['line-strong', 'bg'],
+  ['line-strong', 'raised'],
+  ['focus', 'bg'],
+  ['focus', 'raised'],
+  // A yellow button's edge (yellow itself on black, dark gold on white).
+  ['accent-edge', 'bg'],
+  ['chart-events', 'bg'],
+  ['chart-alerts', 'bg'],
+  ...['informational', 'low', 'medium', 'high', 'critical'].map((level): [string, string] => [
+    `sev-${level}`,
+    'bg',
+  ]),
 ];
 
 describe('design tokens', () => {
@@ -58,7 +87,19 @@ describe('design tokens', () => {
         expect(ratio, `${theme}: ${fg} on ${bg} = ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(4.5);
       }
     });
+
+    it(`meet 3:1 for controls, focus, pips and chart marks in the ${theme} theme`, () => {
+      const palette = tokens(selector);
+      for (const [fg, bg] of GRAPHIC_PAIRS) {
+        const ratio = contrast(palette[fg] ?? '', palette[bg] ?? '');
+        expect(ratio, `${theme}: ${fg} on ${bg} = ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(3);
+      }
+    });
   }
+
+  it('use true black as the dark base', () => {
+    expect(tokens('.dark').bg).toBe('#000000');
+  });
 
   it('define the same tokens in both themes', () => {
     expect(Object.keys(tokens('.dark')).sort()).toEqual(Object.keys(tokens(':root')).sort());
