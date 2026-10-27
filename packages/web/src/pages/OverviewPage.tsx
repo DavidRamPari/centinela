@@ -6,10 +6,12 @@ import { useAlertsPage, useOverviewStats } from '../api/hooks';
 import { SeverityBadge } from '../components/ui/Badges';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Section } from '../components/ui/Section';
-import { ErrorState, LoadingState } from '../components/ui/States';
+import { LoadingRegion } from '../components/ui/Skeleton';
+import { ErrorState, RefreshFailed, Updating } from '../components/ui/States';
 import { TimeRangeSelect } from '../components/ui/TimeRangeSelect';
-import { AttentionScoreboard } from '../features/overview/Attention';
+import { AttentionScoreboard, AttentionSkeleton } from '../features/overview/Attention';
 import { BarList } from '../features/overview/BarList';
+import { BarListSkeleton, ChartSkeleton, TrendStatSkeleton } from '../features/overview/skeletons';
 import { TimeSeriesChart } from '../features/overview/TimeSeriesChart';
 import { TrendStat } from '../features/overview/TrendStat';
 import { useParamUpdater } from '../lib/search-params';
@@ -23,6 +25,7 @@ import {
   type RangePreset,
   type TimeRange,
 } from '../lib/time-range';
+import { useDocumentTitle } from '../lib/document-title';
 
 /** Page size for the new alerts behind the scoreboard; more shows as "200+". */
 const NEW_ALERTS_LIMIT = 200;
@@ -46,6 +49,7 @@ function rangeKey(range: TimeRange): RangePreset | 'custom' {
  */
 export default function OverviewPage() {
   const { t } = useTranslation();
+  useDocumentTitle(t('pages.overview.title'));
   const [params] = useSearchParams();
   const update = useParamUpdater();
   const search = params.toString();
@@ -81,23 +85,22 @@ export default function OverviewPage() {
     />
   );
 
-  if (stats.isPending || fresh.isPending) {
+  // The first load draws the page's shape; later loads (a new range, a refresh) keep the
+  // last answer on screen (S7b-17).
+  if (stats.data === undefined || fresh.data === undefined) {
+    const failed = stats.isError ? stats : fresh.isError ? fresh : undefined;
     return (
       <section>
         {header}
-        <LoadingState />
+        {failed ? (
+          <ErrorState error={failed.error} onRetry={() => failed.refetch()} />
+        ) : (
+          <OverviewSkeleton rangeLabel={inRange} />
+        )}
       </section>
     );
   }
-  if (stats.isError || fresh.isError) {
-    const failed = stats.isError ? stats : fresh;
-    return (
-      <section>
-        {header}
-        <ErrorState error={failed.error} onRetry={() => void failed.refetch()} />
-      </section>
-    );
-  }
+  const refreshFailed = [stats, fresh].find((query) => query.isError);
 
   const data = stats.data;
   const to = query.to ?? new Date().toISOString();
@@ -107,7 +110,13 @@ export default function OverviewPage() {
   return (
     <section>
       {header}
-      <div className="flex flex-col gap-12">
+      {refreshFailed ? (
+        <RefreshFailed error={refreshFailed.error} onRetry={() => refreshFailed.refetch()} />
+      ) : null}
+      <Updating
+        active={stats.isPlaceholderData || fresh.isPlaceholderData}
+        className="flex flex-col gap-12"
+      >
         <AttentionScoreboard
           newAlerts={fresh.data.items}
           more={fresh.data.nextCursor !== null}
@@ -122,7 +131,7 @@ export default function OverviewPage() {
               <TrendStat
                 label={t('overview.eventsOverTime')}
                 value={data.events}
-                previous={previous.data?.events}
+                previous={previous.isPlaceholderData ? undefined : previous.data?.events}
                 periodLabel={previousLabel}
               />
               <TimeSeriesChart
@@ -137,7 +146,7 @@ export default function OverviewPage() {
               <TrendStat
                 label={t('overview.alertsOverTime')}
                 value={data.alerts.total}
-                previous={previous.data?.alerts.total}
+                previous={previous.isPlaceholderData ? undefined : previous.data?.alerts.total}
                 periodLabel={previousLabel}
               />
               <TimeSeriesChart
@@ -152,7 +161,7 @@ export default function OverviewPage() {
         </Section>
 
         <Section title={t('overview.sources')} description={t('overview.sourcesHint')}>
-          <div className="grid grid-cols-1 gap-y-10 md:grid-cols-2 md:gap-x-10 xl:grid-cols-4 xl:gap-x-0 xl:divide-x xl:divide-line">
+          <div className={SOURCES_GRID}>
             <Ranked title={t('overview.byLevel')}>
               <BarList
                 empty={t('overview.none')}
@@ -221,10 +230,13 @@ export default function OverviewPage() {
             </Ranked>
           </div>
         </Section>
-      </div>
+      </Updating>
     </section>
   );
 }
+
+const SOURCES_GRID =
+  'grid grid-cols-1 gap-y-10 md:grid-cols-2 md:gap-x-10 xl:grid-cols-4 xl:gap-x-0 xl:divide-x xl:divide-line';
 
 const linkClass =
   'text-link underline decoration-transparent underline-offset-3 hover:decoration-link';
@@ -235,5 +247,46 @@ function Ranked({ title, children }: { title: string; children: ReactNode }) {
       <h3 className="mb-3 font-semibold text-fg">{title}</h3>
       {children}
     </div>
+  );
+}
+
+/**
+ * The Overview before its first answer: the same sections, headings and labels, with
+ * placeholders where the numbers, charts and lists go, so nothing moves when they arrive.
+ */
+function OverviewSkeleton({ rangeLabel }: { rangeLabel: string }) {
+  const { t } = useTranslation();
+  return (
+    <LoadingRegion label={t('overview.loading')} className="flex flex-col gap-12">
+      <AttentionSkeleton rangeLabel={rangeLabel} />
+      <Section title={t('overview.activity')} description={t('overview.activityHint')}>
+        <div className="grid grid-cols-1 gap-x-10 gap-y-10 lg:grid-cols-2">
+          <div className="flex min-w-0 flex-col gap-4">
+            <TrendStatSkeleton label={t('overview.eventsOverTime')} />
+            <ChartSkeleton kind="area" />
+          </div>
+          <div className="flex min-w-0 flex-col gap-4">
+            <TrendStatSkeleton label={t('overview.alertsOverTime')} />
+            <ChartSkeleton kind="bar" />
+          </div>
+        </div>
+      </Section>
+      <Section title={t('overview.sources')} description={t('overview.sourcesHint')}>
+        <div className={SOURCES_GRID}>
+          <Ranked title={t('overview.byLevel')}>
+            <BarListSkeleton rows={LEVELS.length} />
+          </Ranked>
+          <Ranked title={t('overview.topIps')}>
+            <BarListSkeleton />
+          </Ranked>
+          <Ranked title={t('overview.topUsers')}>
+            <BarListSkeleton />
+          </Ranked>
+          <Ranked title={t('overview.topRules')}>
+            <BarListSkeleton />
+          </Ranked>
+        </div>
+      </Section>
+    </LoadingRegion>
   );
 }

@@ -92,7 +92,7 @@ function Shell() {
             setOpenedAt(location.key);
             setOpen(true);
           }}
-          className="grid size-10 place-items-center rounded-control text-fg hover:bg-hover active:translate-y-px"
+          className="grid size-10 place-items-center rounded-control text-fg transition-colors duration-100 hover:bg-hover active:translate-y-px active:bg-pressed"
         >
           <Menu aria-hidden="true" strokeWidth={1.75} className="size-5" />
           <span className="sr-only">{t('app.openMenu')}</span>
@@ -133,7 +133,7 @@ function Shell() {
                 ref={closeButton}
                 type="button"
                 onClick={close}
-                className="grid size-10 place-items-center rounded-control text-fg hover:bg-hover lg:hidden"
+                className="grid size-10 place-items-center rounded-control text-fg transition-colors duration-100 hover:bg-hover active:translate-y-px active:bg-pressed lg:hidden"
                 aria-label={t('app.closeMenu')}
               >
                 <X aria-hidden="true" strokeWidth={1.75} className="size-5" />
@@ -152,7 +152,7 @@ function Shell() {
                         'relative flex h-10 items-center gap-3 rounded-control px-3 transition-colors duration-100',
                         isActive
                           ? 'bg-hover font-semibold text-fg before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-full before:bg-accent'
-                          : 'text-muted hover:bg-hover hover:text-fg',
+                          : 'text-muted hover:bg-hover hover:text-fg active:bg-pressed',
                       )
                     }
                   >

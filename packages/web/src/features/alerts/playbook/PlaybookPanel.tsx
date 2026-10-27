@@ -4,7 +4,8 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DescriptionList } from '../../../components/ui/DescriptionList';
 import { ExternalLink } from '../../../components/ui/ExternalLink';
-import { EmptyState, ErrorState, LoadingState } from '../../../components/ui/States';
+import { LoadingRegion, SkeletonLines, SkeletonText } from '../../../components/ui/Skeleton';
+import { EmptyState, ErrorState } from '../../../components/ui/States';
 import { isLanguage } from '../../../i18n';
 import { useFormat } from '../../../lib/format';
 import { LicenseValue } from '../RulePanel';
@@ -37,9 +38,9 @@ export function PlaybookPanel({
         {t('playbook.title')}
       </h3>
       {query.isPending ? (
-        <LoadingState />
+        <PlaybookSkeleton />
       ) : query.isError ? (
-        <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+        <ErrorState error={query.error} onRetry={() => query.refetch()} />
       ) : query.data === null ? (
         <div data-rule-id={ruleId}>
           <EmptyState
@@ -57,6 +58,22 @@ export function PlaybookPanel({
         <PlaybookContent data={query.data} />
       )}
     </section>
+  );
+}
+
+/** A summary paragraph and two short sections, the shape most playbooks start with. */
+function PlaybookSkeleton() {
+  const { t } = useTranslation();
+  return (
+    <LoadingRegion label={t('playbook.loading')} className="flex flex-col gap-5">
+      <SkeletonLines lines={3} />
+      {[0, 1].map((index) => (
+        <span key={index} className="flex flex-col gap-1.5" aria-hidden="true">
+          <SkeletonText className="w-1/3" />
+          <SkeletonLines lines={2} />
+        </span>
+      ))}
+    </LoadingRegion>
   );
 }
 

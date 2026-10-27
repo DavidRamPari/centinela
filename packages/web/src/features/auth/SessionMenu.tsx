@@ -6,12 +6,14 @@ import { useNavigate } from 'react-router';
 import { ApiError } from '../../api/client';
 import { Button } from '../../components/ui/Button';
 import { useToasts } from '../../components/ui/toast-context';
+import { useSingleFlight } from '../../lib/single-flight';
 import { authKeys, useLogout, useSession } from './hooks';
 
 export function SessionMenu() {
   const { t } = useTranslation();
   const session = useSession();
   const logout = useLogout();
+  const flight = useSingleFlight();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { push } = useToasts();
@@ -33,16 +35,18 @@ export function SessionMenu() {
         size="sm"
         variant="secondary"
         icon={LogOut}
-        loading={logout.isPending}
+        loading={flight.busy}
         onClick={() =>
-          logout.mutate(undefined, {
-            onSuccess: signedOut,
-            onError: (error) => {
-              // Already signed out on the server (expired session): same outcome.
-              if (error instanceof ApiError && error.status === 401) signedOut();
-              else push({ title: t('auth.session.signOutFailed') });
-            },
-          })
+          flight.run(() =>
+            logout.mutateAsync(undefined, {
+              onSuccess: signedOut,
+              onError: (error) => {
+                // Already signed out on the server (expired session): same outcome.
+                if (error instanceof ApiError && error.status === 401) signedOut();
+                else push({ tone: 'error', title: t('auth.session.signOutFailed') });
+              },
+            }),
+          )
         }
       >
         {t('auth.session.signOut')}

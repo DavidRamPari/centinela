@@ -4,10 +4,10 @@ import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
 import { z } from 'zod';
 import { flattenPages, useEventsList } from '../api/hooks';
-import { DataTable, type Column } from '../components/ui/DataTable';
+import { DataTable, TableSkeleton, type Column } from '../components/ui/DataTable';
 import { LoadMore } from '../components/ui/LoadMore';
 import { PageHeader } from '../components/ui/PageHeader';
-import { EmptyState, ErrorState, LoadingState } from '../components/ui/States';
+import { EmptyState, ErrorState, RefreshFailed, Updating } from '../components/ui/States';
 import { EventDrawer } from '../features/events/EventDrawer';
 import { EventFilterBar } from '../features/events/EventFilterBar';
 import {
@@ -20,11 +20,13 @@ import { displayUser } from '../features/alerts/entities';
 import { Truncate } from '../components/ui/Truncate';
 import { useFormat } from '../lib/format';
 import { useParamUpdater } from '../lib/search-params';
+import { useDocumentTitle } from '../lib/document-title';
 
 const eventIdSchema = z.uuid();
 
 export default function EventsPage() {
   const { t } = useTranslation();
+  useDocumentTitle(t('pages.events.title'));
   const format = useFormat();
   const [params] = useSearchParams();
   const update = useParamUpdater();
@@ -106,28 +108,43 @@ export default function EventsPage() {
         key={EVENT_TEXT_FILTERS.map((key) => filters.text[key] ?? '').join('|')}
         filters={filters}
       />
-      {list.isPending ? (
-        <LoadingState />
-      ) : list.isError ? (
-        <ErrorState error={list.error} onRetry={() => void list.refetch()} />
-      ) : events.length === 0 ? (
-        <EmptyState title={t('events.empty.title')} description={t('events.empty.description')} />
+      {list.data === undefined ? (
+        list.isError ? (
+          <ErrorState error={list.error} onRetry={() => list.refetch()} />
+        ) : (
+          <TableSkeleton columns={columns} label={t('events.loading')} />
+        )
       ) : (
         <>
-          <DataTable
-            caption={t('events.table.caption')}
-            columns={columns}
-            rows={events}
-            getRowId={(event) => event.id}
-            rowLabel={(event) => `${event.host} ${event.action} ${format.dateTime(event.ts)}`}
-            onOpen={(event) => update({ event: event.id })}
-          />
-          <LoadMore
-            shown={events.length}
-            hasMore={list.hasNextPage}
-            loading={list.isFetchingNextPage}
-            onLoadMore={() => void list.fetchNextPage()}
-          />
+          {list.isRefetchError ? (
+            <RefreshFailed error={list.error} onRetry={() => list.refetch()} />
+          ) : null}
+          <Updating active={list.isPlaceholderData}>
+            {events.length === 0 ? (
+              <EmptyState
+                title={t('events.empty.title')}
+                description={t('events.empty.description')}
+              />
+            ) : (
+              <>
+                <DataTable
+                  caption={t('events.table.caption')}
+                  columns={columns}
+                  rows={events}
+                  getRowId={(event) => event.id}
+                  rowLabel={(event) => `${event.host} ${event.action} ${format.dateTime(event.ts)}`}
+                  onOpen={(event) => update({ event: event.id })}
+                />
+                <LoadMore
+                  shown={events.length}
+                  hasMore={list.hasNextPage}
+                  loading={list.isFetchingNextPage}
+                  failed={list.isFetchNextPageError}
+                  onLoadMore={() => void list.fetchNextPage({ cancelRefetch: false })}
+                />
+              </>
+            )}
+          </Updating>
         </>
       )}
       {openId.success ? (

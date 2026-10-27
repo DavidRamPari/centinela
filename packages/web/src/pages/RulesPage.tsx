@@ -7,17 +7,21 @@ import { flattenPages, useRulesList } from '../api/hooks';
 import { SeverityBadge } from '../components/ui/Badges';
 import { Truncate } from '../components/ui/Truncate';
 import { Button } from '../components/ui/Button';
-import { DataTable, type Column } from '../components/ui/DataTable';
+import { DataTable, TableSkeleton, type Column } from '../components/ui/DataTable';
 import { SelectField, TextField, ToggleChips } from '../components/ui/Fields';
 import { LoadMore } from '../components/ui/LoadMore';
 import { PageHeader } from '../components/ui/PageHeader';
-import { EmptyState, ErrorState, LoadingState } from '../components/ui/States';
+import { SkeletonText } from '../components/ui/Skeleton';
+import { lineWidth } from '../components/ui/skeleton-widths';
+import { EmptyState, ErrorState, RefreshFailed, Updating } from '../components/ui/States';
 import { readRuleFilters, ruleQueryParams, type RuleFilters } from '../features/rules/rule-filters';
 import { useFormat } from '../lib/format';
 import { useParamUpdater } from '../lib/search-params';
+import { useDocumentTitle } from '../lib/document-title';
 
 export default function RulesPage() {
   const { t } = useTranslation();
+  useDocumentTitle(t('pages.rules.title'));
   const format = useFormat();
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -44,6 +48,14 @@ export default function RulesPage() {
       ),
       // The flexible column: the path truncates instead of widening the table.
       className: 'w-full max-w-0',
+      skeleton: (index) => (
+        <span className="flex flex-col gap-0.5">
+          <SkeletonText className={lineWidth(index)} />
+          <span className="hidden text-small @3xl:block">
+            <SkeletonText className="w-1/2" />
+          </span>
+        </span>
+      ),
     },
     {
       id: 'level',
@@ -117,28 +129,40 @@ export default function RulesPage() {
     <section>
       <PageHeader title={t('pages.rules.title')} description={t('pages.rules.description')} />
       <RuleFilterBar key={`${filters.q ?? ''}|${filters.technique ?? ''}`} filters={filters} />
-      {list.isPending ? (
-        <LoadingState />
-      ) : list.isError ? (
-        <ErrorState error={list.error} onRetry={() => void list.refetch()} />
-      ) : rules.length === 0 ? (
-        <EmptyState title={t('rules.empty')} description={t('rules.emptyHint')} />
+      {list.data === undefined ? (
+        list.isError ? (
+          <ErrorState error={list.error} onRetry={() => list.refetch()} />
+        ) : (
+          <TableSkeleton columns={columns} label={t('rules.loading')} />
+        )
       ) : (
         <>
-          <DataTable
-            caption={t('rules.table.caption')}
-            columns={columns}
-            rows={rules}
-            getRowId={(rule) => rule.id}
-            rowLabel={(rule) => rule.title}
-            onOpen={(rule) => void navigate(`/rules/${rule.id}`)}
-          />
-          <LoadMore
-            shown={rules.length}
-            hasMore={list.hasNextPage}
-            loading={list.isFetchingNextPage}
-            onLoadMore={() => void list.fetchNextPage()}
-          />
+          {list.isRefetchError ? (
+            <RefreshFailed error={list.error} onRetry={() => list.refetch()} />
+          ) : null}
+          <Updating active={list.isPlaceholderData}>
+            {rules.length === 0 ? (
+              <EmptyState title={t('rules.empty')} description={t('rules.emptyHint')} />
+            ) : (
+              <>
+                <DataTable
+                  caption={t('rules.table.caption')}
+                  columns={columns}
+                  rows={rules}
+                  getRowId={(rule) => rule.id}
+                  rowLabel={(rule) => rule.title}
+                  onOpen={(rule) => void navigate(`/rules/${rule.id}`)}
+                />
+                <LoadMore
+                  shown={rules.length}
+                  hasMore={list.hasNextPage}
+                  loading={list.isFetchingNextPage}
+                  failed={list.isFetchNextPageError}
+                  onLoadMore={() => void list.fetchNextPage({ cancelRefetch: false })}
+                />
+              </>
+            )}
+          </Updating>
         </>
       )}
     </section>

@@ -15,14 +15,18 @@ import { LanguageToggle } from '../../components/ui/LanguageToggle';
 import { ErrorState, LoadingState } from '../../components/ui/States';
 import { ThemeToggle } from '../../components/ui/ThemeToggle';
 import { useLogin, useSession } from './hooks';
+import { useSingleFlight } from '../../lib/single-flight';
 import { safeNextPath } from './next-path';
+import { useDocumentTitle } from '../../lib/document-title';
 
 export default function LoginPage() {
   const { t } = useTranslation();
+  useDocumentTitle(t('auth.login.title'));
   const [params] = useSearchParams();
   const next = safeNextPath(params.get('next'));
   const session = useSession();
   const login = useLogin();
+  const flight = useSingleFlight();
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -37,9 +41,11 @@ export default function LoginPage() {
       return;
     }
     setMissing(false);
-    login.mutate(
-      { username, password },
-      { onSuccess: () => void navigate(next, { replace: true }) },
+    flight.run(() =>
+      login.mutateAsync(
+        { username, password },
+        { onSuccess: () => void navigate(next, { replace: true }) },
+      ),
     );
   }
 
@@ -90,9 +96,9 @@ export default function LoginPage() {
                   variant="primary"
                   icon={LogIn}
                   className="mt-2 w-full"
-                  loading={login.isPending}
+                  loading={flight.busy}
                 >
-                  {login.isPending ? t('auth.login.signingIn') : t('auth.login.submit')}
+                  {flight.busy ? t('auth.login.signingIn') : t('auth.login.submit')}
                 </Button>
                 {missing ? (
                   <p role="alert" className="flex items-start gap-2 font-semibold text-danger">

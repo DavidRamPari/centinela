@@ -4,12 +4,15 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 import { z } from 'zod';
+import { ApiError } from '../api/client';
 import { useAlert } from '../api/hooks';
 import { SeverityBadge, StatusBadge } from '../components/ui/Badges';
+import { CopyButton } from '../components/ui/CopyButton';
 import { DescriptionList } from '../components/ui/DescriptionList';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Section } from '../components/ui/Section';
-import { EmptyState, ErrorState, LoadingState } from '../components/ui/States';
+import { LoadingRegion, Skeleton, SkeletonLines, SkeletonText } from '../components/ui/Skeleton';
+import { EmptyState, ErrorState, RefreshFailed } from '../components/ui/States';
 import { userDomains } from '../features/alerts/entities';
 import { RulePanel } from '../features/alerts/RulePanel';
 import { Timeline } from '../features/alerts/timeline/Timeline';
@@ -17,6 +20,7 @@ import { TriagePanel } from '../features/alerts/TriagePanel';
 import { PlaybookPanel } from '../features/alerts/playbook/PlaybookPanel';
 import { TechniqueList } from '../features/attack/TechniqueLink';
 import { useFormat } from '../lib/format';
+import { useDocumentTitle } from '../lib/document-title';
 
 const idSchema = z.uuid();
 
@@ -26,18 +30,21 @@ function sameDay(a: string, b: string): boolean {
 }
 
 export default function AlertDetailPage() {
-  const { t } = useTranslation();
   const params = useParams();
   const id = idSchema.safeParse(params.id);
-  if (!id.success) {
-    return (
-      <section>
-        <Breadcrumb />
-        <EmptyState title={t('alertDetail.notFound')} />
-      </section>
-    );
-  }
+  if (!id.success) return <AlertNotFound />;
   return <AlertDetail id={id.data} />;
+}
+
+function AlertNotFound() {
+  const { t } = useTranslation();
+  useDocumentTitle(t('alertDetail.notFound'));
+  return (
+    <section>
+      <Breadcrumb />
+      <EmptyState title={t('alertDetail.notFound')} />
+    </section>
+  );
 }
 
 function Breadcrumb() {
@@ -62,17 +69,26 @@ function Breadcrumb() {
 function AlertDetail({ id }: { id: string }) {
   const { t } = useTranslation();
   const detail = useAlert(id);
+  // The tab names the rule once the alert is here; "Alert" (or "not found") until then.
+  useDocumentTitle(
+    detail.data?.alert.ruleTitle ??
+      (detail.error instanceof ApiError && detail.error.status === 404
+        ? t('alertDetail.notFound')
+        : t('tabTitles.alert')),
+  );
 
-  if (detail.isPending) return <LoadingState />;
-  if (detail.isError) {
-    return (
-      <section>
-        <Breadcrumb />
-        <div className="mt-6">
-          <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
-        </div>
-      </section>
-    );
+  if (detail.data === undefined) {
+    if (detail.isError) {
+      return (
+        <section>
+          <Breadcrumb />
+          <div className="mt-6">
+            <ErrorState error={detail.error} onRetry={() => detail.refetch()} />
+          </div>
+        </section>
+      );
+    }
+    return <AlertDetailSkeleton />;
   }
   const { alert, rule, events } = detail.data;
 
@@ -89,7 +105,10 @@ function AlertDetail({ id }: { id: string }) {
           </span>
         }
       />
-      <div className="grid grid-cols-1 gap-x-12 gap-y-12 xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+      {detail.isRefetchError ? (
+        <RefreshFailed error={detail.error} onRetry={() => detail.refetch()} />
+      ) : null}
+      <div className={COLUMNS}>
         <div className="flex min-w-0 flex-col gap-10">
           <WhatHappened alert={alert} rule={rule} events={events} />
           <Section
@@ -101,14 +120,11 @@ function AlertDetail({ id }: { id: string }) {
           <RulePanel alert={alert} rule={rule} />
           <TechnicalDetails alert={alert} />
         </div>
-        <aside
-          aria-labelledby="next-title"
-          className="flex min-w-0 flex-col gap-8 xl:border-l xl:border-line xl:pl-10"
-        >
+        <aside aria-labelledby="next-title" className={ASIDE}>
           <h2 id="next-title" className="-mb-4 text-small font-semibold text-muted">
             {t('alertDetail.next')}
           </h2>
-          <TriagePanel key={`${alert.status}|${alert.updatedAt}`} alert={alert} />
+          <TriagePanel key={alert.id} alert={alert} />
           <div className="border-t border-line pt-8">
             <PlaybookPanel ruleId={alert.ruleId} origin={rule?.origin} />
           </div>
@@ -132,7 +148,7 @@ function EntityLinks({
   return (
     <ul className="flex flex-wrap gap-x-4 gap-y-1">
       {values.map((value) => (
-        <li key={value} className="min-w-0">
+        <li key={value} className="flex min-w-0 items-center gap-0.5">
           <Link
             to={`/events?${new URLSearchParams({ [param]: value, range: '7d' }).toString()}`}
             className="break-all text-link underline decoration-transparent underline-offset-3 hover:decoration-link"
@@ -140,6 +156,7 @@ function EntityLinks({
           >
             {display?.(value) ?? value}
           </Link>
+          <CopyButton value={display?.(value) ?? value} />
         </li>
       ))}
     </ul>
@@ -219,10 +236,17 @@ function TechnicalDetails({ alert }: { alert: Alert }) {
   const { t } = useTranslation();
   const format = useFormat();
   const mono = (value: string | null) =>
-    value ? <span className="font-mono text-small break-all">{value}</span> : t('common.none');
+    value ? (
+      <span className="flex items-center gap-0.5">
+        <span className="font-mono text-small break-all">{value}</span>
+        <CopyButton value={value} />
+      </span>
+    ) : (
+      t('common.none')
+    );
   return (
     <details className="group border-t border-line pt-6">
-      <summary className="flex w-fit cursor-pointer list-none items-center gap-2 rounded-control font-semibold text-fg [&::-webkit-details-marker]:hidden">
+      <summary className="-mx-1.5 flex h-8 w-fit cursor-pointer list-none items-center gap-2 rounded-control px-1.5 font-semibold text-fg transition-colors duration-100 hover:bg-hover active:bg-pressed [&::-webkit-details-marker]:hidden">
         <ChevronRight
           aria-hidden="true"
           strokeWidth={2}
@@ -262,5 +286,84 @@ function TechnicalDetails({ alert }: { alert: Alert }) {
         />
       </div>
     </details>
+  );
+}
+
+const COLUMNS = 'grid grid-cols-1 gap-x-12 gap-y-12 xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]';
+const ASIDE = 'flex min-w-0 flex-col gap-8 xl:border-l xl:border-line xl:pl-10';
+
+/**
+ * The alert page before its first answer: the same header, columns and section headings,
+ * with placeholders for the title, the facts, the timeline and the triage controls.
+ */
+function AlertDetailSkeleton() {
+  const { t } = useTranslation();
+  const terms = [
+    t('alertDetail.hosts'),
+    t('alertDetail.entities.users'),
+    t('alertDetail.entities.ips'),
+    t('alertDetail.when'),
+    t('alertDetail.matches'),
+    t('alertDetail.attack'),
+  ];
+  return (
+    <LoadingRegion label={t('alertDetail.loading')}>
+      <PageHeader
+        eyebrow={<Breadcrumb />}
+        title={
+          <span className="block">
+            <SkeletonText className="w-[min(32rem,80%)]" />
+          </span>
+        }
+        description={
+          <span className="flex items-center gap-x-5 text-body">
+            <Skeleton className="h-6 w-24 rounded-badge" />
+            <Skeleton className="h-6 w-28 rounded-badge" />
+          </span>
+        }
+      />
+      <div className={COLUMNS}>
+        <div className="flex min-w-0 flex-col gap-10">
+          <Section framed title={t('alertDetail.whatHappened')}>
+            <SkeletonLines lines={2} className="max-w-prose text-lead" />
+            <DescriptionList
+              items={terms.map((term, index) => ({
+                term,
+                value: <SkeletonText className={index % 2 === 0 ? 'w-1/2' : 'w-1/3'} />,
+              }))}
+            />
+          </Section>
+          <Section title={t('alertDetail.timeline.title')}>
+            <ul aria-hidden="true" className="flex flex-col">
+              {[0, 1, 2, 3].map((index) => (
+                <li
+                  key={index}
+                  className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-4 border-b border-line py-3 last:border-b-0 sm:grid-cols-[7.5rem_minmax(0,1fr)]"
+                >
+                  <SkeletonText className="w-16" />
+                  <span className="flex flex-col gap-1.5">
+                    <SkeletonText className={index % 2 === 0 ? 'w-3/4' : 'w-2/3'} />
+                    <span className="text-small">
+                      <SkeletonText className="w-full" />
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Section>
+        </div>
+        <aside className={ASIDE}>
+          <p className="-mb-4 text-small font-semibold text-muted">{t('alertDetail.next')}</p>
+          <div className="flex flex-col gap-4">
+            <div>
+              <p className="text-lead font-semibold text-fg">{t('triage.title')}</p>
+              <SkeletonLines lines={2} className="mt-0.5" />
+            </div>
+            <Skeleton className="h-[4.75rem] w-full rounded-control" />
+            <Skeleton className="h-10 w-36 rounded-control" />
+          </div>
+        </aside>
+      </div>
+    </LoadingRegion>
   );
 }

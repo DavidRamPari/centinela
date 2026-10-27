@@ -4,23 +4,25 @@ import {
   type IngestSummary,
   type SourceType,
 } from '@centinela/shared';
-import { Copy, FileText, Upload } from 'lucide-react';
+import { FileText, Upload } from 'lucide-react';
 import { useId, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useUploadLog } from '../api/hooks';
 import { Button } from '../components/ui/Button';
+import { CopyTextButton } from '../components/ui/CopyButton';
 import { Section } from '../components/ui/Section';
 import { CodeBlock } from '../components/ui/CodeBlock';
 import { SelectField, TextField, labelClass } from '../components/ui/Fields';
 import { PageHeader } from '../components/ui/PageHeader';
 import { ErrorState } from '../components/ui/States';
-import { useToasts } from '../components/ui/toast-context';
 import {
   addUploadRecord,
   readUploadHistory,
   type UploadRecord,
 } from '../features/ingest/upload-history';
 import { useFormat } from '../lib/format';
+import { useSingleFlight } from '../lib/single-flight';
+import { useDocumentTitle } from '../lib/document-title';
 
 /** Same limit as the server (ARCHITECTURE §9, §12): checked before reading the file. */
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
@@ -34,6 +36,7 @@ const DEFAULT_HOST: Readonly<Record<SourceType, string>> = {
 
 export default function IngestPage() {
   const { t } = useTranslation();
+  useDocumentTitle(t('pages.ingest.title'));
   const [history, setHistory] = useState<UploadRecord[]>(readUploadHistory);
   return (
     <section>
@@ -52,6 +55,8 @@ export default function IngestPage() {
 function UploadCard({ onUploaded }: { onUploaded: (record: UploadRecord) => void }) {
   const { t } = useTranslation();
   const upload = useUploadLog();
+  // Busy from the first click: reading the file comes before the request starts.
+  const flight = useSingleFlight();
   const fileInputId = useId();
   const [file, setFile] = useState<File | null>(null);
   const [source, setSource] = useState<SourceType>('linux_auth');
@@ -60,8 +65,9 @@ function UploadCard({ onUploaded }: { onUploaded: (record: UploadRecord) => void
   const [formError, setFormError] = useState<string | null>(null);
   const [result, setResult] = useState<IngestSummary | null>(null);
 
-  async function submit(event: FormEvent) {
+  function submit(event: FormEvent) {
     event.preventDefault();
+    if (flight.busy) return;
     setFormError(null);
     setResult(null);
     if (!file) {
@@ -78,33 +84,36 @@ function UploadCard({ onUploaded }: { onUploaded: (record: UploadRecord) => void
       setFormError(field === 'tz' ? t('ingest.errors.tz') : t('ingest.errors.host'));
       return;
     }
-    let text: string;
-    try {
-      text = await file.text();
-    } catch {
-      setFormError(t('ingest.errors.read'));
-      return;
-    }
-    upload.mutate(
-      { query: query.data, text },
-      {
-        onSuccess: (summary) => {
-          setResult(summary);
-          onUploaded({
-            at: new Date().toISOString(),
-            fileName: file.name.slice(0, 255),
-            source: query.data.source,
-            host: query.data.host,
-            summary,
-          });
+    const params = query.data;
+    flight.run(async () => {
+      let text: string;
+      try {
+        text = await file.text();
+      } catch {
+        setFormError(t('ingest.errors.read'));
+        return;
+      }
+      await upload.mutateAsync(
+        { query: params, text },
+        {
+          onSuccess: (summary) => {
+            setResult(summary);
+            onUploaded({
+              at: new Date().toISOString(),
+              fileName: file.name.slice(0, 255),
+              source: params.source,
+              host: params.host,
+              summary,
+            });
+          },
         },
-      },
-    );
+      );
+    });
   }
 
   return (
     <Section framed title={t('ingest.upload.title')} description={t('ingest.upload.description')}>
-      <form onSubmit={(event) => void submit(event)} className="flex flex-col gap-5" noValidate>
+      <form onSubmit={submit} className="flex flex-col gap-5" noValidate>
         <div className="flex flex-col gap-1.5">
           <span className={labelClass} aria-hidden="true">
             {t('ingest.upload.file')}
@@ -118,11 +127,12 @@ function UploadCard({ onUploaded }: { onUploaded: (record: UploadRecord) => void
               aria-label={t('ingest.upload.file')}
               aria-describedby={`${fileInputId}-hint`}
               onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              disabled={flight.busy}
               className="peer sr-only"
             />
             <label
               htmlFor={fileInputId}
-              className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-control border border-line-strong px-3.5 font-semibold text-fg transition-colors duration-100 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-focus hover:border-line-hover hover:bg-hover active:translate-y-px"
+              className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-control border border-line-strong px-3.5 font-semibold text-fg transition-colors duration-100 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-focus peer-disabled:cursor-not-allowed peer-disabled:border-transparent peer-disabled:bg-disabled peer-disabled:text-disabled-fg hover:border-line-hover hover:bg-hover active:translate-y-px active:bg-pressed"
             >
               <FileText aria-hidden="true" strokeWidth={1.75} className="size-4" />
               {t('ingest.upload.choose')}
@@ -165,8 +175,8 @@ function UploadCard({ onUploaded }: { onUploaded: (record: UploadRecord) => void
           />
         </div>
         <div>
-          <Button type="submit" variant="primary" icon={Upload} loading={upload.isPending}>
-            {upload.isPending ? t('ingest.upload.sending') : t('ingest.upload.submit')}
+          <Button type="submit" variant="primary" icon={Upload} loading={flight.busy}>
+            {flight.busy ? t('ingest.upload.sending') : t('ingest.upload.submit')}
           </Button>
         </div>
         {formError ? (
@@ -216,7 +226,6 @@ function SummaryView({ summary }: { summary: IngestSummary }) {
 
 function CurlCard() {
   const { t } = useTranslation();
-  const { push } = useToasts();
   const origin = window.location.origin;
   const command = [
     `curl -X POST "${origin}/api/ingest?source=linux_auth&host=bastion-01&tz=America/Lima" \\`,
@@ -225,24 +234,11 @@ function CurlCard() {
     '  --data-binary @/var/log/auth.log',
   ].join('\n');
 
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(command);
-      push({ title: t('ingest.curl.copied') });
-    } catch {
-      push({ title: t('ingest.curl.copyFailed') });
-    }
-  }
-
   return (
     <Section
       title={t('ingest.curl.title')}
       description={t('ingest.curl.description')}
-      actions={
-        <Button size="sm" icon={Copy} onClick={() => void copy()}>
-          {t('ingest.curl.copy')}
-        </Button>
-      }
+      actions={<CopyTextButton size="sm" value={command} label={t('ingest.curl.copy')} />}
     >
       <CodeBlock text={command} label={t('ingest.curl.title')} />
       <p className="text-muted">{t('ingest.curl.ndjson')}</p>
@@ -258,7 +254,7 @@ function HistoryCard({ history }: { history: UploadRecord[] }) {
       {history.length === 0 ? (
         <p className="text-muted">{t('ingest.history.empty')}</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full text-left">
             <caption className="sr-only">{t('ingest.history.title')}</caption>
             <thead className="border-b border-line-strong text-small text-muted">

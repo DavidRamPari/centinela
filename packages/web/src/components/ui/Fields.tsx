@@ -188,7 +188,7 @@ export function ToggleChips<T extends string>({
                 'inline-flex h-8 items-center gap-1.5 rounded-control border px-2.5 text-small font-semibold transition-colors duration-100 active:translate-y-px',
                 pressed
                   ? 'border-accent-edge bg-accent text-accent-fg hover:bg-accent-hover'
-                  : 'border-line-strong text-fg hover:border-line-hover hover:bg-hover',
+                  : 'border-line-strong text-fg hover:border-line-hover hover:bg-hover active:bg-pressed',
               )}
             >
               {pressed ? <Check aria-hidden="true" strokeWidth={2.5} className="size-3.5" /> : null}
@@ -246,7 +246,7 @@ export function Segmented<T extends string>({
                 'h-8 rounded-badge px-3 text-small font-semibold transition-colors duration-100',
                 pressed
                   ? 'bg-selected text-fg ring-1 ring-accent-edge ring-inset'
-                  : 'text-muted hover:bg-hover hover:text-fg',
+                  : 'text-muted hover:bg-hover hover:text-fg active:bg-pressed',
               )}
             >
               {option.label}

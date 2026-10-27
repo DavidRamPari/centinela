@@ -6,12 +6,15 @@ import { Link, useSearchParams } from 'react-router';
 import { useAttackMatrix } from '../api/hooks';
 import { Checkbox, Segmented } from '../components/ui/Fields';
 import { PageHeader } from '../components/ui/PageHeader';
-import { EmptyState, ErrorState, LoadingState } from '../components/ui/States';
+import { LoadingRegion, Skeleton, SkeletonText } from '../components/ui/Skeleton';
+import { lineWidth } from '../components/ui/skeleton-widths';
+import { EmptyState, ErrorState, RefreshFailed, Updating } from '../components/ui/States';
 import { TimeRangeSelect } from '../components/ui/TimeRangeSelect';
 import { HEAT_CLASSES, heatLevel } from '../features/attack/heat';
 import { useFormat } from '../lib/format';
 import { useParamUpdater } from '../lib/search-params';
 import { rangeQuery, readTimeRange, writeTimeRange, type TimeRange } from '../lib/time-range';
+import { useDocumentTitle } from '../lib/document-title';
 
 type Mode = 'alerts' | 'coverage';
 type Tactic = AttackResponse['tactics'][number];
@@ -29,6 +32,7 @@ function rangeSearch(range: TimeRange): URLSearchParams {
  */
 export default function AttackPage() {
   const { t } = useTranslation();
+  useDocumentTitle(t('pages.attack.title'));
   const format = useFormat();
   const [params] = useSearchParams();
   const update = useParamUpdater();
@@ -77,50 +81,128 @@ export default function AttackPage() {
           checked={showAll}
           onChange={(event) => update({ all: event.target.checked ? '1' : undefined })}
         />
-        {max > 0 ? <Legend max={max} mode={mode} /> : null}
+        {max > 0 ? (
+          <Legend max={max} mode={mode} />
+        ) : matrix.isPending ? (
+          <LegendSkeleton mode={mode} />
+        ) : null}
       </div>
 
-      {matrix.isPending ? (
-        <LoadingState />
-      ) : matrix.isError ? (
-        <ErrorState error={matrix.error} onRetry={() => void matrix.refetch()} />
-      ) : visible.length === 0 ? (
-        <EmptyState
-          title={t(mode === 'alerts' ? 'attack.emptyAlerts' : 'attack.empty')}
-          description={mode === 'alerts' ? t('attack.emptyAlertsHint') : undefined}
-        />
+      {matrix.data === undefined ? (
+        matrix.isError ? (
+          <ErrorState error={matrix.error} onRetry={() => matrix.refetch()} />
+        ) : (
+          <MatrixSkeleton showAll={showAll} />
+        )
       ) : (
         <>
-          {hidden > 0 ? (
-            <p className="mb-4 text-muted">
-              {t('attack.hiddenTactics', { count: hidden, value: format.number(hidden) })}
-            </p>
+          {matrix.isRefetchError ? (
+            <RefreshFailed error={matrix.error} onRetry={() => matrix.refetch()} />
           ) : null}
-          <div className="overflow-x-auto pb-3" tabIndex={0} aria-label={t('attack.matrix')}>
-            <div
-              className="grid gap-x-3"
-              // One column per visible tactic; they share the width and scroll only when
-              // the minimum no longer fits (React sets this through the CSSOM, CSP-safe).
-              style={{
-                gridTemplateColumns: `repeat(${visible.length}, minmax(${showAll ? '10.5rem' : '8.5rem'}, 1fr))`,
-              }}
-            >
-              {visible.map((tactic) => (
-                <TacticColumn
-                  key={tactic.id}
-                  tactic={tactic}
-                  mode={mode}
-                  max={max}
-                  showAll={showAll}
-                  value={value}
-                  href={cellHref}
-                />
-              ))}
-            </div>
-          </div>
+          <Updating active={matrix.isPlaceholderData}>
+            {visible.length === 0 ? (
+              <EmptyState
+                title={t(mode === 'alerts' ? 'attack.emptyAlerts' : 'attack.empty')}
+                description={mode === 'alerts' ? t('attack.emptyAlertsHint') : undefined}
+              />
+            ) : (
+              <>
+                {hidden > 0 ? (
+                  <p className="mb-4 text-muted">
+                    {t('attack.hiddenTactics', { count: hidden, value: format.number(hidden) })}
+                  </p>
+                ) : null}
+                {/* Positioned: the cells' visually hidden counts are absolute and must scroll with
+                    the matrix, not widen the page (S7b-18). */}
+                <div
+                  className="relative overflow-x-auto pb-3"
+                  tabIndex={0}
+                  aria-label={t('attack.matrix')}
+                >
+                  <div
+                    className="grid gap-x-3"
+                    // One column per visible tactic; they share the width and scroll only when
+                    // the minimum no longer fits (React sets this through the CSSOM, CSP-safe).
+                    style={{ gridTemplateColumns: matrixColumns(visible.length, showAll) }}
+                  >
+                    {visible.map((tactic) => (
+                      <TacticColumn
+                        key={tactic.id}
+                        tactic={tactic}
+                        mode={mode}
+                        max={max}
+                        showAll={showAll}
+                        value={value}
+                        href={cellHref}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </Updating>
         </>
       )}
     </section>
+  );
+}
+
+/** Techniques per placeholder column: a made-up, uneven shape, the same on every render. */
+const SKELETON_CELLS = [4, 2, 5, 3, 2, 4, 3, 1, 3, 2, 4, 2, 3, 2] as const;
+
+/** Grid columns of the matrix, shared by the matrix and its placeholder. */
+function matrixColumns(count: number, showAll: boolean): string {
+  return `repeat(${count}, minmax(${showAll ? '10.5rem' : '8.5rem'}, 1fr))`;
+}
+
+/**
+ * The matrix before its first answer: tactic columns with technique cells of the real
+ * cell's height. The number of columns is a guess (all 14 tactics, or a typical 6).
+ */
+function MatrixSkeleton({ showAll }: { showAll: boolean }) {
+  const { t } = useTranslation();
+  const count = showAll ? 14 : 6;
+  return (
+    <LoadingRegion label={t('attack.loading')} className="overflow-x-hidden pb-3">
+      <div
+        aria-hidden="true"
+        className="grid gap-x-3"
+        style={{ gridTemplateColumns: matrixColumns(count, showAll) }}
+      >
+        {Array.from({ length: count }, (_, column) => (
+          <div key={column} className="flex min-w-0 flex-col">
+            <div className="mb-2 border-b border-line-strong pb-2">
+              <SkeletonText className={lineWidth(column)} />
+              <span className="block text-small">
+                <SkeletonText className="w-1/2" />
+              </span>
+            </div>
+            <div className="flex flex-col gap-1">
+              {Array.from({ length: SKELETON_CELLS[column] ?? 2 }, (_, cell) => (
+                <Skeleton key={cell} className="h-[46px] rounded-badge" />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </LoadingRegion>
+  );
+}
+
+/** The legend's place while the matrix loads, so the controls do not move when it arrives. */
+function LegendSkeleton({ mode }: { mode: Mode }) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex flex-col gap-1.5" aria-hidden="true">
+      <span className="text-small font-semibold text-fg">
+        {t(mode === 'alerts' ? 'attack.legendAlerts' : 'attack.legendRules')}
+      </span>
+      <span className="flex h-10 items-center gap-1">
+        {[0, 1, 2, 3].map((step) => (
+          <Skeleton key={step} className="h-7 w-6 rounded-badge" />
+        ))}
+      </span>
+    </div>
   );
 }
 
@@ -169,7 +251,8 @@ function TacticColumn({
                 to={href(technique)}
                 data-technique={technique.id}
                 className={clsx(
-                  'flex flex-col gap-0.5 rounded-badge px-2.5 py-1.5 leading-snug transition-colors duration-100 hover:outline-2 hover:outline-offset-1 hover:outline-link',
+                  // Hover is a neutral inner line, not a colour: the fill already carries the count.
+                  'flex flex-col gap-0.5 rounded-badge px-2.5 py-1.5 leading-snug transition-shadow duration-100 hover:ring-1 hover:ring-line-hover hover:ring-inset active:ring-2',
                   HEAT_CLASSES[mode][level],
                   level === 0 && 'py-1',
                 )}

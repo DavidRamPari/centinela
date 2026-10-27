@@ -18,6 +18,9 @@ COPY tsconfig.base.json vitest.shared.ts ./
 COPY data/mitre-attack data/mitre-attack
 COPY packages/shared packages/shared
 COPY packages/web packages/web
+# Public origin of the dashboard for link previews (Open Graph, Twitter cards), such as
+# https://centinela.example.org; empty leaves the card tags out (S7b-18).
+ARG VITE_PUBLIC_URL=
 RUN npm run build -w packages/web
 
 # nginx-unprivileged runs as uid 101 and listens on 8080.
