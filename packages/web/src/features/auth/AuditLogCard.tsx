@@ -75,9 +75,7 @@ export function AuditLogCard() {
     {
       id: 'details',
       header: t('auth.audit.details'),
-      cell: (entry) => (
-        <Truncate text={formatDetails(entry.details) || t('common.none')} mono />
-      ),
+      cell: (entry) => <Truncate text={formatDetails(entry.details) || t('common.none')} mono />,
       className: 'hidden @5xl:table-cell w-full max-w-0',
     },
   ];
