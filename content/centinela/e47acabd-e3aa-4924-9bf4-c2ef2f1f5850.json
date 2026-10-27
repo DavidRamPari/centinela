@@ -1,0 +1,130 @@
+{
+  "rule": {
+    "id": "e47acabd-e3aa-4924-9bf4-c2ef2f1f5850",
+    "title": "File written by a Windows download utility",
+    "level": "medium",
+    "status": "experimental",
+    "author": "DavidRamPari",
+    "path": "centinela/windows/lolbin_file_drop.yml",
+    "url": null,
+    "license": "MIT",
+    "techniques": [
+      "T1105"
+    ]
+  },
+  "playbook": {
+    "es": {
+      "summary": "certutil, bitsadmin, mshta o regsvr32 creó un archivo fuera de las cachés CryptnetUrlCache o INetCache. Puede ser la descarga o el drop de un payload con un binario firmado de Windows.",
+      "what_it_detects": "Eventos de creación de archivos (file_event, Sysmon ID 11) cuyo Image termina en certutil.exe, bitsadmin.exe, mshta.exe o regsvr32.exe y cuyo TargetFilename no contiene \\CryptnetUrlCache\\ ni \\INetCache\\.",
+      "why_it_matters": "Estos binarios LOLBin firmados permiten transferir herramientas al equipo (ATT&CK T1105, Ingress Tool Transfer) sin pasar por los controles del navegador o del proxy. Así se prepara la ejecución de malware o de herramientas de movimiento lateral.",
+      "triage_steps": [
+        "Revise Image y TargetFilename: ruta (Public, Temp, AppData, ProgramData), extensión (.exe, .dll, .hta, .ps1) y nombre engañoso.",
+        "Correlacione por ProcessGuid o ProcessId con el evento de creación de proceso para obtener CommandLine, ParentImage y el usuario. Busque -urlcache, -decode, /transfer o URLs.",
+        "Evalúe el proceso padre: Office, navegadores, wscript, cmd o powershell lanzados desde documentos son más sospechosos que una consola administrativa.",
+        "Obtenga el hash del archivo creado y consúltelo en su reputación interna; verifique firma y tamaño.",
+        "Revise el mismo host en +/- 15 minutos: conexiones de red del proceso, ejecución posterior del archivo, persistencia o nuevos servicios.",
+        "Busque el mismo hash, nombre de archivo o dominio en otros endpoints y alertas previas del mismo usuario o host."
+      ],
+      "false_positives": [
+        "Administradores que decodifican, codifican o exportan certificados con certutil (-decode, -encode, -exportPFX) hacia rutas de trabajo conocidas.",
+        "Scripts de despliegue o inventario que usan bitsadmin para descargar paquetes desde servidores internos.",
+        "Instaladores legítimos que registran DLL con regsvr32 y generan archivos auxiliares."
+      ],
+      "response_steps": [
+        "Verifique con el usuario o el equipo de TI si la acción estaba autorizada y documentada.",
+        "Si no hay justificación, aísle el endpoint y ponga el archivo en cuarentena preservando una copia para análisis.",
+        "Bloquee el dominio o la IP de origen y el hash en proxy, EDR y firewall.",
+        "Elimine la persistencia y los artefactos relacionados tras confirmarlos; restablezca credenciales si se ejecutó el payload.",
+        "Documente el caso y, si es benigno, agregue una excepción acotada por ruta y usuario."
+      ],
+      "severity_rationale": "Nivel medio: el comportamiento es poco común y suele indicar descarga de herramientas, pero existen usos administrativos legítimos de certutil y bitsadmin que requieren validación."
+    },
+    "en": {
+      "summary": "certutil, bitsadmin, mshta or regsvr32 wrote a file outside the CryptnetUrlCache or INetCache folders. This may be a payload downloaded or dropped through a signed Windows binary.",
+      "what_it_detects": "File creation events (file_event, Sysmon ID 11) where Image ends with certutil.exe, bitsadmin.exe, mshta.exe or regsvr32.exe and TargetFilename does not contain \\CryptnetUrlCache\\ or \\INetCache\\.",
+      "why_it_matters": "These signed LOLBins let attackers bring tools onto a host (ATT&CK T1105, Ingress Tool Transfer) while bypassing browser and proxy controls, staging malware or lateral movement tooling.",
+      "triage_steps": [
+        "Review Image and TargetFilename: location (Public, Temp, AppData, ProgramData), extension (.exe, .dll, .hta, .ps1) and misleading names.",
+        "Join on ProcessGuid or ProcessId with the process creation event to get CommandLine, ParentImage and user. Look for -urlcache, -decode, /transfer or URLs.",
+        "Assess the parent: Office, browsers, wscript, cmd or powershell spawned from documents are more suspicious than an admin console.",
+        "Hash the written file, check internal reputation, signature and size.",
+        "Review the same host within +/- 15 minutes: process network connections, execution of the file, persistence or new services.",
+        "Hunt the same hash, filename or domain on other endpoints and check earlier alerts for the same user or host."
+      ],
+      "false_positives": [
+        "Administrators decoding, encoding or exporting certificates with certutil (-decode, -encode, -exportPFX) to known working folders.",
+        "Deployment or inventory scripts using bitsadmin to fetch packages from internal servers.",
+        "Legitimate installers registering DLLs with regsvr32 that write helper files."
+      ],
+      "response_steps": [
+        "Confirm with the user or IT whether the action was authorized and documented.",
+        "If unjustified, isolate the endpoint and quarantine the file, keeping a copy for analysis.",
+        "Block the source domain or IP and the hash in proxy, EDR and firewall.",
+        "Remove confirmed persistence and related artifacts; reset credentials if the payload ran.",
+        "Document the case; if benign, add a narrow exception scoped by path and user."
+      ],
+      "severity_rationale": "Medium: the behavior is uncommon and often means tool transfer, but legitimate certutil and bitsadmin admin use exists and needs validation."
+    }
+  },
+  "fixtures": {
+    "positive": [
+      {
+        "description": "certutil drops an executable into C:\\Users\\Public",
+        "event": {
+          "EventID": 11,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ProcessId": 6412,
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "TargetFilename": "C:\\Users\\Public\\Downloads\\update.exe",
+          "CreationUtcTime": "2026-10-26 14:03:12.481"
+        }
+      },
+      {
+        "description": "mshta writes an HTA payload into the user's Temp folder",
+        "event": {
+          "EventID": 11,
+          "Computer": "WS-0207.andes.example.com",
+          "User": "ANDES\\mrojas",
+          "ProcessId": 3920,
+          "Image": "C:\\Windows\\SysWOW64\\mshta.exe",
+          "TargetFilename": "C:\\Users\\mrojas\\AppData\\Local\\Temp\\invoice.hta",
+          "CreationUtcTime": "2026-10-26 15:21:47.102"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "description": "certutil writes to its own CryptnetUrlCache during CRL retrieval (filtered)",
+        "event": {
+          "EventID": 11,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ProcessId": 5180,
+          "Image": "C:\\Windows\\System32\\certutil.exe",
+          "TargetFilename": "C:\\Users\\jperez\\AppData\\LocalLow\\Microsoft\\CryptnetUrlCache\\Content\\7A1B2C3D4E5F",
+          "CreationUtcTime": "2026-10-26 09:12:05.330"
+        }
+      },
+      {
+        "description": "powershell.exe writes a file; Image is not one of the listed utilities",
+        "event": {
+          "EventID": 11,
+          "Computer": "WS-0142.andes.example.com",
+          "User": "ANDES\\jperez",
+          "ProcessId": 7724,
+          "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "TargetFilename": "C:\\Users\\Public\\Downloads\\report.csv",
+          "CreationUtcTime": "2026-10-26 10:44:19.006"
+        }
+      }
+    ]
+  },
+  "generated": {
+    "tool": "content-pack/1",
+    "model": "claude-opus-5-5",
+    "at": "2026-10-27T16:51:43+00:00",
+    "review": "unreviewed",
+    "notice": "AI-generated content. Review it before relying on it. Fixtures are validated by Centinela's engine in session S7."
+  }
+}
