@@ -22,8 +22,8 @@ export function AlertFilterBar({ filters }: { filters: AlertFilters }) {
   }
 
   return (
-    <div className="mb-4 flex flex-col gap-3 rounded-lg border border-line bg-surface p-3">
-      <div className="flex flex-wrap items-end gap-4">
+    <div className="mb-6 flex flex-col gap-4 border-b border-line pb-6">
+      <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
         <ToggleChips
           label={t('alerts.filters.status')}
           options={ALERT_STATUSES.map((value) => ({ value, label: t(`statuses.${value}`) }))}
@@ -44,7 +44,7 @@ export function AlertFilterBar({ filters }: { filters: AlertFilters }) {
       <form
         onSubmit={submit}
         aria-label={t('alerts.filters.form')}
-        className="grid grid-cols-2 items-end gap-2 sm:grid-cols-3 lg:grid-cols-6"
+        className="grid grid-cols-2 items-end gap-3 sm:grid-cols-3 lg:grid-cols-[repeat(5,minmax(0,1fr))_auto]"
       >
         {ALERT_TEXT_FILTERS.map((key) => (
           <TextField
@@ -56,11 +56,12 @@ export function AlertFilterBar({ filters }: { filters: AlertFilters }) {
             autoComplete="off"
           />
         ))}
-        <div className="flex gap-2">
+        <div className="col-span-2 flex gap-2 sm:col-span-1">
           <Button type="submit" variant="primary">
             {t('common.apply')}
           </Button>
           <Button
+            variant="quiet"
             onClick={() => {
               setText({});
               update(() => new URLSearchParams());

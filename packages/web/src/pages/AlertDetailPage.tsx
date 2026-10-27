@@ -1,22 +1,29 @@
-import type { Alert, NormalizedEvent } from '@centinela/shared';
-import { ArrowLeft } from 'lucide-react';
+import type { Alert, NormalizedEvent, RuleMeta } from '@centinela/shared';
+import { ChevronRight } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 import { z } from 'zod';
 import { useAlert } from '../api/hooks';
 import { SeverityBadge, StatusBadge } from '../components/ui/Badges';
-import { Card } from '../components/ui/Card';
 import { DescriptionList } from '../components/ui/DescriptionList';
 import { PageHeader } from '../components/ui/PageHeader';
+import { Section } from '../components/ui/Section';
 import { EmptyState, ErrorState, LoadingState } from '../components/ui/States';
+import { userDomains } from '../features/alerts/entities';
 import { RulePanel } from '../features/alerts/RulePanel';
+import { Timeline } from '../features/alerts/timeline/Timeline';
 import { TriagePanel } from '../features/alerts/TriagePanel';
 import { PlaybookPanel } from '../features/alerts/playbook/PlaybookPanel';
-import { TacticNames, TechniqueLink } from '../features/attack/TechniqueLink';
-import { OutcomeLabel } from '../features/events/OutcomeLabel';
+import { TechniqueList } from '../features/attack/TechniqueLink';
 import { useFormat } from '../lib/format';
 
 const idSchema = z.uuid();
+
+/** Same calendar day in the browser's time zone. */
+function sameDay(a: string, b: string): boolean {
+  return new Date(a).toDateString() === new Date(b).toDateString();
+}
 
 export default function AlertDetailPage() {
   const { t } = useTranslation();
@@ -25,7 +32,7 @@ export default function AlertDetailPage() {
   if (!id.success) {
     return (
       <section>
-        <BackLink />
+        <Breadcrumb />
         <EmptyState title={t('alertDetail.notFound')} />
       </section>
     );
@@ -33,16 +40,25 @@ export default function AlertDetailPage() {
   return <AlertDetail id={id.data} />;
 }
 
-function BackLink() {
+function Breadcrumb() {
   const { t } = useTranslation();
   return (
-    <Link to="/alerts" className="mb-3 inline-flex items-center gap-1 text-accent hover:underline">
-      <ArrowLeft aria-hidden="true" className="size-4" />
-      {t('alertDetail.back')}
-    </Link>
+    <nav aria-label={t('common.breadcrumb')}>
+      <Link
+        to="/alerts"
+        className="text-link underline decoration-transparent underline-offset-3 hover:decoration-link"
+      >
+        {t('alertDetail.back')}
+      </Link>
+    </nav>
   );
 }
 
+/**
+ * Alert detail: what happened, to which host and user, and what to do next. The facts
+ * come first in the page's maze frame, the playbook and triage beside them; internals
+ * (keys, ids) wait in a collapsed "Technical details" (docs/decisions/S7b.md).
+ */
 function AlertDetail({ id }: { id: string }) {
   const { t } = useTranslation();
   const detail = useAlert(id);
@@ -51,8 +67,10 @@ function AlertDetail({ id }: { id: string }) {
   if (detail.isError) {
     return (
       <section>
-        <BackLink />
-        <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
+        <Breadcrumb />
+        <div className="mt-6">
+          <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
+        </div>
       </section>
     );
   }
@@ -60,176 +78,189 @@ function AlertDetail({ id }: { id: string }) {
 
   return (
     <section>
-      <BackLink />
       <PageHeader
+        eyebrow={<Breadcrumb />}
         title={alert.ruleTitle}
-        description={t('alertDetail.subtitle', { id: alert.id })}
-        actions={
-          <div className="flex items-center gap-2">
-            <SeverityBadge level={alert.level} />
+        description={
+          <span className="flex flex-wrap items-center gap-x-5 gap-y-2 text-body">
+            <SeverityBadge level={alert.level} size="lg" />
             <StatusBadge status={alert.status} />
-          </div>
+            <span className="text-muted">{t(`ruleTypes.${alert.ruleType}`)}</span>
+          </span>
         }
       />
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
-          <SummaryCard alert={alert} />
-          <PlaybookPanel ruleId={alert.ruleId} />
-          <EntitiesCard alert={alert} />
-          <TimelineCard events={events} />
-        </div>
-        <div className="flex min-w-0 flex-col gap-4">
-          <TriagePanel key={`${alert.status}|${alert.updatedAt}`} alert={alert} />
-          <TechniquesCard alert={alert} />
+      <div className="grid grid-cols-1 gap-x-12 gap-y-12 xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+        <div className="flex min-w-0 flex-col gap-10">
+          <WhatHappened alert={alert} rule={rule} events={events} />
+          <Section
+            title={t('alertDetail.timeline.title')}
+            description={t('alertDetail.timeline.count', { count: events.length })}
+          >
+            <Timeline events={events} />
+          </Section>
           <RulePanel alert={alert} rule={rule} />
+          <TechnicalDetails alert={alert} />
         </div>
+        <aside
+          aria-labelledby="next-title"
+          className="flex min-w-0 flex-col gap-8 xl:border-l xl:border-line xl:pl-10"
+        >
+          <h2 id="next-title" className="-mb-4 text-small font-semibold text-accent-text">
+            {t('alertDetail.next')}
+          </h2>
+          <TriagePanel key={`${alert.status}|${alert.updatedAt}`} alert={alert} />
+          <div className="border-t border-line pt-8">
+            <PlaybookPanel ruleId={alert.ruleId} origin={rule?.origin} />
+          </div>
+        </aside>
       </div>
     </section>
   );
 }
 
-function SummaryCard({ alert }: { alert: Alert }) {
+function EntityLinks({
+  param,
+  values,
+  display,
+}: {
+  param: 'ip' | 'user' | 'host';
+  values: readonly string[];
+  display?: (value: string) => string;
+}) {
   const { t } = useTranslation();
-  const format = useFormat();
+  if (values.length === 0) return <span className="text-muted">{t('common.none')}</span>;
   return (
-    <Card title={t('alertDetail.summary')}>
-      <DescriptionList
-        items={[
-          { term: t('alerts.table.level'), value: <SeverityBadge level={alert.level} /> },
-          { term: t('alerts.table.status'), value: <StatusBadge status={alert.status} /> },
-          {
-            term: t('alertDetail.resolution'),
-            value: alert.resolution ? t(`resolutions.${alert.resolution}`) : '—',
-          },
-          {
-            term: t('alertDetail.firstSeen'),
-            value: <time dateTime={alert.firstSeen}>{format.dateTime(alert.firstSeen)}</time>,
-          },
-          {
-            term: t('alertDetail.lastSeen'),
-            value: <time dateTime={alert.lastSeen}>{format.dateTime(alert.lastSeen)}</time>,
-          },
-          { term: t('alerts.table.count'), value: format.number(alert.count) },
-          {
-            term: t('alerts.table.host'),
-            value: <span className="font-mono">{alert.host ?? '—'}</span>,
-          },
-          {
-            term: t('alertDetail.groupKey'),
-            value: <span className="font-mono text-xs">{alert.groupKey ?? '—'}</span>,
-          },
-          {
-            term: t('alertDetail.dedupKey'),
-            value: <span className="break-all font-mono text-xs">{alert.dedupKey}</span>,
-          },
-          { term: t('alertDetail.note'), value: alert.note ?? '—' },
-          {
-            term: t('alertDetail.updatedAt'),
-            value: <time dateTime={alert.updatedAt}>{format.dateTime(alert.updatedAt)}</time>,
-          },
-        ]}
-      />
-    </Card>
+    <ul className="flex flex-wrap gap-x-4 gap-y-1">
+      {values.map((value) => (
+        <li key={value} className="min-w-0">
+          <Link
+            to={`/events?${new URLSearchParams({ [param]: value, range: '7d' }).toString()}`}
+            className="break-all text-link underline decoration-transparent underline-offset-3 hover:decoration-link"
+            title={t('alertDetail.entities.searchEvents')}
+          >
+            {display?.(value) ?? value}
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }
 
-function EntitiesCard({ alert }: { alert: Alert }) {
+function WhatHappened({
+  alert,
+  rule,
+  events,
+}: {
+  alert: Alert;
+  rule: RuleMeta | null;
+  events: NormalizedEvent[];
+}) {
   const { t } = useTranslation();
-  const groups = [
-    { key: 'ips', param: 'ip', values: alert.entities.ips },
-    { key: 'users', param: 'user', values: alert.entities.users },
-    { key: 'hosts', param: 'host', values: alert.entities.hosts },
-  ] as const;
+  const format = useFormat();
+  const domains = userDomains(events);
+  const hosts = [...new Set([alert.host, ...alert.entities.hosts].filter((h) => h !== null))];
+  const span = Date.parse(alert.lastSeen) - Date.parse(alert.firstSeen);
+  const items: Array<{ term: string; value: ReactNode }> = [
+    { term: t('alertDetail.hosts'), value: <EntityLinks param="host" values={hosts} /> },
+    {
+      term: t('alertDetail.entities.users'),
+      value: (
+        <EntityLinks
+          param="user"
+          values={alert.entities.users}
+          display={(user) => domains.get(user) ?? user}
+        />
+      ),
+    },
+    {
+      term: t('alertDetail.entities.ips'),
+      value: <EntityLinks param="ip" values={alert.entities.ips} />,
+    },
+    {
+      term: t('alertDetail.when'),
+      value:
+        span > 0 ? (
+          <span>
+            {t('alertDetail.whenRange', {
+              from: format.dateTime(alert.firstSeen),
+              to: sameDay(alert.firstSeen, alert.lastSeen)
+                ? format.timeWithSeconds(alert.lastSeen)
+                : format.dateTime(alert.lastSeen),
+            })}{' '}
+            <span className="text-muted">({format.span(span)})</span>
+          </span>
+        ) : (
+          <time dateTime={alert.firstSeen}>{format.dateTime(alert.firstSeen)}</time>
+        ),
+    },
+    {
+      term: t('alertDetail.matches'),
+      value: t('alertDetail.matchesValue', {
+        count: alert.count,
+        value: format.number(alert.count),
+      }),
+    },
+    {
+      term: t('alertDetail.attack'),
+      value: <TechniqueList techniques={alert.techniques} tactics={alert.tactics} />,
+    },
+  ];
   return (
-    <Card title={t('alertDetail.entities.title')}>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {groups.map((group) => (
-          <div key={group.key} className="min-w-0">
-            <h3 className="text-xs font-medium text-muted">
-              {t(`alertDetail.entities.${group.key}`)}
-            </h3>
-            {group.values.length === 0 ? (
-              <p className="text-muted">—</p>
-            ) : (
-              <ul className="flex flex-col gap-1">
-                {group.values.map((value) => (
-                  <li key={value} className="min-w-0">
-                    <Link
-                      to={`/events?${new URLSearchParams({ [group.param]: value, range: '7d' }).toString()}`}
-                      className="break-all font-mono text-xs text-accent hover:underline"
-                      title={t('alertDetail.entities.searchEvents')}
-                    >
-                      {value}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        ))}
+    <Section framed title={t('alertDetail.whatHappened')}>
+      {rule?.description ? (
+        <p className="max-w-prose text-lead text-fg">{rule.description}</p>
+      ) : null}
+      <DescriptionList items={items} />
+    </Section>
+  );
+}
+
+function TechnicalDetails({ alert }: { alert: Alert }) {
+  const { t } = useTranslation();
+  const format = useFormat();
+  const mono = (value: string | null) =>
+    value ? <span className="font-mono text-small break-all">{value}</span> : t('common.none');
+  return (
+    <details className="group border-t border-line pt-6">
+      <summary className="flex w-fit cursor-pointer list-none items-center gap-2 rounded-control font-semibold text-fg [&::-webkit-details-marker]:hidden">
+        <ChevronRight
+          aria-hidden="true"
+          strokeWidth={2}
+          className="size-4 transition-transform duration-100 group-open:rotate-90"
+        />
+        {t('alertDetail.technical')}
+      </summary>
+      <div className="mt-4 pl-6">
+        <DescriptionList
+          items={[
+            { term: t('alertDetail.alertId'), value: mono(alert.id) },
+            { term: t('alertDetail.ruleId'), value: mono(alert.ruleId) },
+            { term: t('alertDetail.groupKey'), value: mono(alert.groupKey) },
+            { term: t('alertDetail.dedupKey'), value: mono(alert.dedupKey) },
+            {
+              term: t('alertDetail.firstSeen'),
+              value: <time dateTime={alert.firstSeen}>{format.dateTime(alert.firstSeen)}</time>,
+            },
+            {
+              term: t('alertDetail.lastSeen'),
+              value: <time dateTime={alert.lastSeen}>{format.dateTime(alert.lastSeen)}</time>,
+            },
+            {
+              term: t('alertDetail.resolution'),
+              value: alert.resolution ? t(`resolutions.${alert.resolution}`) : t('common.none'),
+            },
+            { term: t('alertDetail.note'), value: alert.note ?? t('common.none') },
+            {
+              term: t('alertDetail.createdAt'),
+              value: <time dateTime={alert.createdAt}>{format.dateTime(alert.createdAt)}</time>,
+            },
+            {
+              term: t('alertDetail.updatedAt'),
+              value: <time dateTime={alert.updatedAt}>{format.dateTime(alert.updatedAt)}</time>,
+            },
+          ]}
+        />
       </div>
-    </Card>
-  );
-}
-
-function TechniquesCard({ alert }: { alert: Alert }) {
-  const { t } = useTranslation();
-  return (
-    <Card title={t('alertDetail.attack')}>
-      {alert.techniques.length === 0 ? (
-        <p className="text-muted">{t('alertDetail.noTechniques')}</p>
-      ) : (
-        <div className="flex flex-col gap-2">
-          <ul className="flex flex-col gap-1">
-            {alert.techniques.map((technique) => (
-              <li key={technique}>
-                <TechniqueLink id={technique} />
-              </li>
-            ))}
-          </ul>
-          <p className="text-xs">
-            <span className="text-muted">{t('alertDetail.tactics')}: </span>
-            <TacticNames tactics={alert.tactics} />
-          </p>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function TimelineCard({ events }: { events: NormalizedEvent[] }) {
-  const { t } = useTranslation();
-  const format = useFormat();
-  return (
-    <Card title={t('alertDetail.timeline.title')}>
-      {events.length === 0 ? (
-        <p className="text-muted">{t('alertDetail.timeline.empty')}</p>
-      ) : (
-        <ol className="flex flex-col border-l border-line">
-          {events.map((event) => (
-            <li key={event.id} className="relative ml-3 border-b border-line py-2 last:border-b-0">
-              <span
-                aria-hidden="true"
-                className="absolute -left-[1.03rem] top-3.5 size-2 rounded-full bg-accent"
-              />
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                <time dateTime={event.ts} className="text-muted">
-                  {format.dateTime(event.ts)}
-                </time>
-                <span className="font-mono">{event.action}</span>
-                <OutcomeLabel outcome={event.outcome} />
-                {event.srcIp ? <span className="font-mono">{event.srcIp}</span> : null}
-                <Link to={`/events?event=${event.id}`} className="text-accent hover:underline">
-                  {t('alertDetail.timeline.open')}
-                </Link>
-              </div>
-              <p className="mt-1 line-clamp-2 break-all font-mono text-xs text-fg">
-                {event.message}
-              </p>
-            </li>
-          ))}
-        </ol>
-      )}
-    </Card>
+    </details>
   );
 }

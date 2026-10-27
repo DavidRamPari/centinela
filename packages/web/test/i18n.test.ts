@@ -40,13 +40,26 @@ describe('i18n', () => {
         const key = match[1] ?? '';
         const isPrefix = match[2] !== undefined;
         for (const [lang, set] of Object.entries(known)) {
-          const found = isPrefix ? [...set].some((k) => k.startsWith(key)) : set.has(key);
+          // A plural key (t('x', { count })) resolves to x_one / x_other.
+          const found = isPrefix
+            ? [...set].some((k) => k.startsWith(key))
+            : set.has(key) || (set.has(`${key}_one`) && set.has(`${key}_other`));
           expect(found, `${file}: "${key}" missing in ${lang}`).toBe(true);
         }
         checked += 1;
       }
     }
     expect(checked).toBeGreaterThan(200);
+  });
+
+  it('has the same plural forms in both languages', () => {
+    for (const resource of [en, es]) {
+      const all = new Set(keys(resource));
+      for (const key of all) {
+        if (key.endsWith('_one')) expect(all.has(key.replace(/_one$/, '_other')), key).toBe(true);
+        if (key.endsWith('_other')) expect(all.has(key.replace(/_other$/, '_one')), key).toBe(true);
+      }
+    }
   });
 
   it('survives unavailable localStorage', () => {

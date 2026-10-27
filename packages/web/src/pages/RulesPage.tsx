@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { flattenPages, useRulesList } from '../api/hooks';
 import { SeverityBadge } from '../components/ui/Badges';
+import { Truncate } from '../components/ui/Truncate';
 import { Button } from '../components/ui/Button';
 import { DataTable, type Column } from '../components/ui/DataTable';
 import { SelectField, TextField, ToggleChips } from '../components/ui/Fields';
@@ -30,17 +31,15 @@ export default function RulesPage() {
       id: 'title',
       header: t('rules.table.title'),
       cell: (rule) => (
-        <div className="min-w-0">
+        <div className="flex min-w-0 flex-col gap-0.5">
           <Link
             to={`/rules/${rule.id}`}
             tabIndex={-1}
-            className="font-medium text-fg hover:text-accent hover:underline"
+            className="font-semibold text-fg underline decoration-transparent underline-offset-3 hover:decoration-line-strong"
           >
             {rule.title}
           </Link>
-          <p className="hidden max-w-[28rem] truncate font-mono text-[11px] text-muted md:block">
-            {rule.path}
-          </p>
+          <Truncate text={rule.path} mono className="hidden max-w-[30rem] text-muted lg:block" />
         </div>
       ),
     },
@@ -48,57 +47,67 @@ export default function RulesPage() {
       id: 'level',
       header: t('rules.table.level'),
       cell: (rule) => <SeverityBadge level={rule.level} />,
+      className: 'w-36',
     },
     {
       id: 'techniques',
       header: t('rules.table.techniques'),
-      cell: (rule) => (
-        <span className="font-mono text-xs">{rule.techniques.join(', ') || '—'}</span>
-      ),
-      className: 'hidden lg:table-cell',
+      cell: (rule) =>
+        rule.techniques.length === 0 ? (
+          <span className="text-muted">{t('common.none')}</span>
+        ) : (
+          <Truncate text={rule.techniques.join(', ')} mono className="max-w-[10rem]" />
+        ),
+      className: 'hidden lg:table-cell w-44',
     },
     {
       id: 'status',
       header: t('rules.table.status'),
-      cell: (rule) => rule.status ?? '—',
-      className: 'hidden xl:table-cell',
+      cell: (rule) => rule.status ?? t('common.none'),
+      className: 'hidden xl:table-cell w-28',
     },
     {
       id: 'origin',
       header: t('rules.table.origin'),
       cell: (rule) => t(`origins.${rule.origin}`),
-      className: 'hidden md:table-cell whitespace-nowrap',
+      className: 'hidden md:table-cell whitespace-nowrap w-28',
     },
     {
       id: 'supported',
       header: t('rules.table.supported'),
       cell: (rule) =>
         rule.supported ? (
-          <span className="inline-flex items-center gap-1 text-success">
-            <CircleCheck aria-hidden="true" className="size-3.5" />
+          <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+            <CircleCheck aria-hidden="true" strokeWidth={2} className="size-4 text-ok" />
             {t('rules.supported')}
           </span>
         ) : (
-          <span className="inline-flex flex-col">
-            <span className="inline-flex items-center gap-1 text-danger">
-              <CircleX aria-hidden="true" className="size-3.5" />
+          <span className="inline-flex flex-col gap-0.5">
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+              <CircleX aria-hidden="true" strokeWidth={2} className="size-4 text-warn" />
               {t('rules.unsupported')}
             </span>
-            <span className="font-mono text-[11px] text-muted">{rule.unsupportedReason}</span>
+            <span className="font-mono text-small text-muted">{rule.unsupportedReason}</span>
           </span>
         ),
+      className: 'hidden sm:table-cell w-36',
     },
     {
       id: 'enabled',
       header: t('rules.table.enabled'),
-      cell: (rule) => (rule.enabled ? t('rules.enabled') : t('rules.disabled')),
-      className: 'hidden sm:table-cell',
+      cell: (rule) =>
+        rule.enabled ? (
+          t('rules.enabled')
+        ) : (
+          <span className="text-muted">{t('rules.disabled')}</span>
+        ),
+      className: 'hidden sm:table-cell w-32',
     },
     {
       id: 'matches',
       header: t('rules.table.matches'),
       cell: (rule) => format.number(rule.matches),
-      className: 'text-right',
+      className: 'w-20 text-right',
     },
   ];
 
@@ -111,7 +120,7 @@ export default function RulesPage() {
       ) : list.isError ? (
         <ErrorState error={list.error} onRetry={() => void list.refetch()} />
       ) : rules.length === 0 ? (
-        <EmptyState title={t('rules.empty')} />
+        <EmptyState title={t('rules.empty')} description={t('rules.emptyHint')} />
       ) : (
         <>
           <DataTable
@@ -151,8 +160,8 @@ function RuleFilterBar({ filters }: { filters: RuleFilters }) {
   }
 
   return (
-    <div className="mb-4 flex flex-col gap-3 rounded-lg border border-line bg-surface p-3">
-      <div className="flex flex-wrap items-end gap-3">
+    <div className="mb-6 flex flex-col gap-4 border-b border-line pb-6">
+      <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
         <ToggleChips
           label={t('rules.filters.level')}
           options={[...LEVELS].reverse().map((value) => ({ value, label: t(`levels.${value}`) }))}
@@ -186,7 +195,7 @@ function RuleFilterBar({ filters }: { filters: RuleFilters }) {
         role="search"
         aria-label={t('rules.filters.form')}
         onSubmit={submit}
-        className="flex flex-wrap items-end gap-2"
+        className="flex flex-wrap items-end gap-3"
       >
         <TextField
           label={t('rules.filters.q')}

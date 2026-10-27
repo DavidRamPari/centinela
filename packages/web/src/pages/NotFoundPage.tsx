@@ -7,7 +7,10 @@ export function NotFoundPage() {
   return (
     <section>
       <PageHeader title={t('pages.notFound.title')} description={t('pages.notFound.description')} />
-      <Link to="/" className="text-accent-400 underline">
+      <Link
+        to="/"
+        className="text-link underline decoration-line-strong underline-offset-3 hover:decoration-link"
+      >
         {t('pages.notFound.back')}
       </Link>
     </section>

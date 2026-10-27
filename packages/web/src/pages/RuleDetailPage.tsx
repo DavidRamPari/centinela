@@ -1,12 +1,12 @@
 import type { RuleMeta } from '@centinela/shared';
-import { ArrowLeft, Power } from 'lucide-react';
+import { Power } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 import { z } from 'zod';
 import { useRule, useUpdateRule } from '../api/hooks';
 import { SeverityBadge } from '../components/ui/Badges';
 import { Button } from '../components/ui/Button';
-import { Card } from '../components/ui/Card';
+import { Section } from '../components/ui/Section';
 import { CodeBlock } from '../components/ui/CodeBlock';
 import { DescriptionList } from '../components/ui/DescriptionList';
 import { ExternalLink } from '../components/ui/ExternalLink';
@@ -15,7 +15,7 @@ import { EmptyState, ErrorState, LoadingState } from '../components/ui/States';
 import { useToasts } from '../components/ui/toast-context';
 import { LicenseValue } from '../features/alerts/RulePanel';
 import { PlaybookPanel } from '../features/alerts/playbook/PlaybookPanel';
-import { TacticNames, TechniqueLink } from '../features/attack/TechniqueLink';
+import { TechniqueList } from '../features/attack/TechniqueLink';
 
 const ruleIdSchema = z.guid();
 
@@ -37,13 +37,18 @@ export default function RuleDetailPage() {
 function BackLink() {
   const { t } = useTranslation();
   return (
-    <Link to="/rules" className="mb-3 inline-flex items-center gap-1 text-accent hover:underline">
-      <ArrowLeft aria-hidden="true" className="size-4" />
-      {t('ruleDetail.back')}
-    </Link>
+    <nav aria-label={t('common.breadcrumb')}>
+      <Link
+        to="/rules"
+        className="text-link underline decoration-transparent underline-offset-3 hover:decoration-link"
+      >
+        {t('ruleDetail.back')}
+      </Link>
+    </nav>
   );
 }
 
+/** Rule detail: what the rule detects, whether it is on, and its source and attribution. */
 function RuleDetail({ id }: { id: string }) {
   const { t } = useTranslation();
   const detail = useRule(id);
@@ -52,28 +57,39 @@ function RuleDetail({ id }: { id: string }) {
     return (
       <section>
         <BackLink />
-        <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
+        <div className="mt-6">
+          <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
+        </div>
       </section>
     );
   }
   const { rule, source } = detail.data;
   return (
     <section>
-      <BackLink />
       <PageHeader
+        eyebrow={<BackLink />}
         title={rule.title}
-        description={rule.description ?? undefined}
-        actions={<SeverityBadge level={rule.level} />}
+        description={
+          <span className="flex flex-wrap items-center gap-x-5 gap-y-2 text-body">
+            <SeverityBadge level={rule.level} size="lg" />
+            <span className="text-muted">
+              {t(`ruleTypes.${rule.type}`)}, {t(`origins.${rule.origin}`)}
+            </span>
+          </span>
+        }
       />
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
-          <Card title={t('ruleDetail.source')}>
+      <div className="grid grid-cols-1 gap-x-12 gap-y-12 xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+        <div className="flex min-w-0 flex-col gap-10">
+          <WhatItDetects rule={rule} />
+          <Section title={t('ruleDetail.source')} description={t('ruleDetail.sourceHint')}>
             <CodeBlock text={source} label={t('ruleDetail.source')} />
-          </Card>
-          <PlaybookPanel ruleId={rule.id} />
+          </Section>
         </div>
-        <div className="flex min-w-0 flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-8 xl:border-l xl:border-line xl:pl-10">
           <EnablePanel rule={rule} />
+          <div className="border-t border-line pt-8">
+            <PlaybookPanel ruleId={rule.id} origin={rule.origin} />
+          </div>
           <MetadataCard rule={rule} />
         </div>
       </div>
@@ -81,23 +97,86 @@ function RuleDetail({ id }: { id: string }) {
   );
 }
 
+function WhatItDetects({ rule }: { rule: RuleMeta }) {
+  const { t } = useTranslation();
+  const logsource = rule.logsource
+    ? Object.entries(rule.logsource)
+        .map(([key, value]) => `${key}: ${value}`)
+        .join(', ')
+    : t('common.none');
+  return (
+    <Section framed title={t('ruleDetail.whatItDetects')}>
+      {rule.description ? (
+        <p className="max-w-prose text-lead text-fg">{rule.description}</p>
+      ) : null}
+      <DescriptionList
+        items={[
+          {
+            term: t('rules.fields.logsource'),
+            value: <span className="font-mono text-small">{logsource}</span>,
+          },
+          {
+            term: t('alertDetail.attack'),
+            value: <TechniqueList techniques={rule.techniques} tactics={rule.tactics} />,
+          },
+          {
+            term: t('rules.fields.falsepositives'),
+            value:
+              rule.falsepositives.length === 0 ? (
+                t('common.none')
+              ) : (
+                <ul className="flex list-disc flex-col gap-1 pl-4 marker:text-muted">
+                  {rule.falsepositives.map((fp) => (
+                    <li key={fp}>{fp}</li>
+                  ))}
+                </ul>
+              ),
+          },
+          {
+            term: t('rules.fields.references'),
+            value:
+              rule.references.length === 0 ? (
+                t('common.none')
+              ) : (
+                <ul className="flex flex-col gap-1">
+                  {rule.references.map((reference) => (
+                    <li key={reference} className="break-all">
+                      <ExternalLink href={reference}>{reference}</ExternalLink>
+                    </li>
+                  ))}
+                </ul>
+              ),
+          },
+        ]}
+      />
+    </Section>
+  );
+}
+
 function EnablePanel({ rule }: { rule: RuleMeta }) {
   const { t } = useTranslation();
   const { push } = useToasts();
   const update = useUpdateRule(rule.id);
+  const state = !rule.supported
+    ? t('ruleDetail.stateUnsupported', { reason: rule.unsupportedReason ?? '' })
+    : rule.buildingBlock
+      ? t('ruleDetail.buildingBlock')
+      : rule.enabled
+        ? t('ruleDetail.stateEnabled')
+        : t('ruleDetail.stateDisabled');
   return (
-    <Card title={t('ruleDetail.state')}>
-      <div className="flex flex-col gap-3">
-        <p>
-          {rule.supported ? t('rules.supported') : t('rules.unsupported')}
-          {rule.unsupportedReason ? (
-            <span className="ml-2 font-mono text-xs text-muted">{rule.unsupportedReason}</span>
-          ) : null}
-        </p>
-        {rule.buildingBlock ? <p className="text-muted">{t('ruleDetail.buildingBlock')}</p> : null}
-        <p>{rule.enabled ? t('rules.enabled') : t('rules.disabled')}</p>
+    <section aria-labelledby="rule-state" className="flex flex-col gap-4">
+      <div>
+        <h2 id="rule-state" className="text-lead font-semibold text-fg">
+          {t('ruleDetail.state')}
+        </h2>
+        <p className="mt-0.5 text-muted">{state}</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
         <Button
-          disabled={update.isPending}
+          variant={rule.enabled ? 'secondary' : 'primary'}
+          icon={Power}
+          loading={update.isPending}
           onClick={() =>
             update.mutate(
               { enabled: !rule.enabled },
@@ -113,110 +192,64 @@ function EnablePanel({ rule }: { rule: RuleMeta }) {
             )
           }
         >
-          <Power aria-hidden="true" className="size-4" />
           {rule.enabled ? t('ruleDetail.disable') : t('ruleDetail.enable')}
         </Button>
         <Link
           to={`/alerts?${new URLSearchParams({ ruleId: rule.id, range: '30d' }).toString()}`}
-          className="text-accent hover:underline"
+          className="text-link underline decoration-transparent underline-offset-3 hover:decoration-link"
         >
           {t('ruleDetail.viewAlerts')}
         </Link>
       </div>
-    </Card>
+    </section>
   );
 }
 
 function MetadataCard({ rule }: { rule: RuleMeta }) {
   const { t } = useTranslation();
-  const logsource = rule.logsource
-    ? Object.entries(rule.logsource)
-        .map(([key, value]) => `${key}: ${value}`)
-        .join(', ')
-    : '—';
+  const dates = [rule.date, rule.modified].filter(Boolean);
   return (
-    <Card title={t('ruleDetail.metadata')}>
-      <div className="flex flex-col gap-3">
-        <DescriptionList
-          items={[
-            {
-              term: t('rules.fields.id'),
-              value: <span className="break-all font-mono text-xs">{rule.id}</span>,
-            },
-            {
-              term: t('rules.fields.name'),
-              value: <span className="font-mono text-xs">{rule.name ?? '—'}</span>,
-            },
-            { term: t('rules.fields.type'), value: t(`ruleTypes.${rule.type}`) },
-            { term: t('rules.table.status'), value: rule.status ?? '—' },
-            { term: t('rules.table.origin'), value: t(`origins.${rule.origin}`) },
-            { term: t('rules.fields.author'), value: rule.author ?? '—' },
-            {
-              term: t('rules.fields.link'),
-              value: rule.url ? (
-                <ExternalLink href={rule.url}>{t('rules.viewSource')}</ExternalLink>
-              ) : (
-                <span className="text-muted">{t('rules.noLink')}</span>
-              ),
-            },
-            { term: t('rules.fields.license'), value: <LicenseValue license={rule.license} /> },
-            {
-              term: t('rules.fields.path'),
-              value: <span className="break-all font-mono text-xs">{rule.path}</span>,
-            },
-            {
-              term: t('rules.fields.logsource'),
-              value: <span className="font-mono text-xs">{logsource}</span>,
-            },
-            {
-              term: t('rules.fields.date'),
-              value: [rule.date, rule.modified].filter(Boolean).join(' · ') || '—',
-            },
-          ]}
-        />
-        <div>
-          <h3 className="text-xs font-medium text-muted">{t('rules.table.techniques')}</h3>
-          {rule.techniques.length === 0 ? (
-            <p className="text-muted">—</p>
-          ) : (
-            <ul className="flex flex-col gap-1">
-              {rule.techniques.map((technique) => (
-                <li key={technique}>
-                  <TechniqueLink id={technique} />
-                </li>
-              ))}
-            </ul>
-          )}
-          {rule.tactics.length > 0 ? (
-            <p className="mt-1 text-xs">
-              <span className="text-muted">{t('alertDetail.tactics')}: </span>
-              <TacticNames tactics={rule.tactics} />
-            </p>
-          ) : null}
-        </div>
-        {rule.falsepositives.length > 0 ? (
-          <div>
-            <h3 className="text-xs font-medium text-muted">{t('rules.fields.falsepositives')}</h3>
-            <ul className="ml-4 list-disc">
-              {rule.falsepositives.map((fp) => (
-                <li key={fp}>{fp}</li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        {rule.references.length > 0 ? (
-          <div>
-            <h3 className="text-xs font-medium text-muted">{t('rules.fields.references')}</h3>
-            <ul className="flex flex-col gap-1">
-              {rule.references.map((reference) => (
-                <li key={reference} className="text-xs">
-                  <ExternalLink href={reference}>{reference}</ExternalLink>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </div>
-    </Card>
+    <Section title={t('ruleDetail.metadata')} as="h2" divider>
+      <DescriptionList
+        items={[
+          { term: t('rules.fields.author'), value: rule.author ?? t('common.none') },
+          {
+            term: t('rules.fields.link'),
+            value: rule.url ? (
+              <ExternalLink href={rule.url}>{t('rules.viewSource')}</ExternalLink>
+            ) : (
+              <span className="text-muted">{t('rules.noLink')}</span>
+            ),
+          },
+          { term: t('rules.fields.license'), value: <LicenseValue license={rule.license} /> },
+          { term: t('rules.table.status'), value: rule.status ?? t('common.none') },
+          {
+            term: t('rules.fields.date'),
+            value:
+              dates.length === 0
+                ? t('common.none')
+                : rule.modified && rule.date
+                  ? t('ruleDetail.dates', { date: rule.date, modified: rule.modified })
+                  : dates[0],
+          },
+          {
+            term: t('rules.fields.id'),
+            value: <span className="break-all font-mono text-small">{rule.id}</span>,
+          },
+          {
+            term: t('rules.fields.name'),
+            value: (
+              <span className="break-all font-mono text-small">
+                {rule.name ?? t('common.none')}
+              </span>
+            ),
+          },
+          {
+            term: t('rules.fields.path'),
+            value: <span className="break-all font-mono text-small">{rule.path}</span>,
+          },
+        ]}
+      />
+    </Section>
   );
 }

@@ -35,7 +35,7 @@ describe('live updates (SSE)', () => {
     renderApp({ path: '/alerts', language: 'en', liveSource: live.source });
     const table = await screen.findByRole('table', { name: /Alerts, newest first/ });
     act(() => live.open());
-    expect(await screen.findByText('Live')).toBeInTheDocument();
+    expect(await screen.findByText('Live updates on')).toBeInTheDocument();
 
     const alert = newAlert();
     mockDb().alerts.unshift(alert); // the server stored it before publishing
@@ -75,12 +75,12 @@ describe('live updates (SSE)', () => {
     renderApp({ path: '/', language: 'en', liveSource: live.source });
     act(() => live.open());
     act(() => live.fail());
-    expect(await screen.findByText('Reconnecting…')).toBeInTheDocument();
+    expect(await screen.findByText('Reconnecting live updates…')).toBeInTheDocument();
     expect(live.connections).toHaveLength(1);
     await act(() => vi.advanceTimersByTimeAsync(1000));
     expect(live.connections).toHaveLength(2);
     act(() => live.open());
-    expect(await screen.findByText('Live')).toBeInTheDocument();
+    expect(await screen.findByText('Live updates on')).toBeInTheDocument();
   });
 
   it('backs off exponentially up to 30 seconds', () => {

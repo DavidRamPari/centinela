@@ -51,29 +51,29 @@ export function Drawer({ title, onClose, children }: DrawerProps) {
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end" onKeyDown={onKeyDown}>
-      <div className="absolute inset-0 bg-black/50" aria-hidden="true" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/70" aria-hidden="true" onClick={onClose} />
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative flex h-full w-full max-w-2xl flex-col border-l border-line bg-surface shadow-xl"
+        className="maze-edge-l relative flex h-full w-full max-w-2xl animate-drawer-in flex-col bg-raised"
       >
-        <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
-          <h2 id={titleId} className="min-w-0 truncate font-semibold text-fg">
+        <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
+          <h2 id={titleId} className="min-w-0 truncate text-lead font-semibold text-fg">
             {title}
           </h2>
           <button
             ref={closeRef}
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-muted hover:bg-surface-2 hover:text-fg"
+            className="grid size-10 place-items-center rounded-control text-fg hover:bg-hover active:translate-y-px"
             aria-label={t('common.close')}
           >
-            <X aria-hidden="true" className="size-4" />
+            <X aria-hidden="true" strokeWidth={1.75} className="size-5" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-4">{children}</div>
+        <div className="flex-1 overflow-y-auto px-5 py-5">{children}</div>
       </div>
     </div>
   );
