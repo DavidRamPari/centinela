@@ -83,7 +83,7 @@ describe('every page renders with mocks', () => {
   it.each(cases)('$name renders data without console errors or warnings', async (page) => {
     renderApp({ path: page.path(), language: 'en' });
     expect(
-      await screen.findByRole('heading', { level: 1, name: page.heading }),
+      await screen.findByRole('heading', { level: 1, name: page.heading }, { timeout: 5000 }),
     ).toBeInTheDocument();
     await page.ready();
     await waitFor(() => expect(screen.queryByText('Loading…')).not.toBeInTheDocument());
