@@ -20,7 +20,7 @@ Centinela es un proyecto de aprendizaje que implementa de punta a punta el núcl
 
 **Calidad de detección medida contra la verdad de referencia.** Un generador con semilla escribe tres días de logs de una empresa ficticia con 19 escenarios de ataque etiquetados (fuerza bruta, password spraying, inyección SQL, sondeos de Log4Shell, una webshell, PowerShell codificado, LOLBins, volcado de credenciales y más). La prueba de punta a punta y `npm run demo` detectan **19/19 escenarios**, y el tráfico de fondo no genera **ninguna alerta alta ni crítica**. Con las muestras de regresión de SigmaHQ: **272 de 276 eventos coinciden y pasan 267 de 267 archivos**, también a través del pipeline completo. Cómo se mide: [docs/DETECTION.md](docs/DETECTION.md#how-detection-quality-is-measured).
 
-**Un paquete de contenido bilingüe.** Todas las reglas de SigmaHQ incluidas salvo diez, y todas las reglas de Centinela, tienen una guía de investigación en español y en inglés (qué detecta, por qué importa, pasos de clasificación, falsos positivos, pasos de respuesta), que se muestra junto a la alerta con la etiqueta "Generada con IA — revísala antes de usarla". Las guías traen eventos de prueba que el motor valida: **pasan 4,843 de 4,851 casos (99.8 %)** para 1,221 reglas de SigmaHQ ([informe](docs/content-pack-report.md)) y **36 de 36** para las reglas de Centinela ([informe](content/centinela-report.md)); `npm test` los conserva como suite de regresión.
+**Un paquete de contenido bilingüe.** Todas las reglas de SigmaHQ incluidas salvo diez, y todas las reglas de Centinela, tienen una guía de investigación en español y en inglés (qué detecta, por qué importa, pasos de clasificación, falsos positivos, pasos de respuesta), que se muestra junto a la alerta con la etiqueta "Generada con IA — revísala antes de usarla". Las guías traen eventos de prueba que el motor valida: **pasan 4,850 de 4,851 casos (99.9 %)** para 1,221 reglas de SigmaHQ ([informe](docs/content-pack-report.md)) y **36 de 36** para las reglas de Centinela ([informe](content/centinela-report.md)); `npm test` los conserva como suite de regresión.
 
 **Seguridad desde el diseño.** Las líneas de log las escriben las mismas personas que Centinela vigila, así que el [modelo de amenazas](docs/THREAT_MODEL.md) trata cada campo como hostil:
 
@@ -34,7 +34,7 @@ La guía para operadores es [docs/SECURITY.md](docs/SECURITY.md) (en inglés).
 
 **Prácticas de ingeniería.** TypeScript en modo estricto con zod en cada frontera; 1,342 pruebas en 96 archivos (Vitest, Supertest contra un PostgreSQL real, React Testing Library); CI en cada pull request (lint, typecheck, migraciones, pruebas, build); y un registro de decisiones por cada sesión ([docs/decisions](docs/decisions)).
 
-<!-- Repositorio del dataset: David agrega aquí el enlace al dataset público de guías de respuesta bilingües para todas las carpetas de reglas de SigmaHQ, con sus números. -->
+**Un dataset público.** El mismo generador cubrió todas las carpetas de reglas de SigmaHQ (`rules`, `rules-emerging-threats`, `rules-threat-hunting` y `rules-compliance`): [DavidRamPari/sigma-playbooks](https://github.com/DavidRamPari/sigma-playbooks) reúne guías bilingües para **3,759 de 3,779 reglas**, con eventos de prueba validados por el motor de Centinela: **pasan 14,660 de 14,661 casos (99.9 %)**.
 
 ## De una línea de log a una alerta en pantalla
 

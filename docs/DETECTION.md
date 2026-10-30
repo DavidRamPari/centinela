@@ -151,7 +151,7 @@ SigmaHQ ships recorded Windows events that each rule must match. Every event in 
 
 Every playbook in the content pack comes with positive and negative test events written by the generator. `npm run content:validate` runs each one through the engine (positives must match, negatives must not), and `npm test` holds the result as a regression baseline:
 
-- SigmaHQ rules: **4,843 of 4,851 fixtures pass (99.8%)** for 1,221 rules ([content-pack-report.md](content-pack-report.md)). The 8 failures were checked by hand and are fixture errors, not engine bugs ([decisions/S7.md](decisions/S7.md), S7-08).
+- SigmaHQ rules: **4,850 of 4,851 fixtures pass (99.9%)** for 1,221 rules ([content-pack-report.md](content-pack-report.md)). The 8 fixtures that failed in S7 were not engine bugs ([decisions/S7.md](decisions/S7.md), S7-08). On 2026-10-30 they were rewritten with the `repair` command of `tools/content-pack`, which sends the engine's error back to the model; 7 of them pass now. The last one cannot pass: the vendored rule *COM Object Execution via Xwizard.EXE* requires a `CommandLine` that equals `RunWizard` and also contains a GUID, which no event can satisfy. Upstream SigmaHQ still has the plain value where `CommandLine|contains` was meant (checked 2026-10-30).
 - Centinela's rules: **36 of 36 fixtures pass** for the 9 detection rules; the 5 correlations have a playbook only ([content/centinela-report.md](../content/centinela-report.md)).
 
 ## Known gaps

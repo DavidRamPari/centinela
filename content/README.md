@@ -24,6 +24,7 @@ Each file keeps the rule's author, link and license (Detection Rule License 1.1)
 - Output: 1,221 files in `content/sigma/`. Each rule had up to two attempts. Cost: about $53.
 - 10 rules have no file: Anthropic's safety filter stopped the answer in both attempts (`stop_reason: refusal`). Those rules detect offensive techniques, so their test events would have to contain attack command lines; they were left out instead of working around the filter.
 - Fixture validation (session S7, 2026-10-26): 4,843 of 4,851 fixtures pass (99.8%); see `docs/content-pack-report.md`.
+- Fixture repair (2026-10-30): the failing fixtures were rewritten with `tools/content-pack` (`repair`), which sends each rule, its failing fixtures and the engine's error back to the model; 4,850 of 4,851 fixtures now pass (99.9%); the one that still fails belongs to a vendored rule that no event can match as written (see `docs/DETECTION.md`); see `docs/content-pack-report.md`.
 
 ### Rules without content
 
