@@ -34,7 +34,7 @@ La guía para operadores es [docs/SECURITY.md](docs/SECURITY.md) (en inglés).
 
 **Prácticas de ingeniería.** TypeScript en modo estricto con zod en cada frontera; 1,342 pruebas en 96 archivos (Vitest, Supertest contra un PostgreSQL real, React Testing Library); CI en cada pull request (lint, typecheck, migraciones, pruebas, build); y un registro de decisiones por cada sesión ([docs/decisions](docs/decisions)).
 
-**Un dataset público.** El mismo generador cubrió todas las carpetas de reglas de SigmaHQ (`rules`, `rules-emerging-threats`, `rules-threat-hunting` y `rules-compliance`): [DavidRamPari/sigma-playbooks](https://github.com/DavidRamPari/sigma-playbooks) reúne guías bilingües para **3,759 de 3,779 reglas**, con eventos de prueba validados por el motor de Centinela: **pasan 14,660 de 14,661 casos (99.9 %)**.
+**Un dataset público.** El mismo generador cubrió todas las carpetas de reglas de SigmaHQ (`rules`, `rules-emerging-threats`, `rules-threat-hunting`, `rules-compliance` y `rules-placeholder`): [DavidRamPari/sigma-playbooks](https://github.com/DavidRamPari/sigma-playbooks) reúne guías bilingües para **3,784 de 3,804 reglas**; el motor de Centinela comprobó sus eventos de prueba en todas las reglas que soporta, y **pasan 14,660 de 14,661 casos (99.9 %)**. El que falla reveló una regla de SigmaHQ que ningún evento puede activar; el arreglo está propuesto en [SigmaHQ/sigma#6546](https://github.com/SigmaHQ/sigma/pull/6546).
 
 ## De una línea de log a una alerta en pantalla
 
