@@ -34,7 +34,7 @@ The operator's guide is [docs/SECURITY.md](docs/SECURITY.md).
 
 **Engineering practice.** TypeScript in strict mode with zod at every boundary; 1,342 tests in 96 files (Vitest, Supertest against a real PostgreSQL, React Testing Library); CI on every pull request (lint, typecheck, migrations, tests, build); and a decision record for every session ([docs/decisions](docs/decisions)).
 
-**A public dataset.** The same generator covered every SigmaHQ rule folder (`rules`, `rules-emerging-threats`, `rules-threat-hunting` and `rules-compliance`): [DavidRamPari/sigma-playbooks](https://github.com/DavidRamPari/sigma-playbooks) holds bilingual playbooks for **3,759 of 3,779 rules**, with test events validated by Centinela's engine: **14,660 of 14,661 fixtures pass (99.9%)**.
+**A public dataset.** The same generator covered every rule folder of SigmaHQ (`rules`, `rules-emerging-threats`, `rules-threat-hunting`, `rules-compliance` and `rules-placeholder`): [DavidRamPari/sigma-playbooks](https://github.com/DavidRamPari/sigma-playbooks) holds bilingual playbooks for **3,784 of 3,804 rules**; Centinela's engine checked their test events wherever it supports the rule, and **14,660 of 14,661 fixtures pass (99.9%)**. The one that fails exposed a SigmaHQ rule that no event can match; the fix is proposed upstream in [SigmaHQ/sigma#6546](https://github.com/SigmaHQ/sigma/pull/6546).
 
 ## From a log line to an alert on screen
 
