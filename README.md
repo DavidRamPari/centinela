@@ -20,7 +20,7 @@ Centinela is a learning project that implements the core of a SIEM end to end: i
 
 **Detection quality measured against ground truth.** A seeded generator writes three days of logs for a fictional company with 19 labeled attack scenarios (brute force, password spraying, SQL injection, Log4Shell probes, a webshell, encoded PowerShell, LOLBins, credential dumping and more). The end-to-end test and `npm run demo` detect **19/19 scenarios**, and background traffic raises **no high or critical alert**. SigmaHQ's own regression samples: **272 of 276 events match, 267 of 267 files pass**, also through the full pipeline. How it is measured: [docs/DETECTION.md](docs/DETECTION.md#how-detection-quality-is-measured).
 
-**A bilingual content pack.** Every vendored SigmaHQ rule except ten, and every Centinela rule, has an investigation playbook in English and Spanish (what it detects, why it matters, triage steps, false positives, response steps), shown next to the alert with an "AI-generated — review before use" label. The playbooks come with test events that the engine validates: **4,843 of 4,851 fixtures pass (99.8%)** for 1,221 SigmaHQ rules ([report](docs/content-pack-report.md)) and **36 of 36** for Centinela's rules ([report](content/centinela-report.md)); `npm test` keeps them as a regression suite.
+**A bilingual content pack.** Every vendored SigmaHQ rule except ten, and every Centinela rule, has an investigation playbook in English and Spanish (what it detects, why it matters, triage steps, false positives, response steps), shown next to the alert with an "AI-generated — review before use" label. The playbooks come with test events that the engine validates: **4,850 of 4,851 fixtures pass (99.9%)** for 1,221 SigmaHQ rules ([report](docs/content-pack-report.md)) and **36 of 36** for Centinela's rules ([report](content/centinela-report.md)); `npm test` keeps them as a regression suite.
 
 **Security by design.** Log lines are written by the people Centinela watches, so the [threat model](docs/THREAT_MODEL.md) treats every field as hostile:
 
@@ -34,7 +34,7 @@ The operator's guide is [docs/SECURITY.md](docs/SECURITY.md).
 
 **Engineering practice.** TypeScript in strict mode with zod at every boundary; 1,342 tests in 96 files (Vitest, Supertest against a real PostgreSQL, React Testing Library); CI on every pull request (lint, typecheck, migrations, tests, build); and a decision record for every session ([docs/decisions](docs/decisions)).
 
-<!-- Dataset repository: David adds the link to the public dataset of bilingual playbooks for every SigmaHQ rule folder, and its numbers, here. -->
+**A public dataset.** The same generator covered every SigmaHQ rule folder (`rules`, `rules-emerging-threats`, `rules-threat-hunting` and `rules-compliance`): [DavidRamPari/sigma-playbooks](https://github.com/DavidRamPari/sigma-playbooks) holds bilingual playbooks for **3,759 of 3,779 rules**, with test events validated by Centinela's engine: **14,660 of 14,661 fixtures pass (99.9%)**.
 
 ## From a log line to an alert on screen
 
