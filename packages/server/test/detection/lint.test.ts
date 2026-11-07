@@ -436,9 +436,7 @@ describe('Centinela’s rules', () => {
       'powershell_non_interactive_execution.yml',
       'remote_access_tools_teamviewer_incoming_connection.yml',
     ]);
-    expect(sorted('not fixed upstream yet (SigmaHQ master 53b90df6, 2026-11-06)')).toEqual([
-      'regsvr32_remote_share.yml',
-    ]);
+    expect(sorted('fix proposed in SigmaHQ/sigma#6577')).toEqual(['regsvr32_remote_share.yml']);
     expect(byUpstream.size).toBe(5);
   });
 });
