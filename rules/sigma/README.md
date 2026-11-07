@@ -22,4 +22,4 @@ These detection rules are copied unchanged from the SigmaHQ repository and are l
 
 ## Do not edit
 
-Never modify these files. Centinela's own rules go in `rules/centinela/` and `rules/correlation/`. To update the subset, copy the same folders from a newer SigmaHQ commit and update the commit line above.
+Never modify these files. Centinela's own rules go in `rules/centinela/` and `rules/correlation/`. To update the subset, copy the same folders from a newer SigmaHQ commit and update the commit line above. Then run `npm run rules:lint`: it reports the entries of [`../lint-baseline.json`](../lint-baseline.json) whose rules SigmaHQ has fixed since, which must be removed, and any new never-matching condition ([docs/DETECTION.md](../../docs/DETECTION.md#rule-lint)).

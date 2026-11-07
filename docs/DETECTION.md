@@ -151,8 +151,40 @@ SigmaHQ ships recorded Windows events that each rule must match. Every event in 
 
 Every playbook in the content pack comes with positive and negative test events written by the generator. `npm run content:validate` runs each one through the engine (positives must match, negatives must not), and `npm test` holds the result as a regression baseline:
 
-- SigmaHQ rules: **4,850 of 4,851 fixtures pass (99.9%)** for 1,221 rules ([content-pack-report.md](content-pack-report.md)). The 8 fixtures that failed in S7 were not engine bugs ([decisions/S7.md](decisions/S7.md), S7-08). On 2026-10-30 they were rewritten with the `repair` command of `tools/content-pack`, which sends the engine's error back to the model; 7 of them pass now. The last one cannot pass: the vendored rule *COM Object Execution via Xwizard.EXE* requires a `CommandLine` that equals `RunWizard` and also contains a GUID, which no event can satisfy. Upstream SigmaHQ still has the plain value where `CommandLine|contains` was meant (checked 2026-10-30). A fix is proposed upstream in [SigmaHQ/sigma#6546](https://github.com/SigmaHQ/sigma/pull/6546).
+- SigmaHQ rules: **4,850 of 4,851 fixtures pass (99.9%)** for 1,221 rules ([content-pack-report.md](content-pack-report.md)). The 8 fixtures that failed in S7 were not engine bugs ([decisions/S7.md](decisions/S7.md), S7-08). On 2026-10-30 they were rewritten with the `repair` command of `tools/content-pack`, which sends the engine's error back to the model; 7 of them pass now. The last one cannot pass: the vendored rule *COM Object Execution via Xwizard.EXE* requires a `CommandLine` that equals `RunWizard` and also contains a GUID, which no event can satisfy. This project reported it and SigmaHQ merged the fix, `CommandLine|contains` ([SigmaHQ/sigma#6546](https://github.com/SigmaHQ/sigma/pull/6546)); the fixture will pass once `rules/sigma` is updated to a later SigmaHQ commit. The bug led to the [rule lint](#rule-lint).
 - Centinela's rules: **36 of 36 fixtures pass** for the 9 detection rules; the 5 correlations have a playbook only ([content/centinela-report.md](../content/centinela-report.md)).
+
+### Rule lint
+
+A rule can be valid Sigma and still never match: an exact `Image` value that is not a full path, a `startswith` that no path begins with, a folder where a file path is expected. Nothing fails; the rule, or one of its filters, is silently dead. `npm run rules:lint` ([`lint.ts`](../packages/server/src/detection/lint.ts)) finds these conditions without running the rule. It reads values with Sigma's escaping (`\\`, `\*` and `\?` are escapes) and skips items with a modifier the engine does not support. Each check comes from a class of bugs that SigmaHQ fixed in October and November 2026:
+
+| Check | Why the value never matches | Example (the SigmaHQ pull request that fixed it) |
+| --- | --- | --- |
+| `partial-path` | `Image`, `ParentImage`, `ImageLoaded`, `TargetFilename`, `SourceImage` and `TargetImage` hold full paths, so an exact value must be one (or a name such as `System` that Windows logs for processes without a file) | `Image: '\AgentExecutor.exe'` ([#6567](https://github.com/SigmaHQ/sigma/pull/6567)), `TargetFilename: 'host_ip.ps1'` ([#6518](https://github.com/SigmaHQ/sigma/pull/6518)) |
+| `folder` | a file path never ends with a separator, so neither can an exact or `endswith` value | `Image\|endswith: '\AppData\Local\Apps\2.0\'` ([#6554](https://github.com/SigmaHQ/sigma/pull/6554)), `TargetFilename\|endswith: '\Windows\System32\winevt\Logs\'` ([#6453](https://github.com/SigmaHQ/sigma/pull/6453)) |
+| `bad-start` | a `startswith` value must be able to begin a full path | `Image\|startswith: ':\Program Files'` ([#6565](https://github.com/SigmaHQ/sigma/pull/6565)), `TargetFilename\|startswith: '\Logging\CmdletInfra\LocalPowerShell\Cmdlet\'` ([#6454](https://github.com/SigmaHQ/sigma/pull/6454)) |
+| `separator` | Windows paths use `\`, Linux and macOS paths use `/` (by `logsource.product`) | `Image\|endswith: '/xwizard.exe'` in a Windows rule ([#6562](https://github.com/SigmaHQ/sigma/pull/6562)), `Image\|endswith: '\node'` in a Linux rule ([#6483](https://github.com/SigmaHQ/sigma/pull/6483)) |
+| `file-name` | `OriginalFileName` is the bare file name from the executable's version information | `OriginalFileName: '\msiexec.exe'` ([#6549](https://github.com/SigmaHQ/sigma/pull/6549)), `OriginalFileName: '\nslookup.exe'` ([#6455](https://github.com/SigmaHQ/sigma/pull/6455)) |
+| `cmd-space` | an exact command line does not begin or end with a space | `CommandLine: ' -dhl'` ([#6567](https://github.com/SigmaHQ/sigma/pull/6567)) |
+| `dword` | Sysmon logs registry numbers in hexadecimal: `DWORD (0x00000001)` | `Details: 'DWORD (00000001)'` ([#6560](https://github.com/SigmaHQ/sigma/pull/6560)) |
+| `unsatisfiable` | no exact value of the key also satisfies the other conditions on the same field in the same selection; the engine's own matchers decide | `CommandLine: 'RunWizard'` next to a `CommandLine\|re` that requires a GUID ([#6546](https://github.com/SigmaHQ/sigma/pull/6546)) |
+
+Run on each rule as it was before its fix, the lint flags 28 of the 29 files that these twelve pull requests changed; the 29th had a misspelled registry key (`CurentControlSet`), which no shape check can see. Run on the fixed versions it finds nothing, except one condition: `Image|endswith: '/xwizard.exe'`, which slipped into the final version of #6546 and was fixed two days later in #6562.
+
+[#6546](https://github.com/SigmaHQ/sigma/pull/6546) and [#6567](https://github.com/SigmaHQ/sigma/pull/6567), six rules in all, came from this project, and the checks are proposed as a validator for SigmaHQ's own CI in [SigmaHQ/pySigma-validators-sigmaHQ#86](https://github.com/SigmaHQ/pySigma-validators-sigmaHQ/issues/86). A lint that a maintainer is asked to run must not cry wolf, so it was tried on every folder of SigmaHQ's master branch (commit `53b90df6`, 2026-11-06). Every finding there is a condition that cannot match in the logs the rule is written for:
+
+| SigmaHQ folder | Rules | Findings |
+| --- | ---: | --- |
+| `rules` | 3,164 | 4 values in 3 rules: an Avira filter with exact folder paths, `OriginalFileName: '\REGSVR32.EXE'`, and a filter on `/usr/share/icons/` in a Windows rule |
+| `rules-emerging-threats` | 474 | 1: `ParentImage\|endswith: '\bash'` in a Linux rule, which makes the rule match nothing |
+| `rules-threat-hunting`, `rules-compliance`, `rules-placeholder` | 169 | none |
+| `deprecated`, `unsupported` | 265 | 14, in rules that SigmaHQ no longer maintains |
+
+In Centinela's vendored rules (SigmaHQ commit `05d1031f`, 2026-10-21) the lint reports 22 findings in 14 rules. [`rules/lint-baseline.json`](../rules/lint-baseline.json) lists each one with where it stands upstream: 13 of the rules are fixed in SigmaHQ after that commit (#6546, #6549, #6565 and #6567), and `proc_creation_win_regsvr32_remote_share.yml` is not fixed yet. `npm run rules:lint` exits with 1 on a finding that the baseline does not list, on a baseline entry that no longer matches and on a file it cannot read, and `npm test` holds the same comparison, so updating `rules/sigma` to a newer SigmaHQ commit shows which entries to remove. Any folder of Sigma rules can be checked, such as a SigmaHQ checkout next to this repository:
+
+```bash
+npm run rules:lint -- --rules-dir ../sigma/rules --no-baseline
+```
 
 ## Known gaps
 
