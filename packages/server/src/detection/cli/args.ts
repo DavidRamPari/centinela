@@ -1,4 +1,5 @@
-/** Command-line options of `npm run rules:report` and `npm run bench`. */
+/** Command-line options of `npm run rules:report`, `npm run rules:lint` and `npm run bench`. */
+import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
@@ -31,8 +32,17 @@ function fromInvocationDir(path: string): string {
   return resolve(process.env['INIT_CWD'] ?? process.cwd(), path);
 }
 
+/** Zod issues named after the command-line option (`rulesDir` → `--rules-dir`). */
 function formatIssues(error: z.ZodError): string {
-  return error.issues.map((i) => `--${i.path.join('.')}: ${i.message}`).join('\n');
+  return error.issues
+    .map((i) => {
+      const option = i.path
+        .map(String)
+        .join('.')
+        .replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+      return `--${option}: ${i.message}`;
+    })
+    .join('\n');
 }
 
 export interface ReportArgs {
@@ -61,6 +71,63 @@ export function parseReportArgs(argv: string[]): ReportArgs | 'help' {
     rulesDir: fromInvocationDir(result.data.rulesDir),
     out: fromInvocationDir(result.data.out),
   };
+}
+
+export const LINT_USAGE = `Usage: npm run rules:lint -- [options]
+
+Checks Sigma rules for conditions that can never match: path values that are not full
+paths, that end with a folder separator or that use another system's separator;
+startswith values that no path can begin with; OriginalFileName values with a folder;
+exact command lines with a leading or trailing space; registry numbers without 0x; and
+exact values that another condition on the same field rules out. The checks are
+described in docs/DETECTION.md#rule-lint.
+
+Options:
+  --rules-dir <path>  folder to check: Centinela's rules folder or any folder of Sigma
+                      rules, such as a SigmaHQ checkout (default: <repo>/rules)
+  --baseline <path>   known findings to accept (default: <rules-dir>/lint-baseline.json
+                      when that file exists)
+  --no-baseline       report every finding as new
+  -h, --help          show this help
+
+Exit codes: 0 every file checked and no new finding; 1 new findings, stale baseline
+entries, files that could not be checked (invalid YAML) or an error; 2 bad arguments.
+`;
+
+export interface LintArgs {
+  rulesDir: string;
+  /** null: no baseline. */
+  baseline: string | null;
+}
+
+export function parseLintArgs(argv: string[]): LintArgs | 'help' {
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      'rules-dir': { type: 'string' },
+      baseline: { type: 'string' },
+      'no-baseline': { type: 'boolean', default: false },
+      help: { type: 'boolean', short: 'h', default: false },
+    },
+    strict: true,
+  });
+  if (values.help) return 'help';
+  if (values['no-baseline'] && values.baseline !== undefined) {
+    throw new Error('--baseline and --no-baseline cannot be used together');
+  }
+  const schema = z.object({ rulesDir: z.string().min(1), baseline: z.string().min(1).optional() });
+  const result = schema.safeParse({
+    rulesDir: values['rules-dir'] ?? join(repoRoot, 'rules'),
+    baseline: values.baseline,
+  });
+  if (!result.success) throw new Error(formatIssues(result.error));
+  const rulesDir = fromInvocationDir(result.data.rulesDir);
+  if (values['no-baseline']) return { rulesDir, baseline: null };
+  if (result.data.baseline !== undefined) {
+    return { rulesDir, baseline: fromInvocationDir(result.data.baseline) };
+  }
+  const defaultBaseline = join(rulesDir, 'lint-baseline.json');
+  return { rulesDir, baseline: existsSync(defaultBaseline) ? defaultBaseline : null };
 }
 
 export const BENCH_MIXES = ['linux-web', 'windows', 'all'] as const;
