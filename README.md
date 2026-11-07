@@ -32,9 +32,11 @@ Centinela is a learning project that implements the core of a SIEM end to end: i
 
 The operator's guide is [docs/SECURITY.md](docs/SECURITY.md).
 
-**Engineering practice.** TypeScript in strict mode with zod at every boundary; 1,342 tests in 96 files (Vitest, Supertest against a real PostgreSQL, React Testing Library); CI on every pull request (lint, typecheck, migrations, tests, build); and a decision record for every session ([docs/decisions](docs/decisions)).
+**Engineering practice.** TypeScript in strict mode with zod at every boundary; 1,374 tests in 97 files (Vitest, Supertest against a real PostgreSQL, React Testing Library); CI on every pull request (lint, typecheck, migrations, tests, build); and a decision record for every session ([docs/decisions](docs/decisions)).
 
-**A public dataset.** The same generator covered every rule folder of SigmaHQ (`rules`, `rules-emerging-threats`, `rules-threat-hunting`, `rules-compliance` and `rules-placeholder`): [DavidRamPari/sigma-playbooks](https://github.com/DavidRamPari/sigma-playbooks) holds bilingual playbooks for **3,784 of 3,804 rules**; Centinela's engine checked their test events wherever it supports the rule, and **14,660 of 14,661 fixtures pass (99.9%)**. The one that fails exposed a SigmaHQ rule that no event can match; the fix is proposed upstream in [SigmaHQ/sigma#6546](https://github.com/SigmaHQ/sigma/pull/6546).
+**A public dataset.** The same generator covered every rule folder of SigmaHQ (`rules`, `rules-emerging-threats`, `rules-threat-hunting`, `rules-compliance` and `rules-placeholder`): [DavidRamPari/sigma-playbooks](https://github.com/DavidRamPari/sigma-playbooks) holds bilingual playbooks for **3,784 of 3,804 rules**; Centinela's engine checked their test events wherever it supports the rule, and **14,660 of 14,661 fixtures pass (99.9%)**. The one that fails exposed a SigmaHQ rule that no event can match; SigmaHQ merged the fix ([SigmaHQ/sigma#6546](https://github.com/SigmaHQ/sigma/pull/6546)).
+
+**Never-matching rules, found and fixed upstream.** That failing fixture led to `npm run rules:lint`, a static check for Sigma conditions that can never match: an exact `Image` that is not a full path, a `startswith` that no path can begin with, a path with the other operating system's separator, an `OriginalFileName` with a folder in it, and more ([how it works](docs/DETECTION.md#rule-lint)). SigmaHQ merged this project's fixes for six rules ([#6546](https://github.com/SigmaHQ/sigma/pull/6546), [#6567](https://github.com/SigmaHQ/sigma/pull/6567)), fixes for three more are under review ([#6577](https://github.com/SigmaHQ/sigma/pull/6577)), and the checks are proposed as a validator for SigmaHQ's CI ([pySigma-validators-sigmaHQ#86](https://github.com/SigmaHQ/pySigma-validators-sigmaHQ/issues/86)). On SigmaHQ's master branch, every finding is a condition that cannot match. In Centinela's vendored rules the lint finds 14 such rules: 13 are already fixed upstream and the fix for the last one is under review; a [baseline](rules/lint-baseline.json) records them, and `npm test` fails on any new finding.
 
 ## From a log line to an alert on screen
 
@@ -122,6 +124,7 @@ npm run dev                            # API on :3000 (watch mode), dashboard on
 | `npm run loggen -- [--small] [--seed n] [--out dir]` | write the demo logs and `ground-truth.json` (default `samples/`) |
 | `npm run rules:report` · `npm run bench` | rule loading report ([docs/rules-report.md](docs/rules-report.md)) · engine benchmark |
 | `npm run content:validate` | run every content-pack fixture through the engine and write the report |
+| `npm run rules:lint [-- --rules-dir <path>]` | find Sigma conditions that can never match, in `rules/` or any folder of Sigma rules ([docs/DETECTION.md](docs/DETECTION.md#rule-lint)) |
 | `npm run hash-password` · `npm run audit` | argon2id hash for the admin password · `npm audit --audit-level=high` |
 
 ## Signing in, tokens and production
@@ -165,7 +168,7 @@ docker compose up -d --wait postgres
 npm run lint && npm run typecheck && npm run db:migrate && npm test && npm run build
 ```
 
-`npm test` runs 1,342 tests in 96 files across the four packages; database tests each create a throwaway schema. They cover every parser message type, every modifier and grammar construct, correlation windows at their boundaries, every API endpoint with its validation and pagination, authentication (lockout, CSRF, both cookie modes, a `401` for every protected route), the 19 scenarios end to end, the SigmaHQ regression samples, the content-pack fixtures, and the dashboard (i18n key parity, hostile strings rendered as text, keyboard navigation, contrast, the Content Security Policy). CI runs the same sequence on GitHub's two-CPU runner ([`ci.yml`](.github/workflows/ci.yml)).
+`npm test` runs 1,374 tests in 97 files across the four packages; database tests each create a throwaway schema. They cover every parser message type, every modifier and grammar construct, correlation windows at their boundaries, every API endpoint with its validation and pagination, authentication (lockout, CSRF, both cookie modes, a `401` for every protected route), the 19 scenarios end to end, the SigmaHQ regression samples, the content-pack fixtures, and the dashboard (i18n key parity, hostile strings rendered as text, keyboard navigation, contrast, the Content Security Policy). CI runs the same sequence on GitHub's two-CPU runner ([`ci.yml`](.github/workflows/ci.yml)).
 
 ## Roadmap and known gaps
 

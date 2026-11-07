@@ -32,9 +32,11 @@ Centinela es un proyecto de aprendizaje que implementa de punta a punta el núcl
 
 La guía para operadores es [docs/SECURITY.md](docs/SECURITY.md) (en inglés).
 
-**Prácticas de ingeniería.** TypeScript en modo estricto con zod en cada frontera; 1,342 pruebas en 96 archivos (Vitest, Supertest contra un PostgreSQL real, React Testing Library); CI en cada pull request (lint, typecheck, migraciones, pruebas, build); y un registro de decisiones por cada sesión ([docs/decisions](docs/decisions)).
+**Prácticas de ingeniería.** TypeScript en modo estricto con zod en cada frontera; 1,374 pruebas en 97 archivos (Vitest, Supertest contra un PostgreSQL real, React Testing Library); CI en cada pull request (lint, typecheck, migraciones, pruebas, build); y un registro de decisiones por cada sesión ([docs/decisions](docs/decisions)).
 
-**Un dataset público.** El mismo generador cubrió todas las carpetas de reglas de SigmaHQ (`rules`, `rules-emerging-threats`, `rules-threat-hunting`, `rules-compliance` y `rules-placeholder`): [DavidRamPari/sigma-playbooks](https://github.com/DavidRamPari/sigma-playbooks) reúne guías bilingües para **3,784 de 3,804 reglas**; el motor de Centinela comprobó sus eventos de prueba en todas las reglas que soporta, y **pasan 14,660 de 14,661 casos (99.9 %)**. El que falla reveló una regla de SigmaHQ que ningún evento puede activar; el arreglo está propuesto en [SigmaHQ/sigma#6546](https://github.com/SigmaHQ/sigma/pull/6546).
+**Un dataset público.** El mismo generador cubrió todas las carpetas de reglas de SigmaHQ (`rules`, `rules-emerging-threats`, `rules-threat-hunting`, `rules-compliance` y `rules-placeholder`): [DavidRamPari/sigma-playbooks](https://github.com/DavidRamPari/sigma-playbooks) reúne guías bilingües para **3,784 de 3,804 reglas**; el motor de Centinela comprobó sus eventos de prueba en todas las reglas que soporta, y **pasan 14,660 de 14,661 casos (99.9 %)**. El que falla reveló una regla de SigmaHQ que ningún evento puede activar; SigmaHQ incorporó el arreglo ([SigmaHQ/sigma#6546](https://github.com/SigmaHQ/sigma/pull/6546)).
+
+**Reglas que nunca se activan, encontradas y corregidas en SigmaHQ.** Ese caso fallido llevó a `npm run rules:lint`, una revisión estática de condiciones Sigma que nunca pueden cumplirse: un `Image` exacto que no es una ruta completa, un `startswith` con el que ninguna ruta puede empezar, una ruta con el separador del otro sistema operativo, un `OriginalFileName` con una carpeta, y más ([cómo funciona](docs/DETECTION.md#rule-lint)). SigmaHQ incorporó los arreglos de este proyecto para seis reglas ([#6546](https://github.com/SigmaHQ/sigma/pull/6546), [#6567](https://github.com/SigmaHQ/sigma/pull/6567)), los de otras tres están en revisión ([#6577](https://github.com/SigmaHQ/sigma/pull/6577)), y las revisiones están propuestas como validador para la CI de SigmaHQ ([pySigma-validators-sigmaHQ#86](https://github.com/SigmaHQ/pySigma-validators-sigmaHQ/issues/86)). En la rama principal de SigmaHQ, cada hallazgo es una condición que no puede cumplirse. En las reglas copiadas en Centinela encuentra 14 reglas así: 13 ya están corregidas en SigmaHQ y el arreglo de la última está en revisión; una [línea base](rules/lint-baseline.json) las registra, y `npm test` falla ante cualquier hallazgo nuevo.
 
 ## De una línea de log a una alerta en pantalla
 
@@ -122,6 +124,7 @@ npm run dev                            # API en :3000 (modo watch), panel en htt
 | `npm run loggen -- [--small] [--seed n] [--out dir]` | escribe los logs de demostración y `ground-truth.json` (por defecto en `samples/`) |
 | `npm run rules:report` · `npm run bench` | informe de carga de reglas ([docs/rules-report.md](docs/rules-report.md)) · benchmark del motor |
 | `npm run content:validate` | pasa cada caso de prueba del paquete de contenido por el motor y escribe el informe |
+| `npm run rules:lint [-- --rules-dir <ruta>]` | busca condiciones Sigma que nunca pueden cumplirse, en `rules/` o en cualquier carpeta de reglas Sigma ([docs/DETECTION.md](docs/DETECTION.md#rule-lint)) |
 | `npm run hash-password` · `npm run audit` | hash argon2id de la contraseña de administrador · `npm audit --audit-level=high` |
 
 ## Inicio de sesión, tokens y producción
@@ -165,7 +168,7 @@ docker compose up -d --wait postgres
 npm run lint && npm run typecheck && npm run db:migrate && npm test && npm run build
 ```
 
-`npm test` ejecuta 1,342 pruebas en 96 archivos de los cuatro paquetes; cada prueba de base de datos crea un esquema desechable. Cubren cada tipo de mensaje de los parsers, cada modificador y construcción de la gramática, las ventanas de correlación en sus límites, cada endpoint de la API con su validación y paginación, la autenticación (bloqueo, CSRF, los dos modos de cookies, un `401` en cada ruta protegida), los 19 escenarios de punta a punta, las muestras de regresión de SigmaHQ, los casos del paquete de contenido y el panel (paridad de claves de i18n, cadenas hostiles mostradas como texto, navegación con teclado, contraste, la Content Security Policy). La CI ejecuta la misma secuencia en el runner de dos CPU de GitHub ([`ci.yml`](.github/workflows/ci.yml)).
+`npm test` ejecuta 1,374 pruebas en 97 archivos de los cuatro paquetes; cada prueba de base de datos crea un esquema desechable. Cubren cada tipo de mensaje de los parsers, cada modificador y construcción de la gramática, las ventanas de correlación en sus límites, cada endpoint de la API con su validación y paginación, la autenticación (bloqueo, CSRF, los dos modos de cookies, un `401` en cada ruta protegida), los 19 escenarios de punta a punta, las muestras de regresión de SigmaHQ, los casos del paquete de contenido y el panel (paridad de claves de i18n, cadenas hostiles mostradas como texto, navegación con teclado, contraste, la Content Security Policy). La CI ejecuta la misma secuencia en el runner de dos CPU de GitHub ([`ci.yml`](.github/workflows/ci.yml)).
 
 ## Hoja de ruta y limitaciones conocidas
 
