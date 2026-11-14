@@ -183,8 +183,9 @@ Known gaps, from the session decision records:
 - **Windows users** appear without their domain in the alerts table; the alert page shows `DOMAIN\name` ([S7b-15](docs/decisions/S7b.md)).
 - **Firefox** was not reviewed; Chromium and WebKit were ([S7b-18](docs/decisions/S7b.md)).
 - One admin account without a second factor, and detection state in one process ([threat model](docs/THREAT_MODEL.md#residual-risks)).
+- **A timestamp from the future** blinds correlation: one event dated far ahead silences its own group and makes every later request clear the open windows of all groups, until event time catches up or the server restarts ([S10-04](docs/decisions/S10.md)). Single-event rules are not affected.
 
-Next steps: per-analyst accounts and roles, range conditions in correlations, Sysmon over NDJSON as shipped by Winlogbeat, and more Windows event types.
+Next steps: the [roadmap](docs/ROADMAP.md) is the path to version 1.0. It starts with real ingestion: events shipped by Fluent Bit, syslog and Microsoft 365, detection on events that arrive out of order, and the Windows Security log.
 
 ## Repository guide
 
@@ -223,6 +224,10 @@ Next steps: per-analyst accounts and roles, range conditions in correlations, Sy
 - **Fonts.** [Atkinson Hyperlegible Next and Atkinson Hyperlegible Mono](packages/web/src/assets/fonts) by the Braille Institute, under the SIL Open Font License 1.1, self-hosted.
 - **Playbooks.** Every playbook in [`content/`](content) was written by Anthropic's Claude through the Message Batches API with [`tools/content-pack`](tools/content-pack) and is marked "AI-generated — review before use" in the dashboard and `"review": "unreviewed"` in its file until a person checks it.
 
+## Contributing
+
+Bug reports, parsers, rules and translations are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
-Code: [MIT](LICENSE). Vendored Sigma rules: [DRL 1.1](rules/sigma/LICENSE.Detection.Rules.md).
+Code: [MIT](LICENSE). Vendored Sigma rules: [DRL 1.1](rules/sigma/LICENSE.Detection.Rules.md). Third-party material is listed in [NOTICE](NOTICE).
