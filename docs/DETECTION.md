@@ -192,5 +192,6 @@ npm run rules:lint -- --rules-dir ../sigma/rules --no-baseline
 
 - The Sigma features in "Not supported" above, in particular range and absence conditions in correlations.
 - Correlation state lives in one process (decision D-003): several server processes would not share windows.
+- One event with a timestamp far in the future blinds correlation until event time catches up or the server restarts: its own group ignores every real match as late, and the watermark it leaves behind makes the flush at the end of every ingest request evict the open windows of all groups, so a correlation whose matches arrive in more than one request cannot fire. Single-event rules are not affected. A host with a wrong clock does it by accident ([decisions/S10.md](decisions/S10.md), S10-04; fixed by session S12, [ARCHITECTURE.md](ARCHITECTURE.md) §16.4).
 - Field names are case-sensitive; a shipper that renames `CommandLine` to `commandline` defeats the Windows rules.
 - `POST /api/ingest` with NDJSON turns an object with a string `message` key into that message, so Sysmon events from a shipper that adds `message` (Winlogbeat does) are rejected; send them as `text/plain`, one JSON object per line ([decisions/S5.md](decisions/S5.md), S5-09).
