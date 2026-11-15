@@ -16,6 +16,7 @@ import {
   StreamLimitError,
   type AlertSink,
   type Detector,
+  type EventStore,
   type IngestContext,
   type Parser,
   type StreamCounts,
@@ -58,7 +59,9 @@ function recordingStreams(limitAfter = Number.POSITIVE_INFINITY) {
   return { registry, keys, counts };
 }
 
-function livePipeline(options: OrchestratorOptions & { alertSink?: AlertSink } = {}) {
+function livePipeline(
+  options: OrchestratorOptions & { alertSink?: AlertSink; eventStore?: EventStore } = {},
+) {
   const eventStore = recordingStore();
   const recorder = recordingDetector();
   const alertSink = options.alertSink ?? createMemoryAlertSink();
@@ -261,6 +264,59 @@ describe('idle release', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(users()).toEqual(['done']);
     expect(pipeline.stats().buffered).toBe(1);
+  });
+
+  /** A store whose inserts take `ms` once `slow.on` is set, as a database under load. */
+  function slowStore(ms: number) {
+    const slow = { on: false };
+    const eventStore: EventStore = {
+      insertMany: () =>
+        slow.on ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve(),
+    };
+    return { slow, eventStore };
+  }
+
+  it('does not release when a call was still running as the idle time passed: the wait starts again after it', async () => {
+    vi.useFakeTimers();
+    const { slow, eventStore } = slowStore(6_000);
+    const { pipeline, users } = livePipeline({ reorder: { idleMs: 5_000 }, eventStore });
+    await pipeline.ingest([line(1, 'a1')], stored);
+
+    // The next call takes six seconds: the timer fires while it runs.
+    slow.on = true;
+    const running = pipeline.ingest([line(2, 'b2')], { ...stored, host: 'web-01' });
+    await vi.advanceTimersByTimeAsync(6_000);
+    await running;
+    slow.on = false;
+    // Its events arrived a moment ago. Released now, an older batch from a slower machine
+    // would find them evaluated and be late.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(users()).toEqual([]);
+    const older = await pipeline.ingest([line(0, 'c0')], { ...stored, host: 'db-01' });
+    expect(older).toMatchObject({ late: 0, pending: 1 });
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(users()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(users()).toEqual(['c0', 'a1', 'b2']);
+    expect(pipeline.stats()).toMatchObject({ buffered: 0, evaluated: 3, late: 0 });
+  });
+
+  it('stop() also cancels a release that was waiting for a running call', async () => {
+    vi.useFakeTimers();
+    const { slow, eventStore } = slowStore(6_000);
+    const { pipeline, users } = livePipeline({ reorder: { idleMs: 5_000 }, eventStore });
+    await pipeline.ingest([line(1, 'a1')], stored);
+    slow.on = true;
+    const running = pipeline.ingest([line(2, 'b2')], { ...stored, host: 'web-01' });
+    await vi.advanceTimersByTimeAsync(5_500);
+    pipeline.stop();
+    await vi.advanceTimersByTimeAsync(500);
+    await running;
+    await vi.advanceTimersByTimeAsync(60_000);
+    // A clean stop saves the buffer as it is: nothing is evaluated early.
+    expect(users()).toEqual([]);
+    expect(pipeline.stats().buffered).toBe(2);
   });
 
   it('reports a failure nobody is waiting for', async () => {

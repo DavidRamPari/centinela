@@ -413,6 +413,10 @@ export function createOrchestrator(
     idleTimer = timers.set(() => {
       idleTimer = undefined;
       enqueue(async () => {
+        // This task waited behind whatever was running when the timer fired. If that was
+        // an ingest call, it has armed a new timer by now: batches were still arriving,
+        // so the system was not idle and the new timer decides.
+        if (stopped || idleTimer !== undefined) return;
         const counts = { alertsCreated: 0, alertsUpdated: 0 };
         await evaluate(buffer.releaseAll(), counts);
         await flushDetector(counts);
