@@ -1,5 +1,11 @@
 import { z } from 'zod';
 
+/**
+ * The one organization every row belongs to until several are supported (ARCHITECTURE
+ * §8.1). Tables created from migration 004 on carry it as `tenant_id`.
+ */
+export const DEFAULT_TENANT_ID = '00000000-0000-7000-8000-000000000001';
+
 /** Maximum length of `NormalizedEvent.message` (ARCHITECTURE §3.1, §12). */
 export const MAX_MESSAGE_LENGTH = 8192;
 

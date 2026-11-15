@@ -11,7 +11,7 @@ import type {
   AlertBulkBody,
   AlertBulkResponse,
   AlertPatchBody,
-  IngestQuery,
+  UploadQuery,
   Page,
   RulePatchBody,
 } from '@centinela/shared';
@@ -187,7 +187,7 @@ export function useAttackMatrix(params: QueryParams) {
 export function useUploadLog() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ query, text }: { query: IngestQuery; text: string }) =>
+    mutationFn: ({ query, text }: { query: UploadQuery; text: string }) =>
       api.uploadLog(query, text),
     onSuccess: () =>
       Promise.all(

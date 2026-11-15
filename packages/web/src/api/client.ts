@@ -30,7 +30,7 @@ import {
   statsOverviewResponseSchema,
   type AlertBulkBody,
   type AlertPatchBody,
-  type IngestQuery,
+  type UploadQuery,
   type Problem,
   type RulePatchBody,
 } from '@centinela/shared';
@@ -193,6 +193,6 @@ export const api = {
     apiRequest('/stats/overview', statsOverviewResponseSchema, { params, signal }),
   attackMatrix: (params?: QueryParams, signal?: AbortSignal) =>
     apiRequest('/attack', attackResponseSchema, { params, signal }),
-  uploadLog: (query: IngestQuery, text: string) =>
+  uploadLog: (query: UploadQuery, text: string) =>
     apiRequest('/ingest/upload', ingestSummarySchema, { method: 'POST', params: query, text }),
 };
