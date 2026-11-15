@@ -28,10 +28,13 @@ describe('migrations', () => {
       'alert_events',
       'alerts',
       'audit_log',
+      'detector_checkpoints',
       'events',
+      'ingest_streams',
       'ingest_tokens',
       'pgmigrations',
       'rule_state',
+      'tenants',
     ]);
   });
 
@@ -50,6 +53,7 @@ describe('migrations', () => {
       src_port: 'integer',
       message: 'text',
       fields: 'jsonb',
+      stream_id: 'uuid',
     });
     expect(Object.keys(await columns('alerts')).sort()).toEqual(
       [
@@ -83,6 +87,59 @@ describe('migrations', () => {
       enabled: 'boolean',
       updated_at: 'timestamp with time zone',
     });
+  });
+
+  it('creates the tables of live detection with one default organization (S12)', async () => {
+    expect(await columns('tenants')).toEqual({
+      id: 'uuid',
+      slug: 'text',
+      name: 'text',
+      created_at: 'timestamp with time zone',
+    });
+    const { rows } = await db.pool.query<{ id: string; slug: string }>(
+      'SELECT id, slug FROM tenants',
+    );
+    expect(rows).toEqual([{ id: '00000000-0000-7000-8000-000000000001', slug: 'default' }]);
+    expect(await columns('ingest_streams')).toEqual({
+      id: 'uuid',
+      tenant_id: 'uuid',
+      kind: 'text',
+      token_id: 'uuid',
+      source: 'text',
+      host: 'text',
+      first_seen_at: 'timestamp with time zone',
+      last_seen_at: 'timestamp with time zone',
+      last_event_ts: 'timestamp with time zone',
+      accepted: 'bigint',
+      rejected: 'bigint',
+      late: 'bigint',
+    });
+    expect(await columns('detector_checkpoints')).toEqual({
+      tenant_id: 'uuid',
+      name: 'text',
+      position: 'uuid',
+      state: 'bytea',
+      state_version: 'integer',
+      updated_at: 'timestamp with time zone',
+    });
+  });
+
+  it('keeps one stream per delivery path, also without a token', async () => {
+    const insert = (id: string, kind: string) =>
+      db.pool.query(
+        `INSERT INTO ingest_streams (id, kind, source, host) VALUES ($1, $2, 'linux_auth', 'web-01')`,
+        [id, kind],
+      );
+    await insert('01930f6e-8a4b-7c2d-9e1f-000000000001', 'token');
+    // token_id is null in both rows: NULLS NOT DISTINCT makes them the same path.
+    await expect(insert('01930f6e-8a4b-7c2d-9e1f-000000000002', 'token')).rejects.toThrow(
+      /ingest_streams_path_idx/,
+    );
+    await insert('01930f6e-8a4b-7c2d-9e1f-000000000003', 'upload');
+    await expect(insert('01930f6e-8a4b-7c2d-9e1f-000000000004', 'agent')).rejects.toThrow(
+      /check constraint/,
+    );
+    await db.pool.query('DELETE FROM ingest_streams');
   });
 
   it('creates the indexes', async () => {
