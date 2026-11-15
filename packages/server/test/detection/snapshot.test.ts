@@ -167,6 +167,55 @@ describe('engine snapshot', () => {
         ],
       },
     ],
+    [
+      'a match at a time no date can hold',
+      {
+        watermark: 1,
+        lastSweep: null,
+        correlations: [
+          {
+            id: 'x',
+            fingerprint: 'y',
+            groups: [
+              {
+                values: [],
+                newest: 1,
+                seen: 1,
+                entries: [{ ruleId: 'r', time: 1e300, events: [] }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    [
+      'an event whose timestamp is not a date',
+      {
+        watermark: 1,
+        lastSweep: null,
+        correlations: [
+          {
+            id: 'x',
+            fingerprint: 'y',
+            groups: [
+              {
+                values: [],
+                newest: 1,
+                seen: 1,
+                entries: [
+                  {
+                    ruleId: 'r',
+                    time: 1,
+                    events: [{ id: 'e', ts: 'the day after tomorrow', time: 1, host: 'h' }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    ['a watermark no date can hold', { watermark: 9e15, lastSweep: null, correlations: [] }],
   ])('refuses a malformed snapshot (%s) and keeps its own state', (_, snapshot) => {
     const engine = createEngine(ruleSet);
     for (let i = 0; i < 9; i += 1) engine.process(failure(at(i)));

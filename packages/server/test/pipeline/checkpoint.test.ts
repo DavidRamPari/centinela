@@ -313,6 +313,17 @@ describe('detector checkpoint', () => {
         buffer: { newest: null, lastReleased: null, events: [] },
       },
     ],
+    [
+      'a waiting event at a time no date can hold',
+      {
+        engine: null,
+        buffer: {
+          newest: 1e300,
+          lastReleased: null,
+          events: [{ id: 'event-00000001', time: 1e300 }],
+        },
+      },
+    ],
   ])('a malformed saved state (%s) is refused and the pipeline starts clean', async (_, state) => {
     const { checkpoints, restart } = await savedMidRun();
     const saved = JSON.parse(checkpoints.saved ?? 'null') as Checkpoint;

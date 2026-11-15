@@ -8,10 +8,19 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { CompiledCorrelation } from './types.js';
 
+/**
+ * Times in a saved state end up in alerts: a firing is dated by its events' `ts`, or by
+ * its own time when it has none. A number no `Date` can hold, or text that is not a date,
+ * would fail there, when the window fires, so it is refused here.
+ */
+const MAX_DATE_MS = 8_640_000_000_000_000;
+const timeSchema = z.number().min(-MAX_DATE_MS).max(MAX_DATE_MS);
+const timestampSchema = z.string().refine((ts) => !Number.isNaN(Date.parse(ts)), 'not a date');
+
 const eventRefSchema = z.object({
   id: z.string(),
-  ts: z.string(),
-  time: z.number(),
+  ts: timestampSchema,
+  time: timeSchema,
   host: z.string(),
   ip: z.string().optional(),
   user: z.string().optional(),
@@ -19,7 +28,7 @@ const eventRefSchema = z.object({
 
 const entrySchema = z.object({
   ruleId: z.string(),
-  time: z.number(),
+  time: timeSchema,
   value: z.string().optional(),
   events: z.array(eventRefSchema),
 });
@@ -27,9 +36,9 @@ const entrySchema = z.object({
 const groupSchema = z.object({
   values: z.array(z.string()),
   /** Time of the newest match. */
-  newest: z.number(),
+  newest: timeSchema,
   /** The detector's clock when the group last took a match (what eviction counts from). */
-  seen: z.number(),
+  seen: timeSchema,
   entries: z.array(entrySchema),
 });
 export type GroupSnapshot = z.infer<typeof groupSchema>;
@@ -45,9 +54,9 @@ const correlationSnapshotSchema = z.object({
 export type CorrelationSnapshot = z.infer<typeof correlationSnapshotSchema>;
 
 export const engineSnapshotSchema = z.object({
-  watermark: z.number().nullable(),
+  watermark: timeSchema.nullable(),
   /** Event time of the last sweep of expired groups; null before the first one. */
-  lastSweep: z.number().nullable(),
+  lastSweep: timeSchema.nullable(),
   correlations: z.array(correlationSnapshotSchema),
 });
 export type EngineSnapshot = z.infer<typeof engineSnapshotSchema>;

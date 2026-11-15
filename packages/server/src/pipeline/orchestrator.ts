@@ -49,8 +49,15 @@ export const INVALID_TIMESTAMP_REASON = 'invalid timestamp';
 /** Version of the saved state; a checkpoint with another version is not restored. */
 export const SNAPSHOT_VERSION = 1;
 
+/**
+ * A detection time in a saved state. The state is input: a number no `Date` can hold
+ * would make the detector throw when it dates the event, in the middle of an ingest call.
+ */
+const MAX_DATE_MS = 8_640_000_000_000_000;
+const savedTimeSchema = z.number().min(-MAX_DATE_MS).max(MAX_DATE_MS);
+
 const orderKeySchema = z.object({
-  time: z.number(),
+  time: savedTimeSchema,
   host: z.string(),
   source: z.string(),
   id: z.string(),
@@ -60,9 +67,9 @@ const orderKeySchema = z.object({
 export const pipelineSnapshotSchema = z.object({
   engine: z.unknown(),
   buffer: z.object({
-    newest: z.number().nullable(),
+    newest: savedTimeSchema.nullable(),
     lastReleased: orderKeySchema.nullable(),
-    events: z.array(z.object({ id: z.string(), time: z.number() })),
+    events: z.array(z.object({ id: z.string(), time: savedTimeSchema })),
   }),
 });
 export type PipelineSnapshot = z.infer<typeof pipelineSnapshotSchema>;
