@@ -15,6 +15,8 @@ export default mergeConfig(
       environment: 'jsdom',
       setupFiles: ['./test/setup.ts'],
       include: ['test/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
+      // Room for the longer waits of test/setup.ts; the default is five seconds.
+      testTimeout: 20_000,
       // Without this, CSS imports (also `?raw`) are empty; test/theme.test.ts reads the tokens.
       css: { include: [/index\.css/] },
     },
