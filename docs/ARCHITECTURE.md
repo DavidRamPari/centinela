@@ -43,7 +43,7 @@ flowchart LR
 ```text
 centinela/
   CLAUDE.md                    instructions for Claude sessions
-  docs/                        PLAN, ARCHITECTURE, DECISIONS, DETECTION, THREAT_MODEL, SECURITY
+  docs/                        ROADMAP, PLAN, ARCHITECTURE, DECISIONS, DETECTION, THREAT_MODEL, SECURITY
   data/mitre-attack/           compact ATT&CK tactics and techniques (from mitre/cti)
   rules/
     sigma/                     vendored SigmaHQ subset (DRL 1.1) + regression samples
@@ -722,3 +722,163 @@ Tests never call external networks. Database tests use a throwaway schema.
 | `RATE_LIMIT_INGEST_PER_MINUTE`, `RATE_LIMIT_UPLOAD_PER_MINUTE`, `RATE_LIMIT_AUTH_PER_MINUTE` | `120`, `30`, `30` | per client IP (S1's constants, moved to configuration in S6) |
 | `VITE_USE_MOCKS` | `false` | web: use MSW instead of the API |
 | `VITE_PUBLIC_URL` | empty | web build: public origin of the dashboard for link previews (S7b-18); empty leaves the card tags out |
+
+## 16. Phase 1 contracts (version 0.2)
+
+**Status: planned.** This section is the contract for sessions S11 to S17 ([PLAN.md](PLAN.md), [ROADMAP.md](ROADMAP.md)). Nothing in it exists when S10 merges. The session that builds a part moves it into the sections above (§2.3, §3, §4, §6, §8, §9, §12, §15) and removes it from here, so this section empties as phase 1 closes. A session may change a detail when building shows it is wrong: it records the change in its decision file and updates this section in the same pull request.
+
+### 16.1 Organizations (`tenant_id`)
+
+Centinela has one organization until S38. The column arrives early because adding it late means migrating every table and reviewing every query.
+
+- S12 creates `tenants (id uuid PRIMARY KEY, slug text NOT NULL UNIQUE, name text NOT NULL, created_at timestamptz NOT NULL DEFAULT now())` with one row, the default organization: id `00000000-0000-7000-8000-000000000001`, slug `default`. `packages/shared` exports the id as `DEFAULT_TENANT_ID`.
+- Every table created from S12 on has `tenant_id uuid NOT NULL DEFAULT '00000000-0000-7000-8000-000000000001' REFERENCES tenants (id)`, and its unique keys start with it.
+- S19 adds the column to the tables that exist today (`events`, `alerts`, `alert_events`, `rule_state`, `ingest_tokens`, `audit_log`, `admin_sessions`) when it rebuilds `events` for partitioning.
+- Until S38 no code path reads or writes another organization. `tenant_id` is a column, not yet a security boundary; nothing may present it as one.
+
+### 16.2 Ingest v2 (S11)
+
+The endpoint stays `POST /api/ingest` with `source`, `host` and `tz`; one request carries one source and one host. S12 adds `ack` (§16.4).
+
+**Parser input kind.** `Parser` gains `readonly input: 'line' | 'object'`: `line` for `linux_auth`, `nginx_access` and `apache_access`, `object` for `sysmon` and every later source whose events are JSON objects. It decides how an `application/x-ndjson` line becomes the parser's input (this replaces the rule in `ingest/body.ts`):
+
+| JSON value | `line` source | `object` source |
+| --- | --- | --- |
+| a string | the string | the string (the parser reads JSON from it) |
+| an object | its string `message`; without one the line is rejected (`no message in object`) | the object's JSON text, whatever keys it has |
+| anything else, or not JSON | rejected (`invalid NDJSON line`) | rejected (`invalid NDJSON line`) |
+
+This closes S5-09: an event that a shipper sends with a `message` key (Winlogbeat does) still reaches an `object` parser whole. Reading the shapes shippers give to Windows events is the Windows parser's job (§16.6).
+
+**Compression.** `Content-Encoding: gzip` is accepted; any other encoding is `415`. The 5 MB limit applies to the decoded body, and a body that inflates past it is refused with `413` without buffering more than the limit.
+
+**Scoped tokens.** `ingest_tokens` gains `allowed_sources text[] NOT NULL DEFAULT '{}'` and `allowed_hosts text[] NOT NULL DEFAULT '{}'`. An empty list allows everything, so existing tokens keep working.
+
+- `allowed_sources` holds source types. `allowed_hosts` holds host names, compared without regard to case; an entry may end in `*` to allow a prefix. No other pattern syntax: nothing a user types is ever compiled as a regex.
+- A request whose `source` or `host` is outside the token's lists is `403` problem+json, before the body is read.
+- A line that names its own host (a syslog header, a `Computer` field) is rejected with `host not allowed for this token` when that host is outside `allowed_hosts`. The scope covers what the events say, not only what the request says.
+- `POST /api/tokens` accepts `sources` and `hosts`; `IngestToken` carries them; creating a token records its scope in the audit log. The `INGEST_TOKEN` variable stays unscoped.
+- `verifyIngestToken` returns the token (id and scope) instead of a boolean, so the pipeline knows who delivered each batch (§16.3).
+
+This narrows the residual risk "token holders write anything" in the threat model to "a token holder writes only for its sources and hosts".
+
+**Rate limits and backpressure.**
+
+- Authenticated ingest is limited per token (`RATE_LIMIT_INGEST_PER_MINUTE`); many hosts behind one address no longer share a budget. Requests without a valid token are limited per client address at `RATE_LIMIT_AUTH_PER_MINUTE`, to slow token guessing. Both answer `429` with `Retry-After`.
+- The pipeline evaluates one batch at a time, so requests queue. When more than `INGEST_MAX_PENDING` requests are waiting, the next one is refused with `503` problem+json and `Retry-After`, before its body is read. Fluent Bit retries both answers and, from version 5.2, waits for the time in `Retry-After`.
+
+**Field names.** Rules find a field without regard to ASCII case: `CommandLine` in a rule matches an event key `commandline`. A key with the exact spelling wins; otherwise the first key in the event's own order that matches. The rule applies wherever a rule names a field: detection items, `fieldref`, `group-by` and `condition.field`. S11 measures the cost with `npm run bench` and records it.
+
+### 16.3 Streams and provenance (S12)
+
+A stream is one delivery path: who sent the events, for which source and host. It gives every event a provenance and gives S14 its list of hosts.
+
+```sql
+CREATE TABLE ingest_streams (
+  id             uuid PRIMARY KEY,
+  tenant_id      uuid NOT NULL DEFAULT '00000000-0000-7000-8000-000000000001' REFERENCES tenants (id),
+  kind           text NOT NULL CHECK (kind IN ('token', 'upload', 'cli', 'collector', 'connector')),
+  token_id       uuid REFERENCES ingest_tokens (id),  -- null for INGEST_TOKEN and for kinds without a token
+  source         text NOT NULL,
+  host           text NOT NULL,                       -- the request's host (IngestContext.host)
+  first_seen_at  timestamptz NOT NULL DEFAULT now(),
+  last_seen_at   timestamptz NOT NULL DEFAULT now(),
+  last_event_ts  timestamptz,
+  accepted       bigint NOT NULL DEFAULT 0,
+  rejected       bigint NOT NULL DEFAULT 0,
+  late           bigint NOT NULL DEFAULT 0
+);
+ALTER TABLE events ADD COLUMN stream_id uuid;          -- null for events stored before S12
+```
+
+- One row per `(tenant_id, kind, token_id, source, host)` (a unique index with `NULLS NOT DISTINCT`, since `token_id` may be null), created on first use; the counters and `last_seen_at` are updated once per ingest call.
+- `IngestContext` gains `stream: { kind, tokenId: string | null }`; the HTTP router, the upload route, the CLI and later the collector and the connectors fill it in.
+- `host` is a query parameter, so a token could create rows without end: a token may own at most 1,000 streams, and the request that would create one more is `403`.
+- `events.stream_id` answers "which credential delivered this event", which is what an analyst needs after a token is found compromised.
+
+### 16.4 Ordering of live events (S12)
+
+Today the orchestrator sorts each batch and evaluates it at once, which is correct for one file at a time. With several machines sending at the same moment, batches interleave, and three things depend on the order of evaluation: which events a correlation fires on, whether a window was already cleared, and whether a match folds into an open alert (§7). The contract below makes the result independent of arrival order, within a stated bound.
+
+**Definitions.**
+
+- *Evaluation* of an event is `Detector.process` followed by `AlertSink.upsert` and publishing.
+- *Detection time* is `min(ts, receivedAt)`: an event cannot have happened after Centinela received it. The stored `ts` is never changed.
+- The *order key* is `(detection time, host, source, id)`. Events of one stream keep their arrival order, because ids are assigned in line order.
+- The *reference run* evaluates a set of events in order-key order through a fresh pipeline.
+
+**Rules.**
+
+1. Events are stored on arrival, as today, and then enter a reorder buffer (`packages/server/src/pipeline/reorder.ts`). Evaluation happens when an event leaves the buffer.
+2. `horizon` is the newest detection time seen minus `REORDER_WINDOW_SECONDS`. After each batch enters, every buffered event at or before the horizon is released, in order-key order.
+3. When no batch has arrived for `REORDER_IDLE_MS`, everything buffered is released. The wall clock decides when to stop waiting; it never enters the evaluation of a rule.
+4. The buffer holds at most `REORDER_MAX_EVENTS`; when it is full the oldest events are released early.
+5. An event that arrives with an order key before the last released one is *late*. It is evaluated on arrival, before the events its batch releases, and counted (`ingest_streams.late`, `IngestSummary.late`). Correlations treat it as §6 says: accepted up to 60 seconds behind its group's newest match, ignored beyond that.
+6. An event whose `ts` is more than `MAX_FUTURE_SKEW_SECONDS` ahead of `receivedAt` is rejected (`timestamp too far in the future`). The detector receives the detection time, never a time ahead of the server's clock.
+
+**Guarantee.** If no event of a run is late and none is released early by rule 4, the alerts are those of the reference run: the same rules, dedup keys, first and last seen times, counts and linked events. Rule 3 can only break it through late events, and those are counted, so a run can always be told to be exact or not.
+
+**Why rule 6 exists.** In version 0.1 a single event with a far-future timestamp blinds correlation in two ways, both reproduced against the engine in S10 (`docs/decisions/S10.md`, S10-04). Its group's newest time jumps ahead, so every real match of that group is more than 60 seconds late and is ignored. And the engine's watermark jumps, so the flush at the end of every later ingest request evicts the open windows of all groups: a correlation whose matches arrive in more than one request cannot fire until event time catches up or the server restarts. A host with a wrong clock does it by accident; anyone who can write one line into a log path can do it on purpose. Syslog over UDP (S16) would make that trivial, so the fix must exist before S16.
+
+**Acknowledgement.** `ack=evaluated` (the default, and the only mode of the upload route and the CLI) releases everything up to the call's newest event before answering, so the summary's alert counts are final, as today. `ack=stored` answers as soon as the events are stored; `IngestSummary.pending` is the number of accepted events not yet evaluated, and its alert counts only cover what was evaluated while the call ran. Shippers use `ack=stored`. `Pipeline` gains `drain()`, which the CLI and the demo call at the end of their input.
+
+**Interfaces.** `Detector.process(event, detectionTime?)`; `IngestSummary` gains `pending` and `late`; `IngestContext` gains `stream` (§16.3) and `ack`.
+
+### 16.5 Detector checkpoint (S12)
+
+Correlation windows and the reorder buffer live in memory (D-003). A restart must not lose them.
+
+```sql
+CREATE TABLE detector_checkpoints (
+  tenant_id      uuid NOT NULL DEFAULT '00000000-0000-7000-8000-000000000001' REFERENCES tenants (id),
+  name           text NOT NULL DEFAULT 'live',
+  position       uuid,                 -- id of the last event handed to the reorder buffer
+  state          bytea NOT NULL,       -- gzip of the JSON snapshot
+  state_version  integer NOT NULL,
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, name)
+);
+```
+
+- The snapshot holds, per correlation rule, its groups and their matches; the ids of the buffered events; the last released order key; and the newest detection time. A rule's state is keyed by its id and a fingerprint of its compiled correlation block, so state for a rule that changed or disappeared between runs is dropped.
+- The server writes the checkpoint when it shuts down cleanly and every `DETECTOR_CHECKPOINT_SECONDS` while state changes. The CLI and the demo keep their own state for the length of a run and never write one.
+- On start the server restores the snapshot, reads the buffered events back from the database, then reads every event with `id > position` whose stream is not of kind `cli`, in id order, and hands them to the buffer.
+- **Clean restart: exact.** The alerts of a run with a clean restart in the middle equal those of the same run without it.
+- **Crash: at least once.** Events evaluated after the last checkpoint are evaluated again. No stored event stays unevaluated, and a match that already raised an alert folds into that alert instead of raising a second one, but the alert's `count` may include the repeated matches of at most one checkpoint interval. S12 may tighten this to exactly once by writing the checkpoint in the alert sink's transaction, if the measurements allow it.
+- Still one evaluating process. A second server process against the same database is out of scope until phase 6.
+
+### 16.6 Sources of phase 1 (S13, S15, S16, S17)
+
+| Source type | Session | Input | Logsources (primary first) |
+| --- | --- | --- | --- |
+| `windows_event` | S13 | object | Accepts the two shapes of §4.4 and Winlogbeat's (the event under `winlog`, with `winlog.event_data`, and `@timestamp`); S14 adds Fluent Bit's from real captures. Logsources by provider and event id. Sysmon: the categories of the Sigma taxonomy for each event id (`process_creation`, `network_connection`, `image_load`, `process_access`, `file_event`, `file_delete`, `registry_event` and its `registry_add`, `registry_delete` and `registry_set`, `dns_query`, `pipe_created`, `create_remote_thread`, `driver_load`, `process_termination`), then `{product: windows, service: sysmon}`. Security: `{product: windows, service: security}`, and for event 4688 also `{product: windows, category: process_creation}` with the field names of pySigma's Windows audit pipeline. Other channels: `{product: windows, service: <channel's Sigma service>}` |
+| `sysmon` | S5 | object | Unchanged; from S13 it is `windows_event` restricted to the Sysmon provider |
+| `sysmon_linux` | S15 | line | `{product: linux, category: <as for Sysmon>}`, `{product: linux, service: sysmon}` |
+| `journald` | S15 | object | Routed by `SYSLOG_IDENTIFIER` to the logsources of §4 for `sshd`, `sudo` and the rest of auth, and to `sysmon_linux` |
+| `syslog` | S16 | line | `{product: <configured for the sender>, service: <program>}`; keyword rules apply to `message` |
+| a firewall | S16 | line | Named after the device the first pilot uses; S16 records the choice |
+| `m365_audit` | S17 | object | The logsources SigmaHQ's cloud rules use for each record type; S17 records the table |
+
+Rules for every new parser: the event's own time and host when it carries them, the `IngestContext` otherwise; keys that are not valid field names are left out of `fields`; XML is read by a small parser for the one schema it expects, with no entities and no DOCTYPE; no library that evaluates what it reads.
+
+### 16.7 Hosts and system alerts (S14)
+
+- `hosts (tenant_id, name, silent_after_seconds integer, note text, created_at, updated_at)` with primary key `(tenant_id, name)`: what an analyst states about a host. What Centinela observes comes from `ingest_streams` grouped by host: sources, first and last signal, events in the last 24 hours, and lag (`last_seen_at − last_event_ts`).
+- Status: `ok`, `silent` when `now − last_seen_at` exceeds `silent_after_seconds` (default 24 hours; null means the host comes and goes, like a laptop, and is never silent).
+- `Alert.ruleType` and `alerts.rule_type` gain `'system'`: an alert raised by one of Centinela's monitors instead of a rule. Monitors live in `packages/server/src/monitors/`, each with fixed metadata (id, title, level, description in English and Spanish). The first is `centinela-host-silent`, one alert per host, with dedup key `centinela-host-silent|<host>`.
+- A monitor watches Centinela's own inputs, not events, so it runs on the wall clock. It is outside the detection engine and outside the determinism guarantee, and is tested with an injected clock.
+- The Fluent Bit configuration is produced by one pure function from validated options (operating system, sources, host name, server URL, token) and covered by snapshot tests. Host names and URLs are checked against an allowlist of characters before they reach the file.
+
+### 16.8 Configuration added in phase 1
+
+| Variable | Default | Session | Notes |
+| --- | --- | --- | --- |
+| `INGEST_MAX_PENDING` | `16` | S11 | ingest requests that may wait before `503` |
+| `REORDER_WINDOW_SECONDS` | `10` | S12 | must exceed the shippers' flush interval plus clock differences between hosts; `0` evaluates on arrival |
+| `REORDER_IDLE_MS` | `5000` | S12 | must exceed the shippers' flush interval |
+| `REORDER_MAX_EVENTS` | `100000` | S12 | bound on buffered events |
+| `MAX_FUTURE_SKEW_SECONDS` | `86400` | S12 | the same day of tolerance RFC 3164 timestamps already have (§4.1) |
+| `DETECTOR_CHECKPOINT_SECONDS` | `15` | S12 | |
+| `CONNECTOR_SECRET_KEY` | none | S17 | 32 bytes, base64; encrypts connector credentials; connectors refuse to run without it |
+
+`RATE_LIMIT_INGEST_PER_MINUTE` keeps its name and default and becomes per token (S11).
