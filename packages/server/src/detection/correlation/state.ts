@@ -10,6 +10,7 @@
  * timespan.
  */
 import { MAX_ALERT_EVENTS } from '@centinela/shared';
+import type { GroupSnapshot } from '../snapshot.js';
 import type { CompiledCorrelation } from '../types.js';
 import { meetsThreshold } from './settings.js';
 
@@ -120,6 +121,47 @@ export class CorrelationState {
 
   clear(): void {
     this.groups.clear();
+  }
+
+  /** The live groups as plain data, in creation order (see `detection/snapshot.ts`). */
+  export(): GroupSnapshot[] {
+    return [...this.groups.values()].map((group) => ({
+      values: [...group.values],
+      newest: group.newest,
+      entries: group.entries.map((entry) => ({
+        ruleId: entry.ruleId,
+        time: entry.time,
+        ...(entry.value !== undefined && { value: entry.value }),
+        events: entry.events.map((event) => ({ ...event })),
+      })),
+    }));
+  }
+
+  /**
+   * Replace the groups with saved ones. The bounds on groups and on matches per group
+   * hold whatever the snapshot says (the newest are kept), and groups that do not have
+   * one value per `group-by` field or have no matches are skipped.
+   */
+  import(groups: readonly GroupSnapshot[]): void {
+    this.groups.clear();
+    const kept = groups.slice(-MAX_GROUPS_PER_CORRELATION);
+    for (const saved of kept) {
+      if (saved.values.length !== this.rule.groupBy.length || saved.entries.length === 0) continue;
+      const entries: Entry[] = saved.entries
+        .slice(-MAX_ENTRIES_PER_GROUP)
+        .map((entry) => ({
+          ruleId: entry.ruleId,
+          time: entry.time,
+          value: entry.value,
+          events: entry.events.map((event) => ({ ...event })),
+        }))
+        .sort((a, b) => a.time - b.time);
+      this.groups.set(JSON.stringify(saved.values), {
+        values: [...saved.values],
+        newest: saved.newest,
+        entries,
+      });
+    }
   }
 
   add(match: CorrelationMatch): CorrelationFiring | null {
