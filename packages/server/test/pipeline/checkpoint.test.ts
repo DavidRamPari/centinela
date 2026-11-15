@@ -3,6 +3,7 @@
  * a crash loses nothing, and a saved state that cannot be trusted is not used.
  */
 import { DEFAULT_SEED, DEFAULT_START, generate, type GenerationResult } from '@centinela/loggen';
+import type { NormalizedEvent } from '@centinela/shared';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { SNAPSHOT_VERSION } from '../../src/pipeline/orchestrator.js';
 import type { Checkpoint, EventReader } from '../../src/pipeline/types.js';
@@ -359,6 +360,85 @@ describe('detector checkpoint', () => {
     await second.pipeline.drain();
     expect(outcomes(second.sink)).toEqual(uninterrupted);
   }, 120_000);
+
+  it.each([
+    ['is used', (saved: Checkpoint) => saved],
+    ['is of another version', (saved: Checkpoint) => ({ ...saved, version: SNAPSHOT_VERSION + 1 })],
+  ])(
+    'a restore that fails while it reads the events stored after the checkpoint leaves nothing behind (the saved state %s)',
+    async (_, tamper) => {
+      const ATTACKER = '203.0.113.45';
+      const failures = (from: number, to: number): StreamBatch => ({
+        stream: 'bastion-01/auth',
+        host: 'bastion-01',
+        source: 'linux_auth',
+        lines: Array.from(
+          { length: to - from },
+          (_line, i) =>
+            `2026-10-25T11:00:0${from + i}Z bastion-01 sshd[4242]: Failed password for root from ${ATTACKER} port 50022 ssh2`,
+        ),
+        fromMs: 0,
+        toMs: 0,
+      });
+      const newId = sequentialIds();
+      const checkpoints = memoryCheckpoints();
+      const stored: NormalizedEvent[] = [];
+      const reader = (): EventReader => memoryReader(stored);
+      const first = createLiveRun({
+        reorder: WINDOW,
+        newId,
+        checkpoints,
+        eventReader: {
+          byIds: (ids) => reader().byIds(ids),
+          after: (position, limit) => reader().after(position, limit),
+          newestId: () => reader().newestId(),
+        },
+        eventStore: {
+          insertMany(events) {
+            stored.push(...events);
+            return Promise.resolve();
+          },
+        },
+      });
+      // The first start marks its place; six failures are stored after it, one per
+      // request, and the server dies before the next checkpoint.
+      await first.pipeline.restore();
+      for (let i = 0; i < 6; i += 1) await first.deliver(failures(i, i + 1), 'evaluated');
+      first.pipeline.stop();
+      checkpoints.saved = JSON.stringify(
+        tamper(JSON.parse(checkpoints.saved ?? 'null') as Checkpoint),
+      );
+
+      // The second page of the replay fails once, as a database that went away would.
+      let pages = 0;
+      const flaky: EventReader = {
+        ...reader(),
+        after(position) {
+          pages += 1;
+          if (pages === 2) return Promise.reject(new Error('connection terminated unexpectedly'));
+          return reader().after(position, 4);
+        },
+      };
+      const second = createLiveRun({
+        reorder: WINDOW,
+        newId,
+        checkpoints,
+        eventReader: flaky,
+        continueFrom: first,
+      });
+      await expect(second.pipeline.restore()).rejects.toThrow('connection terminated unexpectedly');
+      expect(second.pipeline.stats().buffered).toBe(0);
+
+      expect(await second.pipeline.restore()).toMatchObject({ replayed: 6 });
+      // Six events wait, not the four of the failed attempt and six more.
+      expect(second.pipeline.stats().buffered).toBe(6);
+      // Nine failures in all: one short of the brute-force rule's ten.
+      await second.deliver(failures(6, 9), 'evaluated');
+      await second.pipeline.drain();
+      expect(second.pipeline.stats().evaluated).toBe(9);
+      expect(second.sink.list().map((alert) => alert.ruleTitle)).toEqual([]);
+    },
+  );
 
   it('ingest waits for the restore: a request that arrives first is evaluated against the restored state', async () => {
     const { restart } = await savedMidRun();

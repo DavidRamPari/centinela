@@ -434,6 +434,19 @@ export function createOrchestrator(
   }
 
   let restoring: Promise<RestoreSummary> | undefined;
+  /** The detector's state before anything was restored into it. */
+  let pristine: unknown;
+
+  /**
+   * Forget what a restore that failed half way left behind. The next attempt reads the
+   * same checkpoint and the same events again; on top of what this one already put into
+   * the buffer and the detector, they would be evaluated twice.
+   */
+  function forgetRestore(): void {
+    buffer.restore({ newest: null, lastReleased: null, items: [] });
+    evaluatedNewest = undefined;
+    if (pristine !== undefined && pristine !== null) detector.restore?.(pristine);
+  }
 
   async function loadCheckpoint(): Promise<RestoreSummary> {
     const summary: RestoreSummary = {
@@ -443,6 +456,7 @@ export function createOrchestrator(
       replayed: 0,
     };
     if (!checkpoints || !eventReader) return summary;
+    pristine ??= detector.snapshot?.();
     const saved = await checkpoints.load();
     if (saved === null) {
       // First start on this database: everything already stored was evaluated by whoever
@@ -530,8 +544,9 @@ export function createOrchestrator(
   /** Runs inside a queued task. */
   function restoreOnce(): Promise<RestoreSummary> {
     restoring ??= loadCheckpoint().catch((err: unknown) => {
-      // Let the next call try again (the database may have been down).
+      // Let the next call try again (the database may have been down), from a clean start.
       restoring = undefined;
+      forgetRestore();
       throw err;
     });
     return restoring;
