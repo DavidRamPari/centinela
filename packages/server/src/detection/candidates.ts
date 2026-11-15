@@ -18,10 +18,14 @@ const MAX_ENTITIES = 100;
 
 export const DEDUP_ENTITY_FIELDS = ['source.ip', 'user.name', 'Image'] as const;
 
-export function eventRef(event: NormalizedEvent, time: number): EventRef {
+/**
+ * `time` is the detection time (ARCHITECTURE §6.2) and `ts` its ISO form: the event's own
+ * `ts` unless the pipeline clamped a timestamp from the future.
+ */
+export function eventRef(event: NormalizedEvent, time: number, ts: string = event.ts): EventRef {
   return {
     id: event.id,
-    ts: event.ts,
+    ts,
     time,
     host: event.host,
     ...(event.srcIp !== undefined && { ip: event.srcIp }),
@@ -62,8 +66,8 @@ export function sigmaCandidate(
     dedupKey: `${rule.meta.id}|${event.host}|${entity}`,
     groupKey: null,
     eventIds: [event.id],
-    firstSeen: event.ts,
-    lastSeen: event.ts,
+    firstSeen: ref.ts,
+    lastSeen: ref.ts,
     host: event.host,
     entities: entitiesOf([ref]),
   };

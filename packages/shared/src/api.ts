@@ -134,6 +134,9 @@ function isIanaTimeZone(zone: string): boolean {
   }
 }
 
+export const INGEST_ACK_MODES = ['evaluated', 'stored'] as const;
+export type IngestAck = (typeof INGEST_ACK_MODES)[number];
+
 export const ingestQuerySchema = z.object({
   source: sourceTypeSchema,
   /** Default host for lines that do not carry one (web access logs). */
@@ -150,8 +153,18 @@ export const ingestQuerySchema = z.object({
     .max(64)
     .refine(isIanaTimeZone, { message: 'unknown IANA time zone' })
     .default('UTC'),
+  /**
+   * When the answer is sent (ARCHITECTURE §2.3): `evaluated` waits until the request's
+   * events went through detection, so the alert counts are final; `stored` answers once
+   * the events are stored and leaves detection to the reorder buffer (for shippers).
+   */
+  ack: z.enum(INGEST_ACK_MODES).default('evaluated'),
 });
 export type IngestQuery = z.infer<typeof ingestQuerySchema>;
+
+/** Uploads and the command line always wait for detection, so they take no `ack`. */
+export const uploadQuerySchema = ingestQuerySchema.omit({ ack: true });
+export type UploadQuery = z.infer<typeof uploadQuerySchema>;
 
 export const ingestSummarySchema = z.object({
   accepted: z.number().int().min(0),
@@ -161,6 +174,10 @@ export const ingestSummarySchema = z.object({
   alertsCreated: z.number().int().min(0),
   alertsUpdated: z.number().int().min(0),
   durationMs: z.number().min(0),
+  /** Accepted events that had not been evaluated when the answer was written (`ack=stored`). */
+  pending: z.number().int().min(0).default(0),
+  /** Accepted events that arrived behind events already evaluated (ARCHITECTURE §6.2). */
+  late: z.number().int().min(0).default(0),
 });
 export type IngestSummary = z.infer<typeof ingestSummarySchema>;
 

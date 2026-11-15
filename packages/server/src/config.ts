@@ -122,6 +122,11 @@ const envSchema = z
     LOGIN_LOCKOUT_MINUTES: intVar(1, 1_440, 15),
     SESSION_IDLE_MINUTES: intVar(1, 10_080, 120),
     SESSION_MAX_HOURS: intVar(1, 168, 12),
+    REORDER_WINDOW_SECONDS: intVar(0, 3_600, 10),
+    REORDER_IDLE_MS: intVar(100, 600_000, 5_000),
+    REORDER_MAX_EVENTS: intVar(1_000, 5_000_000, 100_000),
+    MAX_FUTURE_SKEW_SECONDS: intVar(0, 604_800, 86_400),
+    DETECTOR_CHECKPOINT_SECONDS: intVar(1, 3_600, 15),
   })
   .superRefine((env, ctx) => {
     if (env.SESSION_IDLE_MINUTES > env.SESSION_MAX_HOURS * 60) {
@@ -235,6 +240,18 @@ export interface Config {
   login: { maxFailures: number; lockoutMs: number };
   /** Sessions end after `idleMs` without requests, and at the latest after `maxAgeMs`. */
   session: { idleMs: number; maxAgeMs: number };
+  /** Ordering of live events and the detector checkpoint (ARCHITECTURE §6.2, §6.3). */
+  detection: {
+    /** How far behind the newest event the reorder buffer waits before evaluating. */
+    reorderWindowMs: number;
+    /** With no new batch for this long, everything buffered is evaluated. */
+    reorderIdleMs: number;
+    reorderMaxEvents: number;
+    /** Events dated further ahead of the receive time than this are rejected. */
+    maxFutureSkewMs: number;
+    /** How often the detector's state is saved while it changes. */
+    checkpointMs: number;
+  };
 }
 
 const MINUTE_MS = 60_000;
@@ -290,6 +307,13 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     session: {
       idleMs: parsed.SESSION_IDLE_MINUTES * MINUTE_MS,
       maxAgeMs: parsed.SESSION_MAX_HOURS * 60 * MINUTE_MS,
+    },
+    detection: {
+      reorderWindowMs: parsed.REORDER_WINDOW_SECONDS * 1000,
+      reorderIdleMs: parsed.REORDER_IDLE_MS,
+      reorderMaxEvents: parsed.REORDER_MAX_EVENTS,
+      maxFutureSkewMs: parsed.MAX_FUTURE_SKEW_SECONDS * 1000,
+      checkpointMs: parsed.DETECTOR_CHECKPOINT_SECONDS * 1000,
     },
   };
 }

@@ -183,7 +183,6 @@ Limitaciones conocidas, tomadas de los registros de decisiones de cada sesión:
 - **Los usuarios de Windows** aparecen sin su dominio en la tabla de alertas; la página de la alerta muestra `DOMINIO\nombre` ([S7b-15](docs/decisions/S7b.md)).
 - **Firefox** no se revisó; Chromium y WebKit sí ([S7b-18](docs/decisions/S7b.md)).
 - Una sola cuenta de administrador sin segundo factor, y el estado de detección en un solo proceso ([modelo de amenazas](docs/THREAT_MODEL.md#residual-risks)).
-- **Una marca de tiempo del futuro** deja ciega a la correlación: un solo evento con fecha muy adelantada silencia su propio grupo y hace que cada solicitud posterior borre las ventanas abiertas de todos los grupos, hasta que el tiempo de los eventos la alcanza o el servidor se reinicia ([S10-04](docs/decisions/S10.md)). Las reglas de un solo evento no se ven afectadas.
 
 Próximos pasos: la [hoja de ruta](docs/ROADMAP.md) es el camino a la versión 1.0. Empieza por la ingesta real: eventos enviados por Fluent Bit, syslog y Microsoft 365, detección con eventos que llegan desordenados, y el registro de seguridad de Windows.
 

@@ -24,6 +24,7 @@ import {
   rulesQuerySchema,
   statsOverviewQuerySchema,
   statsOverviewResponseSchema,
+  uploadQuerySchema,
   uuidParamsSchema,
 } from '../src/index.js';
 import { validAlert, validEvent, validRule } from './fixtures.js';
@@ -305,7 +306,38 @@ describe('query coercion', () => {
       source: 'linux_auth',
       host: 'unknown',
       tz: 'UTC',
+      ack: 'evaluated',
     });
+    expect(ingestQuerySchema.parse({ source: 'linux_auth', ack: 'stored' }).ack).toBe('stored');
+    expect(ingestQuerySchema.safeParse({ source: 'linux_auth', ack: 'later' }).success).toBe(false);
+    // Uploads and the command line take no `ack`: what the dashboard sends does not change.
+    expect(uploadQuerySchema.parse({ source: 'linux_auth', ack: 'stored' })).toEqual({
+      source: 'linux_auth',
+      host: 'unknown',
+      tz: 'UTC',
+    });
+    // A summary written before `pending` and `late` existed still parses.
+    expect(
+      ingestSummarySchema.parse({
+        accepted: 1,
+        rejected: 0,
+        rejections: [],
+        alertsCreated: 0,
+        alertsUpdated: 0,
+        durationMs: 1,
+      }),
+    ).toMatchObject({ pending: 0, late: 0 });
+    expect(
+      ingestSummarySchema.safeParse({
+        accepted: 1,
+        rejected: 0,
+        rejections: [],
+        alertsCreated: 0,
+        alertsUpdated: 0,
+        durationMs: 1,
+        pending: -1,
+      }).success,
+    ).toBe(false);
     expect(rulesQuerySchema.parse({ supported: 'false' }).supported).toBe(false);
     expect(statsOverviewQuerySchema.parse({}).bucket).toBe('1h');
   });

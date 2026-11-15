@@ -1,8 +1,9 @@
 /**
  * PostgreSQL `EventStore` (ARCHITECTURE §2.3, §8). Events are written with one
  * `INSERT ... SELECT FROM unnest(...)` statement per chunk of at most 1,000 events: one
- * round trip per chunk, a fixed number of parameters (one array per column) whatever the
- * chunk size, and no SQL built from event content.
+ * round trip per chunk, a fixed number of parameters (one array per column, plus the
+ * stream that delivered the chunk) whatever the chunk size, and no SQL built from event
+ * content.
  */
 import type { NormalizedEvent } from '@centinela/shared';
 import type { Pool } from 'pg';
@@ -14,12 +15,12 @@ export const INSERT_CHUNK_SIZE = 1000;
 const INSERT_EVENTS = `
 INSERT INTO events (
   id, ts, ingested_at, source, host, category, action, outcome,
-  user_name, src_ip, src_port, message, fields
+  user_name, src_ip, src_port, message, fields, stream_id
 )
-SELECT * FROM unnest(
+SELECT u.*, $14::uuid FROM unnest(
   $1::uuid[], $2::timestamptz[], $3::timestamptz[], $4::text[], $5::text[], $6::text[],
   $7::text[], $8::text[], $9::text[], $10::inet[], $11::integer[], $12::text[], $13::jsonb[]
-)`;
+) AS u`;
 
 /** Column arrays for one chunk, in the order of the `unnest` parameters. */
 export function toColumns(events: readonly NormalizedEvent[]): unknown[][] {
@@ -49,12 +50,13 @@ export function toColumns(events: readonly NormalizedEvent[]): unknown[][] {
 
 export function createEventStore(pool?: Pool): EventStore {
   return {
-    async insertMany(events) {
+    async insertMany(events, meta) {
       if (events.length === 0) return;
       if (!pool) throw new Error('event store: no database pool configured');
+      const streamId = meta?.streamId ?? null;
       for (let start = 0; start < events.length; start += INSERT_CHUNK_SIZE) {
         const chunk = events.slice(start, start + INSERT_CHUNK_SIZE);
-        await pool.query(INSERT_EVENTS, toColumns(chunk));
+        await pool.query(INSERT_EVENTS, [...toColumns(chunk), streamId]);
       }
     },
   };

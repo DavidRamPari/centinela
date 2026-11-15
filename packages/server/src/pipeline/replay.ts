@@ -1,7 +1,10 @@
 /**
  * Replay log files through a pipeline, one file per `ingest` call (as `npm run ingest`
- * does). Each file must be in time order; correlation state is per group, so files from
- * different hosts can follow each other. Used by `npm run demo` and the end-to-end test.
+ * does). Each call waits for its events to be evaluated, so a file that covers a time the
+ * previous file already passed arrives late (ARCHITECTURE §6.2) and is evaluated in its
+ * own order: each file must be in time order, and correlation state is per group, so
+ * files from different hosts can follow each other. Used by `npm run demo` and the
+ * end-to-end test.
  */
 import type { SourceType } from '@centinela/shared';
 import type { Pipeline } from './orchestrator.js';
@@ -43,6 +46,7 @@ export async function replayFiles(
       host: file.host,
       timezone: 'UTC',
       receivedAt,
+      stream: { kind: 'cli', tokenId: null },
     });
     result.files.push({ path: file.path, summary });
     result.accepted += summary.accepted;
@@ -51,5 +55,6 @@ export async function replayFiles(
     result.alertsUpdated += summary.alertsUpdated;
     result.durationMs += summary.durationMs;
   }
+  await pipeline.drain();
   return result;
 }

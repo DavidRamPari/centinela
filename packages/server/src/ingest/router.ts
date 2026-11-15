@@ -3,7 +3,8 @@
  *
  * - `POST /api/ingest`: for agents and scripts. Bearer token (`INGEST_TOKEN`, compared in
  *   constant time, or an active token created in the dashboard), body `text/plain` lines or
- *   `application/x-ndjson`, at most 5 MB.
+ *   `application/x-ndjson`, at most 5 MB. `ack=stored` answers once the events are stored
+ *   and leaves their evaluation to the reorder buffer (ARCHITECTURE §6.2).
  * - `POST /api/ingest/upload`: file upload from the dashboard, same pipeline and limits,
  *   behind the dashboard session and its CSRF token (S6), in every environment.
  *
@@ -19,7 +20,7 @@ import type { Auth } from '../auth/index.js';
 import type { AppDeps } from '../deps.js';
 import { HttpError } from '../http/problem.js';
 import { validate } from '../http/validate.js';
-import type { IngestSummary } from '../pipeline/types.js';
+import { StreamLimitError, type IngestSummary, type StreamKind } from '../pipeline/types.js';
 import { MAX_REJECTION_SAMPLES } from '../pipeline/orchestrator.js';
 import { clientIp } from '../security/client-ip.js';
 import { createRateLimiter } from '../security/rate-limit.js';
@@ -60,17 +61,29 @@ const textBody = express.text({
 
 type AfterIngest = (req: Request, res: Response, summary: IngestSummary) => Promise<void>;
 
-function runPipeline(deps: AppDeps, after?: AfterIngest): RequestHandler {
+/**
+ * `kind` says who delivers (ARCHITECTURE §8.1). Uploads always answer with final counts;
+ * a shipper may ask for `ack=stored`.
+ */
+function runPipeline(deps: AppDeps, kind: StreamKind, after?: AfterIngest): RequestHandler {
   return async (req, res) => {
     const { query, format } = res.locals.ingest as IngestLocals;
     const body: unknown = req.body;
     const decoded = decodeBody(typeof body === 'string' ? body : '', format);
-    const summary = await deps.pipeline.ingest(decoded.lines, {
-      source: query.source,
-      host: query.host,
-      timezone: query.tz,
-      receivedAt: new Date(),
-    });
+    let summary: IngestSummary;
+    try {
+      summary = await deps.pipeline.ingest(decoded.lines, {
+        source: query.source,
+        host: query.host,
+        timezone: query.tz,
+        receivedAt: new Date(),
+        stream: { kind, tokenId: null },
+        ack: kind === 'upload' ? 'evaluated' : query.ack,
+      });
+    } catch (err) {
+      if (err instanceof StreamLimitError) throw new HttpError(403, err.message);
+      throw err;
+    }
     const merged = mergeRejections(summary, decoded.rejections, MAX_REJECTION_SAMPLES);
     await after?.(req, res, merged);
     res.json(merged);
@@ -107,7 +120,7 @@ export function createIngestRouter(
     requireBearerToken(auth.verifyIngestToken),
     checkRequest,
     textBody,
-    runPipeline(deps),
+    runPipeline(deps, 'token'),
   );
   router.post(
     '/ingest/upload',
@@ -116,7 +129,7 @@ export function createIngestRouter(
     auth.requireCsrf,
     checkRequest,
     textBody,
-    runPipeline(deps, auditUpload(deps)),
+    runPipeline(deps, 'upload', auditUpload(deps)),
   );
   return router;
 }

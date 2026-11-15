@@ -344,6 +344,30 @@ describe('state', () => {
     expect(state.groupCount).toBe(0);
   });
 
+  it('counts the timespan of a late match from the clock it was evaluated at', () => {
+    const correlation = ruleSet.correlations.find((c) => c.meta.name === 'brute');
+    if (!correlation) throw new Error('missing');
+    const state = new CorrelationState(correlation);
+    const match = (time: number) => ({
+      ruleId: idOf('fail'),
+      time,
+      value: (field: string) => ({ 'source.ip': '203.0.113.1', 'host.name': 'h' })[field],
+      events: [{ id: `e-${time}`, ts: new Date(time).toISOString(), time, host: 'h' }],
+    });
+    const clock = 3_600_000; // the detector is an hour ahead of this machine's events
+    state.add(match(0), clock);
+    // Counted from the match's own time the group would be gone at once.
+    state.evict(clock);
+    state.evict(clock + correlation.timespanMs);
+    expect(state.groupCount).toBe(1);
+    // Its next match, a second later by its own clock, finds the window open.
+    state.add(match(1_000), clock + 60_000);
+    expect(state.export()[0]).toMatchObject({ newest: 1_000, seen: clock + 60_000 });
+    expect(state.export()[0]?.entries).toHaveLength(2);
+    state.evict(clock + 60_000 + correlation.timespanMs + 1);
+    expect(state.groupCount).toBe(0);
+  });
+
   it('the engine sweeps expired groups as event time advances and on flush', () => {
     const engine = createEngine(ruleSet);
     for (let i = 0; i < 5; i += 1) engine.process(failed(i));

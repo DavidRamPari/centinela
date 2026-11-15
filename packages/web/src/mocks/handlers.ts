@@ -113,6 +113,8 @@ export function mockIngest(source: string, text: string): IngestSummary {
     alertsCreated: 0,
     alertsUpdated: 0,
     durationMs: Math.round((performance.now() - started) * 100) / 100,
+    pending: 0,
+    late: 0,
   };
 }
 

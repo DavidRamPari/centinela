@@ -3,13 +3,16 @@
  * logsources, emits a candidate per match (except for building blocks), feeds matches to
  * the correlations that reference the rule, and feeds correlation firings to the
  * correlations that chain on them. Everything is driven by event time; the same events in
- * the same order always produce the same candidates in the same order.
+ * the same order always produce the same candidates in the same order. The engine never
+ * reads a clock: the pipeline passes each event's detection time (ARCHITECTURE §6.2), which
+ * is the event's own time unless that lies in the future.
  */
 import type { NormalizedEvent, RuleMeta } from '@centinela/shared';
 import type { AlertCandidate, Detector } from '../pipeline/types.js';
 import { correlationCandidate, eventRef, sigmaCandidate } from './candidates.js';
 import { CorrelationState, type CorrelationMatch } from './correlation/state.js';
 import { EventView } from './event-view.js';
+import { correlationFingerprint, engineSnapshotSchema, type EngineSnapshot } from './snapshot.js';
 import { buildRulePlan, selectRules, type RulePlan } from './prefilter.js';
 import type { RuleSet } from './rules/ruleset.js';
 import type { CompiledCorrelation, CompiledSigmaRule } from './types.js';
@@ -25,6 +28,14 @@ export interface DetectionEngine extends Detector {
   setRuleEnabled(id: string, enabled: boolean): boolean;
   /** Newest event time seen (epoch ms), or null before the first event. */
   readonly watermark: number | null;
+  /** The correlation windows and the watermark as plain data (ARCHITECTURE §6.3). */
+  snapshot(): EngineSnapshot;
+  /**
+   * Replace the correlation state with a snapshot. State saved for a rule that no longer
+   * exists, or whose correlation block changed, is dropped. Throws on a malformed snapshot
+   * and then leaves the engine as it was.
+   */
+  restore(snapshot: unknown): { restored: number; dropped: number };
 }
 
 export interface EngineOptions {
@@ -69,7 +80,7 @@ export function createEngine(ruleSet: RuleSet, options: EngineOptions = {}): Det
   ): void {
     for (const correlation of consumers) {
       if (!isEnabled(correlation.meta)) continue;
-      const firing = states.get(correlation)?.add(match);
+      const firing = states.get(correlation)?.add(match, watermark ?? match.time);
       if (!firing) continue;
       out.push(correlationCandidate(firing));
       if (correlation.consumers.length > 0) {
@@ -93,12 +104,13 @@ export function createEngine(ruleSet: RuleSet, options: EngineOptions = {}): Det
       return watermark;
     },
 
-    process(event: NormalizedEvent): AlertCandidate[] {
-      const time = Date.parse(event.ts);
+    process(event: NormalizedEvent, detectionTime?: number): AlertCandidate[] {
+      const own = Date.parse(event.ts);
+      const time = detectionTime ?? own;
       if (Number.isNaN(time)) return [];
       advance(time);
       const view = new EventView(event, ruleSet.memoSlots);
-      const ref = eventRef(event, time);
+      const ref = eventRef(event, time, time === own ? event.ts : new Date(time).toISOString());
       const out: AlertCandidate[] = [];
       for (const rule of rulesFor(view, ruleSet.router.route(event.logsources))) {
         if (!isEnabled(rule.meta) || !rule.detection.matches(view)) continue;
@@ -123,6 +135,40 @@ export function createEngine(ruleSet: RuleSet, options: EngineOptions = {}): Det
       }
       // Conditions are evaluated on every match, so nothing is ever pending.
       return [];
+    },
+
+    snapshot(): EngineSnapshot {
+      return {
+        watermark,
+        lastSweep: Number.isFinite(lastSweep) ? lastSweep : null,
+        correlations: [...states.values()]
+          .filter((state) => state.groupCount > 0)
+          .map((state) => ({
+            id: state.rule.meta.id,
+            fingerprint: correlationFingerprint(state.rule),
+            groups: state.export(),
+          })),
+      };
+    },
+
+    restore(snapshot: unknown) {
+      const saved = engineSnapshotSchema.parse(snapshot);
+      const byId = new Map([...states.values()].map((state) => [state.rule.meta.id, state]));
+      for (const state of states.values()) state.clear();
+      let restored = 0;
+      let dropped = 0;
+      for (const correlation of saved.correlations) {
+        const state = byId.get(correlation.id);
+        if (state && correlationFingerprint(state.rule) === correlation.fingerprint) {
+          state.import(correlation.groups);
+          restored += 1;
+        } else {
+          dropped += 1;
+        }
+      }
+      watermark = saved.watermark;
+      lastSweep = saved.lastSweep ?? Number.NEGATIVE_INFINITY;
+      return { restored, dropped };
     },
 
     rules() {

@@ -52,8 +52,10 @@ export function createDetector(options: DetectorOptions): DetectionEngine {
     get watermark() {
       return get().watermark;
     },
-    process: (event) => get().process(event),
+    process: (event, detectionTime) => get().process(event, detectionTime),
     flush: (watermark) => get().flush(watermark),
+    snapshot: () => get().snapshot(),
+    restore: (snapshot) => get().restore(snapshot),
     rules: () => get().rules(),
     setRuleEnabled: (id, enabled) => get().setRuleEnabled(id, enabled),
   };

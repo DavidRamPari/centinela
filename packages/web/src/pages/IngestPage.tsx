@@ -1,6 +1,6 @@
 import {
   SOURCE_TYPES,
-  ingestQuerySchema,
+  uploadQuerySchema,
   type IngestSummary,
   type SourceType,
 } from '@centinela/shared';
@@ -78,7 +78,7 @@ function UploadCard({ onUploaded }: { onUploaded: (record: UploadRecord) => void
       setFormError(t('ingest.errors.tooLarge'));
       return;
     }
-    const query = ingestQuerySchema.safeParse({ source, host, tz });
+    const query = uploadQuerySchema.safeParse({ source, host, tz });
     if (!query.success) {
       const field = String(query.error.issues[0]?.path[0] ?? '');
       setFormError(field === 'tz' ? t('ingest.errors.tz') : t('ingest.errors.host'));

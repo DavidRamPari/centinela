@@ -151,6 +151,42 @@ describe('loadConfig', () => {
     });
   });
 
+  it('reads the ordering of live events and the checkpoint interval (S12)', () => {
+    expect(loadConfig({}).detection).toEqual({
+      reorderWindowMs: 10_000,
+      reorderIdleMs: 5_000,
+      reorderMaxEvents: 100_000,
+      maxFutureSkewMs: 86_400_000,
+      checkpointMs: 15_000,
+    });
+    expect(
+      loadConfig({
+        REORDER_WINDOW_SECONDS: '0',
+        REORDER_IDLE_MS: '250',
+        REORDER_MAX_EVENTS: '5000',
+        MAX_FUTURE_SKEW_SECONDS: '0',
+        DETECTOR_CHECKPOINT_SECONDS: '60',
+      }).detection,
+    ).toEqual({
+      reorderWindowMs: 0,
+      reorderIdleMs: 250,
+      reorderMaxEvents: 5_000,
+      maxFutureSkewMs: 0,
+      checkpointMs: 60_000,
+    });
+  });
+
+  it.each([
+    ['a negative reorder window', { REORDER_WINDOW_SECONDS: '-1' }],
+    ['a reorder window over an hour', { REORDER_WINDOW_SECONDS: '3601' }],
+    ['an idle release under 100 ms', { REORDER_IDLE_MS: '50' }],
+    ['a buffer of less than a thousand events', { REORDER_MAX_EVENTS: '10' }],
+    ['a future skew over a week', { MAX_FUTURE_SKEW_SECONDS: '604801' }],
+    ['a checkpoint interval of zero', { DETECTOR_CHECKPOINT_SECONDS: '0' }],
+  ])('refuses %s', (_name, env) => {
+    expect(() => loadConfig(env)).toThrow(ConfigError);
+  });
+
   it.each([
     ['a zero rate limit', { RATE_LIMIT_INGEST_PER_MINUTE: '0' }],
     ['a fractional rate limit', { RATE_LIMIT_AUTH_PER_MINUTE: '1.5' }],
