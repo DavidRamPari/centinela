@@ -5,7 +5,7 @@
 import { DEFAULT_SEED, DEFAULT_START, generate, type GenerationResult } from '@centinela/loggen';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { SNAPSHOT_VERSION } from '../../src/pipeline/orchestrator.js';
-import type { Checkpoint } from '../../src/pipeline/types.js';
+import type { Checkpoint, EventReader } from '../../src/pipeline/types.js';
 import {
   arrivalOrder,
   createLiveRun,
@@ -210,7 +210,7 @@ describe('detector checkpoint', () => {
         eventReader: memoryReader(first.events),
         continueFrom: first,
       });
-    return { checkpoints, first, restart };
+    return { checkpoints, first, restart, newId };
   }
 
   it('a rule whose correlation block changed between runs loses its own state and nothing else', async () => {
@@ -323,6 +323,42 @@ describe('detector checkpoint', () => {
     if (next === undefined) throw new Error('no batch');
     await expect(second.deliver(next)).resolves.toMatchObject({ rejected: 0 });
   });
+
+  it('a failure to read the waiting events back is not a malformed state: the restore fails, the checkpoint stays and the next attempt uses it', async () => {
+    const { checkpoints, first, newId } = await savedMidRun();
+    const waiting = first.pipeline.stats().buffered;
+    expect(waiting).toBeGreaterThan(0);
+    const before = checkpoints.saved;
+    const reader = memoryReader(first.events);
+    let failures = 1;
+    const flaky: EventReader = {
+      ...reader,
+      byIds(ids) {
+        if (failures === 0) return reader.byIds(ids);
+        failures -= 1;
+        return Promise.reject(new Error('connection terminated unexpectedly'));
+      },
+    };
+    const second = createLiveRun({
+      reorder: WINDOW,
+      newId,
+      keepEvents: true,
+      checkpoints,
+      eventReader: flaky,
+      continueFrom: first,
+    });
+
+    await expect(second.pipeline.restore()).rejects.toThrow('connection terminated unexpectedly');
+    // Taken for malformed, the state would have been replaced by an empty one and the
+    // waiting events would never be evaluated.
+    expect(checkpoints.saved).toBe(before);
+    expect(second.pipeline.stats().buffered).toBe(0);
+
+    expect(await second.pipeline.restore()).toMatchObject({ restored: true, buffered: waiting });
+    await deliver(second, Math.floor(batches.length / 2), batches.length);
+    await second.pipeline.drain();
+    expect(outcomes(second.sink)).toEqual(uninterrupted);
+  }, 120_000);
 
   it('ingest waits for the restore: a request that arrives first is evaluated against the restored state', async () => {
     const { restart } = await savedMidRun();

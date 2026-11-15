@@ -270,6 +270,15 @@ describe('event reader', () => {
     expect(await reader.byIds([])).toEqual([]);
   });
 
+  it('ignores ids that are not UUIDs: they name no event and must not fail the query', async () => {
+    const stored = [event(1), event(2)];
+    await createEventStore(db.pool).insertMany(stored);
+    const reader = createEventReader(db.pool);
+    const hostile = ['event-00000001', "x'); DROP TABLE events; --", '', stored[1]?.id ?? ''];
+    expect((await reader.byIds(hostile)).map((e) => e.id)).toEqual([stored[1]?.id]);
+    expect(await reader.byIds(['not-a-uuid'])).toEqual([]);
+  });
+
   it('reads what the server stored after a position, in id order, without the command line', async () => {
     const registry = createStreamRegistry(db.pool);
     const store = createEventStore(db.pool);
@@ -349,6 +358,32 @@ describe('a restart of the pipeline against PostgreSQL', () => {
       rules: { restored: 2, dropped: 0 },
       buffered: 2,
       replayed: 0,
+    });
+    await second.ingest(failures(6, 10), shipper());
+    expect(await alerts()).toEqual([`${BRUTE_FORCE} x1 (10 events)`]);
+    second.stop();
+  });
+
+  it('a saved state that names waiting events that are not event ids is restored without them', async () => {
+    const first = server();
+    await first.ingest(failures(0, 4), shipper());
+    await first.ingest(failures(4, 6), shipper('stored'));
+    first.stop();
+    await first.checkpoint();
+
+    const store = createCheckpointStore(db.pool);
+    const saved = await store.load();
+    const state = saved?.state as { buffer: { events: Array<{ id: string; time: number }> } };
+    state.buffer.events.push({ id: 'not-an-event-id', time: Date.parse('2026-10-25T11:00:05Z') });
+    await store.save({ position: saved?.position ?? null, version: SNAPSHOT_VERSION, state });
+
+    // The query that reads the waiting events back does not fail on the id, so the
+    // windows and the two real events come back and the alert has all ten.
+    const second = server();
+    expect(await second.restore()).toMatchObject({
+      restored: true,
+      rules: { restored: 2, dropped: 0 },
+      buffered: 2,
     });
     await second.ingest(failures(6, 10), shipper());
     expect(await alerts()).toEqual([`${BRUTE_FORCE} x1 (10 events)`]);

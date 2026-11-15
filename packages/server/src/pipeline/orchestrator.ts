@@ -462,20 +462,30 @@ export function createOrchestrator(
       summary.ignored = 'saved state is malformed';
     } else {
       const snapshot = parsed.data;
-      try {
-        if (snapshot.engine !== null && detector.restore) {
+      // Reading the buffered events back is the database's work. A failure here says
+      // nothing about the saved state, so it is not caught: the restore fails as a whole,
+      // the checkpoint stays as it is and the next call tries again.
+      const times = new Map(snapshot.buffer.events.map((e) => [e.id, e.time]));
+      const items: Buffered[] = [];
+      const ids = [...times.keys()];
+      for (let start = 0; start < ids.length; start += RECOVERY_PAGE_SIZE) {
+        const events = await eventReader.byIds(ids.slice(start, start + RECOVERY_PAGE_SIZE));
+        for (const event of events) {
+          const time = times.get(event.id);
+          if (time !== undefined) items.push({ event, time, call: 0 });
+        }
+      }
+      let usable = true;
+      if (snapshot.engine !== null && detector.restore) {
+        try {
+          // Throws on a snapshot it cannot trust and then leaves the detector as it was.
           summary.rules = detector.restore(snapshot.engine);
+        } catch {
+          usable = false;
+          summary.ignored = 'saved state is malformed';
         }
-        const times = new Map(snapshot.buffer.events.map((e) => [e.id, e.time]));
-        const items: Buffered[] = [];
-        const ids = [...times.keys()];
-        for (let start = 0; start < ids.length; start += RECOVERY_PAGE_SIZE) {
-          const events = await eventReader.byIds(ids.slice(start, start + RECOVERY_PAGE_SIZE));
-          for (const event of events) {
-            const time = times.get(event.id);
-            if (time !== undefined) items.push({ event, time, call: 0 });
-          }
-        }
+      }
+      if (usable) {
         buffer.restore({
           newest: snapshot.buffer.newest,
           lastReleased: snapshot.buffer.lastReleased,
@@ -483,8 +493,6 @@ export function createOrchestrator(
         });
         summary.restored = true;
         summary.buffered = items.length;
-      } catch {
-        summary.ignored = 'saved state is malformed';
       }
     }
 
