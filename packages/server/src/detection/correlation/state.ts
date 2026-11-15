@@ -6,8 +6,13 @@
  * `[newest − timespan, newest]`. Matches more than 60 s older than the group's newest
  * match are ignored. The condition is evaluated after every new match; when it holds the
  * correlation fires once and the group's window is cleared, so the next alert needs a
- * fresh window. Groups are evicted when the watermark passes their newest match plus the
- * timespan.
+ * fresh window.
+ *
+ * A group is evicted one timespan after it last took a match, measured on the detector's
+ * clock (the watermark). For events evaluated in order that clock is the match's own time.
+ * For a late event it is ahead of it, and measuring from the match's time would evict the
+ * group at once: a machine whose clock is behind, or one sending what it held back during
+ * an outage, would lose its windows between one request and the next.
  */
 import { MAX_ALERT_EVENTS } from '@centinela/shared';
 import type { GroupSnapshot } from '../snapshot.js';
@@ -64,7 +69,10 @@ interface Entry {
 
 interface Group {
   values: string[];
+  /** Time of the newest match. */
   newest: number;
+  /** The detector's clock when the group last took a match; never before `newest`. */
+  seen: number;
   entries: Entry[];
 }
 
@@ -128,6 +136,7 @@ export class CorrelationState {
     return [...this.groups.values()].map((group) => ({
       values: [...group.values],
       newest: group.newest,
+      seen: group.seen,
       entries: group.entries.map((entry) => ({
         ruleId: entry.ruleId,
         time: entry.time,
@@ -159,12 +168,17 @@ export class CorrelationState {
       this.groups.set(JSON.stringify(saved.values), {
         values: [...saved.values],
         newest: saved.newest,
+        seen: Math.max(saved.seen, saved.newest),
         entries,
       });
     }
   }
 
-  add(match: CorrelationMatch): CorrelationFiring | null {
+  /**
+   * Offer a match. `clock` is the detector's clock (the newest detection time it has seen);
+   * it is the match's own time unless the match arrived late.
+   */
+  add(match: CorrelationMatch, clock: number = match.time): CorrelationFiring | null {
     const { rule } = this;
     const values: string[] = [];
     for (const field of rule.groupBy) {
@@ -182,7 +196,12 @@ export class CorrelationState {
         const oldest = this.groups.keys().next();
         if (!oldest.done) this.groups.delete(oldest.value);
       }
-      group = { values, newest: Number.NEGATIVE_INFINITY, entries: [] };
+      group = {
+        values,
+        newest: Number.NEGATIVE_INFINITY,
+        seen: Number.NEGATIVE_INFINITY,
+        entries: [],
+      };
       this.groups.set(key, group);
     }
     if (match.time < group.newest - LATE_TOLERANCE_MS) return null;
@@ -198,6 +217,7 @@ export class CorrelationState {
     }
     insertSorted(group.entries, entry);
     group.newest = Math.max(group.newest, match.time);
+    group.seen = Math.max(group.seen, clock, match.time);
 
     const windowStart = group.newest - rule.timespanMs;
     let expired = 0;
@@ -243,10 +263,10 @@ export class CorrelationState {
     }
   }
 
-  /** Drop groups whose newest match is older than `watermark − timespan`. */
+  /** Drop the groups that took their last match more than one timespan before `watermark`. */
   evict(watermark: number): void {
     for (const [key, group] of this.groups) {
-      if (watermark > group.newest + this.rule.timespanMs) this.groups.delete(key);
+      if (watermark > group.seen + this.rule.timespanMs) this.groups.delete(key);
     }
   }
 }

@@ -162,7 +162,7 @@ describe('engine snapshot', () => {
           {
             id: 'x',
             fingerprint: 'y',
-            groups: [{ values: [], newest: 1, entries: [{ ruleId: 'r', time: 1 }] }],
+            groups: [{ values: [], newest: 1, seen: 1, entries: [{ ruleId: 'r', time: 1 }] }],
           },
         ],
       },
@@ -224,6 +224,7 @@ describe('CorrelationState.import', () => {
   const group = (values: string[], times: number[]): GroupSnapshot => ({
     values,
     newest: Math.max(...times),
+    seen: Math.max(...times),
     entries: times.map(entry),
   });
 
@@ -242,10 +243,20 @@ describe('CorrelationState.import', () => {
     const state = new CorrelationState(rule);
     state.import([
       group(['only-one-value'], [1]),
-      { values: ['a', 'b'], newest: 5, entries: [] },
+      { values: ['a', 'b'], newest: 5, seen: 5, entries: [] },
       group(['203.0.113.1', 'web-01'], [30, 10, 20]),
     ]);
     expect(state.export()).toEqual([group(['203.0.113.1', 'web-01'], [10, 20, 30])]);
+  });
+
+  it('keeps when a late group last took a match, and never before its newest match', () => {
+    const state = new CorrelationState(rule);
+    const late = { ...group(['203.0.113.1', 'web-01'], [10, 20]), seen: 900_000 };
+    state.import([late, { ...group(['203.0.113.2', 'web-01'], [10, 20]), seen: 0 }]);
+    expect(state.export().map((g) => g.seen)).toEqual([900_000, 20]);
+    // Eviction counts from `seen`: the second group is a timespan old, the late one is not.
+    state.evict(20 + rule.timespanMs + 1);
+    expect(state.export()).toEqual([late]);
   });
 
   it('keeps the bound on matches per group whatever the snapshot holds', () => {

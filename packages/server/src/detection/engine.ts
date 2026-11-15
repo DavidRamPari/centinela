@@ -80,7 +80,7 @@ export function createEngine(ruleSet: RuleSet, options: EngineOptions = {}): Det
   ): void {
     for (const correlation of consumers) {
       if (!isEnabled(correlation.meta)) continue;
-      const firing = states.get(correlation)?.add(match);
+      const firing = states.get(correlation)?.add(match, watermark ?? match.time);
       if (!firing) continue;
       out.push(correlationCandidate(firing));
       if (correlation.consumers.length > 0) {

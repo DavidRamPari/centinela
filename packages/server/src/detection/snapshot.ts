@@ -26,7 +26,10 @@ const entrySchema = z.object({
 
 const groupSchema = z.object({
   values: z.array(z.string()),
+  /** Time of the newest match. */
   newest: z.number(),
+  /** The detector's clock when the group last took a match (what eviction counts from). */
+  seen: z.number(),
   entries: z.array(entrySchema),
 });
 export type GroupSnapshot = z.infer<typeof groupSchema>;
