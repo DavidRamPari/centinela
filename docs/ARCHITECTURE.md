@@ -187,7 +187,7 @@ export interface Pipeline {
 }
 ```
 
-Orchestrator order per batch (up to 1,000 lines): parse each line → reject timestamps that are not dates or lie too far in the future → assign UUIDv7 ids and `ingestedAt` → `EventStore.insertMany` with the stream of the call → hand the events to the reorder buffer → for what the buffer releases, in order: `Detector.process` → `AlertSink.upsert` → `AlertPublisher.publish` (§6.2). At the end of a call with `ack=evaluated`, everything up to the call's newest event is released; `Detector.flush` runs at the newest time evaluated. Ingest calls, the idle release, `drain`, `checkpoint` and `restore` share one queue and run one at a time.
+Orchestrator order per batch (up to 1,000 lines): parse each line → reject timestamps that are not dates, lie before year 1 or lie too far in the future → assign UUIDv7 ids and `ingestedAt` → `EventStore.insertMany` with the stream of the call → hand the events to the reorder buffer → for what the buffer releases, in order: `Detector.process` → `AlertSink.upsert` → `AlertPublisher.publish` (§6.2). At the end of a call with `ack=evaluated`, everything up to the call's newest event is released; `Detector.flush` runs at the newest time evaluated. Ingest calls, the idle release, `drain`, `checkpoint` and `restore` share one queue and run one at a time.
 
 Wiring: `packages/server/src/pipeline/index.ts` (S0) exports `createPipeline(overrides?)`, which assembles the default implementation of each interface from its owner's module:
 
@@ -605,7 +605,7 @@ With several machines sending at the same moment, batches interleave, and three 
 3. When no ingest call has arrived for `REORDER_IDLE_MS`, everything buffered is released. The wall clock decides when to stop waiting; it never enters the evaluation of a rule.
 4. The buffer holds at most `REORDER_MAX_EVENTS`; when it is full the oldest events are released early.
 5. An event that arrives with an order key before the last released one is *late*. It is evaluated on arrival, before the events its batch releases, and counted (`ingest_streams.late`, `IngestSummary.late`, `Pipeline.stats().late`). Correlations treat it as §6 says.
-6. An event whose `ts` is more than `MAX_FUTURE_SKEW_SECONDS` ahead of `receivedAt` is rejected (`timestamp too far in the future`), and one whose `ts` is not a date is rejected (`invalid timestamp`).
+6. An event whose `ts` is more than `MAX_FUTURE_SKEW_SECONDS` ahead of `receivedAt` is rejected (`timestamp too far in the future`), and one whose `ts` is not a date, or lies before year 1, is rejected (`invalid timestamp`). PostgreSQL has no year 0: stored, such a line would fail the insert of its whole batch.
 
 **Guarantee.** If no event of a run is late and none is released early by rule 4, the alerts are those of the reference run: the same rules, dedup keys, first and last seen times, counts and linked events. Late and early events are counted, so a run can always be told to be exact or not. `test/pipeline/live-order.test.ts` checks it on the demo data, small and full, cut into batches of one to five seconds per stream and delivered in seeded shuffles.
 

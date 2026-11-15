@@ -231,6 +231,20 @@ describe('timestamps from the future', () => {
   });
 });
 
+describe('timestamps the database cannot store', () => {
+  it('rejects an event dated before year 1 instead of failing the call', async () => {
+    const { pipeline, users, eventStore } = livePipeline();
+    const summary = await pipeline.ingest(
+      ['0000-06-01T00:00:00Z mallory login', line(1, 'ok'), '0001-01-01T00:00:00Z ancient login'],
+      ctx,
+    );
+    expect(summary).toMatchObject({ accepted: 2, rejected: 1 });
+    expect(summary.rejections).toEqual([{ line: 1, reason: INVALID_TIMESTAMP_REASON }]);
+    expect(users()).toEqual(['ancient', 'ok']);
+    expect(eventStore.batches.flat().map((e) => e.user)).toEqual(['ancient', 'ok']);
+  });
+});
+
 describe('idle release', () => {
   it('evaluates what is waiting once no batch arrived for the idle time', async () => {
     vi.useFakeTimers();

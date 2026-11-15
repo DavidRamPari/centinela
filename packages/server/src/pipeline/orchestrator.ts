@@ -1,6 +1,7 @@
 /**
  * Ingest orchestrator (ARCHITECTURE §2.3, §6.2, §6.3). Per batch of up to 1,000 lines:
- * parse → reject timestamps too far in the future → assign UUIDv7 ids and ingestedAt →
+ * parse → reject timestamps that cannot be stored or lie too far in the future → assign
+ * UUIDv7 ids and ingestedAt →
  * store → hand to the reorder buffer → evaluate what the buffer releases (detect → upsert
  * alerts → publish). Events wait in the buffer until the horizon passes them, so several
  * machines sending at once are evaluated in the order things happened.
@@ -45,6 +46,12 @@ export const RECOVERY_PAGE_SIZE = 1000;
 
 export const FUTURE_TIMESTAMP_REASON = 'timestamp too far in the future';
 export const INVALID_TIMESTAMP_REASON = 'invalid timestamp';
+/**
+ * The earliest event time that is stored. JavaScript reads `0000-06-01T00:00:00Z` as a
+ * date; PostgreSQL has no year 0 and refuses it, which would fail the insert of the whole
+ * batch and with it the call.
+ */
+export const MIN_EVENT_TIME_MS = Date.parse('0001-01-01T00:00:00Z');
 
 /** Version of the saved state; a checkpoint with another version is not restored. */
 export const SNAPSHOT_VERSION = 1;
@@ -309,7 +316,7 @@ export function createOrchestrator(
         continue;
       }
       const eventTime = Date.parse(result.event.ts);
-      if (Number.isNaN(eventTime)) {
+      if (Number.isNaN(eventTime) || eventTime < MIN_EVENT_TIME_MS) {
         reject(summary, lineNumber, INVALID_TIMESTAMP_REASON);
         continue;
       }

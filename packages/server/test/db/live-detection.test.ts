@@ -308,6 +308,35 @@ describe('event reader', () => {
   });
 });
 
+describe('a timestamp PostgreSQL cannot store', () => {
+  it('is rejected as a line: the rest of the request is stored and the call answers', async () => {
+    const pipeline = createPipeline({
+      pool: db.pool,
+      detector: createDetector({ rulesDir: RULES_DIR }),
+    });
+    const sshd = (ts: string) =>
+      `${ts} bastion-01 sshd[4242]: Failed password for root from 203.0.113.45 port 50022 ssh2`;
+    // JavaScript reads year 0 as a date; PostgreSQL refuses it and would fail the insert.
+    const summary = await pipeline.ingest(
+      [sshd('2026-10-25T11:00:00Z'), sshd('0000-06-01T00:00:00Z'), sshd('0001-01-01T00:00:00Z')],
+      {
+        source: 'linux_auth',
+        host: 'bastion-01',
+        timezone: 'UTC',
+        receivedAt: new Date('2026-10-25T11:01:00Z'),
+        stream: { kind: 'token', tokenId: null },
+      },
+    );
+    expect(summary).toMatchObject({ accepted: 2, rejected: 1 });
+    expect(summary.rejections).toEqual([{ line: 2, reason: 'invalid timestamp' }]);
+    const { rows } = await db.pool.query<{ ts: Date }>('SELECT ts FROM events ORDER BY ts');
+    expect(rows.map((row) => row.ts.toISOString())).toEqual([
+      '0001-01-01T00:00:00.000Z',
+      '2026-10-25T11:00:00.000Z',
+    ]);
+  });
+});
+
 describe('a restart of the pipeline against PostgreSQL', () => {
   const ATTACKER = '203.0.113.45';
   const BRUTE_FORCE = 'SSH brute force from a single source';
