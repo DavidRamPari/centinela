@@ -64,7 +64,6 @@ describe('detector checkpoint', () => {
       const checkpoints = memoryCheckpoints();
 
       const first = createLiveRun({ reorder: WINDOW, newId, keepEvents: true, checkpoints });
-      first.pipeline.components.eventReader = memoryReader(first.events);
       await deliver(first, 0, stopAt);
       const waiting = first.pipeline.stats().buffered;
       // A clean stop: nothing is evaluated early, the state is saved as it is.
@@ -119,7 +118,6 @@ describe('detector checkpoint', () => {
       const checkpoints = memoryCheckpoints();
 
       const first = createLiveRun({ reorder: WINDOW, newId, keepEvents: true, checkpoints });
-      first.pipeline.components.eventReader = memoryReader(first.events);
       await deliver(first, 0, checkpointAt);
       await first.pipeline.checkpoint();
       const evaluatedAtCheckpoint = first.pipeline.stats().evaluated;
@@ -200,7 +198,6 @@ describe('detector checkpoint', () => {
     const newId = sequentialIds();
     const checkpoints = memoryCheckpoints();
     const first = createLiveRun({ reorder: WINDOW, newId, keepEvents: true, checkpoints });
-    first.pipeline.components.eventReader = memoryReader(first.events);
     await deliver(first, 0, Math.floor(batches.length / 2));
     await first.pipeline.checkpoint();
     first.pipeline.stop();
@@ -241,7 +238,6 @@ describe('detector checkpoint', () => {
       const newId = sequentialIds();
       const checkpoints = memoryCheckpoints();
       const first = createLiveRun({ newId, keepEvents: true, checkpoints });
-      first.pipeline.components.eventReader = memoryReader(first.events);
       // Five users from one address: the brute-force window (address and host) and the
       // spraying window (address alone) are both half full.
       await first.deliver(failures(0, 5), 'evaluated');
