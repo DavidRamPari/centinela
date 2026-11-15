@@ -8,13 +8,26 @@ export interface ShutdownDeps {
   logger: Logger;
   /** After this long, open connections (SSE streams, keep-alive) are closed forcibly. */
   timeoutMs?: number;
+  /**
+   * Runs after the last request finished and before the pool closes: the place to save
+   * state that needs the database (the detector checkpoint). A failure is logged and does
+   * not stop the shutdown.
+   */
+  beforeClose?: () => Promise<void>;
 }
 
 /**
  * Graceful shutdown: stop accepting connections, let in-flight requests finish (up to
- * `timeoutMs`), then close the database pool. Calling it twice is harmless.
+ * `timeoutMs`), run `beforeClose`, then close the database pool. Calling it twice is
+ * harmless.
  */
-export function createShutdown({ server, pool, logger, timeoutMs = 10_000 }: ShutdownDeps) {
+export function createShutdown({
+  server,
+  pool,
+  logger,
+  timeoutMs = 10_000,
+  beforeClose,
+}: ShutdownDeps) {
   let pending: Promise<void> | undefined;
   return function shutdown(reason: string): Promise<void> {
     pending ??= (async () => {
@@ -29,6 +42,11 @@ export function createShutdown({ server, pool, logger, timeoutMs = 10_000 }: Shu
         await closed;
       } finally {
         clearTimeout(force);
+        try {
+          await beforeClose?.();
+        } catch (err) {
+          logger.error({ err }, 'could not save state before closing');
+        }
         await pool.end();
       }
       logger.info('shutdown complete');

@@ -78,6 +78,8 @@ describe('ingest CLI options', () => {
         alertsCreated: 2,
         alertsUpdated: 1,
         durationMs: 500,
+        pending: 0,
+        late: 0,
       },
       false,
     );

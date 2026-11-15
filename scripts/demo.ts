@@ -95,6 +95,9 @@ async function main(argv: string[]): Promise<number> {
     }
     if (options.reset) {
       await pool.query('TRUNCATE alert_events, alerts, events');
+      // The counters of what the command line delivered describe events that are gone.
+      // Streams of a running server stay: it keeps their ids in memory.
+      await pool.query("DELETE FROM ingest_streams WHERE kind = 'cli'");
       print('Reset: events, alerts and alert links removed (rule flags kept)');
     }
 

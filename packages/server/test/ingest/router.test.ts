@@ -298,6 +298,109 @@ describe('POST /api/ingest and /api/ingest/upload', () => {
     });
   });
 
+  describe('acknowledgement and streams (S12)', () => {
+    // Dated a minute ago plus `second`: newer than anything the earlier tests sent, so
+    // these events are not late, and never ahead of the server's clock.
+    const started = Date.now() - 60_000;
+    const line = (second: number, host: string) =>
+      `${new Date(started + second * 100).toISOString()} ${host} sshd[1234]: Failed password for root from 203.0.113.45 port 40000 ssh2`;
+
+    it('ack=stored answers before the events are evaluated and says how many wait', async () => {
+      const first = await request(app)
+        .post('/api/ingest?source=linux_auth&host=ack-01&ack=stored')
+        .set('Authorization', AUTH)
+        .type('text/plain')
+        .send([line(1, 'ack-01'), line(2, 'ack-01')].join('\n'))
+        .expect(200);
+      expect(ingestSummarySchema.parse(first.body)).toMatchObject({
+        accepted: 2,
+        pending: 2,
+        late: 0,
+        alertsCreated: 0,
+      });
+      expect(await countEvents('ack-01')).toBe(2);
+
+      // The default waits for evaluation, and takes the older waiting events with it.
+      const second = await request(app)
+        .post('/api/ingest?source=linux_auth&host=ack-02')
+        .set('Authorization', AUTH)
+        .type('text/plain')
+        .send(line(3, 'ack-02'))
+        .expect(200);
+      expect(ingestSummarySchema.parse(second.body)).toMatchObject({ accepted: 1, pending: 0 });
+    });
+
+    it('answers 400 for an unknown ack mode', async () => {
+      const res = await request(app)
+        .post('/api/ingest?source=linux_auth&ack=later')
+        .set('Authorization', AUTH)
+        .type('text/plain')
+        .send('x');
+      expect(expectProblem(res, 400).errors?.[0]?.path).toBe('ack');
+    });
+
+    it('an upload always answers with final counts', async () => {
+      const res = await request(app)
+        .post('/api/ingest/upload?source=linux_auth&host=ack-03&ack=stored')
+        .type('text/plain')
+        .send(line(30, 'ack-03'))
+        .expect(200);
+      expect(ingestSummarySchema.parse(res.body)).toMatchObject({ accepted: 1, pending: 0 });
+    });
+
+    it('records who delivered: a stream per source and host, stamped on every event', async () => {
+      const { rows } = await db.pool.query<{
+        kind: string;
+        host: string;
+        accepted: string;
+        n: string;
+      }>(
+        `SELECT s.kind, s.host, s.accepted,
+                (SELECT count(*) FROM events e WHERE e.stream_id = s.id) AS n
+           FROM ingest_streams s WHERE s.host LIKE 'ack-%' ORDER BY s.host`,
+      );
+      expect(rows).toEqual([
+        { kind: 'token', host: 'ack-01', accepted: '2', n: '2' },
+        { kind: 'token', host: 'ack-02', accepted: '1', n: '1' },
+        { kind: 'upload', host: 'ack-03', accepted: '1', n: '1' },
+      ]);
+      const orphans = await db.pool.query<{ n: string }>(
+        'SELECT count(*) AS n FROM events WHERE stream_id IS NULL',
+      );
+      expect(orphans.rows[0]?.n).toBe('0');
+    });
+
+    it('answers 403 when the token already delivers for the maximum of sources and hosts', async () => {
+      const { rows } = await db.pool.query<{ n: string }>(
+        `SELECT count(*) AS n FROM ingest_streams WHERE kind = 'token' AND token_id IS NULL`,
+      );
+      await db.pool.query(
+        `INSERT INTO ingest_streams (id, kind, source, host)
+         SELECT gen_random_uuid(), 'token', 'linux_auth', 'filler-' || n
+           FROM generate_series(1, $1) AS n`,
+        [1000 - Number(rows[0]?.n)],
+      );
+      try {
+        const res = await request(app)
+          .post('/api/ingest?source=linux_auth&host=one-too-many')
+          .set('Authorization', AUTH)
+          .type('text/plain')
+          .send(line(40, 'one-too-many'));
+        expect(expectProblem(res, 403).detail).toContain('1000 source and host pairs');
+        expect(await countEvents('one-too-many')).toBe(0);
+        // A stream the token already has keeps working.
+        await request(app)
+          .post('/api/ingest?source=linux_auth&host=ack-01')
+          .set('Authorization', AUTH)
+          .type('text/plain')
+          .send(line(41, 'ack-01'))
+          .expect(200);
+      } finally {
+        await db.pool.query(`DELETE FROM ingest_streams WHERE host LIKE 'filler-%'`);
+      }
+    });
+  });
+
   describe('rate limiting', () => {
     it('answers 429 problem+json past the configured limits, also for bad tokens', async () => {
       const { app: limited } = createTestApp({

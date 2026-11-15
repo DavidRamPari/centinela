@@ -1,6 +1,6 @@
 /** Command-line options and output of `npm run ingest` (see `cli.ts`). */
 import { parseArgs } from 'node:util';
-import { ingestQuerySchema } from '@centinela/shared';
+import { uploadQuerySchema } from '@centinela/shared';
 import { z } from 'zod';
 import type { IngestSummary } from '../pipeline/types.js';
 
@@ -16,7 +16,8 @@ Options:
   -h, --help        show this help
 `;
 
-const argsSchema = ingestQuerySchema.extend({
+// The command line always waits for its events to be evaluated: `ack` is for HTTP shippers.
+const argsSchema = uploadQuerySchema.extend({
   file: z.string().min(1, '--file is required'),
   year: z.coerce.number().int().min(1970).max(9999).optional(),
   parseOnly: z.boolean(),

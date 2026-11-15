@@ -57,6 +57,8 @@ describe('mergeRejections', () => {
     alertsCreated: 0,
     alertsUpdated: 0,
     durationMs: 1,
+    pending: 0,
+    late: 0,
   };
 
   it('adds counts and keeps samples in line order, capped', () => {

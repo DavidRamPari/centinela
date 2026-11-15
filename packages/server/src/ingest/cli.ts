@@ -56,8 +56,10 @@ async function main(argv: string[]): Promise<number> {
       host: args.host,
       timezone: args.tz,
       receivedAt: new Date(),
+      stream: { kind: 'cli', tokenId: null },
       ...(args.year === undefined ? {} : { defaultYear: args.year }),
     });
+    await pipeline.drain();
     process.stdout.write(formatSummary(args.file, summary, args.parseOnly));
     return 0;
   } finally {
