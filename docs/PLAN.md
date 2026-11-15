@@ -354,7 +354,7 @@ Fix what you find on the same branch, each fix with its regression test, record 
 
 **Goal.** The same events produce the same alerts whatever order several machines deliver them in, a timestamp from the future cannot blind a correlation, and a restart loses no window.
 
-**Build.** ARCHITECTURE §16.1 and §16.3 to §16.5:
+**Build.** ARCHITECTURE §6.2, §6.3 and §8.1 (§16.1 and §16.3 to §16.5 until this session built them):
 
 1. The migration: `tenants` with its default row, `ingest_streams`, `events.stream_id`, `detector_checkpoints`.
 2. Streams: the registry, the counters updated once per ingest call, the bound per token.
@@ -366,7 +366,7 @@ Fix what you find on the same branch, each fix with its regression test, record 
 
 **Acceptance.**
 
-- **Order.** For the demo data, small and full, the reference run (ARCHITECTURE §16.4) gives a set of alerts. Each stream is then cut into batches of one to five seconds of event time and delivered in a seeded shuffle that keeps every stream's own order and delays no batch by more than the window. For at least 20 seeds the alerts are identical to the reference run: rule, dedup key, first and last seen, count and linked events.
+- **Order.** For the demo data, small and full, the reference run (ARCHITECTURE §6.2) gives a set of alerts. Each stream is then cut into batches of one to five seconds of event time and delivered in a seeded shuffle that keeps every stream's own order and delays no batch by more than the window. For at least 20 seeds the alerts are identical to the reference run: rule, dedup key, first and last seen, count and linked events.
 - **Late events.** A batch delayed past the window is evaluated, counted in its stream and in the summary, and the run reports that it was not exact.
 - **Future timestamps.** The two cases S10 reproduced become regression tests: an event dated years ahead is rejected, and one dated minutes ahead neither silences its group nor evicts open windows.
 - **Idle release and the bound,** with fake timers: a quiet system evaluates within `REORDER_IDLE_MS`; a full buffer releases its oldest events and counts them.

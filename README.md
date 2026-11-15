@@ -183,7 +183,6 @@ Known gaps, from the session decision records:
 - **Windows users** appear without their domain in the alerts table; the alert page shows `DOMAIN\name` ([S7b-15](docs/decisions/S7b.md)).
 - **Firefox** was not reviewed; Chromium and WebKit were ([S7b-18](docs/decisions/S7b.md)).
 - One admin account without a second factor, and detection state in one process ([threat model](docs/THREAT_MODEL.md#residual-risks)).
-- **A timestamp from the future** blinds correlation: one event dated far ahead silences its own group and makes every later request clear the open windows of all groups, until event time catches up or the server restarts ([S10-04](docs/decisions/S10.md)). Single-event rules are not affected.
 
 Next steps: the [roadmap](docs/ROADMAP.md) is the path to version 1.0. It starts with real ingestion: events shipped by Fluent Bit, syslog and Microsoft 365, detection on events that arrive out of order, and the Windows Security log.
 

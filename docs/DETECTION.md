@@ -5,13 +5,13 @@ How Centinela turns a normalized event into an alert: rule loading, the Sigma en
 ## The path of an event
 
 1. A parser turns a log line into a `NormalizedEvent`: normalized columns (time, host, user, source IP, action, outcome), a `fields` map that rules read (Sigma field names such as `CommandLine` or `cs-uri-query`, and ECS-style keys such as `source.ip`), and the `logsources` it belongs to.
-2. The pipeline sorts each batch by event time, stores the events, then hands them to the detector.
+2. The pipeline stores the events and puts them in a reorder buffer. They leave it in the order they happened, whatever order the machines delivered them in, and only then reach the detector ([Live events](#live-events-order-late-events-and-restarts)).
 3. **Routing** picks the Sigma rules whose `logsource` matches the event.
 4. The **prefilter** drops the routed rules that cannot match (below), and the remaining rules are evaluated.
 5. Every match feeds the **correlation engine**, which keeps per-group windows on event time.
 6. Matches and correlation firings become **alert candidates**; the PostgreSQL alert sink deduplicates them into alerts and the live stream (`/api/stream`) tells open dashboards.
 
-The detector never reads the wall clock: the same events give the same alerts in the same order ([`scenarios.test.ts`](../packages/server/test/detection/scenarios.test.ts), "the same sample gives the same alerts in the same order").
+The detector never reads the wall clock: the same events give the same alerts in the same order ([`scenarios.test.ts`](../packages/server/test/detection/scenarios.test.ts), "the same sample gives the same alerts in the same order"), and since S12 also when several machines deliver them in any order ([`live-order.test.ts`](../packages/server/test/pipeline/live-order.test.ts)).
 
 ## Rules
 
@@ -82,7 +82,7 @@ Centinela implements a subset of the Sigma correlation specification ([ARCHITECT
 - **Groups** are the `group-by` values from the event's fields; an event missing one does not take part.
 - **Chaining:** a correlation may reference another correlation. The inner firing counts as one match of the outer rule, at the time of its last event and with its group's values. Correlations are evaluated in dependency order; unknown references and cycles make a correlation unsupported. `centinela-ssh-bruteforce-success` chains on `centinela-ssh-bruteforce`, so a member of staff who mistypes a password twice and then signs in never fires it.
 - **`generate: false`** silences only the Sigma rules a correlation references (building blocks, such as the single failed SSH sign-in), not referenced correlations: the brute-force alert still appears next to the "brute force then success" alert (decision D-010; pySigma silences both).
-- **Late events:** events up to 60 seconds older than a group's newest event are accepted; older ones are stored but ignored by correlation. Group state is evicted once the newest event time seen passes its newest entry plus the timespan.
+- **Late events:** the pipeline hands events over in order (below). One that still arrives out of order is accepted up to 60 seconds behind its group's newest match; older ones are stored but ignored by correlation. A group is dropped one timespan after it last took a match, counted on the detector's clock (the newest detection time seen), so a machine that is late for good keeps its windows ([Late events](#late-events)).
 - **Bounded state:** at most 1,000 matches per group and 100,000 groups per correlation (oldest dropped first), and `value_count` keeps one entry per distinct value, because IP addresses and user names in logs are attacker-chosen.
 
 Centinela's correlation rules:
@@ -94,6 +94,55 @@ Centinela's correlation rules:
 | `centinela-ssh-bruteforce-success` | `temporal_ordered` | a brute force from an IP, then a successful sign-in from that IP within 30 minutes | critical |
 | `centinela-privileged-account-created` | `temporal_ordered` | a new account, then that account added to `sudo`, `wheel`, `adm` or `root` within 10 minutes | high |
 | `centinela-web-scanning-burst` | `event_count` | 50 or more 404 answers to one IP on one host within 2 minutes | medium |
+
+## Live events: order, late events and restarts
+
+Files are easy: one file, in time order, evaluated from start to end. Machines that send as things happen are not. Their batches interleave, a slow link delivers ten seconds late, a clock is wrong, and the server restarts in the middle of an attack. Since S12 the pipeline deals with each of these ([ARCHITECTURE.md](ARCHITECTURE.md) §6.2 and §6.3).
+
+### Order
+
+Three things depend on the order in which events are evaluated: which events a correlation fires on, whether its window was already cleared by an earlier firing, and whether a match folds into an open alert. So stored events wait in a reorder buffer and are evaluated in the order they happened:
+
+- The **order key** is the detection time, then the host, the source and the id. Ids follow line order, so one machine's events keep the order they were written in.
+- The **horizon** is the newest detection time seen minus a window of 10 seconds (`REORDER_WINDOW_SECONDS`). Everything at or before it is evaluated. A batch that arrives up to that much behind a newer one is still put in its place.
+- With no new batch for 5 seconds (`REORDER_IDLE_MS`), everything waiting is evaluated. This is the one place a timer is involved: it decides when to stop waiting, never what an alert contains.
+- At most 100,000 events wait (`REORDER_MAX_EVENTS`); past that the oldest are evaluated early.
+
+The result: if nothing arrives late, the alerts are exactly those of evaluating the same events in order, with the same first and last seen times, counts and linked events. The tests cut the demo data into the batches each of its eight streams would send, one to five seconds each, deliver them in 20 seeded shuffles (and two for the full, 201,028-line data set) and compare every alert with that reference.
+
+A small example shows what the buffer is for. An address sprays passwords at two hosts: ten user names on `web-01`, one per second, and five on `db-01` in between. In order of time, the tenth user name is tried on `db-01` at 4.5 s, and the alert holds five events from each host. If `web-01`'s batch simply arrives first and is evaluated on arrival, the alert fires at 9 s on `web-01`'s events alone. Both are alerts, but they name different evidence, and which one you get would depend on the network ([`future-timestamps.test.ts`](../packages/server/test/pipeline/future-timestamps.test.ts), "a spray across two hosts").
+
+A shipper sends with `ack=stored` and gets its answer as soon as the events are stored; `pending` in the answer says how many still wait. Without it (`ack=evaluated`, and always for uploads and the command line) the call first evaluates everything up to its own newest event, so the alert counts in the answer are final.
+
+### Late events
+
+An event that arrives behind one already evaluated cannot be put back in order. It is evaluated at once and counted: per stream (`ingest_streams.late`), in the answer (`late`) and for the whole pipeline. A run with a count of zero was exact; a run with late events says so. Replaying one file after another, as `npm run demo` and `npm run ingest` do, is the everyday case: the second file covers a time the first already passed, arrives late as a whole and is evaluated in its own order, which is what version 0.1 did for every file.
+
+Some machines are late for good: one whose clock is twenty minutes behind, or one that sends in several requests what it held back while the link was down. Their correlations must still work, and in version 0.1 they did not. A window was dropped one timespan after its newest match, and for these events that moment had already passed when they arrived, so the window was gone at the end of every request and ten failed sign-ins sent one per request never added up. A window now stays open for one timespan after its last match was evaluated. For events in order nothing changes; a late machine keeps its windows from one request to the next ([`late-hosts.test.ts`](../packages/server/test/pipeline/late-hosts.test.ts)).
+
+### Timestamps from the future
+
+Event time comes from the log line, so it can be wrong or hostile. Before S12 one event dated far ahead blinded correlation: its own group ignored every later match as late, and every later request evicted the open windows of all groups ([decisions/S10.md](decisions/S10.md), S10-04). Two rules close it:
+
+- Detection runs on the **detection time**, `min(ts, receivedAt)`: an event cannot have happened after Centinela received it. The stored `ts` stays as the log line said; the detector and the alerts it raises never see a time ahead of the server's clock.
+- An event dated more than a day ahead of its receive time (`MAX_FUTURE_SKEW_SECONDS`) is rejected with `timestamp too far in the future`.
+
+Both cases reproduced in S10 are regression tests now, next to their "minutes ahead" variants.
+
+### Restarts
+
+Correlation windows and the events waiting in the buffer live in memory. The server saves them in one row (`detector_checkpoints`), every 15 seconds while something changed (`DETECTOR_CHECKPOINT_SECONDS`) and when it stops cleanly, and restores them at start.
+
+- **A clean restart changes nothing.** The alerts of a run with a restart in the middle are those of the run without it. Tested at five seeded points of the demo, and against PostgreSQL in the middle of a brute-force window.
+- **A crash loses nothing.** Events stored after the last checkpoint are read back from the database and evaluated again. A match that had already raised an alert folds into that alert, so no alert is lost and none is doubled; only its `count` can include the repeated matches of that last stretch, at most 15 seconds of traffic.
+- **A changed rule starts again.** Saved windows are tied to the rule's id and its correlation block. Edit the timespan or the group-by and that rule's saved state is dropped; the others keep theirs.
+- The saved state is validated before it is used. One that is malformed, or of another version, is ignored and the detector starts clean.
+
+Measured on the development machine: a snapshot with 200 open groups is 0.16 MB of JSON, 0.01 MB compressed, and takes about 3 ms to save. A scan from 50,000 addresses that leaves 100,000 groups open is 80 MB of JSON, 2.3 MB compressed, about 1.1 s to save and 2.3 s to restore. That cost is why the checkpoint is written on a timer and not with every alert.
+
+### What it costs
+
+`npm run demo` on two CPUs (200,205 events through parsers, PostgreSQL and detection): 22.1 s to 24.8 s over five runs before S12, 22.1 s to 24.4 s over five runs after, between 8,100 and 9,100 events per second both times. The spread between runs is larger than any difference between the versions. Both detect 19 of 19 scenarios and create the same 37 alerts. Live alerts come up to 10 seconds after their events, which is the window.
 
 ## Alerts
 
@@ -191,7 +240,8 @@ npm run rules:lint -- --rules-dir ../sigma/rules --no-baseline
 ## Known gaps
 
 - The Sigma features in "Not supported" above, in particular range and absence conditions in correlations.
-- Correlation state lives in one process (decision D-003): several server processes would not share windows.
-- One event with a timestamp far in the future blinds correlation until event time catches up or the server restarts: its own group ignores every real match as late, and the watermark it leaves behind makes the flush at the end of every ingest request evict the open windows of all groups, so a correlation whose matches arrive in more than one request cannot fire. Single-event rules are not affected. A host with a wrong clock does it by accident ([decisions/S10.md](decisions/S10.md), S10-04; fixed by session S12, [ARCHITECTURE.md](ARCHITECTURE.md) §16.4).
+- Correlation state lives in one process (decision D-003): several server processes would not share windows. A restart keeps them (above).
+- A host whose clock is more than the reorder window behind the others is always late: its events are evaluated on arrival, in their own order, and counted as late. Its own correlations work, but a match more than 60 seconds older than the newest match of its group is ignored, so a rule that groups by address alone does not add what an address did on a late host to what it did on a punctual one. A host whose clock is ahead is evaluated at the time its events were received.
+- After a crash, an alert's `count` can include matches twice, for the stretch between the last checkpoint and the crash. A detector state too large to serialize (hundreds of megabytes of open windows) is not saved; the failure is logged and a restart then loses the windows.
 - Field names are case-sensitive; a shipper that renames `CommandLine` to `commandline` defeats the Windows rules.
 - `POST /api/ingest` with NDJSON turns an object with a string `message` key into that message, so Sysmon events from a shipper that adds `message` (Winlogbeat does) are rejected; send them as `text/plain`, one JSON object per line ([decisions/S5.md](decisions/S5.md), S5-09).
