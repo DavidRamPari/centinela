@@ -456,6 +456,9 @@ export function createOrchestrator(
       replayed: 0,
     };
     if (!checkpoints || !eventReader) return summary;
+    // Stored events are evaluated below. Whoever asked for the restore (a checkpoint on
+    // the timer can be the first), the detector needs its persisted rule flags by then.
+    await options.prepare?.();
     pristine ??= detector.snapshot?.();
     const saved = await checkpoints.load();
     if (saved === null) {

@@ -5,9 +5,11 @@
 import { DEFAULT_SEED, DEFAULT_START, generate, type GenerationResult } from '@centinela/loggen';
 import type { NormalizedEvent } from '@centinela/shared';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { createDetector } from '../../src/detection/index.js';
 import { SNAPSHOT_VERSION } from '../../src/pipeline/orchestrator.js';
-import type { Checkpoint, EventReader } from '../../src/pipeline/types.js';
+import type { Checkpoint, EventReader, EventStore } from '../../src/pipeline/types.js';
 import {
+  RULES_DIR,
   arrivalOrder,
   createLiveRun,
   cutIntoBatches,
@@ -439,6 +441,68 @@ describe('detector checkpoint', () => {
       expect(second.sink.list().map((alert) => alert.ruleTitle)).toEqual([]);
     },
   );
+
+  it('a checkpoint call that comes before the first restore loads the rule flags before stored events are evaluated', async () => {
+    const BRUTE_FORCE = 'SSH brute force from a single source';
+    const failures: StreamBatch = {
+      stream: 'bastion-01/auth',
+      host: 'bastion-01',
+      source: 'linux_auth',
+      lines: Array.from(
+        { length: 10 },
+        (_line, i) =>
+          `2026-10-25T11:00:0${i}Z bastion-01 sshd[4242]: Failed password for root from 203.0.113.45 port 50022 ssh2`,
+      ),
+      fromMs: 0,
+      toMs: 0,
+    };
+    const newId = sequentialIds();
+    const checkpoints = memoryCheckpoints();
+    const stored: NormalizedEvent[] = [];
+    const eventReader: EventReader = {
+      byIds: (ids) => memoryReader(stored).byIds(ids),
+      after: (position, limit) => memoryReader(stored).after(position, limit),
+      newestId: () => memoryReader(stored).newestId(),
+    };
+    const eventStore: EventStore = {
+      insertMany(events) {
+        stored.push(...events);
+        return Promise.resolve();
+      },
+    };
+    // Ten failures are stored and still wait when the server dies.
+    const first = createLiveRun({ reorder: WINDOW, newId, checkpoints, eventReader, eventStore });
+    await first.pipeline.restore();
+    await first.deliver(failures);
+    expect(first.pipeline.stats()).toMatchObject({ buffered: 10, evaluated: 0 });
+    first.pipeline.stop();
+
+    // The analyst had disabled the brute-force rule; `prepare` is what applies the saved
+    // flags (the rule catalog in the server). The database was down at start, so the
+    // first call that reaches it is the checkpoint timer's, not restore() or a request.
+    const detector = createDetector({ rulesDir: RULES_DIR });
+    const rule = detector.rules().find((meta) => meta.title === BRUTE_FORCE);
+    if (rule === undefined) throw new Error('missing rule');
+    let prepared = 0;
+    const second = createLiveRun({
+      reorder: { windowMs: 0, idleMs: Number.POSITIVE_INFINITY },
+      newId,
+      checkpoints,
+      eventReader,
+      eventStore,
+      continueFrom: first,
+      detector,
+      prepare: () => {
+        prepared += 1;
+        detector.setRuleEnabled(rule.id, false);
+        return Promise.resolve();
+      },
+    });
+    await second.pipeline.checkpoint();
+    expect(second.pipeline.stats().evaluated).toBe(10);
+    expect(second.sink.list().map((alert) => alert.ruleTitle)).toEqual([]);
+    expect(prepared).toBeGreaterThan(0);
+  });
 
   it('ingest waits for the restore: a request that arrives first is evaluated against the restored state', async () => {
     const { restart } = await savedMidRun();
