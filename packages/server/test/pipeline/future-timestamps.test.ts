@@ -3,6 +3,7 @@
  * the future blinded correlation. Reproduced there against the engine; here the same
  * sequences go through the pipeline with the real parser and rules.
  */
+import type { IngestAck } from '@centinela/shared';
 import { describe, expect, it } from 'vitest';
 import { createLiveRun, outcomes, type StreamBatch } from './live.js';
 
@@ -25,14 +26,14 @@ function run() {
       stream: { kind: 'token', tokenId: null },
     });
   /** As a shipper does: one failure per request, received a second after it happened. */
-  const ship = (ts: string, ip = ATTACKER, eventTs = ts) =>
+  const ship = (ts: string, ip = ATTACKER, eventTs = ts, ack: IngestAck = 'stored') =>
     live.pipeline.ingest([failure(eventTs, ip)], {
       source: 'linux_auth',
       host: 'bastion-01',
       timezone: 'UTC',
       receivedAt: new Date(Date.parse(ts) + 1000),
       stream: { kind: 'token', tokenId: null },
-      ack: 'stored',
+      ack,
     });
   const titles = () =>
     live.sink.list().map((alert) => `${alert.ruleTitle} x${alert.count} [${alert.groupKey ?? ''}]`);
@@ -83,6 +84,23 @@ describe('a timestamp from the future cannot blind correlation (S10-04)', () => 
     for (let i = 0; i < 3; i += 1) await ship(second(i));
     await ship(second(3), '198.51.100.7', '2026-10-25T11:10:00Z');
     // Seven more make ten inside five minutes: the window must still hold the first three.
+    for (let i = 4; i < 11; i += 1) await ship(second(i));
+    await live.pipeline.drain();
+    expect(titles()).toContain(`${BRUTE_FORCE} x1 [source.ip=${ATTACKER},host.name=bastion-01]`);
+    const alert = outcomes(live.sink).find((a) => a.dedupKey.includes(ATTACKER));
+    expect(alert?.events).toHaveLength(10);
+    expect(alert?.firstSeen).toBe('2026-10-25T11:00:00.000Z');
+    expect(live.pipeline.stats().late).toBe(0);
+  });
+
+  it('every group: an event dated minutes ahead and evaluated at once does not evict the open windows', async () => {
+    const { ship, titles, live } = run();
+    for (let i = 0; i < 3; i += 1) await ship(second(i));
+    // The same event as above, sent with the default `ack=evaluated`: it does not wait in
+    // the buffer behind the real failures, it is evaluated in its own request. Only its
+    // detection time, the moment it was received, keeps the detector's clock at 11:00.
+    const ahead = await ship(second(3), '198.51.100.7', '2026-10-25T11:10:00Z', 'evaluated');
+    expect(ahead).toMatchObject({ accepted: 1, pending: 0 });
     for (let i = 4; i < 11; i += 1) await ship(second(i));
     await live.pipeline.drain();
     expect(titles()).toContain(`${BRUTE_FORCE} x1 [source.ip=${ATTACKER},host.name=bastion-01]`);
