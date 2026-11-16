@@ -15,7 +15,16 @@ Each session below is one Claude Code cloud session that ends with a pushed bran
 | S6 | Authentication, hardening and threat model | S4 | done (PR #8) |
 | S7 | Content pack in the product | S4 and `content/sigma/` | done (PRs #9 and #11) |
 | S7b | Dashboard polish | S7 | done (PRs #10 and #12) |
-| S8 | Documentation and local quick start | S5, S6, S7, S7b | done |
+| S8 | Documentation and local quick start | S5, S6, S7, S7b | done (PR #13) |
+| S9 | Rule lint: `npm run rules:lint` | S8 | done (PR #16) |
+| S10 | Roadmap and phase 1 contracts | S9 | done (PR #17) |
+| S11 | Ingest v2 | S10, S12 | todo |
+| S12 | Live detection | S10 | done (PR #18) |
+| S13 | Windows event log | S10 | todo |
+| S14 | Add a host with Fluent Bit | S11, S12, S13 | todo |
+| S15 | Sysmon for Linux and journald | S10 | todo |
+| S16 | Syslog receiver | S11, S12 | todo |
+| S17 | Microsoft 365 connector | S11, S12 | todo |
 
 Status values: `todo`, `in progress`, `done (PR #n)`, `partial (see notes)`. David updates this table when he merges a session; sessions do not edit it (parallel edits to adjacent rows conflict).
 
@@ -273,12 +282,12 @@ Before finishing, run lint, typecheck, test and build, push your branch and end 
 
 ## Phase 1 — real ingestion (version 0.2)
 
-The path from version 0.1 to 1.0 is in [ROADMAP.md](ROADMAP.md). These sessions are its first phase and build against the contracts in [ARCHITECTURE.md](ARCHITECTURE.md) §16. S9 (the rule lint, `docs/decisions/S9.md`) and the sessions below enter the status table when David adds them.
+The path from version 0.1 to 1.0 is in [ROADMAP.md](ROADMAP.md). These sessions are its first phase and build against the contracts in [ARCHITECTURE.md](ARCHITECTURE.md) §16. S9 (the rule lint) has no section in this file; its record is `docs/decisions/S9.md`.
 
 | Session | Title | Depends on | Can run with | Reviewed |
 | --- | --- | --- | --- | --- |
 | S10 | Roadmap and phase 1 contracts | S9 | alone | — |
-| S11 | Ingest v2 | S10 | S13, S15 (not S12) | yes |
+| S11 | Ingest v2 | S10, S12 | S13, S15 | yes |
 | S12 | Live detection | S10 | S13, S15 (not S11) | yes |
 | S13 | Windows event log | S10 | S11 or S12, S15 | — |
 | S14 | Add a host with Fluent Bit | S11, S12, S13 | S16, S17 | yes |
@@ -319,9 +328,9 @@ Fix what you find on the same branch, each fix with its regression test, record 
 
 ## S11 — Ingest v2
 
-**Depends on.** S10. Runs before or after S12, not with it. Reviewed.
+**Depends on.** S10 and S12, which is merged. Reviewed.
 
-**Owns.** `packages/server/src/ingest/**`, `packages/server/src/auth/ingest-tokens.ts` and the token routes, `packages/server/src/security/rate-limit.ts`, the `input` kind of each parser in `packages/server/src/parsers/`, `packages/server/src/detection/event-view.ts`, `packages/web/src/features/auth/IngestTokensCard.tsx`, the token schemas in `packages/shared`, one migration, the token and ingest parts of `docs/SECURITY.md`.
+**Owns.** `packages/server/src/ingest/**`, `packages/server/src/auth/ingest-tokens.ts` and the token routes, `packages/server/src/security/rate-limit.ts`, the `input` kind of each parser in `packages/server/src/parsers/`, `packages/server/src/detection/event-view.ts`, `packages/web/src/features/auth/IngestTokensCard.tsx`, the token schemas in `packages/shared`, one migration, the token and ingest parts of `docs/SECURITY.md`, and in `packages/server/src/pipeline/orchestrator.ts` only what a failed alert write does (item 7).
 
 **Goal.** A shipper can send compressed batches all day, is told to wait when the server is behind, and can only write for the sources and hosts its token names.
 
@@ -333,6 +342,8 @@ Fix what you find on the same branch, each fix with its regression test, record 
 4. Rate limits per token, per client address for requests without a valid token, and `503` with `Retry-After` when more than `INGEST_MAX_PENDING` requests wait.
 5. Field names without regard to ASCII case in the matcher, with the bench before and after in the decision file. `npm run rules:lint` treats `Image` and `image` as one field.
 6. Remove the two closed gaps from `docs/DETECTION.md` and the READMEs, and narrow "token holders write anything" in `docs/THREAT_MODEL.md`.
+7. Close S12-R08 (`docs/decisions/S12-review.md`): when writing an alert fails, the events evaluated in that step no longer lose their alerts, and a request sent with `ack=stored` whose events were stored is not told to send them again. Choose among the repairs listed there, record why, and remove the gap from `docs/DETECTION.md`.
+8. Give the stream registry the id of the token that authenticated the request, so `ingest_streams.token_id` is set and the bound of 1,000 streams counts per token (`docs/decisions/S12.md`, S12-04).
 
 **Acceptance.**
 
@@ -340,6 +351,8 @@ Fix what you find on the same branch, each fix with its regression test, record 
 - gzip: a valid body, a truncated one, one that inflates past the limit (refused without reading it whole), and an unsupported encoding (`415`).
 - Tokens: a request or a line outside the scope is refused and counted; an unscoped token and `INGEST_TOKEN` behave as before; the prefix pattern is tested with hostile input and never reaches a regex.
 - Limits: two tokens behind one address do not share a budget; the `503` carries `Retry-After` and is sent before the body is read.
+- A failed alert write: with a sink that fails once, and with one that fails for several requests, every alert of the run without failures exists afterwards and none is doubled; the request of another sender, already answered with `ack=stored`, loses nothing.
+- Streams: two tokens each reach 1,000 streams on their own; `INGEST_TOKEN` keeps a null `token_id`.
 - Field names: a Windows rule matches an event whose keys are lower-cased; with two keys that differ only by case the exact one wins; the SigmaHQ regression samples and the demo are unchanged; the Windows bench loses less than 5%.
 
 **Not in S11.** Shipper configuration and the hosts page (S14), streams and `ack` (S12), the shapes shippers give to Windows events (S13).
