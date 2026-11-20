@@ -13,7 +13,8 @@
  * valid token (429) → credentials (401) → the token's own budget (429) → query (400) →
  * content type and encoding (415) → the token's scope (403) → requests in progress (503)
  * → body (413) → pipeline. Everything before the body parser answers without reading the
- * body. Budgets come from the configuration (`RATE_LIMIT_*_PER_MINUTE`, `INGEST_MAX_PENDING`).
+ * body. Budgets come from the configuration (`RATE_LIMIT_*_PER_MINUTE`, `INGEST_MAX_PENDING`,
+ * `INGEST_MAX_PENDING_PER_TOKEN`).
  */
 import { ingestQuerySchema, type IngestQuery } from '@centinela/shared';
 import express, {
@@ -47,6 +48,8 @@ const CONTENT_TYPES: Record<string, BodyFormat> = {
 
 const RATE_LIMITED = 'Too many ingest requests; slow down and retry later';
 const BUSY = 'Centinela is behind; retry after the time in Retry-After';
+const TOKEN_BUSY =
+  'This token already has as many requests in progress as it may; retry after the time in Retry-After';
 /** What a busy server asks a shipper to wait; one batch takes about a second or less. */
 export const BUSY_RETRY_AFTER_SECONDS = 5;
 const ENCODINGS = new Set(['identity', 'gzip']);
@@ -98,10 +101,19 @@ function placeOf(locals: Record<string, unknown>): InProgressPlace | undefined {
   return locals.inProgressPlace as InProgressPlace | undefined;
 }
 
+/** The key of a request's budgets: the stored token's id, or one key for `INGEST_TOKEN`. */
+function budgetKey(locals: Record<string, unknown>): string {
+  return credentialOf(locals)?.id ?? 'INGEST_TOKEN';
+}
+
 /**
  * At most `max` requests past the checks at once: reading their body, waiting for the
  * pipeline (it runs one batch at a time) or being processed. The next is answered `503`
  * with `Retry-After` before its body is read, so a shipper backs off instead of piling up.
+ *
+ * One token holds at most `perToken` of those places; its next request is answered `429`
+ * with `Retry-After` (S11-09). Otherwise a token holder that writes its bodies slowly could
+ * keep every place for minutes and stop every other shipper (S11-R05).
  *
  * A place is given back when the server is done with the request, not when its client
  * goes away (S11-R01): a request whose client left still holds its body and its turn in the
@@ -112,17 +124,26 @@ function placeOf(locals: Record<string, unknown>): InProgressPlace | undefined {
  * route's error handler) returns it when the request fails before the pipeline, and a
  * body that never arrived whole returns it when the request closes.
  */
-function limitInProgress(max: number): { take: RequestHandler; giveBack: ErrorRequestHandler } {
+function limitInProgress(
+  max: number,
+  perToken: number,
+): { take: RequestHandler; giveBack: ErrorRequestHandler } {
   let inProgress = 0;
+  const byToken = new Map<string, number>();
   const take: RequestHandler = (req, res, next) => {
     // The client left while its token was checked: nothing to read and nobody to answer.
     if (req.socket.destroyed) return;
-    if (inProgress >= max) {
+    const key = budgetKey(res.locals);
+    const held = byToken.get(key) ?? 0;
+    // A full server is busy for everyone (503); a token past its share while there is room
+    // is told that it is the one sending too much (429).
+    if (inProgress >= max || held >= perToken) {
       res.set('Retry-After', String(BUSY_RETRY_AFTER_SECONDS));
-      sendProblem(res, problem(503, BUSY));
+      sendProblem(res, inProgress >= max ? problem(503, BUSY) : problem(429, TOKEN_BUSY));
       return;
     }
     inProgress += 1;
+    byToken.set(key, held + 1);
     let released = false;
     let holding = false;
     // The body never arrived whole (the client left or timed out). The body parser may
@@ -134,6 +155,9 @@ function limitInProgress(max: number): { take: RequestHandler; giveBack: ErrorRe
       if (released) return;
       released = true;
       inProgress -= 1;
+      const left = (byToken.get(key) ?? 1) - 1;
+      if (left > 0) byToken.set(key, left);
+      else byToken.delete(key);
       req.off('close', onClose);
     };
     req.once('close', onClose);
@@ -240,7 +264,7 @@ export function createIngestRouter(
   const failures = createWindowCounter(rateLimits.auth);
   const perToken = createWindowCounter(rateLimits.ingest);
   const limitPerToken: RequestHandler = (_req, res, next) => {
-    const key = credentialOf(res.locals)?.id ?? 'INGEST_TOKEN';
+    const key = budgetKey(res.locals);
     const wait = perToken.wait(key);
     if (wait > 0) {
       sendRateLimited(res, wait, RATE_LIMITED);
@@ -249,7 +273,7 @@ export function createIngestRouter(
     perToken.add(key);
     next();
   };
-  const inProgress = limitInProgress(ingest.maxPending);
+  const inProgress = limitInProgress(ingest.maxPending, ingest.maxPendingPerToken);
   const router = Router();
   router.post(
     '/ingest',

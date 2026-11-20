@@ -118,11 +118,16 @@ describe('requests in progress on /api/ingest', () => {
   });
   afterAll(() => db.cleanup());
 
-  async function start(maxPending: number) {
+  /** `perToken` defaults to `maxPending`: one token may hold every place. */
+  async function start(maxPending: number, perToken = maxPending) {
     const { app, deps } = createTestApp({
       pool: db.pool,
       signedIn: false,
-      env: { INGEST_MAX_PENDING: String(maxPending), RATE_LIMIT_INGEST_PER_MINUTE: '1000' },
+      env: {
+        INGEST_MAX_PENDING: String(maxPending),
+        INGEST_MAX_PENDING_PER_TOKEN: String(perToken),
+        RATE_LIMIT_INGEST_PER_MINUTE: '1000',
+      },
     });
     const gate = gatePipeline(deps);
     const listening = createServer(app);
@@ -250,5 +255,27 @@ describe('requests in progress on /api/ingest', () => {
     await noConnections();
     expect(await rawPost(port, DEV_INGEST_TOKEN).status).toBe(200);
     expect(half.answered()).toBeUndefined();
+  });
+
+  it('lets one token hold only its share of the places, so slow bodies cannot stop the others (S11-R05)', async () => {
+    const { port, gate } = await start(4, 2);
+    gate.open();
+    const slow = await createToken(db.pool, { label: 'slow sender', createdBy: 'test' });
+    const other = await createToken(db.pool, { label: 'other shipper', createdBy: 'test' });
+    if (!slow.ok || !other.ok) throw new Error('token not created');
+    // The slow sender opens four requests and never finishes their bodies.
+    const length = Buffer.byteLength(LINE) * 100;
+    const opened = Array.from({ length: 4 }, () =>
+      rawWrite(port, `${head(slow.secret, length)}${LINE}`),
+    );
+    // Its first two hold places; the next two are refused with 429 and Retry-After.
+    expect(await opened[2]?.status).toBe(429);
+    expect(await opened[3]?.status).toBe(429);
+    expect(opened[0]?.answered()).toBeUndefined();
+    expect(opened[1]?.answered()).toBeUndefined();
+    // Another shipper still gets in, and so does INGEST_TOKEN.
+    expect(await rawPost(port, other.secret).status).toBe(200);
+    expect(await rawPost(port, DEV_INGEST_TOKEN).status).toBe(200);
+    for (const request of opened) request.leave();
   });
 });
