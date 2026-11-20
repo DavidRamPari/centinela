@@ -175,7 +175,6 @@ npm run lint && npm run typecheck && npm run db:migrate && npm test && npm run b
 Known gaps, from the session decision records:
 
 - **Sigma:** `expand` and unknown modifiers, aggregation conditions, `near`, and `lt`/`lte`/`eq` correlation conditions are unsupported ([DETECTION.md](docs/DETECTION.md#not-supported)).
-- **NDJSON ingest** turns an object with a `message` key into that message, so Sysmon events from a shipper that adds one (Winlogbeat does) are rejected; send them as plain text, one JSON object per line ([S5-09](docs/decisions/S5.md)).
 - **Demo ingestion is bound by the database:** about 6,000 events/s through PostgreSQL against 85,255 events/s in the engine alone ([DETECTION.md](docs/DETECTION.md#benchmark)).
 - **Upload history** on the Ingest page is kept per browser, in local storage ([S3](docs/decisions/S3.md)).
 - **Overview counts** stop at "200+" new alerts; an exact count needs an API change ([S7b-15](docs/decisions/S7b.md)).

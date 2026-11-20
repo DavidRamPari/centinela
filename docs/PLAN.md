@@ -334,7 +334,7 @@ Fix what you find on the same branch, each fix with its regression test, record 
 
 **Goal.** A shipper can send compressed batches all day, is told to wait when the server is behind, and can only write for the sources and hosts its token names.
 
-**Build.** ARCHITECTURE §16.2:
+**Build.** ARCHITECTURE §9, §8.2 and §5.3 (§16.2 until this session built it):
 
 1. `Parser.input` and NDJSON decoding by input kind. Remove gap S5-09.
 2. `Content-Encoding: gzip` with the limit on the decoded size, and `413` without buffering past it.

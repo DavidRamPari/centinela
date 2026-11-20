@@ -175,7 +175,6 @@ npm run lint && npm run typecheck && npm run db:migrate && npm test && npm run b
 Limitaciones conocidas, tomadas de los registros de decisiones de cada sesión:
 
 - **Sigma:** no se admiten `expand` ni modificadores desconocidos, las condiciones de agregación, `near` ni las condiciones `lt`/`lte`/`eq` en correlaciones ([DETECTION.md](docs/DETECTION.md#not-supported)).
-- **La ingesta NDJSON** convierte un objeto con una clave `message` en ese mensaje, así que se rechazan los eventos de Sysmon de un agente que la agrega (Winlogbeat lo hace); envíalos como texto plano, un objeto JSON por línea ([S5-09](docs/decisions/S5.md)).
 - **La ingesta de la demostración está limitada por la base de datos:** unos 6,000 eventos/s a través de PostgreSQL frente a 85,255 eventos/s del motor solo ([DETECTION.md](docs/DETECTION.md#benchmark)).
 - **El historial de cargas** de la página Ingesta se guarda en cada navegador, en el almacenamiento local ([S3](docs/decisions/S3.md)).
 - **Los contadores del Resumen** se detienen en "200+" alertas nuevas; un conteo exacto requiere cambiar la API ([S7b-15](docs/decisions/S7b.md)).
