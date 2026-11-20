@@ -6,7 +6,9 @@
  * whose events were stored does not fail; no checkpoint is saved while alerts are held.
  */
 import { DEFAULT_SEED, DEFAULT_START, generate, type GenerationResult } from '@centinela/loggen';
-import { beforeAll, describe, expect, it } from 'vitest';
+import pg from 'pg';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createPgAlertSink } from '../../src/db/alert-sink.js';
 import { createMemoryAlertSink, type MemoryAlertSink } from '../../src/pipeline/memory-sink.js';
 import {
   AlertWriteError,
@@ -29,6 +31,7 @@ import {
   seeded,
   type AlertOutcome,
 } from './live.js';
+import { createTestDatabase, type TestDatabase } from '../helpers/db.js';
 
 /** A dropped connection: not an answer from PostgreSQL. */
 const DROPPED = new Error('Connection terminated unexpectedly');
@@ -71,6 +74,14 @@ describe('which failed writes are worth repeating', () => {
     ['a NUL byte in text', BAD_DATA, false],
     ['a constraint violation', { code: '23514', severity: 'ERROR' }, false],
     ['a thrown string', 'boom', true],
+    // S11-R02: these say nothing about the data, so the alerts are held, not dropped.
+    ['a read-only transaction (a failover)', { code: '25006', severity: 'ERROR' }, true],
+    ['a lock timeout', { code: '55P03', severity: 'ERROR' }, true],
+    ['a refused password (a rotated secret)', { code: '28P01', severity: 'FATAL' }, true],
+    ['an internal error', { code: 'XX000', severity: 'ERROR' }, true],
+    ['a missing table', { code: '42P01', severity: 'ERROR' }, true],
+    // A value too large for an index is the data: holding it would block every alert.
+    ['an index row too large', { code: '54000', severity: 'ERROR' }, false],
   ])('%s: %s', (_name, error, transient) => {
     expect(isTransientWriteError(error)).toBe(transient);
   });
@@ -331,5 +342,60 @@ describe('the pipeline around a failed write', () => {
     broken = false;
     await pipeline.drain();
     expect(failing.inner.list()).toHaveLength(MAX_HELD_ALERTS);
+  });
+});
+
+describe('a write PostgreSQL refuses for a while, not for its data (S11-R02)', () => {
+  let db: TestDatabase;
+  beforeAll(async () => {
+    db = await createTestDatabase();
+  });
+  afterAll(() => db.cleanup());
+
+  it('holds the alerts while the database is read-only and writes them once it is not', async () => {
+    // A standby during a failover, or default_transaction_read_only set for maintenance.
+    const readOnly = new pg.Pool({
+      connectionString: db.databaseUrl,
+      max: 1,
+      options: `-c search_path=${db.schema} -c default_transaction_read_only=on`,
+    });
+    try {
+      let failover = true;
+      const writable = createPgAlertSink(db.pool);
+      const standby = createPgAlertSink(readOnly);
+      const failures: AlertWriteFailure[] = [];
+      const pipeline = createOrchestrator(
+        {
+          parsers: new Map([['linux_auth', fakeParser()]]),
+          eventStore: recordingStore(),
+          detector: actionDetector().detector,
+          alertSink: { upsert: (batch) => (failover ? standby : writable).upsert(batch) },
+          publisher: recordingPublisher(),
+        },
+        {
+          reorder: { windowMs: 0, idleMs: Number.POSITIVE_INFINITY },
+          onAlertWriteError: (failure) => failures.push(failure),
+        },
+      );
+      const at = '2026-10-25T12:00:00.000Z';
+      await pipeline.ingest([`${at} alice alert`, `${at} bob alert`], {
+        source: 'linux_auth',
+        host: 'web-01',
+        receivedAt: new Date(at),
+        timezone: 'UTC',
+      });
+      expect(
+        failures.map((f) => [(f.error as { code?: unknown }).code, f.held, f.dropped.length]),
+      ).toEqual([['25006', 2, 0]]);
+
+      failover = false;
+      await pipeline.drain();
+      const { rows } = await db.pool.query<{ dedup_key: string }>(
+        'SELECT dedup_key FROM alerts ORDER BY dedup_key',
+      );
+      expect(rows.map((row) => row.dedup_key.split('|')[2])).toEqual(['alice', 'bob']);
+    } finally {
+      await readOnly.end();
+    }
   });
 });

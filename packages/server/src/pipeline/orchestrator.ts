@@ -52,18 +52,24 @@ export const HOST_NOT_ALLOWED_REASON = 'host not allowed for this token';
 export const MAX_HELD_ALERTS = 10_000;
 
 /**
- * Whether a failed alert write is worth repeating with the same alerts: anything that is
- * not PostgreSQL refusing the data (a dropped connection, a pool timeout), and the
- * SQLSTATE classes that say nothing about the data: connection exception (08), transaction
- * rollback such as a deadlock (40), insufficient resources (53), operator intervention
- * (57) and system error (58).
+ * SQLSTATE classes in which PostgreSQL refuses the data itself: data exception (22: an
+ * invalid value, an untranslatable character), integrity constraint violation (23) and
+ * program limit exceeded (54: a value too large for an index).
+ */
+const DATA_ERROR_CLASSES: readonly string[] = ['22', '23', '54'];
+
+/**
+ * Whether a failed alert write is worth repeating with the same alerts: everything but
+ * PostgreSQL refusing the data itself. A dropped connection, a pool timeout, a deadlock, a
+ * read-only standby during a failover, a lock timeout or a refused password say nothing
+ * about the alerts, which are written once the database is back (S11-R02).
  */
 export function isTransientWriteError(err: unknown): boolean {
   if (typeof err !== 'object' || err === null) return true;
   const { code, severity } = err as { code?: unknown; severity?: unknown };
   const fromDatabase =
     typeof severity === 'string' && typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code);
-  return !fromDatabase || ['08', '40', '53', '57', '58'].includes(code.slice(0, 2));
+  return !fromDatabase || !DATA_ERROR_CLASSES.includes(code.slice(0, 2));
 }
 
 /** What `onAlertWriteError` hears after a failed write. */
