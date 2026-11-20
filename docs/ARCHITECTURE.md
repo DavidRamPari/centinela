@@ -88,6 +88,7 @@ export interface IngestContext {
   defaultYear?: number;    // for RFC 3164 timestamps; default receivedAt's year
   stream?: { kind: StreamKind; tokenId: string | null };  // who delivers (§8.1); default: the command line
   ack?: 'evaluated' | 'stored';                            // when the call ends (§6.2); default 'evaluated'
+  acceptsHost?: (host: string) => boolean;                 // a scoped token's hosts (§9); events outside are rejected
 }
 
 export type StreamKind = 'token' | 'upload' | 'cli' | 'collector' | 'connector';
@@ -98,6 +99,7 @@ export type ParseResult =
 
 export interface Parser {
   readonly source: SourceType;
+  readonly input: 'line' | 'object';   // a log line, or the JSON text of one event (§4, §9)
   parse(line: string, ctx: IngestContext): ParseResult;
 }
 
@@ -183,11 +185,13 @@ export interface Pipeline {
   checkpoint(): Promise<boolean>; // save the detector's state; false when nothing changed
   restore(): Promise<RestoreSummary>;  // load it and evaluate what was stored after it; runs once
   stop(): void;                   // cancel the idle timer
-  stats(): { buffered: number; evaluated: number; late: number; early: number };
+  stats(): { buffered: number; evaluated: number; late: number; early: number; heldAlerts: number };
 }
 ```
 
-Orchestrator order per batch (up to 1,000 lines): parse each line → reject timestamps that are not dates, lie before year 1 or lie too far in the future → assign UUIDv7 ids and `ingestedAt` → `EventStore.insertMany` with the stream of the call → hand the events to the reorder buffer → for what the buffer releases, in order: `Detector.process` → `AlertSink.upsert` → `AlertPublisher.publish` (§6.2). At the end of a call with `ack=evaluated`, everything up to the call's newest event is released; `Detector.flush` runs at the newest time evaluated. Ingest calls, the idle release, `drain`, `checkpoint` and `restore` share one queue and run one at a time.
+Orchestrator order per batch (up to 1,000 lines): parse each line → reject an event whose own host a scoped token may not send for (`host not allowed for this token`) → reject timestamps that are not dates, lie before year 1 or lie too far in the future → assign UUIDv7 ids and `ingestedAt` → `EventStore.insertMany` with the stream of the call → hand the events to the reorder buffer → for what the buffer releases, in order: `Detector.process` → `AlertSink.upsert` → `AlertPublisher.publish` (§6.2). At the end of a call with `ack=evaluated`, everything up to the call's newest event is released; `Detector.flush` runs at the newest time evaluated. Ingest calls, the idle release, `drain`, `checkpoint` and `restore` share one queue and run one at a time.
+
+A failed `AlertSink.upsert` does not fail the call (S11, closing S12-R08). Its events are stored and the detector has counted them, so nothing would raise those alerts again: the orchestrator holds the candidates and writes them, in order and before any newer one, with the next write: the next batch, the end of the next call, the idle release, `drain` or `checkpoint`. Held candidates are tried again before every newer write, and on their own at most once per queued task. When PostgreSQL refuses the data itself (SQLSTATE class 22, data exception; 23, integrity constraint violation; or 54, program limit exceeded, such as a value too large for an index), the candidates are written one at a time and the ones it refuses are dropped and reported, so one bad alert cannot block every later one; any other failure (a dropped connection, a deadlock, a read-only standby during a failover, a lock timeout) holds them. At most 10,000 candidates are held; past that the oldest are dropped and reported. `onAlertWriteError` hears every failure (the server logs it). No checkpoint is saved while candidates are held: after a restart the last checkpoint is still before their events, which are evaluated again. `drain()` rejects with `AlertWriteError` while candidates are still held, so a command-line run fails instead of ending without its alerts. Publishing written alerts to the live view never throws into this: a publisher error is reported through `onBackgroundError`, so it cannot pass for a failed write and have the alerts written twice.
 
 Wiring: `packages/server/src/pipeline/index.ts` (S0) exports `createPipeline(overrides?)`, which assembles the default implementation of each interface from its owner's module:
 
@@ -313,6 +317,8 @@ export interface RuleMeta {
 The SigmaHQ commit is the one recorded in `rules/sigma/README.md`.
 
 ## 4. Log sources and parsers
+
+Each parser says what it reads (`Parser.input`, S11): `line` for `linux_auth`, `nginx_access` and `apache_access`, a log line; `object` for `sysmon` and every later source whose events are JSON objects, the JSON text of one event. It decides what an NDJSON line becomes (§9).
 
 Rule routing uses `logsources` (§5.2). Each parser sets them as follows:
 
@@ -452,6 +458,8 @@ Selections:
 - A map: every field must match (AND). A list of values for a field: any value matches (OR), unless `|all`.
 - A list of maps: any map matches (OR).
 - A plain list of values (keywords): any value appears in `message` (OR, or AND with `|all`). Keyword values are implicitly wrapped in `*…*` (substring search).
+
+Field names (S11): a rule finds a field without regard to ASCII case, because shippers rename keys: `CommandLine` in a rule matches an event key `commandline`. A key with the rule's exact spelling wins; otherwise the first key in the event's own order that differs only in the case of A to Z. No other character folds, so `İ` or the Kelvin sign never stand for `i` or `k`. This holds wherever a rule names a field: detection items, `fieldref`, `group-by` and `condition.field`, and `npm run rules:lint` compares field names the same way. It costs nothing measurable: the lookup runs only when the exact key is missing and compares lengths first (`docs/decisions/S11.md`, S11-05).
 
 Strings:
 
@@ -704,7 +712,7 @@ CREATE TABLE rule_state (
 );
 ```
 
-S6 adds `admin_sessions` (HMAC of the session token, user name, created, last seen, expiry, IP, user agent), `ingest_tokens` (SHA-256 of the secret, label, display prefix, created/last used/revoked timestamps and actors) and `audit_log` (time, actor, action, target, IP, `details` jsonb; `seq`, an identity column added by migration `003_audit-log-sequence.sql`, orders the rows) in migration `002_auth-sessions-tokens-audit.sql`. Integration tests create a throwaway schema per run and drop it afterwards.
+S6 adds `admin_sessions` (HMAC of the session token, user name, created, last seen, expiry, IP, user agent), `ingest_tokens` (SHA-256 of the secret, label, display prefix, created/last used/revoked timestamps and actors; migration 005 adds its scope, §8.2) and `audit_log` (time, actor, action, target, IP, `details` jsonb; `seq`, an identity column added by migration `003_audit-log-sequence.sql`, orders the rows) in migration `002_auth-sessions-tokens-audit.sql`. Integration tests create a throwaway schema per run and drop it afterwards.
 
 ### 8.1 Organizations, streams and the checkpoint (S12, migration 004)
 
@@ -748,7 +756,17 @@ CREATE TABLE detector_checkpoints (
 
 - **Organizations.** Centinela has one organization until S38. The column arrives early because adding it late means migrating every table and reviewing every query: every table created from migration 004 on has `tenant_id`, and its unique keys start with it. `packages/shared` exports the id of the default organization as `DEFAULT_TENANT_ID`. S19 adds the column to the tables that existed before (`events`, `alerts`, `alert_events`, `rule_state`, `ingest_tokens`, `audit_log`, `admin_sessions`) when it rebuilds `events` for partitioning. Until S38 no code path reads or writes another organization: `tenant_id` is a column, not yet a security boundary, and nothing may present it as one.
 - **Streams.** A stream is one delivery path: who sent the events, for which source and host. A row is created on first use, and its counters and last signal are updated once per ingest call. `events.stream_id` answers "which credential delivered this event", which is what an analyst needs after a token is found compromised, and it tells the server's events from the command line's when a checkpoint is restored. `token_id` is null until S11 passes the token of a request to the pipeline.
-- `host` is a query parameter, so the holder of a token chooses how many rows it creates: a token may own at most 1,000 streams, and the request that would create one more is `403`.
+- `host` is a query parameter, so the holder of a token chooses how many rows it creates: a token may own at most 1,000 streams, and the request that would create one more is `403`. Since S11 the router passes the id of the stored token that authenticated the request, so the bound counts per token; `INGEST_TOKEN` has no row, its streams have a null `token_id` and share one bound.
+
+### 8.2 Token scope (S11, migration 005)
+
+```sql
+ALTER TABLE ingest_tokens
+  ADD COLUMN allowed_sources text[] NOT NULL DEFAULT '{}',   -- source types; empty: every source
+  ADD COLUMN allowed_hosts   text[] NOT NULL DEFAULT '{}';   -- lower-cased host names or prefixes ending in *; empty: every host
+```
+
+Tokens created before the migration have empty lists and keep working. `INGEST_TOKEN` is never scoped. How the scope is checked is in §9.
 
 ## 9. HTTP API
 
@@ -757,7 +775,7 @@ JSON over HTTP, all under `/api`. Request and response schemas live in `packages
 | Method and path | Purpose | Main parameters | Response |
 | --- | --- | --- | --- |
 | `GET /api/health` | liveness and database check | — | `{ status, db, version }` |
-| `POST /api/ingest` | ingest lines from agents and scripts | query `source`, `host`, `tz`, `ack` (`evaluated`, the default, or `stored`; §6.2); body `text/plain` lines or `application/x-ndjson`; `Authorization: Bearer <token>`. `403` when the token already delivers for 1,000 source and host pairs (§8.1) | `IngestSummary` |
+| `POST /api/ingest` | ingest lines from agents and scripts | query `source`, `host`, `tz`, `ack` (`evaluated`, the default, or `stored`; §6.2); body `text/plain` lines or `application/x-ndjson`, optionally `Content-Encoding: gzip`; `Authorization: Bearer <token>`. `403` outside the token's scope, or when the token already delivers for 1,000 source and host pairs (§8.1); `429` and `503` with `Retry-After` (below) | `IngestSummary` |
 | `POST /api/ingest/upload` | file upload from the dashboard | query `source`, `host`, `tz`; body `text/plain` (≤ 5 MB). No token: requires the dashboard session and the CSRF header (S6), in every environment. Always answers with final counts | `IngestSummary` |
 | `GET /api/events` | search events | `from`, `to`, `source`, `host`, `user`, `ip`, `action`, `outcome`, `q` (full text), `cursor`, `limit` | page of `NormalizedEvent` |
 | `GET /api/events/:id` | one event | — | `NormalizedEvent` |
@@ -774,11 +792,34 @@ JSON over HTTP, all under `/api`. Request and response schemas live in `packages
 | `GET /api/rules/:id/playbook` | content pack (S7) | `lang` (`en` default, `es`) | `PlaybookResponse`: `{ ruleId, lang, playbook: { summary, whatItDetects, whyItMatters, triageSteps, falsePositives, responseSteps, severityRationale }, rule: { title, author, url, license }, generated: { tool, model, at, review, notice } }`; `404` when the rule is unknown or has no playbook |
 | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me` | session auth (S6) | login body `{ username, password }` | `SessionInfo` (`204` for logout) |
 | `GET /api/tokens` | ingest tokens (S6) | — | `{ items: IngestToken[] }` (newest 200, revoked included, never secrets) |
-| `POST /api/tokens` | create an ingest token (S6) | body `{ label }` | `201 { token: IngestToken, secret }` (secret shown once) |
+| `POST /api/tokens` | create an ingest token (S6) | body `{ label, sources?, hosts? }` (scope, S11) | `201 { token: IngestToken, secret }` (secret shown once) |
 | `POST /api/tokens/:id/revoke` | revoke an ingest token (S6) | — | `IngestToken` |
 | `GET /api/audit` | audit log (S6) | `action`, `cursor`, `limit` | page of `AuditEntry` |
 
 Since S6 every endpoint except `GET /api/health`, `POST /api/ingest` (bearer token) and `POST /api/auth/login` requires the dashboard session (`401` without it); state-changing requests also need the `X-CSRF-Token` header (`403` without it). See `docs/SECURITY.md`.
+
+**`POST /api/ingest` in detail (S11).** One request carries one source and one host. The checks run in this order, and every one before the body answers without reading it:
+
+1. Requests without a valid token are counted per client address. An address that sent `RATE_LIMIT_AUTH_PER_MINUTE` of them in its current minute is answered `429` with `Retry-After` until the minute ends, whatever token it then sends: otherwise a guesser past the limit could still find a token. A request counts from before its token is checked and takes its count back when the token is valid, so guesses sent at once cannot all be checked before any of them is counted; the cost is that more than that many requests from one address being checked at the same moment are refused too.
+2. The bearer token: `INGEST_TOKEN` (constant-time comparison) or an active stored token (`401` otherwise).
+3. The token's own budget, `RATE_LIMIT_INGEST_PER_MINUTE` per token (`INGEST_TOKEN` has one too): `429` with `Retry-After`. Many hosts behind one address no longer share a budget.
+4. The query (`400`), the content type and its encoding (`415`): only `identity` and `gzip`.
+5. The token's scope (§8.2): a `source` outside `allowed_sources` or a `host` outside `allowed_hosts` is `403`. A host entry is an exact name or a prefix ending in `*`, compared without regard to ASCII case and as plain text: nothing a user types is ever compiled as a regex. A request without `host` is for `unknown`, which a token scoped to hosts does not allow.
+6. At most `INGEST_MAX_PENDING` requests past these checks are in progress at once (reading their body, waiting for the pipeline, which runs one batch at a time, or being processed); the next is `503` with `Retry-After: 5`. One token holds at most `INGEST_MAX_PENDING_PER_TOKEN` of those places; while there is room, its next request is `429` with `Retry-After: 5`, so a token that writes its bodies slowly cannot keep every place (S11-09). A request keeps its place until the server is done with it, also when its client leaves first: until its pipeline call settles, or until it fails or its body stops arriving before that. Fluent Bit retries both `429` and `503` and, from version 5.2, waits for the time in `Retry-After`.
+7. The body: at most 5 MB once decoded. A gzip body is inflated as it is read and the limit applies to what it inflates to, so a small body that inflates past it is refused with `413` after at most 5 MB of output; the rest of the request is read off the connection and discarded without being inflated.
+8. The pipeline, with the token's id as the stream's `tokenId` (§8.1). A parsed event that names its own host (a syslog header, Sysmon's `Computer`) outside the token's hosts is rejected with `host not allowed for this token` and counted in the answer and in the stream's `rejected`: the scope covers what the events say, not only what the request says.
+
+NDJSON lines are read by what the source's parser takes (`Parser.input`, §4):
+
+| JSON value | `line` source | `object` source |
+| --- | --- | --- |
+| a string | the string | the string (the parser reads JSON from it) |
+| an object | its string `message`; without one the line is rejected (`no message in object`) | the object's JSON text, whatever keys it has |
+| anything else, or not JSON | rejected (`invalid NDJSON line`) | rejected (`invalid NDJSON line`) |
+
+So an event a shipper wraps with a `message` key (Winlogbeat does) still reaches an `object` parser whole (this closed S5-09). Reading the shapes shippers give to Windows events is the Windows parser's job (§16.6).
+
+A token is created with `POST /api/tokens` `{ label, sources?, hosts? }`: at most the four source types and 100 host entries, hosts lower-cased and repeats dropped. The audit entry `token.create` records the scope. The dashboard's form offers both.
 
 ## 10. Realtime
 
@@ -797,7 +838,8 @@ Since S6 every endpoint except `GET /api/health`, `POST /api/ingest` (bearer tok
 
 - Trust boundaries: log sources → ingest endpoint (authenticated by token); browser → API (session cookie plus CSRF header, S6); repository → rules (trusted).
 - Attacker-controlled data: every log line and every field derived from it. Rendered as text only, stored with parameterized queries, matched with linear-time regexes, never executed.
-- Limits: 5 MB per ingest request, 8,192 characters per message, 1,000 lines per batch, rate limits on ingest and `/api/auth/*`, sign-in lockout, bounded SSE clients, 100,000 events waiting in the reorder buffer, 1,000 streams per token.
+- Limits: 5 MB per ingest request once decoded (gzip included), 8,192 characters per message, 1,000 lines per batch, rate limits per token on ingest and per client address on `/api/auth/*` and on ingest requests without a valid token, at most `INGEST_MAX_PENDING` ingest requests in progress (`503` past it), sign-in lockout, bounded SSE clients, 100,000 events waiting in the reorder buffer, 1,000 streams per token, 10,000 alerts held after a failed write.
+- A token may be scoped to source types and hosts (S11): checked on the request and on the host each parsed event names, so a compromised shipper writes only for its own hosts (§9).
 - Event time is attacker-controlled like the rest of a log line. Detection runs on `min(ts, receivedAt)` and events dated more than a day ahead are rejected, so a timestamp from the future cannot move the detector's clock (§6.2). The saved detector state is validated like any other input before it is restored (§6.3).
 - Authentication (S6): one admin (argon2id hash in `ADMIN_PASSWORD_HASH`), server-side sessions in PostgreSQL behind an httpOnly `__Host-centinela` cookie, CSRF double-submit (`__Host-centinela-csrf` cookie repeated in `X-CSRF-Token`) on every state-changing request, ingest tokens stored hashed, audit log of analyst actions. Over plain HTTP on localhost outside production the two cookies are `centinela-local` and `centinela-local-csrf`, without `Secure`, because WebKit refuses `Secure` cookies there (S8; `docs/SECURITY.md`).
 - Headers: API responses carry `helmet` headers with `default-src 'none'` and `Cache-Control: no-store`; the HTML (nginx in Docker, Vite in development) carries a strict Content Security Policy defined in `packages/web/security/headers.ts`.
@@ -842,7 +884,9 @@ Tests never call external networks. Database tests use a throwaway schema.
 | `SESSION_SECRET` | `dev-session-secret-change-me` | S6; keys session ids and CSRF tokens; required, at least 32 characters, in production |
 | `SESSION_IDLE_MINUTES`, `SESSION_MAX_HOURS` | `120`, `12` | S6; idle and absolute session lifetime (at most 168 hours) |
 | `LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_MINUTES` | `5`, `15` | S6; per-IP sign-in lockout |
-| `RATE_LIMIT_INGEST_PER_MINUTE`, `RATE_LIMIT_UPLOAD_PER_MINUTE`, `RATE_LIMIT_AUTH_PER_MINUTE` | `120`, `30`, `30` | per client IP (S1's constants, moved to configuration in S6) |
+| `RATE_LIMIT_INGEST_PER_MINUTE`, `RATE_LIMIT_UPLOAD_PER_MINUTE`, `RATE_LIMIT_AUTH_PER_MINUTE` | `120`, `30`, `30` | S1's constants, moved to configuration in S6. Ingest is per token since S11; uploads and `/api/auth/*` per client IP, and the auth budget also limits ingest requests without a valid token, per client IP (§9) |
+| `INGEST_MAX_PENDING` | `16` | S11; `/api/ingest` requests in progress at once before the next is `503` with `Retry-After` (§9); 1 to 1,000 |
+| `INGEST_MAX_PENDING_PER_TOKEN` | `4` | S11; how many of those places one token may hold before its next request is `429` with `Retry-After` (§9); 1 to 1,000 |
 | `REORDER_WINDOW_SECONDS` | `10` | S12; how far behind the newest event the reorder buffer waits (§6.2). Must exceed the shippers' flush interval plus clock differences between hosts; `0` evaluates on arrival; at most 3,600 |
 | `REORDER_IDLE_MS` | `5000` | S12; with no ingest call for this long, everything buffered is evaluated. Must exceed the shippers' flush interval |
 | `REORDER_MAX_EVENTS` | `100000` | S12; bound on buffered events (1,000 to 5,000,000) |
@@ -855,40 +899,7 @@ Tests never call external networks. Database tests use a throwaway schema.
 
 **Status: planned.** This section is the contract for the sessions of phase 1 that are not built yet ([PLAN.md](PLAN.md), [ROADMAP.md](ROADMAP.md)). The session that builds a part moves it into the sections above (§2.3, §3, §4, §6, §8, §9, §12, §15) and removes it from here, so this section empties as phase 1 closes; the numbers of removed parts are not reused. A session may change a detail when building shows it is wrong: it records the change in its decision file and updates this section in the same pull request.
 
-Built so far: S12 (organizations, streams, the ordering of live events and the detector checkpoint, which were §16.1 and §16.3 to §16.5) is now §6.2, §6.3 and §8.1.
-
-### 16.2 Ingest v2 (S11)
-
-The endpoint stays `POST /api/ingest` with `source`, `host`, `tz` and `ack` (§6.2); one request carries one source and one host.
-
-**Parser input kind.** `Parser` gains `readonly input: 'line' | 'object'`: `line` for `linux_auth`, `nginx_access` and `apache_access`, `object` for `sysmon` and every later source whose events are JSON objects. It decides how an `application/x-ndjson` line becomes the parser's input (this replaces the rule in `ingest/body.ts`):
-
-| JSON value | `line` source | `object` source |
-| --- | --- | --- |
-| a string | the string | the string (the parser reads JSON from it) |
-| an object | its string `message`; without one the line is rejected (`no message in object`) | the object's JSON text, whatever keys it has |
-| anything else, or not JSON | rejected (`invalid NDJSON line`) | rejected (`invalid NDJSON line`) |
-
-This closes S5-09: an event that a shipper sends with a `message` key (Winlogbeat does) still reaches an `object` parser whole. Reading the shapes shippers give to Windows events is the Windows parser's job (§16.6).
-
-**Compression.** `Content-Encoding: gzip` is accepted; any other encoding is `415`. The 5 MB limit applies to the decoded body, and a body that inflates past it is refused with `413` without buffering more than the limit.
-
-**Scoped tokens.** `ingest_tokens` gains `allowed_sources text[] NOT NULL DEFAULT '{}'` and `allowed_hosts text[] NOT NULL DEFAULT '{}'`. An empty list allows everything, so existing tokens keep working.
-
-- `allowed_sources` holds source types. `allowed_hosts` holds host names, compared without regard to case; an entry may end in `*` to allow a prefix. No other pattern syntax: nothing a user types is ever compiled as a regex.
-- A request whose `source` or `host` is outside the token's lists is `403` problem+json, before the body is read.
-- A line that names its own host (a syslog header, a `Computer` field) is rejected with `host not allowed for this token` when that host is outside `allowed_hosts`. The scope covers what the events say, not only what the request says.
-- `POST /api/tokens` accepts `sources` and `hosts`; `IngestToken` carries them; creating a token records its scope in the audit log. The `INGEST_TOKEN` variable stays unscoped.
-- `verifyIngestToken` returns the token (id and scope) instead of a boolean, and the router passes its id as `IngestContext.stream.tokenId`, so each stream is tied to the token that delivers it (§8.1).
-
-This narrows the residual risk "token holders write anything" in the threat model to "a token holder writes only for its sources and hosts".
-
-**Rate limits and backpressure.**
-
-- Authenticated ingest is limited per token (`RATE_LIMIT_INGEST_PER_MINUTE`); many hosts behind one address no longer share a budget. Requests without a valid token are limited per client address at `RATE_LIMIT_AUTH_PER_MINUTE`, to slow token guessing. Both answer `429` with `Retry-After`.
-- The pipeline evaluates one batch at a time, so requests queue. When more than `INGEST_MAX_PENDING` requests are waiting, the next one is refused with `503` problem+json and `Retry-After`, before its body is read. Fluent Bit retries both answers and, from version 5.2, waits for the time in `Retry-After`.
-
-**Field names.** Rules find a field without regard to ASCII case: `CommandLine` in a rule matches an event key `commandline`. A key with the exact spelling wins; otherwise the first key in the event's own order that matches. The rule applies wherever a rule names a field: detection items, `fieldref`, `group-by` and `condition.field`. S11 measures the cost with `npm run bench` and records it.
+Built so far: S12 (organizations, streams, the ordering of live events and the detector checkpoint, which were §16.1 and §16.3 to §16.5) is now §6.2, §6.3 and §8.1. S11 (ingest v2, which was §16.2) is now §2.3, §4, §5.3, §8.2, §9, §12 and §15.
 
 ### 16.6 Sources of phase 1 (S13, S15, S16, S17)
 
@@ -916,7 +927,5 @@ Rules for every new parser: the event's own time and host when it carries them, 
 
 | Variable | Default | Session | Notes |
 | --- | --- | --- | --- |
-| `INGEST_MAX_PENDING` | `16` | S11 | ingest requests that may wait before `503` |
 | `CONNECTOR_SECRET_KEY` | none | S17 | 32 bytes, base64; encrypts connector credentials; connectors refuse to run without it |
 
-`RATE_LIMIT_INGEST_PER_MINUTE` keeps its name and default and becomes per token (S11).

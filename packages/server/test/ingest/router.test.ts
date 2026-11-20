@@ -402,7 +402,7 @@ describe('POST /api/ingest and /api/ingest/upload', () => {
   });
 
   describe('rate limiting', () => {
-    it('answers 429 problem+json past the configured limits, also for bad tokens', async () => {
+    it('answers 429 problem+json past the configured limits: per token, and per address for uploads', async () => {
       const { app: limited } = createTestApp({
         pool: db.pool,
         env: { RATE_LIMIT_INGEST_PER_MINUTE: '2', RATE_LIMIT_UPLOAD_PER_MINUTE: '1' },
@@ -415,15 +415,19 @@ describe('POST /api/ingest and /api/ingest/upload', () => {
           .type('text/plain')
           .send('');
       await send(AUTH).expect(200);
+      // A bad token is counted for the address, not against the token's budget (S11).
       await send('Bearer wrong').expect(401);
+      await send(AUTH).expect(200);
       const res = await send(AUTH);
       expectProblem(res, 429);
-      expect(res.headers['ratelimit-policy']).toBeDefined();
+      expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
 
       const upload = () =>
         request(limited).post('/api/ingest/upload?source=linux_auth').type('text/plain').send('');
       await upload().expect(200);
-      expectProblem(await upload(), 429);
+      const refused = await upload();
+      expectProblem(refused, 429);
+      expect(refused.headers['ratelimit-policy']).toBeDefined();
     });
   });
 });

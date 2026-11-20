@@ -244,6 +244,41 @@ describe('security page', () => {
     expect(within(row).queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument();
   });
 
+  it('creates a token limited to some sources and hosts, and shows what each token may send', async () => {
+    const user = userEvent.setup();
+    renderApp({ path: '/security', language: 'en' });
+    const tokensTable = await screen.findByRole('table', { name: 'Ingest tokens' });
+    const shipper = within(tokensTable)
+      .getByText('web-01 log shipper')
+      .closest('tr') as HTMLElement;
+    expect(within(shipper).getByText(/nginx access log, Linux auth\.log/)).toBeInTheDocument();
+    const old = within(tokensTable).getByText('old bastion agent').closest('tr') as HTMLElement;
+    expect(within(old).getByText(/Any source/)).toHaveTextContent('Any source · any host');
+
+    await user.type(screen.getByLabelText('Label'), 'web farm');
+    await user.click(screen.getByRole('checkbox', { name: 'Linux auth.log' }));
+    await user.click(screen.getByRole('checkbox', { name: 'nginx access log' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Linux auth.log' }));
+    await user.type(screen.getByLabelText('Hosts'), 'WEB-*, bastion-01');
+    await user.click(screen.getByRole('button', { name: 'Create token' }));
+    await screen.findByText('Token "web farm" created');
+    const row = (await screen.findByText('web farm')).closest('tr') as HTMLElement;
+    expect(within(row).getByText('web-*, bastion-01')).toBeInTheDocument();
+    expect(within(row).getByText(/^nginx access log/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Hosts')).toHaveValue('');
+    expect(screen.getByRole('checkbox', { name: 'nginx access log' })).not.toBeChecked();
+  });
+
+  it('refuses a host pattern the server would refuse, before sending it', async () => {
+    const user = userEvent.setup();
+    renderApp({ path: '/security', language: 'es' });
+    await user.type(await screen.findByLabelText('Etiqueta'), 'agente');
+    await user.type(screen.getByLabelText('Hosts'), 'web-(01|02)');
+    await user.click(screen.getByRole('button', { name: 'Crear token' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Cada host puede tener letras');
+    expect(screen.getByLabelText('Hosts')).toHaveAttribute('aria-invalid', 'true');
+  });
+
   it('refuses an empty label before sending it', async () => {
     const user = userEvent.setup();
     renderApp({ path: '/security', language: 'en' });

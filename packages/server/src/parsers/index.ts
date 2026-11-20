@@ -3,7 +3,8 @@
  * and `sysmon`. Sources without a parser are rejected by the orchestrator with
  * `unknown source`.
  */
-import type { Parser, ParserRegistry } from '../pipeline/types.js';
+import type { SourceType } from '@centinela/shared';
+import type { Parser, ParserInput, ParserRegistry } from '../pipeline/types.js';
 import { linuxAuthParser } from './linux-auth.js';
 import { sysmonParser } from './sysmon/index.js';
 import { apacheAccessParser, nginxAccessParser } from './web-access.js';
@@ -15,4 +16,11 @@ export { MAX_LINE_LENGTH } from './common.js';
 export function createParserRegistry(): ParserRegistry {
   const parsers: Parser[] = [linuxAuthParser, nginxAccessParser, apacheAccessParser, sysmonParser];
   return new Map(parsers.map((parser) => [parser.source, parser]));
+}
+
+const registry = createParserRegistry();
+
+/** What the source's parser reads; `line` for a source without one (it is rejected anyway). */
+export function parserInputOf(source: SourceType): ParserInput {
+  return registry.get(source)?.input ?? 'line';
 }

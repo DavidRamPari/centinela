@@ -118,6 +118,8 @@ const envSchema = z
     RATE_LIMIT_INGEST_PER_MINUTE: intVar(1, 100_000, 120),
     RATE_LIMIT_UPLOAD_PER_MINUTE: intVar(1, 10_000, 30),
     RATE_LIMIT_AUTH_PER_MINUTE: intVar(1, 10_000, 30),
+    INGEST_MAX_PENDING: intVar(1, 1_000, 16),
+    INGEST_MAX_PENDING_PER_TOKEN: intVar(1, 1_000, 4),
     LOGIN_MAX_FAILURES: intVar(1, 100, 5),
     LOGIN_LOCKOUT_MINUTES: intVar(1, 1_440, 15),
     SESSION_IDLE_MINUTES: intVar(1, 10_080, 120),
@@ -234,8 +236,16 @@ export interface Config {
   };
   /** Keys the session id hashes and CSRF tokens; changing it signs everyone out. */
   sessionSecret: string;
-  /** Per client IP, one-minute windows. */
+  /**
+   * One-minute windows. `ingest` is per token (S11); `upload` and `auth` are per client IP,
+   * and `auth` also limits requests to `/api/ingest` without a valid token, per client IP.
+   */
   rateLimits: { ingest: RateLimitOptions; upload: RateLimitOptions; auth: RateLimitOptions };
+  /**
+   * `/api/ingest` requests in progress at once before the next is answered `503`, and
+   * how many of them one token may hold before its next is answered `429` (S11, S11-09).
+   */
+  ingest: { maxPending: number; maxPendingPerToken: number };
   /** Temporary lockout: `maxFailures` failed sign-ins from one client lock it for `lockoutMs`. */
   login: { maxFailures: number; lockoutMs: number };
   /** Sessions end after `idleMs` without requests, and at the latest after `maxAgeMs`. */
@@ -299,6 +309,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       ingest: perMinute(parsed.RATE_LIMIT_INGEST_PER_MINUTE),
       upload: perMinute(parsed.RATE_LIMIT_UPLOAD_PER_MINUTE),
       auth: perMinute(parsed.RATE_LIMIT_AUTH_PER_MINUTE),
+    },
+    ingest: {
+      maxPending: parsed.INGEST_MAX_PENDING,
+      maxPendingPerToken: parsed.INGEST_MAX_PENDING_PER_TOKEN,
     },
     login: {
       maxFailures: parsed.LOGIN_MAX_FAILURES,

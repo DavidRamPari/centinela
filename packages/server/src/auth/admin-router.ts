@@ -2,7 +2,8 @@
  * Ingest tokens and the audit log, behind the dashboard session (and CSRF for changes):
  *
  * - `GET /api/tokens`: the newest tokens, revoked ones included; never their secrets.
- * - `POST /api/tokens` `{ label }`: create a token; the answer carries the secret once.
+ * - `POST /api/tokens` `{ label, sources?, hosts? }`: create a token, scoped to those source
+ *   types and hosts when given (S11); the answer carries the secret once.
  * - `POST /api/tokens/:id/revoke`: revoke a token (idempotent).
  * - `GET /api/audit`: audit log, newest first, keyset-paginated, optional `action` filter.
  */
@@ -33,17 +34,17 @@ export function createAdminRouter({ pool }: { pool: Pool }): Router {
   });
 
   router.post('/tokens', async (req, res) => {
-    const { label } = validate(ingestTokenCreateBodySchema, req.body, 'body');
+    const { label, sources, hosts } = validate(ingestTokenCreateBodySchema, req.body, 'body');
     const actor = authOf(res).session.username;
     const result = await withTransaction(pool, async (client) => {
-      const created = await createToken(client, { label, createdBy: actor });
+      const created = await createToken(client, { label, createdBy: actor, sources, hosts });
       if (created.ok) {
         await recordAudit(client, {
           actor,
           action: 'token.create',
           target: created.token.id,
           ip: clientIp(req),
-          details: { label, prefix: created.token.prefix },
+          details: { label, prefix: created.token.prefix, sources, hosts },
         });
       }
       return created;

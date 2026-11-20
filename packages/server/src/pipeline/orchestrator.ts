@@ -14,7 +14,7 @@
  * that decides when to stop waiting for older events.
  */
 import { performance } from 'node:perf_hooks';
-import type { NormalizedEvent } from '@centinela/shared';
+import type { Alert, NormalizedEvent } from '@centinela/shared';
 import { v7 as uuidv7 } from 'uuid';
 import { z } from 'zod';
 import { ReorderBuffer, type Buffered } from './reorder.js';
@@ -46,6 +46,51 @@ export const RECOVERY_PAGE_SIZE = 1000;
 
 export const FUTURE_TIMESTAMP_REASON = 'timestamp too far in the future';
 export const INVALID_TIMESTAMP_REASON = 'invalid timestamp';
+/** A parsed event names a host its token may not send for (S11, `IngestContext.acceptsHost`). */
+export const HOST_NOT_ALLOWED_REASON = 'host not allowed for this token';
+/** Alerts kept for a later write when writing them fails (S11, S12-R08); past it, the oldest go. */
+export const MAX_HELD_ALERTS = 10_000;
+
+/**
+ * SQLSTATE classes in which PostgreSQL refuses the data itself: data exception (22: an
+ * invalid value, an untranslatable character), integrity constraint violation (23) and
+ * program limit exceeded (54: a value too large for an index).
+ */
+const DATA_ERROR_CLASSES: readonly string[] = ['22', '23', '54'];
+
+/**
+ * Whether a failed alert write is worth repeating with the same alerts: everything but
+ * PostgreSQL refusing the data itself. A dropped connection, a pool timeout, a deadlock, a
+ * read-only standby during a failover, a lock timeout or a refused password say nothing
+ * about the alerts, which are written once the database is back (S11-R02).
+ */
+export function isTransientWriteError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return true;
+  const { code, severity } = err as { code?: unknown; severity?: unknown };
+  const fromDatabase =
+    typeof severity === 'string' && typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code);
+  return !fromDatabase || !DATA_ERROR_CLASSES.includes(code.slice(0, 2));
+}
+
+/** What `onAlertWriteError` hears after a failed write. */
+export interface AlertWriteFailure {
+  error: unknown;
+  /** Alerts waiting for the next write, oldest first. */
+  held: number;
+  /** Alerts given up: the database refuses them, or more than `MAX_HELD_ALERTS` waited. */
+  dropped: Array<{ ruleId: string; dedupKey: string }>;
+}
+
+/** Alerts could not be written and are still waiting (thrown by `drain()`). */
+export class AlertWriteError extends Error {
+  constructor(
+    readonly held: number,
+    override readonly cause: unknown,
+  ) {
+    super(`${held} alert(s) could not be written`);
+    this.name = 'AlertWriteError';
+  }
+}
 /**
  * The earliest event time that is stored. JavaScript reads `0000-06-01T00:00:00Z` as a
  * date; PostgreSQL has no year 0 and refuses it, which would fail the insert of the whole
@@ -116,6 +161,8 @@ export interface PipelineStats {
   late: number;
   /** Events released before the horizon because the buffer was full. */
   early: number;
+  /** Alerts waiting to be written after a failed write (S12-R08). */
+  heldAlerts: number;
 }
 
 export interface Pipeline {
@@ -129,11 +176,14 @@ export interface Pipeline {
     lines: Iterable<string> | AsyncIterable<string>,
     ctx: IngestContext,
   ): Promise<IngestSummary>;
-  /** Evaluate everything still waiting in the reorder buffer (the end of a bounded input). */
+  /**
+   * Evaluate everything still waiting in the reorder buffer (the end of a bounded input).
+   * Rejects with `AlertWriteError` when alerts could not be written and are still held.
+   */
   drain(): Promise<void>;
   /**
-   * Save the detector's state. Resolves to false when there is no checkpoint store or
-   * nothing changed since the last save.
+   * Save the detector's state. Resolves to false when there is no checkpoint store,
+   * nothing changed since the last save, or alerts are held after a failed write.
    */
   checkpoint(): Promise<boolean>;
   /**
@@ -186,6 +236,11 @@ export interface OrchestratorOptions {
   timers?: Timers;
   /** Called when work that no request is waiting for fails (the idle release). */
   onBackgroundError?: (err: unknown) => void;
+  /**
+   * Called when writing alerts fails (S12-R08). The alerts are held and written with the
+   * next write, in order; an ingest call whose events were stored does not fail for it.
+   */
+  onAlertWriteError?: (failure: AlertWriteFailure) => void;
 }
 
 interface PendingLine {
@@ -228,13 +283,96 @@ export function createOrchestrator(
   let idleTimer: unknown;
   let stopped = false;
 
+  /**
+   * Alerts whose write failed, oldest first (S12-R08). Their events were stored and the
+   * detector has counted them, so nothing would raise these alerts again: they are written
+   * before any newer one, by the next write, and no checkpoint is saved while they wait.
+   */
+  let held: AlertCandidate[] = [];
+  /** The error of the last failed write, for `drain()`. */
+  let heldError: unknown;
+  /** Sequence number of the queued task running now, and of the last one a write failed in. */
+  let taskSeq = 0;
+  let failedInTask = -1;
+
+  /**
+   * Count written alerts and publish them. Publishing never throws from here: the alerts
+   * are written, so a failure to tell the live view must not look like a failed write,
+   * which would write them again (S11 review). The live view shows them on its next load.
+   */
+  function record(written: { created: Alert[]; updated: Alert[] }, counts: AlertCounts) {
+    counts.alertsCreated += written.created.length;
+    counts.alertsUpdated += written.updated.length;
+    const events = [
+      ...written.created.map((alert) => ({ type: 'alert.created' as const, alert })),
+      ...written.updated.map((alert) => ({ type: 'alert.updated' as const, alert })),
+    ];
+    for (const event of events) {
+      try {
+        publisher.publish(event);
+      } catch (err) {
+        options.onBackgroundError?.(err);
+      }
+    }
+  }
+
+  /**
+   * Write the held alerts and then `candidates`, in one transaction. A write that fails
+   * does not fail the caller: when the database refuses the data itself, the alerts are
+   * written one at a time and those it refuses are dropped, so one bad alert cannot block
+   * every later one; anything else is held for the next write.
+   */
   async function sinkAndPublish(candidates: AlertCandidate[], counts: AlertCounts) {
-    if (candidates.length === 0) return;
-    const { created, updated } = await alertSink.upsert(candidates);
-    counts.alertsCreated += created.length;
-    counts.alertsUpdated += updated.length;
-    for (const alert of created) publisher.publish({ type: 'alert.created', alert });
-    for (const alert of updated) publisher.publish({ type: 'alert.updated', alert });
+    // Held alerts alone are tried once per task: a write that just failed is not repeated
+    // within the same request, idle release, drain or checkpoint.
+    if (candidates.length === 0 && (held.length === 0 || failedInTask === taskSeq)) return;
+    const batch = held.length === 0 ? candidates : [...held, ...candidates];
+    held = [];
+    try {
+      record(await alertSink.upsert(batch), counts);
+      heldError = undefined;
+      return;
+    } catch (err) {
+      heldError = err;
+      failedInTask = taskSeq;
+    }
+    const dropped: AlertCandidate[] = [];
+    let waiting = batch;
+    if (!isTransientWriteError(heldError)) {
+      // The database refuses something in the batch for what it is. One at a time, so a
+      // candidate it always refuses is dropped instead of blocking every later alert.
+      waiting = [];
+      if (batch.length === 1) dropped.push(...batch);
+      else {
+        for (const [index, candidate] of batch.entries()) {
+          try {
+            record(await alertSink.upsert([candidate]), counts);
+          } catch (err) {
+            heldError = err;
+            if (isTransientWriteError(err)) {
+              waiting = batch.slice(index);
+              break;
+            }
+            dropped.push(candidate);
+          }
+        }
+      }
+    }
+    if (waiting.length > MAX_HELD_ALERTS) {
+      dropped.push(...waiting.slice(0, waiting.length - MAX_HELD_ALERTS));
+      waiting = waiting.slice(waiting.length - MAX_HELD_ALERTS);
+    }
+    held = waiting;
+    const error = heldError;
+    if (held.length === 0) heldError = undefined;
+    options.onAlertWriteError?.({
+      error,
+      held: held.length,
+      dropped: dropped.map((candidate) => ({
+        ruleId: candidate.rule.id,
+        dedupKey: candidate.dedupKey,
+      })),
+    });
   }
 
   /** Detect on events that left the buffer, in the order given, and write their alerts. */
@@ -313,6 +451,10 @@ export function createOrchestrator(
       }
       if (!result.ok) {
         reject(summary, lineNumber, result.reason);
+        continue;
+      }
+      if (ctx.acceptsHost !== undefined && !ctx.acceptsHost(result.event.host)) {
+        reject(summary, lineNumber, HOST_NOT_ALLOWED_REASON);
         continue;
       }
       const eventTime = Date.parse(result.event.ts);
@@ -402,6 +544,8 @@ export function createOrchestrator(
       summary.pending = buffer.countOfCall(state.call);
     }
     await flushDetector(summary);
+    // Alerts held after an earlier failed write, when this call wrote nothing.
+    await sinkAndPublish([], summary);
 
     if (streams && state.streamId !== null) {
       await streams.record(state.streamId, {
@@ -423,7 +567,7 @@ export function createOrchestrator(
       timers.clear(idleTimer);
       idleTimer = undefined;
     }
-    if (stopped || buffer.size === 0 || !Number.isFinite(idleMs)) return;
+    if (stopped || (buffer.size === 0 && held.length === 0) || !Number.isFinite(idleMs)) return;
     idleTimer = timers.set(() => {
       idleTimer = undefined;
       enqueue(async () => {
@@ -434,6 +578,9 @@ export function createOrchestrator(
         const counts = { alertsCreated: 0, alertsUpdated: 0 };
         await evaluate(buffer.releaseAll(), counts);
         await flushDetector(counts);
+        // Alerts held after a failed write are tried again here when nothing else writes.
+        await sinkAndPublish([], counts);
+        armIdleTimer();
       }).catch((err: unknown) => options.onBackgroundError?.(err));
     }, idleMs);
   }
@@ -442,6 +589,10 @@ export function createOrchestrator(
 
   async function saveCheckpoint(): Promise<boolean> {
     if (!checkpoints || !dirty) return false;
+    // The alerts of held candidates exist nowhere but here. The last checkpoint is still
+    // before the events that raised them, so after a restart they are evaluated again.
+    if (held.length > 0) await sinkAndPublish([], { alertsCreated: 0, alertsUpdated: 0 });
+    if (held.length > 0) return false;
     const snapshot: PipelineSnapshot = {
       engine: detector.snapshot?.() ?? null,
       buffer: buffer.snapshot(),
@@ -577,7 +728,10 @@ export function createOrchestrator(
 
   let queue: Promise<unknown> = Promise.resolve();
   function enqueue<T>(task: () => Promise<T>): Promise<T> {
-    const result = queue.then(task);
+    const result = queue.then(() => {
+      taskSeq += 1;
+      return task();
+    });
     queue = result.catch(() => undefined);
     return result;
   }
@@ -598,7 +752,9 @@ export function createOrchestrator(
         const counts = { alertsCreated: 0, alertsUpdated: 0 };
         await evaluate(buffer.releaseAll(), counts);
         await flushDetector(counts);
+        await sinkAndPublish([], counts);
         armIdleTimer();
+        if (held.length > 0) throw new AlertWriteError(held.length, heldError);
       });
     },
     checkpoint() {
@@ -621,7 +777,7 @@ export function createOrchestrator(
       }
     },
     stats() {
-      return { buffered: buffer.size, ...totals };
+      return { buffered: buffer.size, ...totals, heldAlerts: held.length };
     },
   };
 }

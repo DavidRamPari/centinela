@@ -57,6 +57,9 @@ const pipeline = createPipeline({
   },
   maxFutureSkewMs: config.detection.maxFutureSkewMs,
   onBackgroundError: (err) => logger.error({ err }, 'evaluating buffered events failed'),
+  // The alerts are held and written with the next write (S12-R08); dropped ones are lost.
+  onAlertWriteError: ({ error, held, dropped }) =>
+    logger.error({ err: error, held, dropped }, 'writing alerts failed'),
 });
 const app = createApp({ config, logger, pool, pipeline, rules, hub });
 

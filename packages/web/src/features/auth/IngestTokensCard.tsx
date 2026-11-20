@@ -1,12 +1,15 @@
 /**
  * Ingest tokens: create one (its secret is shown once, with a copy button), list them and
- * revoke them. Revoking asks for a second click instead of a browser dialog.
+ * revoke them. Revoking asks for a second click instead of a browser dialog. A token may
+ * be limited to some sources and hosts (S11); left empty, it may send anything.
  */
 import {
   MAX_TOKEN_LABEL_LENGTH,
+  SOURCE_TYPES,
   ingestTokenCreateBodySchema,
   type IngestToken,
   type IngestTokenCreated,
+  type SourceType,
 } from '@centinela/shared';
 import { KeyRound, Plus } from 'lucide-react';
 import { useId, useState, type FormEvent } from 'react';
@@ -16,7 +19,7 @@ import { CopyTextButton } from '../../components/ui/CopyButton';
 import { Section } from '../../components/ui/Section';
 import { CodeBlock } from '../../components/ui/CodeBlock';
 import { DataTable, TableSkeleton, type Column } from '../../components/ui/DataTable';
-import { TextField } from '../../components/ui/Fields';
+import { Checkbox, TextField } from '../../components/ui/Fields';
 import { EmptyState, ErrorState, RefreshFailed } from '../../components/ui/States';
 import { useFormat } from '../../lib/format';
 import { useSingleFlight } from '../../lib/single-flight';
@@ -65,19 +68,36 @@ function CreateTokenForm({ onCreated }: { onCreated: (created: IngestTokenCreate
   const create = useCreateToken();
   const flight = useSingleFlight();
   const [label, setLabel] = useState('');
-  const [invalid, setInvalid] = useState(false);
+  const [sources, setSources] = useState<SourceType[]>([]);
+  const [hosts, setHosts] = useState('');
+  const [invalid, setInvalid] = useState<'label' | 'hosts' | null>(null);
   const hintId = useId();
+  const sourcesHintId = useId();
+  const hostsHintId = useId();
+
+  function toggleSource(source: SourceType, checked: boolean) {
+    setSources((current) =>
+      checked ? [...current, source] : current.filter((value) => value !== source),
+    );
+  }
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    const body = ingestTokenCreateBodySchema.safeParse({ label });
-    setInvalid(!body.success);
-    if (!body.success) return;
-    const value = body.data.label;
+    const hostList = hosts.split(/[\s,]+/).filter((host) => host !== '');
+    const body = ingestTokenCreateBodySchema.safeParse({ label, sources, hosts: hostList });
+    if (!body.success) {
+      const onLabel = body.error.issues.some((issue) => issue.path[0] === 'label');
+      setInvalid(onLabel ? 'label' : 'hosts');
+      return;
+    }
+    setInvalid(null);
+    const value = body.data;
     flight.run(() =>
       create.mutateAsync(value, {
         onSuccess: (result) => {
           setLabel('');
+          setSources([]);
+          setHosts('');
           onCreated(result);
         },
       }),
@@ -86,29 +106,58 @@ function CreateTokenForm({ onCreated }: { onCreated: (created: IngestTokenCreate
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-2" noValidate>
-      <div className="flex flex-wrap items-end gap-3">
-        <TextField
-          label={t('auth.tokens.label')}
-          value={label}
-          onChange={(event) => setLabel(event.target.value)}
-          maxLength={MAX_TOKEN_LABEL_LENGTH}
-          spellCheck={false}
-          className="min-w-[14rem] max-w-xl flex-1"
-          aria-describedby={hintId}
-          aria-invalid={invalid || undefined}
-        />
+      <TextField
+        label={t('auth.tokens.label')}
+        value={label}
+        onChange={(event) => setLabel(event.target.value)}
+        maxLength={MAX_TOKEN_LABEL_LENGTH}
+        spellCheck={false}
+        className="max-w-xl"
+        aria-describedby={hintId}
+        aria-invalid={invalid === 'label' || undefined}
+      />
+      <p id={hintId} className="text-small text-muted">
+        {t('auth.tokens.labelHint')}
+      </p>
+      <fieldset className="mt-2 flex flex-col gap-2" aria-describedby={sourcesHintId}>
+        <legend className="mb-1 font-semibold text-fg">{t('auth.tokens.sources')}</legend>
+        <div className="flex flex-wrap gap-x-5 gap-y-2">
+          {SOURCE_TYPES.map((source) => (
+            <Checkbox
+              key={source}
+              label={t(`sources.${source}`)}
+              checked={sources.includes(source)}
+              onChange={(event) => toggleSource(source, event.target.checked)}
+            />
+          ))}
+        </div>
+        <p id={sourcesHintId} className="text-small text-muted">
+          {t('auth.tokens.sourcesHint')}
+        </p>
+      </fieldset>
+      <TextField
+        label={t('auth.tokens.hosts')}
+        value={hosts}
+        onChange={(event) => setHosts(event.target.value)}
+        spellCheck={false}
+        autoCapitalize="none"
+        className="mt-2 max-w-xl"
+        aria-describedby={hostsHintId}
+        aria-invalid={invalid === 'hosts' || undefined}
+      />
+      <p id={hostsHintId} className="text-small text-muted">
+        {t('auth.tokens.hostsHint')}
+      </p>
+      {invalid === null ? null : (
+        <p role="alert" className="font-semibold text-danger">
+          {invalid === 'label' ? t('auth.tokens.labelInvalid') : t('auth.tokens.hostsInvalid')}
+        </p>
+      )}
+      <div className="mt-1">
         <Button type="submit" variant="primary" icon={Plus} loading={flight.busy}>
           {flight.busy ? t('auth.tokens.creating') : t('auth.tokens.create')}
         </Button>
       </div>
-      <p id={hintId} className="text-small text-muted">
-        {t('auth.tokens.labelHint')}
-      </p>
-      {invalid ? (
-        <p role="alert" className="font-semibold text-danger">
-          {t('auth.tokens.labelInvalid')}
-        </p>
-      ) : null}
       {create.isError ? <ErrorState error={create.error} /> : null}
     </form>
   );
@@ -150,6 +199,23 @@ function TokensTable({ tokens }: { tokens: IngestToken[] | undefined }) {
       id: 'prefix',
       header: t('auth.tokens.prefix'),
       cell: (token) => <span className="font-mono text-small">{token.prefix}…</span>,
+    },
+    {
+      id: 'scope',
+      header: t('auth.tokens.scope'),
+      cell: (token) => (
+        <span className="text-small">
+          {token.sources.length === 0
+            ? t('auth.tokens.anySource')
+            : token.sources.map((source) => t(`sources.${source}`)).join(', ')}
+          {' · '}
+          {token.hosts.length === 0 ? (
+            t('auth.tokens.anyHost')
+          ) : (
+            <span className="font-mono">{token.hosts.join(', ')}</span>
+          )}
+        </span>
+      ),
     },
     {
       id: 'created',

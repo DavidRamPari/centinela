@@ -5,6 +5,7 @@ import {
   ingestTokenListSchema,
   ingestTokenSchema,
   sessionInfoSchema,
+  type IngestTokenCreateBody,
   type LoginBody,
 } from '@centinela/shared';
 import { z } from 'zod';
@@ -25,8 +26,8 @@ export const authApi = {
   logout: () =>
     apiRequest('/auth/logout', z.undefined(), { method: 'POST', notifyUnauthorized: false }),
   listTokens: (signal?: AbortSignal) => apiRequest('/tokens', ingestTokenListSchema, { signal }),
-  createToken: (label: string) =>
-    apiRequest('/tokens', ingestTokenCreatedSchema, { method: 'POST', json: { label } }),
+  createToken: (body: IngestTokenCreateBody) =>
+    apiRequest('/tokens', ingestTokenCreatedSchema, { method: 'POST', json: body }),
   revokeToken: (id: string) =>
     apiRequest(`/tokens/${enc(id)}/revoke`, ingestTokenSchema, { method: 'POST' }),
   listAudit: (params?: QueryParams, signal?: AbortSignal) =>

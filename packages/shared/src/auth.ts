@@ -4,7 +4,7 @@
  */
 import { z } from 'zod';
 import { cursorSchema, csvEnumSchema, limitSchema, pageSchema } from './api.js';
-import { utcTimestampSchema } from './events.js';
+import { sourceTypeSchema, SOURCE_TYPES, utcTimestampSchema } from './events.js';
 
 // ---------------------------------------------------------------------------
 // Cookies and headers shared by the server and the dashboard
@@ -51,6 +51,23 @@ export type SessionInfo = z.infer<typeof sessionInfoSchema>;
 // ---------------------------------------------------------------------------
 
 export const MAX_TOKEN_LABEL_LENGTH = 100;
+/** Most host names or prefixes one token may name. */
+export const MAX_TOKEN_HOSTS = 100;
+
+/**
+ * A host a scoped token may send for (ARCHITECTURE §9): a host name as `POST /api/ingest`
+ * accepts it, or the start of one followed by `*`. Hosts compare without regard to case,
+ * so patterns are stored lower-cased. Nothing here is ever compiled as a regex.
+ */
+export const tokenHostPatternSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(256)
+  .regex(/^[A-Za-z0-9._-]*\*?$/, 'a host name, or the start of one followed by "*"')
+  .toLowerCase();
+
+const unique = <T>(values: T[]): T[] => [...new Set(values)];
 
 /** A stored ingest token. The secret itself is shown once, when the token is created. */
 export const ingestTokenSchema = z.object({
@@ -58,6 +75,10 @@ export const ingestTokenSchema = z.object({
   label: z.string().min(1).max(MAX_TOKEN_LABEL_LENGTH),
   /** First characters of the secret, so an operator can tell tokens apart. */
   prefix: z.string().min(1),
+  /** Source types the token may send; empty: every source. */
+  sources: z.array(sourceTypeSchema),
+  /** Host names, or prefixes ending in `*`, the token may send for; empty: every host. */
+  hosts: z.array(z.string().min(1)),
   createdAt: utcTimestampSchema,
   lastUsedAt: utcTimestampSchema.nullable(),
   revokedAt: utcTimestampSchema.nullable(),
@@ -75,8 +96,13 @@ export const ingestTokenCreateBodySchema = z.strictObject({
     .max(MAX_TOKEN_LABEL_LENGTH)
     // Printable text only: the label is shown in the dashboard and written to the audit log.
     .regex(/^[^\p{Cc}\p{Cf}]+$/u, 'label must not contain control characters'),
+  /** Leave empty to allow every source. */
+  sources: z.array(sourceTypeSchema).max(SOURCE_TYPES.length).default([]).transform(unique),
+  /** Leave empty to allow every host. */
+  hosts: z.array(tokenHostPatternSchema).max(MAX_TOKEN_HOSTS).default([]).transform(unique),
 });
-export type IngestTokenCreateBody = z.infer<typeof ingestTokenCreateBodySchema>;
+/** What the dashboard sends; `sources` and `hosts` may be left out. */
+export type IngestTokenCreateBody = z.input<typeof ingestTokenCreateBodySchema>;
 
 export const ingestTokenCreatedSchema = z.object({
   token: ingestTokenSchema,

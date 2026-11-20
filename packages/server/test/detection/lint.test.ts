@@ -169,6 +169,21 @@ describe('path checks', () => {
   });
 });
 
+describe('field names without regard to ASCII case', () => {
+  it('checks image, ORIGINALFILENAME, commandline and details like their usual spelling', () => {
+    expect(issues('image', String.raw`\AgentExecutor.exe`)).toEqual([
+      [String.raw`\AgentExecutor.exe`, 'partial-path'],
+    ]);
+    expect(issues('ORIGINALFILENAME', String.raw`\te.exe`)).toEqual([
+      [String.raw`\te.exe`, 'file-name'],
+    ]);
+    expect(issues('commandline', ' whoami')).toEqual([[' whoami', 'cmd-space']]);
+    expect(issues('details', 'DWORD (00000001)')).toEqual([['DWORD (00000001)', 'dword']]);
+    // Only A to Z fold: a dotted capital I does not name the Image field.
+    expect(issues('\u0130mage', String.raw`\AgentExecutor.exe`)).toEqual([]);
+  });
+});
+
 describe('OriginalFileName check', () => {
   it('flags values with a folder separator', () => {
     expect(issues('OriginalFileName', ['\\REGSVR32.EXE', 'regsvr32.exe'])).toEqual([
@@ -256,6 +271,15 @@ describe('unsatisfiable exact values', () => {
       findUnsatisfiable({ Image: ['C:\\a\\b.exe', 'C:\\a\\c.exe'], 'Image|endswith': '\\c.exe' }),
     ).toEqual([]);
     expect(findUnsatisfiable({ Image: 'C:\\a\\b.exe', ParentImage: 'C:\\x.exe' })).toEqual([]);
+  });
+
+  it('treats field names that differ only by ASCII case as one field, as the engine does', () => {
+    expect(
+      findUnsatisfiable({ Image: 'C:\\a\\b.exe', 'image|endswith': ['\\c.exe', '\\d.exe'] }),
+    ).toEqual([{ key: 'Image', value: 'C:\\a\\b.exe', others: ['image|endswith'] }]);
+    expect(
+      findUnsatisfiable({ IMAGE: ['C:\\a\\b.exe', 'C:\\a\\c.exe'], 'Image|endswith': '\\c.exe' }),
+    ).toEqual([]);
   });
 
   it('skips fields whose other conditions the engine cannot compile', () => {

@@ -8,7 +8,7 @@ import type { Pool } from 'pg';
 import type { Config } from '../config.js';
 import { createAdminRouter } from './admin-router.js';
 import { authOf, createSessionGuard, type SessionGuard } from './guard.js';
-import { createIngestTokenVerifier } from './ingest-tokens.js';
+import { createIngestTokenVerifier, type IngestCredential } from './ingest-tokens.js';
 import { createLoginLockout } from './lockout.js';
 import { createAuthRouter } from './router.js';
 import { createSessionStore, type SessionStore } from './sessions.js';
@@ -17,8 +17,11 @@ import { createSessionStreams, type SessionStreams } from './streams.js';
 export interface Auth extends SessionGuard {
   sessions: SessionStore;
   streams: SessionStreams;
-  /** Bearer token check for `POST /api/ingest` (environment token or an active stored token). */
-  verifyIngestToken: (token: string) => Promise<boolean>;
+  /**
+   * Bearer token check for `POST /api/ingest` (environment token or an active stored
+   * token): the credential with its scope, or null.
+   */
+  verifyIngestToken: (token: string) => Promise<IngestCredential | null>;
   /** `/auth/login` (public), `/auth/me`, `/auth/logout`. */
   authRouter: Router;
   /** `/tokens` and `/audit`; mount behind `requireSession` and `requireCsrf`. */

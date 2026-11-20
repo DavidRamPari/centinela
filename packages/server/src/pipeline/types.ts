@@ -30,6 +30,11 @@ export interface IngestContext {
    * and they wait in the reorder buffer for the horizon (ARCHITECTURE §6.2).
    */
   ack?: IngestAck;
+  /**
+   * For a token scoped to some hosts (S11): whether a parsed event's own host is one of
+   * them. An event outside is rejected with `host not allowed for this token`.
+   */
+  acceptsHost?: (host: string) => boolean;
 }
 
 export const STREAM_KINDS = ['token', 'upload', 'cli', 'collector', 'connector'] as const;
@@ -71,8 +76,15 @@ export interface StreamRegistry {
 export type ParseResult =
   { ok: true; event: Omit<NormalizedEvent, 'id' | 'ingestedAt'> } | { ok: false; reason: string };
 
+/**
+ * What a parser reads (ARCHITECTURE §4): `line`, a log line; `object`, the JSON text of one
+ * event. It decides what an `application/x-ndjson` line becomes (`ingest/body.ts`).
+ */
+export type ParserInput = 'line' | 'object';
+
 export interface Parser {
   readonly source: SourceType;
+  readonly input: ParserInput;
   parse(line: string, ctx: IngestContext): ParseResult;
 }
 

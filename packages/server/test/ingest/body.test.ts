@@ -15,34 +15,76 @@ describe('splitLines', () => {
 
 describe('decodeBody', () => {
   it('passes text lines through', () => {
-    expect(decodeBody('x\ny', 'text')).toEqual({ lines: ['x', 'y'], rejections: [] });
-  });
-
-  it('decodes NDJSON strings, message objects and other objects', () => {
-    const body = [
-      '"Oct 25 14:03:12 h sshd[1]: x"',
-      '{"message":"line two","extra":1}',
-      '{"Event":{"System":{"EventID":1}}}',
-      '',
-      '"multi\\nline"',
-    ].join('\n');
-    expect(decodeBody(body, 'ndjson')).toEqual({
-      lines: [
-        'Oct 25 14:03:12 h sshd[1]: x',
-        'line two',
-        '{"Event":{"System":{"EventID":1}}}',
-        '',
-        'multi line',
-      ],
+    expect(decodeBody('x\ny', 'text', 'line')).toEqual({ lines: ['x', 'y'], rejections: [] });
+    expect(decodeBody('{"a":1}', 'text', 'object')).toEqual({
+      lines: ['{"a":1}'],
       rejections: [],
     });
   });
 
+  // ARCHITECTURE §9: what each JSON value becomes for a `line` and an `object` source.
+  const SYSMON = '{"EventID":1,"Computer":"ws-0142","Image":"C:\\\\Windows\\\\cmd.exe"}';
+  const WRAPPED = '{"message":"Process Create: ...","EventID":1,"Computer":"ws-0142"}';
+  it.each([
+    [
+      'a string',
+      '"Oct 25 14:03:12 h sshd[1]: x"',
+      'Oct 25 14:03:12 h sshd[1]: x',
+      'Oct 25 14:03:12 h sshd[1]: x',
+    ],
+    ['a string with a newline', '"multi\\nline"', 'multi line', 'multi line'],
+    ['a string holding JSON', JSON.stringify(SYSMON), SYSMON, SYSMON],
+    ['an object with a message', WRAPPED, 'Process Create: ...', WRAPPED],
+    ['an object without a message', SYSMON, 'no message in object', SYSMON],
+    [
+      'an object whose message is not a string',
+      '{"message":42}',
+      'no message in object',
+      '{"message":42}',
+    ],
+    [
+      'an object with a blank message',
+      '{"message":"  "}',
+      'no message in object',
+      '{"message":"  "}',
+    ],
+    ['a blank string', '"   "', 'invalid NDJSON line', 'invalid NDJSON line'],
+    ['a number', '42', 'invalid NDJSON line', 'invalid NDJSON line'],
+    ['an array', '[{"message":"x"}]', 'invalid NDJSON line', 'invalid NDJSON line'],
+    ['null', 'null', 'invalid NDJSON line', 'invalid NDJSON line'],
+    ['a boolean', 'true', 'invalid NDJSON line', 'invalid NDJSON line'],
+    ['text that is not JSON', 'not json', 'invalid NDJSON line', 'invalid NDJSON line'],
+    ['a truncated object', '{"message":"x"', 'invalid NDJSON line', 'invalid NDJSON line'],
+  ])('%s: for a line source and an object source', (_name, value, forLine, forObject) => {
+    const reasons = new Set(['invalid NDJSON line', 'no message in object']);
+    for (const [input, expected] of [
+      ['line', forLine],
+      ['object', forObject],
+    ] as const) {
+      const decoded = decodeBody(`${value}\n`, 'ndjson', input);
+      if (reasons.has(expected)) {
+        expect(decoded, input).toEqual({
+          lines: [''],
+          rejections: [{ line: 1, reason: expected }],
+        });
+      } else {
+        expect(decoded, input).toEqual({ lines: [expected], rejections: [] });
+      }
+    }
+  });
+
   it('rejects invalid NDJSON lines but keeps line numbers', () => {
-    const decoded = decodeBody('"ok"\nnot json\n42\n[1]\nnull\n"   "\n"ok"', 'ndjson');
+    const decoded = decodeBody('"ok"\nnot json\n42\n[1]\nnull\n"   "\n"ok"', 'ndjson', 'line');
     expect(decoded.lines).toEqual(['ok', '', '', '', '', '', 'ok']);
     expect(decoded.rejections.map((r) => r.line)).toEqual([2, 3, 4, 5, 6]);
     expect(decoded.rejections.every((r) => r.reason === 'invalid NDJSON line')).toBe(true);
+  });
+
+  it('keeps blank lines blank, without a rejection', () => {
+    expect(decodeBody('"a"\n\n  \n"b"', 'ndjson', 'line')).toEqual({
+      lines: ['a', '', '', 'b'],
+      rejections: [],
+    });
   });
 });
 

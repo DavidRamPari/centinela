@@ -72,7 +72,10 @@ Without a session the API answers `401` (also for unknown paths, so it does not 
 
 ## Brute-force and abuse protection
 
-- `RATE_LIMIT_AUTH_PER_MINUTE` (30) requests per minute per client IP on `/api/auth/*`, `RATE_LIMIT_INGEST_PER_MINUTE` (120) on `/api/ingest`, `RATE_LIMIT_UPLOAD_PER_MINUTE` (30) on `/api/ingest/upload`. Answers past the limit are `429` problem+json with `RateLimit` headers.
+- `RATE_LIMIT_AUTH_PER_MINUTE` (30) requests per minute per client IP on `/api/auth/*`, and `RATE_LIMIT_UPLOAD_PER_MINUTE` (30) on `/api/ingest/upload`. Answers past the limit are `429` problem+json with `RateLimit` headers.
+- `/api/ingest` (since S11): `RATE_LIMIT_INGEST_PER_MINUTE` (120) requests per minute per token, so many hosts behind one address do not share a budget, and `INGEST_TOKEN` has its own. Requests without a valid token are counted per client IP: after `RATE_LIMIT_AUTH_PER_MINUTE` of them in a minute, that IP is refused until the minute ends, whatever token it sends, so a guesser cannot go on. Both answer `429` with `Retry-After`.
+- At most `INGEST_MAX_PENDING` (16) `/api/ingest` requests are in progress at once; the next is answered `503` with `Retry-After: 5` before its body is read. One token holds at most `INGEST_MAX_PENDING_PER_TOKEN` (4) of them, so a token that sends its bodies slowly cannot stop the other shippers; its next request is answered `429`. Shippers retry these answers.
+- `/api/ingest` accepts `Content-Encoding: gzip` and nothing else (`415`). The 5 MB limit applies to the inflated body: a small body that inflates past it is refused with `413` after 5 MB of output.
 - `LOGIN_MAX_FAILURES` (5) failed sign-ins from one client IP within `LOGIN_LOCKOUT_MINUTES` (15) lock that IP out for `LOGIN_LOCKOUT_MINUTES`, even with the right password (`429` with `Retry-After`). Locked clients cost no password work. A successful sign-in clears the count.
 - At most 4 password checks run at once (each holds 64 MiB); more answer `503` with `Retry-After: 1`.
 - Rate limit and lockout state is kept in memory, per process, and resets on restart.
@@ -80,6 +83,8 @@ Without a session the API answers `401` (also for unknown paths, so it does not 
 ## Ingest tokens
 
 The Security page creates and revokes bearer tokens for `POST /api/ingest`. A token is `cnt_` followed by 43 random characters; it is shown once, at creation, and only its SHA-256 is stored. The dashboard shows its first 12 characters, when it was last used, and whether it was revoked. At most 50 tokens are active at once. Revoking takes effect immediately. `INGEST_TOKEN` from the environment keeps working next to stored tokens; rotate it by changing the variable and restarting.
+
+A token can be limited to some sources and some hosts when it is created (S11). Hosts are exact names, or the start of a name followed by `*` (`web-*`), compared without regard to case; nothing typed there is ever used as a regular expression. A request for a source or host outside the token's scope is refused with `403` before its body is read, and a line that names its own host (a syslog header, Sysmon's `Computer`) outside the scope is rejected with `host not allowed for this token`. Give each shipper a token scoped to the host it runs on: a stolen token then writes only for that host. Empty lists allow everything, as tokens created before S11 do; `INGEST_TOKEN` is never scoped, so keep it for bootstrap and scripts. Creating a token records its scope in the audit log.
 
 ## Audit log
 
