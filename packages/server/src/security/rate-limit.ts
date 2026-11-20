@@ -31,8 +31,10 @@ export function createRateLimiter(
 export interface WindowCounter {
   /** Seconds until `key` may be counted again; 0 while it is under its limit. */
   wait(key: string): number;
-  /** Count one for `key`. */
-  add(key: string): void;
+  /** Count one for `key`; answers the window it was counted in, for `remove`. */
+  add(key: string): number;
+  /** Take back a count `add` made in `window`, if that window is still the key's. */
+  remove(key: string, window: number): void;
 }
 
 export interface WindowCounterOptions {
@@ -73,11 +75,18 @@ export function createWindowCounter(
       const entry = windows.get(key);
       if (entry !== undefined && entry.resetAt > at) {
         entry.count += 1;
-        return;
+        return entry.resetAt;
       }
       windows.delete(key);
       if (windows.size >= maxKeys) makeRoom(at);
       windows.set(key, { count: 1, resetAt: at + windowMs });
+      return at + windowMs;
+    },
+    remove(key, window) {
+      const entry = windows.get(key);
+      if (entry === undefined || entry.resetAt !== window) return;
+      entry.count -= 1;
+      if (entry.count <= 0) windows.delete(key);
     },
   };
 }

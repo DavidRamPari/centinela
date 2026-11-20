@@ -800,7 +800,7 @@ Since S6 every endpoint except `GET /api/health`, `POST /api/ingest` (bearer tok
 
 **`POST /api/ingest` in detail (S11).** One request carries one source and one host. The checks run in this order, and every one before the body answers without reading it:
 
-1. Requests without a valid token are counted per client address. An address that sent `RATE_LIMIT_AUTH_PER_MINUTE` of them in its current minute is answered `429` with `Retry-After` until the minute ends, whatever token it then sends: otherwise a guesser past the limit could still find a token.
+1. Requests without a valid token are counted per client address. An address that sent `RATE_LIMIT_AUTH_PER_MINUTE` of them in its current minute is answered `429` with `Retry-After` until the minute ends, whatever token it then sends: otherwise a guesser past the limit could still find a token. A request counts from before its token is checked and takes its count back when the token is valid, so guesses sent at once cannot all be checked before any of them is counted; the cost is that more than that many requests from one address being checked at the same moment are refused too.
 2. The bearer token: `INGEST_TOKEN` (constant-time comparison) or an active stored token (`401` otherwise).
 3. The token's own budget, `RATE_LIMIT_INGEST_PER_MINUTE` per token (`INGEST_TOKEN` has one too): `429` with `Retry-After`. Many hosts behind one address no longer share a budget.
 4. The query (`400`), the content type and its encoding (`415`): only `identity` and `gzip`.

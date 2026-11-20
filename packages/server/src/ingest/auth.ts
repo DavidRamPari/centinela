@@ -23,6 +23,11 @@ export function credentialOf(locals: Record<string, unknown>): IngestCredential 
  * Requests without a valid token are counted per client address (S11). An address that
  * reached its limit is answered `429` with `Retry-After` until its window ends, without
  * looking at the token it sends: otherwise a guesser past the limit could still find one.
+ *
+ * A request is counted before its token is checked, which takes a database round trip for
+ * a stored token, and takes its count back when the token is valid or cannot be checked
+ * (S11-R03). Counted after the check, guesses sent at once were all checked while none
+ * had been counted yet.
  */
 export function requireBearerToken(
   verify: (token: string) => Promise<IngestCredential | null>,
@@ -35,14 +40,22 @@ export function requireBearerToken(
       sendRateLimited(res, wait, TOO_MANY_FAILURES);
       return;
     }
+    const window = failures.add(address);
     const match = BEARER.exec(req.get('authorization') ?? '');
-    const credential = match ? await verify(match[1] ?? '') : null;
+    let credential: IngestCredential | null;
+    try {
+      credential = match ? await verify(match[1] ?? '') : null;
+    } catch (err) {
+      // The database failed, not the guess: the request was not refused for its token.
+      failures.remove(address, window);
+      throw err;
+    }
     if (credential === null) {
-      failures.add(address);
       res.set('WWW-Authenticate', 'Bearer realm="centinela-ingest"');
       next(new HttpError(401, 'A valid bearer token is required'));
       return;
     }
+    failures.remove(address, window);
     res.locals.ingestCredential = credential;
     next();
   };

@@ -107,4 +107,18 @@ describe('createWindowCounter (S11)', () => {
     expect(counter.wait('b')).toBeGreaterThan(0);
     expect(counter.wait('c')).toBeGreaterThan(0);
   });
+
+  it('takes a count back only in the window it was made in', () => {
+    let now = 0;
+    const counter = createWindowCounter({ windowMs: 1_000, limit: 1 }, { now: () => now });
+    const first = counter.add('a');
+    expect(counter.wait('a')).toBe(1);
+    counter.remove('a', first);
+    expect(counter.wait('a')).toBe(0);
+    const second = counter.add('a');
+    now = 1_500; // that window ended and another one started
+    counter.add('a');
+    counter.remove('a', second);
+    expect(counter.wait('a')).toBe(1);
+  });
 });
