@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createWindowCounter } from '../../src/security/rate-limit.js';
+import { createWindowCounter, DEFAULT_MAX_COUNTER_KEYS } from '../../src/security/rate-limit.js';
 import { createTestApp } from '../helpers/app.js';
 import { createTestDatabase, type TestDatabase } from '../helpers/db.js';
 
@@ -106,6 +106,22 @@ describe('createWindowCounter (S11)', () => {
     expect(counter.wait('a')).toBe(0);
     expect(counter.wait('b')).toBeGreaterThan(0);
     expect(counter.wait('c')).toBeGreaterThan(0);
+  });
+
+  it('stays cheap for a new key when the table is full of live windows (S11-R04)', () => {
+    // Requests without a valid token from as many addresses as the table holds: an IPv6
+    // client has more than enough. Each new address must not scan the whole table.
+    const counter = createWindowCounter({ windowMs: 60_000, limit: 1 });
+    for (let i = 0; i < DEFAULT_MAX_COUNTER_KEYS; i += 1) {
+      counter.add(`2001:db8::${i.toString(16)}`);
+    }
+    const started = performance.now();
+    for (let i = 0; i < 2_000; i += 1) counter.add(`2001:db8:1::${i.toString(16)}`);
+    expect(performance.now() - started).toBeLessThan(250);
+    // The oldest windows made room; the newest are kept.
+    expect(counter.wait('2001:db8::0')).toBe(0);
+    expect(counter.wait(`2001:db8::${(DEFAULT_MAX_COUNTER_KEYS - 1).toString(16)}`)).toBe(60);
+    expect(counter.wait('2001:db8:1::7cf')).toBe(60);
   });
 
   it('takes a count back only in the window it was made in', () => {

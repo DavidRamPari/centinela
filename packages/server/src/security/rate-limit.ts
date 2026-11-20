@@ -52,9 +52,16 @@ export function createWindowCounter(
   const maxKeys = options.maxKeys ?? DEFAULT_MAX_COUNTER_KEYS;
   const windows = new Map<string, { count: number; resetAt: number }>();
 
+  /**
+   * Windows sit in the map in the order they started (`add` moves a key that starts a new
+   * window to the end), so the expired ones are at the front. Stopping at the first live
+   * one keeps a full table of live windows, which many client addresses can fill, from
+   * costing a scan of every key for each new one (S11-R04).
+   */
   function makeRoom(at: number): void {
     for (const [key, entry] of windows) {
-      if (entry.resetAt <= at) windows.delete(key);
+      if (entry.resetAt > at) break;
+      windows.delete(key);
     }
     while (windows.size >= maxKeys) {
       const oldest = windows.keys().next();
