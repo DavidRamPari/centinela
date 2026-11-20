@@ -247,7 +247,9 @@ describe('requests in progress on /api/ingest', () => {
         body.subarray(0, body.length >> 1),
       ]),
     );
-    // While its body is read the request holds the only place.
+    // While its body is read the request holds the only place. The next request is sent a
+    // moment later, so the half body is surely the first to take it.
+    await new Promise((resolve) => setTimeout(resolve, 200));
     const refused = rawPost(port, DEV_INGEST_TOKEN);
     expect(await refused.status).toBe(503);
     refused.leave();
@@ -268,11 +270,15 @@ describe('requests in progress on /api/ingest', () => {
     const opened = Array.from({ length: 4 }, () =>
       rawWrite(port, `${head(slow.secret, length)}${LINE}`),
     );
-    // Its first two hold places; the next two are refused with 429 and Retry-After.
-    expect(await opened[2]?.status).toBe(429);
-    expect(await opened[3]?.status).toBe(429);
-    expect(opened[0]?.answered()).toBeUndefined();
-    expect(opened[1]?.answered()).toBeUndefined();
+    // Two of them hold places and two are refused with 429. Which two depends on which
+    // token checks end first, so the test waits for any two answers.
+    await until(
+      () => opened.filter((request) => request.answered() !== undefined).length >= 2,
+      'two of the slow requests to be refused',
+    );
+    const answers = opened.map((request) => request.answered());
+    expect(answers.filter((status) => status === 429)).toHaveLength(2);
+    expect(answers.filter((status) => status === undefined)).toHaveLength(2);
     // Another shipper still gets in, and so does INGEST_TOKEN.
     expect(await rawPost(port, other.secret).status).toBe(200);
     expect(await rawPost(port, DEV_INGEST_TOKEN).status).toBe(200);
