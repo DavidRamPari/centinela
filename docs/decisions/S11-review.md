@@ -26,9 +26,11 @@ Fixed in `90cae1a`. Severity: low: stored tokens have 256 bits, so the limit is 
 
 Fixed in `2188e31`. Severity: low. The window counter keeps at most 100,000 keys. Once they were all live windows, which an IPv6 client has addresses enough to make, each new key scanned the whole table for expired windows: 1.0 ms of one CPU per request without a valid token from a new address. Windows sit in the map in the order they started, so the scan now stops at the first live one, and a new key costs about a microsecond. Test: `test/security/rate-limit.test.ts`, "stays cheap for a new key when the table is full of live windows": 2,000 new keys took 2.0 to 2.7 s before the fix and must take less than 250 ms.
 
-## S11-R05 — Open: one token can hold every place in progress (2026-11-20, S11 review)
+## S11-R05 — Fixed after the review: one token could hold every place in progress (2026-11-20, S11 review)
 
 Severity: medium. A request keeps its place while its body is read, and nothing bounds how long that takes except Node's `requestTimeout`, 300 seconds by default. A token holder that opens `INGEST_MAX_PENDING` requests and writes their bodies slowly keeps every place, so every other shipper is answered `503` for five minutes, and it can start again; a scoped token can do it as well as `INGEST_TOKEN`. The compressed size of a gzip body has no bound of its own either: 60 MB of empty gzip members were read and inflated in 0.26 s and answered `200`, and a slow sender can make such a body last as long as the deadline allows. Before S11 a slow client cost memory and a socket but did not stop the others. Options: give each token at most a share of the places; give ingest bodies a deadline of their own, seconds rather than minutes, answered `408`; bound the compressed size as well. Each changes what a shipper sees, so the choice is left for a decision. `docs/THREAT_MODEL.md` lists it among the residual risks.
+
+Decided by the S11 session after this review: each token gets a share of the places (`INGEST_MAX_PENDING_PER_TOKEN`, 4 by default), and the other two options are not taken. See `docs/decisions/S11.md`, S11-09.
 
 ## S11-R06 — Open: an IPv6 client gets a budget of guesses per address (2026-11-20, S11 review)
 
