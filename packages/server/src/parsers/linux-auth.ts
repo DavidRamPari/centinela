@@ -84,5 +84,6 @@ export function parseLinuxAuth(raw: string, ctx: IngestContext): ParseResult {
 
 export const linuxAuthParser: Parser = {
   source: 'linux_auth',
+  input: 'line',
   parse: parseLinuxAuth,
 };

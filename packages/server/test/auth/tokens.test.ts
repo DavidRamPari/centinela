@@ -71,7 +71,35 @@ describe('ingest tokens API', () => {
     expect(await auditRows('token.create')).toContainEqual({
       actor: TEST_USERNAME,
       target: created.token.id,
-      details: { label: 'web-01 shipper', prefix: created.token.prefix },
+      details: { label: 'web-01 shipper', prefix: created.token.prefix, sources: [], hosts: [] },
+    });
+  });
+
+  it('creates a scoped token: hosts lower-cased, repeats dropped, scope listed and audited', async () => {
+    const res = await request(app)
+      .post('/api/tokens')
+      .send({
+        label: 'web farm',
+        sources: ['linux_auth', 'nginx_access', 'linux_auth'],
+        hosts: [' WEB-* ', 'web-*', 'Bastion-01'],
+      })
+      .expect(201);
+    const created = ingestTokenCreatedSchema.parse(res.body);
+    expect(created.token).toMatchObject({
+      sources: ['linux_auth', 'nginx_access'],
+      hosts: ['web-*', 'bastion-01'],
+    });
+    const list = ingestTokenListSchema.parse((await request(app).get('/api/tokens')).body);
+    expect(list.items.find((t) => t.id === created.token.id)).toEqual(created.token);
+    expect(await auditRows('token.create')).toContainEqual({
+      actor: TEST_USERNAME,
+      target: created.token.id,
+      details: {
+        label: 'web farm',
+        prefix: created.token.prefix,
+        sources: ['linux_auth', 'nginx_access'],
+        hosts: ['web-*', 'bastion-01'],
+      },
     });
   });
 

@@ -128,7 +128,7 @@ export function createAccessLogParser(
     });
   }
 
-  return { source, parse };
+  return { source, input: 'line', parse };
 }
 
 export const nginxAccessParser = createAccessLogParser('nginx_access', 'nginx');

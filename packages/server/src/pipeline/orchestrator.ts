@@ -46,6 +46,8 @@ export const RECOVERY_PAGE_SIZE = 1000;
 
 export const FUTURE_TIMESTAMP_REASON = 'timestamp too far in the future';
 export const INVALID_TIMESTAMP_REASON = 'invalid timestamp';
+/** A parsed event names a host its token may not send for (S11, `IngestContext.acceptsHost`). */
+export const HOST_NOT_ALLOWED_REASON = 'host not allowed for this token';
 /**
  * The earliest event time that is stored. JavaScript reads `0000-06-01T00:00:00Z` as a
  * date; PostgreSQL has no year 0 and refuses it, which would fail the insert of the whole
@@ -313,6 +315,10 @@ export function createOrchestrator(
       }
       if (!result.ok) {
         reject(summary, lineNumber, result.reason);
+        continue;
+      }
+      if (ctx.acceptsHost !== undefined && !ctx.acceptsHost(result.event.host)) {
+        reject(summary, lineNumber, HOST_NOT_ALLOWED_REASON);
         continue;
       }
       const eventTime = Date.parse(result.event.ts);

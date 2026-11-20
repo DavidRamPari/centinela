@@ -16,6 +16,8 @@ const token = {
   id: '01930f6e-8a4b-7c2d-9e1f-0a1b2c3d4e5f',
   label: 'web-01 shipper',
   prefix: 'cnt_AbCd1234',
+  sources: ['linux_auth'],
+  hosts: ['web-01', 'db-*'],
   createdAt: '2026-10-26T10:00:00.000Z',
   lastUsedAt: null,
   revokedAt: null,
@@ -57,6 +59,9 @@ const cases: Array<{ name: string; schema: z.ZodType; valid: unknown; invalid: u
       { ...token, id: 'x' },
       { ...token, label: '' },
       { ...token, revokedAt: 'yesterday' },
+      { ...token, sources: ['windows_eventlog'] },
+      { ...token, hosts: [''] },
+      { label: token.label, id: token.id, prefix: token.prefix },
     ],
   },
   {
@@ -68,7 +73,7 @@ const cases: Array<{ name: string; schema: z.ZodType; valid: unknown; invalid: u
   {
     name: 'ingestTokenCreateBodySchema',
     schema: ingestTokenCreateBodySchema,
-    valid: { label: 'shipper' },
+    valid: { label: 'shipper', sources: ['sysmon'], hosts: ['WS-0142', 'ws-*', '*'] },
     invalid: [
       { label: '' },
       { label: '   ' },
@@ -76,6 +81,15 @@ const cases: Array<{ name: string; schema: z.ZodType; valid: unknown; invalid: u
       { label: 'bell\u0007' },
       { label: 'rtl‮override' },
       { label: 'ok', extra: 1 },
+      { label: 'ok', sources: ['syslog'] },
+      { label: 'ok', sources: 'linux_auth' },
+      { label: 'ok', hosts: ['web-(01|02)'] },
+      { label: 'ok', hosts: ['web-*-01'] },
+      { label: 'ok', hosts: ['**'] },
+      { label: 'ok', hosts: ['web 01'] },
+      { label: 'ok', hosts: [''] },
+      { label: 'ok', hosts: ['a'.repeat(257)] },
+      { label: 'ok', hosts: Array.from({ length: 101 }, (_, i) => `h${i}`) },
     ],
   },
   {
@@ -103,6 +117,21 @@ const cases: Array<{ name: string; schema: z.ZodType; valid: unknown; invalid: u
 ];
 
 describe('auth schemas', () => {
+  it('lower-cases host patterns, drops repeats and defaults the scope to everything', () => {
+    expect(
+      ingestTokenCreateBodySchema.parse({
+        label: 'farm',
+        sources: ['linux_auth', 'linux_auth'],
+        hosts: [' Web-* ', 'web-*', 'DB-01'],
+      }),
+    ).toEqual({ label: 'farm', sources: ['linux_auth'], hosts: ['web-*', 'db-01'] });
+    expect(ingestTokenCreateBodySchema.parse({ label: 'any' })).toEqual({
+      label: 'any',
+      sources: [],
+      hosts: [],
+    });
+  });
+
   it.each(cases)(
     '$name parses a valid sample and rejects invalid ones',
     ({ schema, valid, invalid }) => {

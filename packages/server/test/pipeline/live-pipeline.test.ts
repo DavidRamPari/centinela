@@ -216,6 +216,7 @@ describe('timestamps from the future', () => {
   it('rejects a timestamp that is not a date instead of storing it', async () => {
     const broken: Parser = {
       source: 'linux_auth',
+      input: 'line',
       parse: (text, context) => {
         const result = fakeParser().parse(`${at(0).toISOString()} x login`, context);
         return result.ok && text === 'bad'

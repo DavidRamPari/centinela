@@ -212,4 +212,4 @@ export function parseSysmon(raw: string, ctx: IngestContext): ParseResult {
   });
 }
 
-export const sysmonParser: Parser = { source: 'sysmon', parse: parseSysmon };
+export const sysmonParser: Parser = { source: 'sysmon', input: 'object', parse: parseSysmon };

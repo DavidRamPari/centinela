@@ -12,6 +12,7 @@ import type {
 export function fakeParser(source: SourceType = 'linux_auth'): Parser {
   return {
     source,
+    input: 'line',
     parse(line: string, ctx: IngestContext) {
       if (line.includes('THROW')) throw new Error('boom');
       const [ts, user, action] = line.split(' ');
