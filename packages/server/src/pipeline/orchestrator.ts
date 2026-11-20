@@ -316,7 +316,6 @@ export function createOrchestrator(
     }
   }
 
-
   /**
    * Write the held alerts and then `candidates`, in one transaction. A write that fails
    * does not fail the caller: when the database refuses the data itself, the alerts are
