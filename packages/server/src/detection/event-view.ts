@@ -1,7 +1,12 @@
 /**
- * The view rules match against (ARCHITECTURE §3.1, §5.6): `fields` by exact name, plus
+ * The view rules match against (ARCHITECTURE §3.1, §5.3, §5.6): `fields` by name, plus
  * `message` for keyword searches. Values are cut to 8,192 characters before matching and
  * their string and lower-cased forms are computed once per event and field.
+ *
+ * Field names are found without regard to ASCII case, so a rule's `CommandLine` matches an
+ * event key `commandline`: shippers rename keys. A key with the rule's exact spelling
+ * wins; otherwise the first key in the event's own order that differs only by ASCII case.
+ * Only A to Z fold: `İ` or the Kelvin sign never stand for `i` or `k`.
  *
  * Field names used by rules get a numeric slot at compile time, so the per-event caches
  * are plain arrays. `memo` holds the results of shared predicates (identical selections
@@ -26,6 +31,26 @@ export function valueText(value: string | number | boolean): string {
 
 const slots = new Map<string, number>();
 const NO_LITERALS: ReadonlySet<number> = new Set();
+
+/** `text` with A to Z lower-cased and every other character kept. */
+export function asciiLower(text: string): string {
+  // Native lower-casing agrees with ASCII folding on pure ASCII text, and is fast.
+  if (!/[^\p{ASCII}]/u.test(text)) return text.toLowerCase();
+  return text.replace(/[A-Z]+/g, (run) => run.toLowerCase());
+}
+
+/** Equal when the only differences are A to Z against a to z. */
+export function asciiEqualIgnoringCase(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    const x = a.charCodeAt(i);
+    const y = b.charCodeAt(i);
+    if (x === y) continue;
+    const lower = x | 32;
+    if (lower !== (y | 32) || lower < 97 || lower > 122) return false;
+  }
+  return true;
+}
 
 /** The slot of a field name (allocated on first use; rule field names are few). */
 export function fieldSlot(name: string): number {
@@ -54,6 +79,8 @@ export class EventView {
   /** Per slot + 1 (`message` is slot -1): ids of the indexed literals the value matches. */
   private literalSets: Array<ReadonlySet<number> | undefined> = [];
   private literalIndex: LiteralIndex | null = null;
+  /** The event's keys in its own order, read on the first miss. */
+  private keys: readonly string[] | undefined;
 
   constructor(event: MatchableEvent, memoSlots = 0) {
     this.event = event;
@@ -62,7 +89,22 @@ export class EventView {
 
   /** The field's value; `undefined` when the event does not have the field. */
   value(field: string): FieldValue | undefined {
-    return Object.hasOwn(this.event.fields, field) ? this.event.fields[field] : undefined;
+    const { fields } = this.event;
+    if (Object.hasOwn(fields, field)) return fields[field];
+    const key = this.keyFor(field);
+    return key === undefined ? undefined : fields[key];
+  }
+
+  /**
+   * The event's key for `field` without regard to ASCII case, if it has one. Most misses
+   * are fields the event does not have; comparing lengths first keeps them cheap.
+   */
+  private keyFor(field: string): string | undefined {
+    this.keys ??= Object.keys(this.event.fields);
+    for (const key of this.keys) {
+      if (asciiEqualIgnoringCase(key, field)) return key;
+    }
+    return undefined;
   }
 
   /** Present and not null. */

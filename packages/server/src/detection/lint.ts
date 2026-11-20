@@ -29,7 +29,7 @@ import { join } from 'node:path';
 import { parseAllDocuments } from 'yaml';
 import { z } from 'zod';
 import { UnsupportedRuleError } from './errors.js';
-import { EventView } from './event-view.js';
+import { asciiLower, EventView } from './event-view.js';
 import { listRuleFiles, RULE_FOLDERS } from './rules/loader.js';
 import { parseRuleYaml } from './rules/ruleset.js';
 import {
@@ -70,16 +70,20 @@ export interface LintFinding {
   message: string;
 }
 
-/** Fields that hold a full file path (Sysmon, Windows security log, Linux and macOS). */
+/**
+ * Fields that hold a full file path (Sysmon, Windows security log, Linux and macOS). The
+ * lint compares field names as the engine finds them, without regard to ASCII case
+ * (ARCHITECTURE §5.3), so these sets hold lower-cased names.
+ */
 const PATH_FIELDS = new Set([
-  'Image',
-  'ParentImage',
-  'ImageLoaded',
-  'TargetFilename',
-  'SourceImage',
-  'TargetImage',
+  'image',
+  'parentimage',
+  'imageloaded',
+  'targetfilename',
+  'sourceimage',
+  'targetimage',
 ]);
-const COMMAND_LINE_FIELDS = new Set(['CommandLine', 'ParentCommandLine']);
+const COMMAND_LINE_FIELDS = new Set(['commandline', 'parentcommandline']);
 /** Values Windows logs instead of a path, for processes without an image file. */
 const PSEUDO_PROCESSES = new Set([
   '',
@@ -207,15 +211,16 @@ function checkValue(
   how: Comparison,
   product: string | null,
 ): ItemIssue['check'] | null {
-  if (PATH_FIELDS.has(field)) return checkPath(tokens, how, product);
-  if (field === 'OriginalFileName') {
+  const name = asciiLower(field);
+  if (PATH_FIELDS.has(name)) return checkPath(tokens, how, product);
+  if (name === 'originalfilename') {
     return textsOf(tokens).some((t) => /[\\/]/.test(t)) ? 'file-name' : null;
   }
-  if (COMMAND_LINE_FIELDS.has(field) && how.exact && isPlain(tokens)) {
+  if (COMMAND_LINE_FIELDS.has(name) && how.exact && isPlain(tokens)) {
     const text = plainText(tokens);
     return text !== '' && text.trim() !== text ? 'cmd-space' : null;
   }
-  if (field === 'Details' && hasDecimalRegistryNumber(tokens)) return 'dword';
+  if (name === 'details' && hasDecimalRegistryNumber(tokens)) return 'dword';
   return null;
 }
 
@@ -265,7 +270,8 @@ function compileOrNull(field: string, item: KeyedItem): DetectionItem | null {
 /**
  * Exact items that no other item on the same field can accept: for each exact item, is
  * there one of its values that every other item on that field matches? The engine's own
- * matchers decide, on an event that holds only that field.
+ * matchers decide, on an event that holds only that field. `Image` and `image` are one
+ * field, as for the engine.
  */
 export function findUnsatisfiable(
   map: Record<string, unknown>,
@@ -274,9 +280,10 @@ export function findUnsatisfiable(
   for (const [key, raw] of Object.entries(map)) {
     const { field, modifiers } = splitDetectionKey(key);
     if (field === null) continue;
-    const items = byField.get(field) ?? [];
+    const name = asciiLower(field);
+    const items = byField.get(name) ?? [];
     items.push({ key, modifiers, raw });
-    byField.set(field, items);
+    byField.set(name, items);
   }
   const found: Array<{ key: string; value: string; others: string[] }> = [];
   for (const [field, items] of byField) {
