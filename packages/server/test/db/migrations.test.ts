@@ -122,6 +122,23 @@ describe('migrations', () => {
       state_version: 'integer',
       updated_at: 'timestamp with time zone',
     });
+    // Migration 005 (S11): the scope of a token.
+    expect(await columns('ingest_tokens')).toMatchObject({
+      allowed_sources: 'ARRAY',
+      allowed_hosts: 'ARRAY',
+    });
+  });
+
+  it('gives tokens created before migration 005 an empty scope, which allows everything', async () => {
+    await db.pool.query(
+      `INSERT INTO ingest_tokens (id, label, token_hash, prefix, created_by)
+       VALUES ('01930f6e-8a4b-7c2d-9e1f-0000000000a1', 'old', '\\x00', 'cnt_old', 'admin')`,
+    );
+    const { rows } = await db.pool.query<{ allowed_sources: string[]; allowed_hosts: string[] }>(
+      `SELECT allowed_sources, allowed_hosts FROM ingest_tokens WHERE label = 'old'`,
+    );
+    expect(rows).toEqual([{ allowed_sources: [], allowed_hosts: [] }]);
+    await db.pool.query(`DELETE FROM ingest_tokens WHERE label = 'old'`);
   });
 
   it('keeps one stream per delivery path, also without a token', async () => {
