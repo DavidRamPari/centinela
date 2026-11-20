@@ -16,7 +16,13 @@
  * body. Budgets come from the configuration (`RATE_LIMIT_*_PER_MINUTE`, `INGEST_MAX_PENDING`).
  */
 import { ingestQuerySchema, type IngestQuery } from '@centinela/shared';
-import express, { Router, type Request, type RequestHandler, type Response } from 'express';
+import express, {
+  Router,
+  type ErrorRequestHandler,
+  type Request,
+  type RequestHandler,
+  type Response,
+} from 'express';
 import { recordAudit } from '../auth/audit.js';
 import { authOf } from '../auth/guard.js';
 import type { Auth } from '../auth/index.js';
@@ -80,25 +86,77 @@ const checkScope: RequestHandler = (_req, res, next) => {
   next();
 };
 
+/** A request's place among those in progress (`limitInProgress`). */
+interface InProgressPlace {
+  /** Keep the place until `work` settles, even if the client leaves meanwhile. */
+  hold<T>(work: Promise<T>): Promise<T>;
+  /** Give the place back; only the first call counts. */
+  release(): void;
+}
+
+function placeOf(locals: Record<string, unknown>): InProgressPlace | undefined {
+  return locals.inProgressPlace as InProgressPlace | undefined;
+}
+
 /**
  * At most `max` requests past the checks at once: reading their body, waiting for the
  * pipeline (it runs one batch at a time) or being processed. The next is answered `503`
  * with `Retry-After` before its body is read, so a shipper backs off instead of piling up.
+ *
+ * A place is given back when the server is done with the request, not when its client
+ * goes away (S11-R01): a request whose client left still holds its body and its turn in the
+ * pipeline's queue until its pipeline call settles. The response's `close` event cannot
+ * tell either: it never fires for a client that left while its token was checked, nor for
+ * a pipelined request whose connection closed before its turn to answer. So `take` gives
+ * the place to the request, `hold` keeps it while the pipeline works, `giveBack` (the
+ * route's error handler) returns it when the request fails before the pipeline, and a
+ * body that never arrived whole returns it when the request closes.
  */
-function limitInProgress(max: number): RequestHandler {
+function limitInProgress(max: number): { take: RequestHandler; giveBack: ErrorRequestHandler } {
   let inProgress = 0;
-  return (_req, res, next) => {
+  const take: RequestHandler = (req, res, next) => {
+    // The client left while its token was checked: nothing to read and nobody to answer.
+    if (req.socket.destroyed) return;
     if (inProgress >= max) {
       res.set('Retry-After', String(BUSY_RETRY_AFTER_SECONDS));
       sendProblem(res, problem(503, BUSY));
       return;
     }
     inProgress += 1;
-    res.once('close', () => {
+    let released = false;
+    let holding = false;
+    // The body never arrived whole (the client left or timed out). The body parser may
+    // then never finish: an inflating gzip stream is not ended when its request is aborted.
+    const onClose = () => {
+      if (!req.complete && !holding) release();
+    };
+    const release = () => {
+      if (released) return;
+      released = true;
       inProgress -= 1;
-    });
+      req.off('close', onClose);
+    };
+    req.once('close', onClose);
+    const place: InProgressPlace = {
+      async hold<T>(work: Promise<T>): Promise<T> {
+        holding = true;
+        try {
+          return await work;
+        } finally {
+          release();
+        }
+      },
+      release,
+    };
+    res.locals.inProgressPlace = place;
     next();
   };
+  // An error before the pipeline (the body parser's 400 or 413) ends the request's work.
+  const giveBack: ErrorRequestHandler = (err: unknown, _req, res, next) => {
+    placeOf(res.locals)?.release();
+    next(err);
+  };
+  return { take, giveBack };
 }
 
 /**
@@ -128,20 +186,23 @@ function runPipeline(deps: AppDeps, kind: StreamKind, after?: AfterIngest): Requ
       format,
       parserInputOf(query.source),
     );
+    const work = deps.pipeline.ingest(decoded.lines, {
+      source: query.source,
+      host: query.host,
+      timezone: query.tz,
+      receivedAt: new Date(),
+      stream: { kind, tokenId: credential?.id ?? null },
+      ack: kind === 'upload' ? 'evaluated' : query.ack,
+      // A line that names its own host is held to the token's hosts too (S10-07).
+      ...(credential !== undefined && credential.hosts.length > 0
+        ? { acceptsHost: (host: string) => allowsHost(credential, host) }
+        : {}),
+    });
+    // The place among requests in progress is kept until the pipeline is done (S11-R01).
+    const place = placeOf(res.locals);
     let summary: IngestSummary;
     try {
-      summary = await deps.pipeline.ingest(decoded.lines, {
-        source: query.source,
-        host: query.host,
-        timezone: query.tz,
-        receivedAt: new Date(),
-        stream: { kind, tokenId: credential?.id ?? null },
-        ack: kind === 'upload' ? 'evaluated' : query.ack,
-        // A line that names its own host is held to the token's hosts too (S10-07).
-        ...(credential !== undefined && credential.hosts.length > 0
-          ? { acceptsHost: (host: string) => allowsHost(credential, host) }
-          : {}),
-      });
+      summary = await (place === undefined ? work : place.hold(work));
     } catch (err) {
       if (err instanceof StreamLimitError) throw new HttpError(403, err.message);
       throw err;
@@ -188,6 +249,7 @@ export function createIngestRouter(
     perToken.add(key);
     next();
   };
+  const inProgress = limitInProgress(ingest.maxPending);
   const router = Router();
   router.post(
     '/ingest',
@@ -195,9 +257,10 @@ export function createIngestRouter(
     limitPerToken,
     checkRequest,
     checkScope,
-    limitInProgress(ingest.maxPending),
+    inProgress.take,
     textBody,
     runPipeline(deps, 'token'),
+    inProgress.giveBack,
   );
   router.post(
     '/ingest/upload',
