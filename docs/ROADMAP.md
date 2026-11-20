@@ -53,7 +53,7 @@ Centinela does not ship its own agent. An agent is a privileged program on every
 | Session | Builds | Checked by |
 | --- | --- | --- |
 | S10 | This roadmap and the contracts of phase 1 | Documents only; the check sequence stays green |
-| S11 | Ingest v2: compressed batches, an answer that tells a shipper to retry later, tokens limited to their sources and hosts, field names matched without regard to case, JSON events delivered whole to their parser | One test per case; two documented gaps closed |
+| S11 | Ingest v2: compressed batches, an answer that tells a shipper to retry later, tokens limited to their sources and hosts, field names matched without regard to case, JSON events delivered whole to their parser, and alerts that survive a failed write (S12-R08) | One test per case; three documented gaps closed |
 | S12 | Live detection: events out of order across machines, late events, a future-timestamp bound, correlation state that survives a restart | The demo with its arrival order shuffled gives the same alerts; a restart in the middle of a window still fires |
 | S13 | The Windows event log: the Security log, more Sysmon events, and events as Winlogbeat ships them | 95% or more of the SigmaHQ regression samples of each new category |
 | S14 | Add a host: a generated Fluent Bit configuration for Windows and Linux, each host with its last signal, an alert when one stops sending | Real captures from Windows and Linux go through the whole pipeline |
@@ -72,7 +72,7 @@ Centinela does not ship its own agent. An agent is a privileged program on every
 | Session | Builds | Checked by |
 | --- | --- | --- |
 | S18 | Measurements: a generator at scale (10 and 100 million events), ingest rate, disk per million events, time of typical searches. The target of the phase comes from here | A capacity table with measured numbers and the machine they came from |
-| S19 | Partitions by day, retention by policy, bulk loading, an index review, and the organization column on the remaining tables | Ingest is faster than today's 6,000 events/s; dropping a day is immediate; the migration runs on a database with data and loses nothing |
+| S19 | Partitions by day, retention by policy, bulk loading, an index review, the organization column on the remaining tables, and a checkpoint position that does not follow the server's clock (S12-R09) | Ingest is faster than today's 6,000 events/s; dropping a day is immediate; the migration runs on a database with data and loses nothing |
 | S20 | A search language (field and value, and, or, not, wildcards, time range), saved searches, export, and the most frequent values of a field | Every query becomes parameterized SQL; hostile input tested; times measured on the database of S18 |
 | S21 | Retro-hunt: run a Sigma rule over stored history | A rule gives the same matches live and over history |
 | S22 | Archive: old days move to compressed files and come back by range | Archiving and restoring a day returns exactly the same events |
