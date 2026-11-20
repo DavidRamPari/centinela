@@ -295,12 +295,27 @@ export function createOrchestrator(
   let taskSeq = 0;
   let failedInTask = -1;
 
+  /**
+   * Count written alerts and publish them. Publishing never throws from here: the alerts
+   * are written, so a failure to tell the live view must not look like a failed write,
+   * which would write them again (S11 review). The live view shows them on its next load.
+   */
   function record(written: { created: Alert[]; updated: Alert[] }, counts: AlertCounts) {
     counts.alertsCreated += written.created.length;
     counts.alertsUpdated += written.updated.length;
-    for (const alert of written.created) publisher.publish({ type: 'alert.created', alert });
-    for (const alert of written.updated) publisher.publish({ type: 'alert.updated', alert });
+    const events = [
+      ...written.created.map((alert) => ({ type: 'alert.created' as const, alert })),
+      ...written.updated.map((alert) => ({ type: 'alert.updated' as const, alert })),
+    ];
+    for (const event of events) {
+      try {
+        publisher.publish(event);
+      } catch (err) {
+        options.onBackgroundError?.(err);
+      }
+    }
   }
+
 
   /**
    * Write the held alerts and then `candidates`, in one transaction. A write that fails

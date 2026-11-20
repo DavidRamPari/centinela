@@ -291,6 +291,49 @@ describe('the pipeline around a failed write', () => {
     expect(failing.inner.list()).toHaveLength(1);
   });
 
+  it('a live view that cannot be told does not make written alerts look unwritten', async () => {
+    const sink = createMemoryAlertSink();
+    const background: unknown[] = [];
+    const writeFailures: AlertWriteFailure[] = [];
+    let calls = 0;
+    const pipeline = createOrchestrator(
+      {
+        parsers: new Map([['linux_auth', fakeParser()]]),
+        eventStore: recordingStore(),
+        detector: actionDetector().detector,
+        alertSink: sink,
+        publisher: {
+          publish() {
+            calls += 1;
+            if (calls === 1) throw new Error('live view is gone');
+          },
+        },
+      },
+      {
+        reorder: { windowMs: 10_000, idleMs: Number.POSITIVE_INFINITY },
+        onBackgroundError: (err) => background.push(err),
+        onAlertWriteError: (failure) => writeFailures.push(failure),
+      },
+    );
+    const summary = await pipeline.ingest([`${at(0)} alice alert`, `${at(1000)} carol alert`], {
+      source: 'linux_auth',
+      host: 'web-01',
+      receivedAt: new Date(T0 + 2000),
+      timezone: 'UTC',
+    });
+    expect(summary).toMatchObject({ accepted: 2, alertsCreated: 2 });
+    // Written once each; the failure to publish is reported, not taken for a failed write.
+    expect(sink.list().map((alert) => [alert.entities.users, alert.count])).toEqual([
+      [['alice'], 1],
+      [['carol'], 1],
+    ]);
+    expect(writeFailures).toEqual([]);
+    expect(String(background[0])).toContain('live view is gone');
+    expect(calls).toBe(2);
+    await pipeline.drain();
+    expect(sink.list()).toHaveLength(2);
+  });
+
   it('drain() rejects while alerts are still held, so a command-line run does not end quietly', async () => {
     let broken = true;
     const { pipeline, failing, send } = setup(() => (broken ? DROPPED : undefined));
