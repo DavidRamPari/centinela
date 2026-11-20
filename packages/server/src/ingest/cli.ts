@@ -48,7 +48,13 @@ async function main(argv: string[]): Promise<number> {
   const pool = args.parseOnly ? undefined : createPool(config.databaseUrl, logger);
   const pipeline = args.parseOnly
     ? createPipeline({ eventStore: nullStore, detector: nullDetector })
-    : createPipeline({ pool, rulesDir: config.rulesDir });
+    : createPipeline({
+        pool,
+        rulesDir: config.rulesDir,
+        // Held alerts are written by `drain()` or make it fail; dropped ones are reported here.
+        onAlertWriteError: ({ error, held, dropped }) =>
+          logger.error({ err: error, held, dropped }, 'writing alerts failed'),
+      });
 
   try {
     const summary = await pipeline.ingest(readLines(createReadStream(file)), {

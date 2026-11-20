@@ -95,7 +95,13 @@ describe('ack=evaluated (the default)', () => {
     expect(summary).toMatchObject({ accepted: 5, rejected: 0, pending: 0, late: 0 });
     expect(users()).toEqual(['e1', 'e2', 'e3', 'e4', 'e5']);
     expect(flushes).toEqual([at(5).toISOString()]);
-    expect(pipeline.stats()).toEqual({ buffered: 0, evaluated: 5, late: 0, early: 0 });
+    expect(pipeline.stats()).toEqual({
+      buffered: 0,
+      evaluated: 5,
+      late: 0,
+      early: 0,
+      heldAlerts: 0,
+    });
   });
 
   it('counts the alerts of its own events before answering', async () => {
@@ -337,16 +343,42 @@ describe('idle release', () => {
   it('reports a failure nobody is waiting for', async () => {
     vi.useFakeTimers();
     const errors: unknown[] = [];
-    const failing: AlertSink = { upsert: () => Promise.reject(new Error('database is down')) };
     const { pipeline } = livePipeline({
-      alertSink: failing,
       reorder: { idleMs: 1_000 },
       onBackgroundError: (err) => errors.push(err),
     });
     await pipeline.ingest([line(1, 'mallory', 'alert')], stored);
+    // The detector breaks while nobody waits: the idle release reports it.
+    pipeline.components.detector.process = () => {
+      throw new Error('detector is broken');
+    };
     await vi.advanceTimersByTimeAsync(1_000);
     expect(errors).toHaveLength(1);
-    expect(String(errors[0])).toContain('database is down');
+    expect(String(errors[0])).toContain('detector is broken');
+  });
+
+  it('holds the alerts of a failed write and tries again on the idle timer (S12-R08)', async () => {
+    vi.useFakeTimers();
+    const failures: unknown[] = [];
+    let down = true;
+    const sink = createMemoryAlertSink();
+    const failing: AlertSink = {
+      upsert: (batch) =>
+        down ? Promise.reject(new Error('database is down')) : sink.upsert(batch),
+    };
+    const { pipeline } = livePipeline({
+      alertSink: failing,
+      reorder: { idleMs: 1_000 },
+      onAlertWriteError: (failure) => failures.push(failure.error),
+    });
+    await pipeline.ingest([line(1, 'mallory', 'alert')], stored);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(failures).toHaveLength(1);
+    expect(String(failures[0])).toContain('database is down');
+    expect(pipeline.stats().heldAlerts).toBe(1);
+    down = false;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(sink.list()).toHaveLength(1);
     // The pipeline keeps working.
     await expect(pipeline.ingest([line(2, 'bob')], ctx)).resolves.toMatchObject({ accepted: 1 });
   });
